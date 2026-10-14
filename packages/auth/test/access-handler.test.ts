@@ -108,8 +108,8 @@ describe("Auth access handlers", () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
-      get body() { return null }
+      get headers() { return { get() { return null }, getSetCookie() { return [] }, forEach() {} } }
+      get body() { return { getReader() { return { read() { return Promise.resolve({ done: true }) } } } } }
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({

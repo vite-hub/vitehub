@@ -288,11 +288,20 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown }
+    // SAFETY: The tag check above establishes a Response-like object before reading its structural surface.
+    const response = value as { headers?: unknown, status?: unknown, statusText?: unknown, body?: unknown }
     if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 0 || response.status > 599) return false
     if (typeof response.statusText !== "string") return false
     const headers = response.headers
-    return headers !== null && typeof headers === "object" && typeof (headers as { get?: unknown }).get === "function"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cross-realm responses require structural validation at this public boundary.
+    if (headers === null || typeof headers !== "object") return false
+    // SAFETY: Headers are accepted only after the object check above; methods are validated immediately below.
+    const headerMethods = headers as { get?: unknown, getSetCookie?: unknown, forEach?: unknown }
+    if (typeof headerMethods.get !== "function" || typeof headerMethods.getSetCookie !== "function" || typeof headerMethods.forEach !== "function") return false
+    const body = response.body
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cross-realm response bodies are validated by their reader contract.
+    // SAFETY: The body assertion is guarded by the object and callable reader checks.
+    return body === null || (typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
   }
   catch {
     return false
