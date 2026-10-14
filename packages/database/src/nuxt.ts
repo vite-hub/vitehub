@@ -276,7 +276,13 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
-  const tableNameOptions = { alias: isRecord(config.alias) ? config.alias : undefined }
+  // Nitro dev keeps running when a Definition needs Nuxt auto-imports to load; collisions are then checked on literal keys.
+  const tableNameOptions = {
+    alias: isRecord(config.alias)
+      ? Object.fromEntries(Object.entries(config.alias).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+      : undefined,
+    onFallback: (message: string) => console.warn(message),
+  }
   for (const definition of runtime.definitions) {
     const parts = [{ schema: await loadDatabaseSchema(definition.handler, tableNameOptions), owner: `Database Definition ${definition.handler}` }]
     for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
