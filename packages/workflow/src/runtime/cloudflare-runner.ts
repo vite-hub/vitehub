@@ -51,20 +51,18 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
           && Object.prototype.hasOwnProperty.call(intrinsicPrototype, "message")
           && Reflect.get(intrinsicPrototype, "name") === "Error"
         const errorRecord = error as Record<PropertyKey, unknown>
-        const stackDescriptor = Object.getOwnPropertyDescriptor(errorRecord, "stack")
-        const isNativeStackAccessor = typeof stackDescriptor?.get === "function"
-          && Function.prototype.toString.call(stackDescriptor.get).includes("[native code]")
-        const hasNativeStackValue = isNativeStackAccessor
-          && typeof Reflect.get(errorRecord, "stack") === "string"
-        return hasErrorPrototype && hasIntrinsicErrorFields && hasNativeStackValue
-          // Real Error instances receive a native lazy stack accessor and a
-          // generated stack string. Requiring both rejects prototype-derived
-          // records that fabricate Error metadata.
-          && Object.prototype.hasOwnProperty.call(errorRecord, "stack")
-          && typeof stackDescriptor?.get === "function"
-          && typeof stackDescriptor.set === "function"
-          && stackDescriptor.configurable === true
-          && stackDescriptor.enumerable === false
+        const hasOwnMessage = Object.prototype.hasOwnProperty.call(errorRecord, "message")
+        const hasOwnStack = Object.prototype.hasOwnProperty.call(errorRecord, "stack")
+        // A local Error.prototype-derived record has the same prototype as a
+        // spoof. Genuine cross-realm errors use their realm's intrinsic
+        // prototype. Require both own error slots so prototype metadata alone
+        // cannot classify an arbitrary object; stack formatting remains free
+        // to be customized by the host.
+        return hasErrorPrototype
+          && hasIntrinsicErrorFields
+          && prototype !== Error.prototype
+          && hasOwnMessage
+          && hasOwnStack
       })()
     return branded && Reflect.get(error as object, "isRetryable") === false
   }
