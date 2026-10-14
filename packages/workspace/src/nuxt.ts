@@ -65,6 +65,7 @@ export default function viteHubWorkspaceNuxtModule(options: WorkspaceNuxtModuleO
       aliases: nuxt.options.alias,
       command: nuxt.options.dev ? "serve" : "build",
       nitro: nitroConfig,
+      plugins: nuxt.options.vite?.plugins,
       viteRoot: nuxt.options.srcDir || rootDir,
       workspace: workspaceOptions,
     })

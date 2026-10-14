@@ -9,7 +9,8 @@ import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
-import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition } from "../../build/assets.ts"
+import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, resolveWorkspaceDefinitionModule } from "../../build/assets.ts"
+import { collectWorkspaceContributions } from "../../build/contributions.ts"
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
@@ -25,6 +26,7 @@ import { isWorkspaceStore } from "../../storage/provider.ts"
 
 import type { AliasOptions, HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { CloudflareProviderDeploymentOutputStateReader, ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
+import type { CollectedWorkspaceContribution } from "../../build/contributions.ts"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
@@ -1048,18 +1050,22 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const sourceModuleResolver = createSourceModuleResolver(rootDir, aliases, resolveModule)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
+    const definitionFile = resolveWorkspaceDefinitionModule(loader, definition, rootDir)
+    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
     let loaded: WorkspaceDefinitionInput
     try {
-      loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
+      loaded = await loadDiscoveredWorkspaceDefinition(loader, definition, rootDir)
       const commonJsLoaded: WorkspaceDefinitionInput & { default?: WorkspaceDefinitionInput } = loaded
       loaded = commonJsLoaded.default ?? loaded
     }
     catch (error) {
-      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
-      const source = await readSourceModule(definition.path)
+      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
+      const source = await readSourceModule(definitionFile)
       if (source && sourceHasUnresolvedWorkspaceRoot(source, loader)) throw error
-      const store = await loadFactoredCloudflareArtifactStore(definition, loader, sourceModuleResolver, resolution?.env || process.env)
+      // Factored store analysis reads the default export only.
+      const store = definition.export
+        ? undefined
+        : await loadFactoredCloudflareArtifactStore({ ...definition, path: definitionFile }, loader, sourceModuleResolver, resolution?.env || process.env)
       if (!store) {
         if (inspection?.artifactsOnly) continue
         throw error
@@ -1183,6 +1189,8 @@ export interface WorkspaceNitroConfigOptions {
   env?: Record<string, string | undefined>
   hosting?: string
   nitro?: unknown
+  /** Vite plugins that can contribute Workspace Definitions through `vitehub.workspaces`. */
+  plugins?: readonly unknown[]
   viteRoot?: string
   workspace?: false | WorkspaceModuleOptions
 }
@@ -1236,8 +1244,12 @@ function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | Wor
   return { projectRoot: resolvedProjectRoot, viteRoot: resolvedViteRoot }
 }
 
-function discoverDefinitions(roots: WorkspacePluginRoots, serverDirs?: string[]) {
-  return discoverViteWorkspaceDefinitions(roots.viteRoot, { serverDirs, serverRootDir: roots.projectRoot })
+function discoverDefinitions(roots: WorkspacePluginRoots, serverDirs?: string[], contributions?: readonly CollectedWorkspaceContribution[]) {
+  return discoverViteWorkspaceDefinitions(roots.viteRoot, { contributions, serverDirs, serverRootDir: roots.projectRoot })
+}
+
+async function collectPluginWorkspaceContributions(plugins: readonly unknown[] | undefined, roots: WorkspacePluginRoots, serverDirs?: string[]) {
+  return await collectWorkspaceContributions(plugins, { projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1601,7 +1613,8 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   })
   if (!normalized) return null
 
-  const definitions = discoverDefinitions(roots)
+  const contributions = await collectPluginWorkspaceContributions(options.plugins, roots)
+  const definitions = discoverDefinitions(roots, undefined, contributions)
   if (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0) return null
 
   const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
@@ -1674,9 +1687,10 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   let registryContents = "export default {}\n"
   let server: ViteDevServer | undefined
   let serverDirs: string[] | undefined
+  let contributions: CollectedWorkspaceContribution[] = []
 
   async function refreshManifest(roots: WorkspacePluginRoots) {
-    const definitions = discoverDefinitions(roots, serverDirs)
+    const definitions = discoverDefinitions(roots, serverDirs, contributions)
     const state = await refreshWorkspaceBuildState(roots.projectRoot, definitions)
     manifest = state.manifest
     registryContents = state.registryContents
@@ -1733,7 +1747,8 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           },
         },
       }
-      const definitions = normalized ? discoverDefinitions(roots, serverDirs) : []
+      if (normalized) contributions = await collectPluginWorkspaceContributions(config.plugins, roots, serverDirs)
+      const definitions = normalized ? discoverDefinitions(roots, serverDirs, contributions) : []
       if (normalized && shouldInstallNitroWorkspacePlugin(config, runtimeOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(runtimeOptions, normalized) ? normalized : false
         const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
@@ -1777,6 +1792,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         hosting: resolvedHosting,
         rootDir: roots.projectRoot,
       })
+      if (resolvedOptions) contributions = await collectPluginWorkspaceContributions(config.plugins, roots, serverDirs)
       assetsRegistryFile = resolve(roots.projectRoot, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
       await initializeWorkspaceAssetRegistry(assetsRegistryFile)
       await refreshManifest(roots)
@@ -1800,7 +1816,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       await refreshManifest(roots)
       if (resolved.command !== "build" || !assetsRegistryFile) return
 
-      const definitions = discoverDefinitions(roots, serverDirs)
+      const definitions = discoverDefinitions(roots, serverDirs, contributions)
       await syncWorkspaceBuildAssets(definitions, roots.projectRoot, resolvedOptions, assetsRegistryFile)
     },
     async buildEnd(error) {
@@ -1818,7 +1834,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         owner: "workspace",
         rootDir: roots.projectRoot,
         write: async ({ readCloudflareState, signal, write }) => {
-          const definitions = discoverDefinitions(roots, serverDirs)
+          const definitions = discoverDefinitions(roots, serverDirs, contributions)
           await copyVercelFunctionRuntimePackages({
             packages: vercelFunctionRuntimePackages(),
             rootDir: roots.projectRoot,
@@ -1886,7 +1902,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           ? { projectRoot, viteRoot }
           : resolveWorkspacePluginRoots(resolved?.root ?? process.cwd(), publicOptions)
         const artifacts = resolvedOptions
-          ? await resolveCloudflareArtifactsConfigs(resolvedOptions, discoverDefinitions(roots, serverDirs), roots.projectRoot, {
+          ? await resolveCloudflareArtifactsConfigs(resolvedOptions, discoverDefinitions(roots, serverDirs, contributions), roots.projectRoot, {
               aliases: resolved?.resolve ? workspaceDefinitionLoaderAliases(resolved.resolve.alias) : undefined,
               resolveModule: resolved?.createResolver?.(),
             })
@@ -1899,7 +1915,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
               const roots = projectRoot && viteRoot
                 ? { projectRoot, viteRoot }
                 : resolveWorkspacePluginRoots(resolved?.root ?? process.cwd(), publicOptions)
-              return inspectWorkspaceDefinitions({ projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
+              return inspectWorkspaceDefinitions({ plugins: resolved?.plugins, projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
             },
           }],
           providerOutput: artifacts.length > 0
