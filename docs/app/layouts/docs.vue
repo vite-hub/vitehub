@@ -49,7 +49,7 @@ const docsShellUi = {
   padding: 0 1rem;
 }
 
-.vh-docs-main {
+ .vh-docs-main {
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
 }
 
