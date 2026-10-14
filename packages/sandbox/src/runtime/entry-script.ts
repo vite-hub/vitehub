@@ -126,6 +126,8 @@ export function createEntrySource(
     `  if (blob || isUint8Array(value)) {`,
     `    if (state.nextId + 1 > transferLimits.maxSidecars) throw transferLimitError('maxSidecars', state.nextId + 1, transferLimits.maxSidecars)`,
     `    const id = state.nextId++`,
+    `    const byteLength = blob ? value.size : value.byteLength`,
+    `    if (state.sidecarBytes + byteLength > transferLimits.maxSidecarBytes) throw transferLimitError('maxSidecarBytes', state.sidecarBytes + byteLength, transferLimits.maxSidecarBytes)`,
     `    const bytes = blob ? new Uint8Array(await value.arrayBuffer()) : value`,
     `    if (state.sidecarBytes + bytes.byteLength > transferLimits.maxSidecarBytes) throw transferLimitError('maxSidecarBytes', state.sidecarBytes + bytes.byteLength, transferLimits.maxSidecarBytes)`,
     `    state.sidecarBytes += bytes.byteLength`,

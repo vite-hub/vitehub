@@ -388,6 +388,21 @@ describe("package entry result transport", () => {
 })
 
 describe("output transfer limits", () => {
+  it("rejects excess output Blob bytes before reading them", async () => {
+    const execution = await executePackageEntry(
+      `export default () => {
+        const blob = new Blob(["abcd"])
+        blob.arrayBuffer = () => { throw new Error("oversized Blob was read") }
+        return blob
+      }`,
+      { transfer: { maxDepth: 32, maxSidecars: 64, maxSidecarBytes: 3 } },
+    )
+    expect(execution.code).toBe(1)
+    expect(execution.output.error).toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT" })
+    expect(execution.output.error?.message).toContain("maxSidecarBytes")
+    await expect(execution.readOutputFile(0)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it.each([true, false])("checks UTF-8 output bytes before writing success (accepted: %s)", async (accepted) => {
     const result = "é".repeat(2048)
     const bytes = Buffer.byteLength(JSON.stringify({ ok: true, result }))
