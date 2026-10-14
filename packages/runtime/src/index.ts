@@ -437,9 +437,17 @@ function isWebAssemblyModule(value: unknown): boolean {
 // Exact native source signatures reject user functions, bound functions and proxies.
 // This boundary uses the host Function intrinsic rather than a payload-owned method.
 const intrinsicFunctionToString = Function.prototype.toString
+const nativeFunctionToString = (() => {
+  try {
+    return intrinsicFunctionToString.call(intrinsicFunctionToString).replace(/\s+/g, " ") === "function toString() { [native code] }"
+  }
+  catch {
+    return false
+  }
+})()
 
 function isNativeBufferOperation(value: unknown, name: string): value is (...args: never[]) => unknown {
-  if (!hasRuntimeType(value, "function")) return false
+  if (!nativeFunctionToString || !hasRuntimeType(value, "function")) return false
   try {
     return intrinsicFunctionToString.call(value).replace(/\s+/g, " ") === `function ${name}() { [native code] }`
   }
