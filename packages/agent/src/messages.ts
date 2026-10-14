@@ -410,11 +410,22 @@ function isDateValue(value: unknown): value is Date {
 function hasNativeDateJSONHook(value: object): boolean {
   const nativeSource = /\[native code\]/
   const isNative = (hook: unknown): boolean => hasRuntimeType(hook, "function") && nativeSource.test(Function.prototype.toString.call(hook))
+  const findDescriptor = (start: object, key: string): PropertyDescriptor | undefined => {
+    let current: object | null = start
+    const visited = new Set<object>()
+    while (current && !visited.has(current)) {
+      visited.add(current)
+      const descriptor = Reflect.getOwnPropertyDescriptor(current, key)
+      if (descriptor) return descriptor
+      current = Reflect.getPrototypeOf(current)
+    }
+    return undefined
+  }
   try {
     const own = Reflect.getOwnPropertyDescriptor(value, "toJSON")
     if (own) return false
-    const getTime = Reflect.get(value, "getTime")
-    const toISOString = Reflect.get(value, "toISOString")
+    const getTime = findDescriptor(value, "getTime")?.value
+    const toISOString = findDescriptor(value, "toISOString")?.value
     if (!isNative(getTime) || !isNative(toISOString)) return false
     let prototype: object | null = Reflect.getPrototypeOf(value)
     const visited = new Set<object>()
