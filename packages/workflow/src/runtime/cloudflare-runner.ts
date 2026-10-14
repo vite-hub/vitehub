@@ -29,7 +29,7 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
     const nativeIsError: unknown = Reflect.get(Error, "isError")
     const branded = hasRuntimeType(nativeIsError, "function")
       ? (nativeIsError as (value: unknown) => unknown)(error) === true
-      : error instanceof Error || (() => {
+      : (() => {
         const prototype = Object.getPrototypeOf(error)
         if (prototype === null || prototype === Object.prototype || Object.prototype.toString.call(error) !== "[object Error]") return false
         let errorPrototype: object | null = prototype
@@ -51,7 +51,8 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
           && Object.prototype.hasOwnProperty.call(intrinsicPrototype, "message")
           && Reflect.get(intrinsicPrototype, "name") === "Error"
         const errorRecord = error as Record<PropertyKey, unknown>
-        return hasErrorPrototype && hasIntrinsicErrorFields && ("message" in errorRecord || "stack" in errorRecord)
+        return hasErrorPrototype && hasIntrinsicErrorFields
+          && (Object.prototype.hasOwnProperty.call(errorRecord, "stack") || Object.prototype.hasOwnProperty.call(errorRecord, "message"))
       })()
     return branded && Reflect.get(error, "isRetryable") === false
   }
