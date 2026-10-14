@@ -280,7 +280,7 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+if (isResponseLike(result)) return result
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
