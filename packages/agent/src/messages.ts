@@ -424,8 +424,18 @@ function hasNativeDateJSONHook(value: object): boolean {
   try {
     const own = Reflect.getOwnPropertyDescriptor(value, "toJSON")
     if (own) return false
-    const getTime = findDescriptor(value, "getTime")?.value
-    const toISOString = findDescriptor(value, "toISOString")?.value
+    const getTimeDescriptor = findDescriptor(value, "getTime")
+    const toISOStringDescriptor = findDescriptor(value, "toISOString")
+    const toJSONDescriptor = findDescriptor(value, "toJSON")
+    const getTime = getTimeDescriptor?.value
+    const toISOString = toISOStringDescriptor?.value
+    // A proxy can hide its target prototype from descriptor traversal. If no
+    // method descriptors are visible and no custom serializer is present, read
+    // the effective hook as a guarded fallback for that hidden-prototype case.
+    if (!getTimeDescriptor && !toISOStringDescriptor) {
+      if (toJSONDescriptor) return false
+      return isNative(Reflect.get(value, "toJSON"))
+    }
     if (!isNative(getTime) || !isNative(toISOString)) return false
     let prototype: object | null = Reflect.getPrototypeOf(value)
     const visited = new Set<object>()
