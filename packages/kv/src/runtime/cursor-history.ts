@@ -9,11 +9,23 @@ function isString(value: unknown): value is string {
   return Object.prototype.toString.call(value) === "[object String]"
 }
 
+function continuationTag(value: string): string {
+  const hashes = [2166136261, 2246822519, 3266489917, 668265263]
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index)
+    for (let hashIndex = 0; hashIndex < hashes.length; hashIndex++) {
+      hashes[hashIndex] = Math.imul(hashes[hashIndex] ^ code, 16777619 + hashIndex * 2)
+    }
+  }
+  return hashes.map(hash => (hash >>> 0).toString(16).padStart(8, "0")).join("")
+}
+
 function encodeContinuation(providerCursor: string, history: CursorHistory): string {
   // A random nonce makes accidental provider-cursor collisions impractical.
   // The nonce is carried in the token so continuations remain portable.
   const nonce = globalThis.crypto.randomUUID()
-  const token = `vhc1:${nonce}:${encodeURIComponent(JSON.stringify({ format: "vitehub-continuation", providerCursor, history: [...history] }))}`
+  const payload = encodeURIComponent(JSON.stringify({ format: "vitehub-continuation", providerCursor, history: [...history] }))
+  const token = `vhc1:${nonce}:${payload}:${continuationTag(payload)}`
   if (token.length > MAX_CONTINUATION_LENGTH) throw new Error("ViteHub continuation cursor exceeds the maximum size.")
   return token
 }
@@ -22,9 +34,12 @@ function decodeContinuation(cursor: string): Continuation | undefined {
   if (!cursor.startsWith("vhc1:")) return undefined
   if (cursor.length > MAX_CONTINUATION_LENGTH) return undefined
   const separator = cursor.indexOf(":", 5)
-  if (separator === -1 || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cursor.slice(5, separator))) return undefined
+  const tagSeparator = cursor.lastIndexOf(":")
+  if (separator === -1 || tagSeparator <= separator || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cursor.slice(5, separator))) return undefined
+  const payload = cursor.slice(separator + 1, tagSeparator)
+  if (!/^[0-9a-f]{32}$/.test(cursor.slice(tagSeparator + 1)) || continuationTag(payload) !== cursor.slice(tagSeparator + 1)) return undefined
   try {
-    const value: unknown = JSON.parse(decodeURIComponent(cursor.slice(separator + 1)))
+    const value: unknown = JSON.parse(decodeURIComponent(payload))
     if (!value || typeof value !== "object") return undefined
     const data = value as { format?: unknown, providerCursor?: unknown, history?: unknown }
     if (data.format !== "vitehub-continuation") return undefined
