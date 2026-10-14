@@ -87,6 +87,7 @@ function isResponseLike(value: unknown): value is Response {
     }
     const constructor = Object.getPrototypeOf(value)?.constructor
     const foreignImplementation = ownSlots
+      && Object.getOwnPropertySymbols(value).length > 0
       && hasBodyGetter
       && typeof constructor === "function"
       && constructor.name === "Response"
