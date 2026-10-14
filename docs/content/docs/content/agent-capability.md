@@ -6,7 +6,7 @@ navigation.order: 5
 icon: i-lucide-file-pen-line
 ---
 
-`content()` gives an Agent tools to list, read, draft, and publish documents in the [collections](/docs/content/configure#document-collections) of `server/content.ts`. Tool inputs follow each collection's fields, so the model sees typed frontmatter. Every non-public action calls `content.can()` with the Invocation's [Actor](/docs/agents/actors), so `defineContent({ authorize })` decides what the Agent may do. Publishing asks for approval by default.
+`content()` gives an Agent tools to list, read, draft, and publish documents in the [collections](/docs/content/configure#document-collections) of `server/content.ts`. Tool inputs follow each collection's fields, so the model sees typed frontmatter. Every non-public action calls `content.can()` with the Invocation's [Actor](/docs/agents/actors) and the Auth user it stands for, so `defineContent({ authorize })` decides what the Agent may do. Publishing asks for approval by default and publishes exactly the drafts the approver saw.
 
 The [Content server API](/docs/content/server-api) covers application code. This page covers the Agent tools.
 
@@ -26,7 +26,7 @@ export const content = defineContent({
       fields: { title: z.string(), date: z.coerce.date(), tags: z.array(z.string()).default([]) },
     }),
   },
-  authorize: ({ user, action }) => user?.meta?.role === 'editor' || (action === 'read' && Boolean(user)),
+  authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
 })
 ```
 
@@ -42,7 +42,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub passes the `content` export of `server/content.ts` to the Capability as the `content` primitive. Generated Agent routes and Schedules import it when the file exists. A custom route that calls `runAgent()` passes it in the runtime context as `capabilities: { content }`.
+ViteHub passes the `content` export of `server/content.ts` to the Capability as the `content` primitive. Generated Agent routes and Schedules import it when the file exists. With Auth configured, they also pass the `auth` primitive (`agentAuth` from `vite-hub/auth/agent`), which reads the Auth user behind an Actor. A custom route that calls `runAgent()` passes both in the runtime context as `capabilities: { content, auth: agentAuth }`.
 
 ## Tools
 
@@ -50,14 +50,16 @@ ViteHub passes the `content` export of `server/content.ts` to the Capability as 
 | --- | --- | --- | --- |
 | `content_list_collections` | `read` | none | Lists collections, their fields, and which of `read`, `write`, and `publish` the user may do in each. |
 | `content_list_documents` | `read` | `read` for `ref: 'draft'` | Lists documents without bodies. Supports `filter`, `search`, `sort`, `limit` (default 20, at most 100), and `cursor`. |
-| `content_get_document` | `read` | `read` for `ref: 'draft'` | Returns one document with `data`, `body`, and `digest`. |
-| `content_status` | `read` | `read` | Compares draft and published documents: `draft`, `published`, `changed`, or `deleted`. |
+| `content_get_document` | `read` | `read` for `ref: 'draft'` | Returns one document with `data`, `body`, `digest`, and `updatedAt`. |
+| `content_status` | `read` | `read` | Compares draft and published documents: `draft`, `published`, `changed`, or `deleted`, with each draft digest. |
 | `content_save_draft` | `write` | `write` | Validates and saves one document to the `draft` ref. |
-| `content_publish` | `publish` | `publish` | Copies draft changes to the `published` ref, for a whole collection or selected `ids`. |
+| `content_publish` | `publish` | `publish` for each document | Copies the listed drafts to the `published` ref, pinned to their digests. |
 
 Reads default to the `published` ref, which [`/api/content/**`](/docs/content/configure#access) already serves publicly, so they need no access check. Everything else does.
 
 `content_save_draft` requires the full frontmatter in `data`, the full Markdown `body`, and `ifDigest`. Set `ifDigest` to the `digest` from `content_get_document` with `ref: 'draft'`, or `null` for a new document. The tool never overwrites a draft that changed since the Agent read it.
+
+`content_publish` takes `documents: [{ collection, id, digest }]`, with each `digest` the `draft` digest from `content_status`, or `null` to publish a deletion. These digests are part of the call, so the approver sees exactly which versions will go live. The tool publishes with [`content.publish({ expect })`](/docs/content/server-api#publish-what-was-reviewed): if any listed draft changed after the call was made, nothing is published.
 
 The following Agent-visible definitions are resolved from the real Capability during the docs build, for one `posts` collection.
 
@@ -72,10 +74,11 @@ Validation failures, digest conflicts, and missing documents come back as tool r
 
 | `error.code` | Tools | What the result carries |
 | --- | --- | --- |
-| `CONTENT_INVALID` | `content_save_draft`, `content_get_document` | `issues`: one `{ field, path, message }` per invalid field. |
+| `CONTENT_INVALID` | `content_save_draft`, `content_get_document`, `content_publish` | `issues`: one `{ field, path, message }` per invalid field. From `content_get_document`, also the stored file as `text` and its `digest`, so the Agent can save a repaired version over it. From `content_publish`, nothing was published. |
 | `WORKSPACE_CONFLICT` | `content_save_draft` | `currentDigest`: the draft's digest now. Read the draft again, apply the change to that version, and save with its digest. |
-| `WORKSPACE_CONFLICT` | `content_publish` | `currentHead`: the `published` revision now. Check `content_status` and publish again with `ifHead: currentHead`. |
-| `CONTENT_NOT_FOUND` | `content_get_document`, `content_publish` | The document does not exist on that ref. |
+| `WORKSPACE_CONFLICT` | `content_publish` | `documents`: one `{ collection, id, expected, actual }` per draft that changed after the call. Nothing was published. Review the changes and request the publish again with the `actual` digests. |
+| `CONTENT_NOT_FOUND` | `content_get_document` | The document does not exist on that ref. |
+| `CONTENT_R0009` | `content_publish` | The same document is listed twice. |
 
 ```json
 {
@@ -93,19 +96,21 @@ A successful save returns `{ ok: true, document }` without the body. A publish r
 
 ## Access and approval
 
-Each check calls `content.can({ user, collection, action, id })`. The `user` is the Invocation's Actor, `{ id, kind, label, email, meta }`. An anonymous Actor becomes `user: null`. Without `authorize`, `content.can()` returns `false`, so the Agent can only read published documents. A denied call fails with `CAPABILITY_DENIED` and runs nothing.
+Each check calls `content.can({ user, actor, collection, action, id })`. `actor` is the Invocation's Actor. `user` is the Auth user that Actor stands for: [`authenticated()`](/docs/agents/actors) from `vite-hub/auth/agent` records the user id as `actor.meta.authUserId`, and the Capability reads that user from the Auth database through the `auth` primitive. It reads the user again when an approved call runs, so a role removed in the meantime takes effect. An anonymous Actor, an Actor without `authUserId`, an app without Auth, or a deleted user gives `user: null`. One `authorize` policy then covers the Console and the Agent, and it can check `actor` to give the Agent less than the user it acts for.
 
-Pass trusted roles through the Actor. With [`authenticated()`](/docs/agents/actors) from `vite-hub/auth/agent`, put them in `meta`. When `authorize` expects your application's user record instead, map the Actor with `user`:
+Without `authorize`, `content.can()` returns `false`, so the Agent can only read published documents. A denied call fails with `CAPABILITY_DENIED` and runs nothing.
+
+When your users live outside ViteHub Auth, map the Actor yourself with `user`. It replaces the Auth lookup:
 
 ```ts [server/agents/editor.ts]
 content({
-  user: async actor => actor.kind === 'authUser' ? await findUser(actor.meta?.authUserId) : null,
+  user: async actor => actor.kind === 'authUser' ? await findMember(actor.id) : null,
 })
 ```
 
 A `chat.message` Trigger without `invoker` derives a `chat` Actor from the platform user. `authorize` receives it with `kind: 'chat'`. Do not grant `write` or `publish` from chat identity alone.
 
-`content_publish` uses `policy: 'require-approval'`. The call stops with `APPROVAL_REQUIRED` and an Approval Request, and publishes only after approval. `content_save_draft` runs without approval, because drafts are not served. Set `policy` to replace both defaults. A function receives `{ name, input }`:
+`content_publish` uses `policy: 'require-approval'`. The call stops with `APPROVAL_REQUIRED` and an Approval Request that shows the listed documents and digests, and publishes only after approval. `content_save_draft` runs without approval, because drafts are not served. Set `policy` to replace both defaults. A function receives `{ name, input }`:
 
 ```ts
 content({
@@ -130,14 +135,15 @@ Saves and publishes record `metadata.agent = { name, actor }` on the revision, s
 | `collections` | `string[]` | every collection | Collections the Agent may use. An unknown name fails when the tools resolve. |
 | `operations` | `Array<"read" \| "write" \| "publish">` | `["read", "write", "publish"]` | Tool groups to expose. Without `read`, the Agent can only create new documents, because saving over a draft needs its digest. |
 | `policy` | `AgentToolPolicyDecision \| (context) => AgentToolPolicyDecision \| Promise<AgentToolPolicyDecision>` | save `allow`, publish `require-approval` | Replaces the policy of `content_save_draft` and `content_publish`. |
-| `user` | `(actor) => user \| null \| Promise<user \| null>` | the Actor, or `null` when anonymous | Maps the Actor to the `user` that `authorize` receives. |
+| `user` | `(actor) => user \| null \| Promise<user \| null>` | the Auth user from `actor.meta.authUserId`, or `null` | Maps the Actor to the `user` that `authorize` receives, instead of the Auth lookup. |
 
 The Capability reports `mode: 'write'` when `write` or `publish` is enabled. Its metadata lists `collections`, `operations`, and `approval`.
 
 ## Limits
 
 - The Capability does not remove or restore documents. Call `remove()` and `restore()` from application code or a [Custom Capability](/docs/agents/capabilities/custom).
-- Approval covers the publish call, not the draft content at that moment. A save that lands between approval and execution is published too. Pass `ids` to limit what one approval publishes.
+- Approval covers the listed digests. A save between the call and its execution fails the publish with `WORKSPACE_CONFLICT` instead of publishing unreviewed content, and the Agent has to request a new approval.
+- Resolving the Auth user reads the Auth database once per Invocation.
 - Document bodies are untrusted data. The tool descriptions tell the model so, but an `authorize` policy is the actual boundary.
 - Content collections need a Workspace with retained history, which needs a Database. The Capability is not available in standalone Agent builds without a host runtime.
 

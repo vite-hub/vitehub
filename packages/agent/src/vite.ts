@@ -234,6 +234,7 @@ function contentDefinitionPath(plugin: Plugin, projectRoot: string | undefined):
 }
 
 const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilityDefinition[] = [
+  { importName: "agentAuth", name: "auth", packageName: "@vite-hub/auth/agent", pluginName: "@vite-hub/auth/vite" },
   { importName: "blob", name: "blob", packageName: "@vite-hub/blob", pluginName: "@vite-hub/blob/vite" },
   { importName: "connections", name: "connections", packageName: "@vite-hub/connections/server", pluginName: "@vite-hub/connections/vite" },
   { importName: "console", name: "console", packageName: "vite-hub/console/server", pluginName: "vite-hub/console" },
@@ -306,8 +307,9 @@ async function writeStandaloneAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root">,
   capabilities: GeneratedAgentRuntimeCapability[],
 ): Promise<GeneratedAgentRuntimeCapability[]> {
-  // Database-backed primitives need the host runtime. Content collections live in a Database-backed Workspace.
-  const standaloneCapabilities = capabilities.filter(capability => capability.name !== "db" && capability.name !== "connections" && capability.name !== "content")
+  // Database-backed primitives need the host runtime. Auth users and Content collections live in a Database.
+  const hostOnly = new Set(["auth", "connections", "content", "db"])
+  const standaloneCapabilities = capabilities.filter(capability => !hostOnly.has(capability.name))
   const emailCapability = standaloneCapabilities.find(capability =>
     capability.name === "email" && capability.packageName !== false
   )

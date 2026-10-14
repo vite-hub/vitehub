@@ -810,6 +810,33 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("passes the Auth users of Agent Actors to Agents as the auth primitive", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-auth-primitive-"))
+    try {
+      await mkdir(join(root, "server", "agents", "digest"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "digest", "agent.ts"), "export default {}", "utf8")
+      const configure = async (plugins: unknown[]) => {
+        const plugin = hubAgent()
+        const configResolvedHook: unknown = plugin.configResolved
+        // SAFETY: hubAgent installs configResolved as an async Vite hook.
+        const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
+        await configResolved({ command: "serve", createResolver: () => async (id: string) => id, plugins, root })
+        // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
+        const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+        return await transform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
+      }
+
+      const registry = await configure([{ name: "@vite-hub/auth/vite" }])
+      expect(registry).toContain('import { agentAuth as vitehubAuth } from "@vite-hub/auth/agent"')
+      expect(registry).toContain("auth: vitehubAuth")
+      expect(await configure([])).not.toContain("vitehubAuth")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("installs portable Capability loaders in generated Agent Workflow registries", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-capabilities-"))

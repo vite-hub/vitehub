@@ -260,7 +260,7 @@ A runtime can combine read-only `sources` with `collections`. Names share one na
 
 ## Access
 
-`authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The [Console content editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. The Agent Capability passes the Invocation's Actor as `user`.
+`authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The [Console content editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. The Agent Capability passes the Auth user behind the Invocation's Actor as `user`, and the Actor as `actor`.
 
 ```ts [server/content.ts]
 export const content = defineContent({

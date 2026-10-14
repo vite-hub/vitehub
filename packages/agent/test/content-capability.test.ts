@@ -17,13 +17,25 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
-const editor: AgentActor = { id: "user_1", kind: "authUser", meta: { role: "editor" } }
-const viewer: AgentActor = { id: "user_2", kind: "authUser", meta: { role: "viewer" } }
+/** Actors as `authenticated()` resolves them: the Auth user id is in `meta.authUserId`. */
+const editor: AgentActor = { id: "user_1", kind: "authUser", label: "editor@example.com", meta: { authUserId: "user_1" } }
+const viewer: AgentActor = { id: "user_2", kind: "authUser", label: "viewer@example.com", meta: { authUserId: "user_2" } }
 const anonymous: AgentActor = { id: "anonymous:http", kind: "anonymous" }
 
+/** Auth users by id, as the `auth` primitive from `@vite-hub/auth/agent` reads them. */
+const authUsers: Record<string, Record<string, unknown>> = {
+  user_1: { email: "editor@example.com", id: "user_1", role: "editor" },
+  user_2: { email: "viewer@example.com", id: "user_2", role: "viewer" },
+}
+const auth = {
+  user: async (actor: AgentActor | undefined) => {
+    const id = actor?.meta?.authUserId
+    return String(id) === id ? authUsers[id] ?? null : null
+  },
+}
+
 /** Editors may do anything. Other signed-in users may read drafts. */
-const editorsOnly: ContentAuthorize = ({ user, action }) =>
-  (user?.meta as { role?: string } | undefined)?.role === "editor" || (action === "read" && Boolean(user))
+const editorsOnly: ContentAuthorize = ({ user, action }) => user?.role === "editor" || (action === "read" && Boolean(user))
 
 const fields = {
   title: z.string().min(1),
@@ -31,8 +43,8 @@ const fields = {
   tags: z.array(z.string()).default([]),
 }
 
-async function setup({ authorize = editorsOnly }: { authorize?: ContentAuthorize | null } = {}) {
-  const workspace = await historyWorkspace(cleanup)
+async function setup({ authorize = editorsOnly, workspace }: { authorize?: ContentAuthorize | null, workspace?: string } = {}) {
+  workspace ??= await historyWorkspace(cleanup)
   const runtime = defineContent({
     workspace,
     collections: {
@@ -50,13 +62,14 @@ async function tools(
   capability: AgentCapabilityDefinition,
   runtime: unknown,
   actor: AgentActor = editor,
+  primitives: Record<string, unknown> = { auth },
 ): Promise<Record<string, AgentToolDefinition>> {
   if (!(capability.tools instanceof Function)) throw new Error("content() must resolve tools from the Invocation context")
   // SAFETY: The Content tools read only the fields that this context sets.
   return await capability.tools({
     actor,
     agentIdentity: { name: "editor" },
-    capabilities: { content: runtime },
+    capabilities: { ...primitives, content: runtime },
     context: new Map(),
   } as never) as Record<string, AgentToolDefinition>
 }
@@ -145,14 +158,15 @@ describe("content capability", () => {
     const guarded = applyAgentToolPolicies(await tools(content(), runtime))!
     const saved = await run(guarded.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "# Hello\n", ifDigest: null })
     expect(saved).toMatchObject({ ok: true, document: { collection: "posts", id: "hello" } })
-    expect(await rejection(run(guarded.content_publish, { collection: "posts" }))).toMatchObject({ code: "APPROVAL_REQUIRED" })
+    const reviewed = { documents: [{ collection: "posts", digest: saved.document.digest, id: "hello" }] }
+    expect(await rejection(run(guarded.content_publish, reviewed))).toMatchObject({ code: "APPROVAL_REQUIRED" })
     expect(await runtime.collection("posts").get("hello")).toBeNull()
 
     const approving = applyAgentToolPolicies(await tools(content({ policy: "require-approval" }), runtime))!
     expect(await rejection(run(approving.content_save_draft, { collection: "posts", id: "next", data: hello, body: "", ifDigest: null }))).toMatchObject({ code: "APPROVAL_REQUIRED" })
 
     const unattended = applyAgentToolPolicies(await tools(content({ policy: "allow" }), runtime))!
-    expect(await run(unattended.content_publish, { collection: "posts" })).toMatchObject({
+    expect(await run(unattended.content_publish, reviewed)).toMatchObject({
       ok: true,
       documents: [{ change: "add", collection: "posts", id: "hello" }],
     })
@@ -172,7 +186,7 @@ describe("content capability", () => {
 
     expect(await run(editorTools.content_get_document, { collection: "posts", id: "2026/hello" })).toMatchObject({ ok: false, error: { code: "CONTENT_NOT_FOUND" } })
     const draft = await run(editorTools.content_get_document, { collection: "posts", id: "2026/hello", ref: "draft" })
-    expect(draft).toMatchObject({ ok: true, ref: "draft", document: { body: "# Hello\n", digest: created.document.digest } })
+    expect(draft).toMatchObject({ ok: true, ref: "draft", document: { body: "# Hello\n", digest: created.document.digest, updatedAt: expect.any(String) } })
 
     const updated = await run(editorTools.content_save_draft, {
       collection: "posts", id: "2026/hello", data: { ...hello, title: "Hello again" }, body: "# Hello again\n", ifDigest: draft.document.digest,
@@ -184,10 +198,10 @@ describe("content capability", () => {
     expect(await run(editorTools.content_list_documents, { collection: "posts" })).toMatchObject({ items: [], ref: "published", total: 0 })
     expect(await run(editorTools.content_status, { collection: "posts" })).toEqual({
       collection: "posts",
-      documents: [{ draft: updated.document.digest, id: "2026/hello", published: null, state: "draft" }],
+      documents: [{ collection: "posts", draft: updated.document.digest, id: "2026/hello", published: null, state: "draft" }],
     })
 
-    const published = await run(editorTools.content_publish, { collection: "posts", ids: ["2026/hello"] })
+    const published = await run(editorTools.content_publish, { documents: [{ collection: "posts", digest: updated.document.digest, id: "2026/hello" }] })
     expect(published).toMatchObject({ ok: true, documents: [{ change: "add", id: "2026/hello" }], revision: expect.any(String) })
     expect(await run(editorTools.content_list_documents, { collection: "posts", filter: { tags: "vue" } })).toMatchObject({ items: [{ id: "2026/hello" }], total: 1 })
     expect(await run(editorTools.content_status, { collection: "posts", id: "2026/hello" })).toMatchObject({ documents: [{ state: "published" }] })
@@ -214,30 +228,74 @@ describe("content capability", () => {
       ok: false, error: { code: "WORKSPACE_CONFLICT" },
     })
 
-    const head = await run(editorTools.content_publish, { collection: "posts" })
-    await runtime.collection("posts").save("hello", { data: hello, body: "Four\n" })
-    await runtime.publish({ collection: "posts" })
-    const stale = await run(editorTools.content_publish, { collection: "posts", ifHead: head.revision })
-    expect(stale).toMatchObject({ ok: false, error: { code: "WORKSPACE_CONFLICT", currentHead: expect.any(String) } })
-    expect(stale.error.currentHead).not.toBe(head.revision)
-    expect(await run(editorTools.content_publish, { collection: "posts", ids: ["missing"] })).toMatchObject({ ok: false, error: { code: "CONTENT_NOT_FOUND" } })
+    // The publish call names the reviewed digest. A save after the call publishes nothing and names the changed draft.
+    const [reviewed] = (await run(editorTools.content_status, { collection: "posts", id: "hello" })).documents
+    await runtime.collection("posts").save("hello", { data: hello, body: "Saved after review\n" })
+    const changed = await run(editorTools.content_publish, { documents: [{ collection: "posts", digest: reviewed.draft, id: "hello" }] })
+    const latest = await runtime.collection("posts").get("hello", { ref: "draft" })
+    expect(changed).toMatchObject({
+      ok: false,
+      error: {
+        code: "WORKSPACE_CONFLICT",
+        documents: [{ actual: latest!.digest, collection: "posts", expected: reviewed.draft, id: "hello" }],
+        hint: expect.stringContaining("content_status"),
+      },
+    })
+    expect(await runtime.collection("posts").get("hello")).toBeNull()
+    expect(await run(editorTools.content_publish, { documents: [{ collection: "posts", digest: latest!.digest, id: "hello" }] })).toMatchObject({
+      ok: true, documents: [{ change: "add", id: "hello" }],
+    })
+    expect(await run(editorTools.content_publish, { documents: [{ collection: "posts", digest: null, id: "missing" }] })).toMatchObject({ ok: true, documents: [] })
+    expect(await run(editorTools.content_publish, { documents: [] })).toMatchObject({ ok: false, error: { code: "CONTENT_INVALID" } })
+    expect(await run(editorTools.content_publish, {
+      documents: [{ collection: "posts", digest: null, id: "hello" }, { collection: "posts", digest: null, id: "hello" }],
+    })).toMatchObject({ ok: false, error: { code: "CONTENT_R0009" } })
   })
 
-  it("denies non-public actions through content.can() with the Actor as the user", async () => {
+  it("returns a stored document that no longer validates as text the model can repair", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const runtime = await setup({ workspace })
+    await runtime.collection("posts").save("untagged", { data: { title: "Untagged", date: "2026-01-01" }, body: "Body\n" })
+    // The field schema became stricter after the document was saved.
+    const stricter = defineContent({
+      workspace,
+      collections: { posts: documents({ path: "posts/**/*.md", fields: { ...fields, tags: z.array(z.string()).min(1) } }) },
+      authorize: editorsOnly,
+      logger: false,
+    })
+    cleanup.push(() => stricter.dispose())
+    const editorTools = await tools(content({ collections: ["posts"], policy: "allow" }), stricter)
+
+    const invalid = await run(editorTools.content_get_document, { collection: "posts", id: "untagged", ref: "draft" })
+    const { draft } = (await stricter.collection("posts").status("untagged"))!
+    expect(invalid).toMatchObject({
+      ok: false,
+      error: { code: "CONTENT_INVALID", digest: draft, hint: expect.stringContaining("ifDigest"), text: expect.stringContaining("title: Untagged") },
+    })
+    expect(await run(editorTools.content_publish, { documents: [{ collection: "posts", digest: draft, id: "untagged" }] })).toMatchObject({
+      ok: false, error: { code: "CONTENT_INVALID", hint: expect.stringContaining("content_save_draft") },
+    })
+    expect(await run(editorTools.content_save_draft, {
+      collection: "posts", id: "untagged", data: { title: "Untagged", date: "2026-01-01", tags: ["fixed"] }, body: "Body\n", ifDigest: invalid.error.digest,
+    })).toMatchObject({ ok: true })
+  })
+
+  it("denies non-public actions through content.can() with the Auth user behind the Actor", async () => {
     const runtime = await setup()
     await runtime.collection("posts").save("hello", { data: hello, body: "Draft\n" })
     await runtime.publish()
-    await runtime.collection("posts").save("hello", { data: { ...hello, title: "Unpublished" }, body: "Draft\n" })
+    const unpublished = await runtime.collection("posts").save("hello", { data: { ...hello, title: "Unpublished" }, body: "Draft\n" })
+    const reviewed = { documents: [{ collection: "posts", digest: unpublished.digest, id: "hello" }] }
 
     const viewerTools = await tools(content({ policy: "allow" }), runtime, viewer)
     expect(await run(viewerTools.content_get_document, { collection: "posts", id: "hello", ref: "draft" })).toMatchObject({ document: { data: { title: "Unpublished" } } })
     expect(await rejection(run(viewerTools.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "", ifDigest: null }))).toMatchObject({
       code: "CAPABILITY_DENIED", details: { action: "write", collection: "posts", id: "hello" },
     })
-    expect(await rejection(run(viewerTools.content_publish, { collection: "posts" }))).toMatchObject({ code: "CAPABILITY_DENIED", details: { action: "publish" } })
+    expect(await rejection(run(viewerTools.content_publish, reviewed))).toMatchObject({ code: "CAPABILITY_DENIED", details: { action: "publish", id: "hello" } })
     // Access is checked before approval, so a denied publish never waits for an approver.
     const guardedViewer = applyAgentToolPolicies(await tools(content(), runtime, viewer))!
-    expect(await rejection(run(guardedViewer.content_publish, { collection: "posts", ids: ["hello"] }))).toMatchObject({ code: "CAPABILITY_DENIED" })
+    expect(await rejection(run(guardedViewer.content_publish, reviewed))).toMatchObject({ code: "CAPABILITY_DENIED" })
     expect(await rejection(run(guardedViewer.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "", ifDigest: null }))).toMatchObject({ code: "CAPABILITY_DENIED" })
     expect(await run(viewerTools.content_list_collections, {})).toMatchObject({
       collections: [{ access: { publish: false, read: true, write: false }, name: "posts" }, { name: "pages" }],
@@ -250,9 +308,30 @@ describe("content capability", () => {
     expect(await rejection(run(anonymousTools.content_list_documents, { collection: "posts", ref: "draft" }))).toMatchObject({ code: "CAPABILITY_DENIED" })
     expect(await rejection(run(anonymousTools.content_status, { collection: "posts" }))).toMatchObject({ code: "CAPABILITY_DENIED" })
 
-    // `user` maps the Actor to the application's user shape.
-    const mapped = await tools(content({ policy: "allow", user: actor => ({ id: actor.id, meta: { role: actor.id === "user_2" ? "editor" : "none" } }) }), runtime, viewer)
+    // Without Auth, there is no user behind the Actor.
+    const withoutAuth = await tools(content({ policy: "allow" }), runtime, editor, {})
+    expect(await rejection(run(withoutAuth.content_status, { collection: "posts" }))).toMatchObject({ code: "CAPABILITY_DENIED" })
+
+    // `user` replaces the Auth lookup with the application's own mapping.
+    const mapped = await tools(content({ policy: "allow", user: actor => ({ id: actor.id, role: actor.id === "user_2" ? "editor" : "none" }) }), runtime, viewer)
     expect(await run(mapped.content_save_draft, { collection: "pages", id: "about", data: { title: "About" }, body: "", ifDigest: null })).toMatchObject({ ok: true })
+  })
+
+  it("passes the Auth user and the Actor to authorize", async () => {
+    const decisions: unknown[] = []
+    const runtime = await setup({
+      authorize: (context) => {
+        decisions.push(context)
+        return context.actor?.kind === "authUser"
+      },
+    })
+    const editorTools = await tools(content({ policy: "allow" }), runtime)
+    await run(editorTools.content_status, { collection: "posts", id: "hello" })
+    await run(editorTools.content_status, { collection: "pages" })
+    expect(decisions).toEqual([
+      { action: "read", actor: editor, collection: "posts", id: "hello", user: authUsers.user_1 },
+      { action: "read", actor: editor, collection: "pages", user: authUsers.user_1 },
+    ])
   })
 
   it("denies every non-public action without an authorize policy", async () => {
@@ -267,7 +346,7 @@ describe("content capability", () => {
       ["content_get_document", { collection: "posts", id: "hello", ref: "draft" }],
       ["content_status", { collection: "posts" }],
       ["content_save_draft", { collection: "posts", id: "hello", data: hello, body: "", ifDigest: null }],
-      ["content_publish", { collection: "posts" }],
+      ["content_publish", { documents: [{ collection: "posts", digest: null, id: "hello" }] }],
     ] as const) {
       expect(await rejection(run(editorTools[name], input)), name).toMatchObject({ code: "CAPABILITY_DENIED" })
     }

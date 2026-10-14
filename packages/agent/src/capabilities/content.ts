@@ -4,7 +4,7 @@ import * as v from "valibot"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
-import { defineInternalTool, requirePrimitive } from "./internal.ts"
+import { defineInternalTool, primitiveHandle, requirePrimitive } from "./internal.ts"
 
 import type {
   AgentActor,
@@ -22,7 +22,7 @@ export type ContentCapabilityOperation = "publish" | "read" | "write"
 
 export type ContentCapabilityToolPolicy = AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 
-/** The user that `content.can()` passes to `defineContent({ authorize })`. */
+/** The Auth user that `content.can()` passes to `defineContent({ authorize })` as `user`. */
 export type ContentCapabilityUser = Record<string, unknown>
 
 export interface ContentCapabilityOptions {
@@ -36,8 +36,9 @@ export interface ContentCapabilityOptions {
    */
   policy?: ContentCapabilityToolPolicy
   /**
-   * Map the Invocation's Actor to the user that `content.can()` receives. Default: the Actor itself, or `null` for an
-   * anonymous Actor, so `authorize` denies it unless the policy allows anonymous users.
+   * Map the Invocation's Actor to the `user` that `content.can()` receives. Default: the Auth user the Actor stands for
+   * (`actor.meta.authUserId`, set by `authenticated()`) when Auth is configured, otherwise `null`. `authorize` also
+   * receives the Actor as `actor` either way.
    */
   user?: (actor: AgentActor) => MaybePromise<ContentCapabilityUser | null | undefined>
 }
@@ -53,9 +54,18 @@ interface ContentDocumentRecord {
   id: string
   path: string
   revision: string
+  updatedAt: string | null
+}
+
+interface ContentRawRecord {
+  digest: string
+  path: string
+  revision: string
+  text: string
 }
 
 interface ContentStatusRecord {
+  collection: string
   draft: string | null
   id: string
   published: string | null
@@ -64,10 +74,12 @@ interface ContentStatusRecord {
 
 /** The parts of a Content collection that the Capability calls. `@vite-hub/content` collections satisfy it. */
 interface ContentCollectionHandle {
+  fields: readonly string[]
   get: (id: string, options?: { ref?: ContentRef }) => Promise<ContentDocumentRecord | null>
   list: (options?: Record<string, unknown>) => Promise<{ items: ContentDocumentRecord[], nextCursor: string | null, total: number }>
   name: string
   path: string
+  raw: (id: string, options?: { ref?: ContentRef }) => Promise<ContentRawRecord | null>
   save: (id: string, input: { body: string, data: Record<string, unknown> }, options?: { ifDigest?: string | null, metadata?: Record<string, unknown> }) => Promise<ContentDocumentRecord>
   schema: Record<string, unknown>
   status: (id?: string) => Promise<ContentStatusRecord | ContentStatusRecord[] | null>
@@ -75,12 +87,17 @@ interface ContentCollectionHandle {
 
 /** The Content runtime exported from `server/content.ts`, as the `content` primitive. */
 interface ContentPrimitive {
-  can: (context: { action: ContentAction, collection: string, id?: string, user: ContentCapabilityUser | null | undefined }) => Promise<boolean>
+  can: (context: { action: ContentAction, actor?: AgentActor, collection: string, id?: string, user: ContentCapabilityUser | null }) => Promise<boolean>
   collections: () => ContentCollectionHandle[]
-  publish: (options: { collection: string, ids?: string[], ifHead?: string | null, metadata?: Record<string, unknown> }) => Promise<{
+  publish: (options: { expect: PublishDocument[], metadata?: Record<string, unknown> }) => Promise<{
     documents: Array<{ change: string, collection: string, id: string }>
     revision: { id: string } | null
   }>
+}
+
+/** The `auth` primitive from `@vite-hub/auth/agent`, present when Auth is configured. */
+interface AuthPrimitive {
+  user: (actor: AgentActor | undefined) => Promise<ContentCapabilityUser | null>
 }
 
 interface ListDocumentsInput {
@@ -112,10 +129,14 @@ interface StatusInput {
   id?: string
 }
 
-interface PublishInput {
+interface PublishDocument {
   collection: string
-  ids?: string[]
-  ifHead?: string | null
+  digest: string | null
+  id: string
+}
+
+interface PublishInput {
+  documents: PublishDocument[]
 }
 
 const operationNames = ["read", "write", "publish"] as const
@@ -183,7 +204,7 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Validation issues, digest conflicts, and missing documents are results the model can act on.
+ * Validation issues, digest conflicts, changed drafts, and missing documents are results the model can act on.
  * Other errors stay errors.
  */
 function recoverable(error: unknown, operation: "get" | "publish" | "save") {
@@ -194,8 +215,10 @@ function recoverable(error: unknown, operation: "get" | "publish" | "save") {
       error: {
         code,
         hint: operation === "get"
-          ? "The stored document no longer matches the field schema. Save it with valid fields to repair it."
-          : "Fix the listed fields and save again with the same ifDigest.",
+          ? "The stored document no longer matches the field schema. Save it with valid fields and ifDigest set to digest to repair it."
+          : operation === "publish"
+            ? "A draft no longer matches the field schema, so nothing was published. Repair it with content_save_draft, then publish the new digest."
+            : "Fix the listed fields and save again with the same ifDigest.",
         issues: Array.isArray(details.issues) ? details.issues : [],
         message: errorMessage(error),
       },
@@ -207,8 +230,8 @@ function recoverable(error: unknown, operation: "get" | "publish" | "save") {
       ? {
           error: {
             code,
-            currentHead: details.actual ?? null,
-            hint: "Someone published since you checked. Review content_status, then publish again with ifHead set to currentHead.",
+            documents: Array.isArray(details.documents) ? details.documents : [],
+            hint: "These drafts changed after the publish was requested, so nothing was published. Review them with content_status and content_get_document (ref: draft), then request the publish again with their current digests.",
             message: errorMessage(error),
           },
           ok: false as const,
@@ -223,7 +246,7 @@ function recoverable(error: unknown, operation: "get" | "publish" | "save") {
           ok: false as const,
         }
   }
-  if (code === "CONTENT_NOT_FOUND") {
+  if (code === "CONTENT_NOT_FOUND" || (code === "CONTENT_R0009" && operation === "publish")) {
     return { error: { code, message: errorMessage(error) }, ok: false as const }
   }
   throw error
@@ -236,9 +259,16 @@ function denied(action: ContentAction, collection: string, id?: string): ViteHub
   })
 }
 
-function defaultUser(actor: AgentActor | undefined): ContentCapabilityUser | null {
-  if (!actor || actor.kind === "anonymous") return null
-  return { ...actor }
+function isAuthPrimitive(value: unknown): value is AuthPrimitive {
+  return isRuntimeRecord(value) && value.user instanceof Function
+}
+
+/** The Auth user behind the Actor, read through the `auth` primitive when Auth is configured. */
+async function authUser(context: AgentCapabilityContext): Promise<ContentCapabilityUser | null> {
+  const auth = primitiveHandle(context, "auth")
+  if (!context.actor || !isAuthPrimitive(auth)) return null
+  const user = await auth.user(context.actor)
+  return isRuntimeRecord(user) ? user : null
 }
 
 function contentTools(
@@ -257,11 +287,19 @@ function contentTools(
   if (!scoped.length) return {}
   const names = scoped.map(collection => collection.name)
 
-  // Resolve the Actor's Content user once per Invocation.
-  let user: Promise<ContentCapabilityUser | null | undefined> | undefined
-  const contentUser = () => user ??= Promise.resolve(options.user ? options.user(context.actor) : defaultUser(context.actor))
-  const can = async (action: ContentAction, collection: string, id?: string) =>
-    await runtime.can({ action, collection, ...(id === undefined ? {} : { id }), user: await contentUser() })
+  // Resolve the Actor's Auth user once per Invocation.
+  let user: Promise<ContentCapabilityUser | null> | undefined
+  const contentUser = () => user ??= (async () => {
+    const resolved = options.user ? await options.user(context.actor) : await authUser(context)
+    return isRuntimeRecord(resolved) ? resolved : null
+  })()
+  const can = async (action: ContentAction, collection: string, id?: string) => await runtime.can({
+    action,
+    ...(context.actor ? { actor: context.actor } : {}),
+    collection,
+    ...(id === undefined ? {} : { id }),
+    user: await contentUser(),
+  })
   const authorize = async (action: ContentAction, collection: string, id?: string) => {
     if (!await can(action, collection, id)) throw denied(action, collection, id)
   }
@@ -280,12 +318,16 @@ function contentTools(
   // The tools check again when they run, because an approved call executes later.
   const permitted = async (tool: "publish" | "save", input: unknown): Promise<boolean> => {
     const value = isRuntimeRecord(input) ? input : {}
-    const name = String(value.collection) === value.collection ? value.collection : undefined
-    if (!name || !names.includes(name)) return true
-    if (tool === "save") return String(value.id) === value.id ? await can("write", name, value.id) : true
-    const ids = Array.isArray(value.ids) && value.ids.length ? value.ids.filter(id => String(id) === id) : [undefined]
-    for (const id of ids) {
-      if (!await can("publish", name, id)) return false
+    if (tool === "save") {
+      const name = String(value.collection) === value.collection ? value.collection : undefined
+      if (!name || !names.includes(name)) return true
+      return String(value.id) === value.id ? await can("write", name, value.id) : true
+    }
+    for (const entry of Array.isArray(value.documents) ? value.documents : []) {
+      const document = isRuntimeRecord(entry) ? entry : {}
+      const name = String(document.collection) === document.collection ? document.collection : undefined
+      if (!name || !names.includes(name) || String(document.id) !== document.id) continue
+      if (!await can("publish", name, document.id)) return false
     }
     return true
   }
@@ -303,7 +345,7 @@ function contentTools(
       execute: async () => ({
         collections: await Promise.all(scoped.map(async entry => ({
           access: Object.fromEntries(await Promise.all(operationNames.map(async action => [action, await can(action, entry.name)] as const))),
-          fields: Object.keys(isRuntimeRecord(entry.schema.properties) ? entry.schema.properties : {}),
+          fields: [...entry.fields],
           name: entry.name,
           path: entry.path,
         }))),
@@ -373,7 +415,10 @@ function contentTools(
           return { document, ok: true as const, ref }
         }
         catch (error) {
-          return recoverable(error, "get")
+          const result = recoverable(error, "get")
+          // A stored file that no longer validates is returned as text, with the digest to save the repair over.
+          const raw = result.error.code === "CONTENT_INVALID" ? await target.raw(input.id, { ref }) : null
+          return raw ? { ...result, error: { ...result.error, digest: raw.digest, text: raw.text } } : result
         }
       },
       icon: "i-lucide-file-text",
@@ -388,7 +433,7 @@ function contentTools(
       title: "Read a Content document",
     })
     tools.content_status = defineInternalTool<StatusInput>({
-      description: "Compare draft and published documents in a collection. Each entry has a state: draft (never published), published (no changes), changed (unpublished edits), or deleted (removed from the draft). Requires read access.",
+      description: "Compare draft and published documents in a collection. Each entry has a state: draft (never published), published (no changes), changed (unpublished edits), or deleted (removed from the draft). Its draft digest is what content_publish takes. Requires read access.",
       execute: async (input) => {
         const target = collection(input?.collection)
         await authorize("read", target.name, input.id)
@@ -448,20 +493,16 @@ function contentTools(
   }
   if (options.enabled.has("publish")) {
     tools.content_publish = defineInternalTool<PublishInput>({
-      description: "Publish draft changes in a collection so the site serves them. Pass ids to publish only those documents. Check content_status first.",
+      description: "Publish draft documents so the site serves them. List each document with the draft digest from content_status (null for a document deleted on the draft). Exactly those versions are published: if a draft changed after you made this call, nothing is published and the result names the changed documents.",
       execute: async (input) => {
-        const target = collection(input?.collection)
-        if (input.ids?.length) {
-          for (const id of input.ids) await authorize("publish", target.name, id)
+        const documents = Array.isArray(input?.documents) ? input.documents : []
+        if (!documents.length) {
+          return { error: { code: "CONTENT_INVALID", issues: [{ message: "List at least one document to publish.", path: ["documents"] }], message: "documents is required." }, ok: false as const }
         }
-        else await authorize("publish", target.name)
+        const expected = documents.map(document => ({ collection: collection(document?.collection).name, digest: document.digest, id: document.id }))
+        for (const document of expected) await authorize("publish", document.collection, document.id)
         try {
-          const result = await runtime.publish({
-            collection: target.name,
-            ...(input.ids?.length ? { ids: input.ids } : {}),
-            ...(input.ifHead === undefined ? {} : { ifHead: input.ifHead }),
-            metadata: authorMetadata(),
-          })
+          const result = await runtime.publish({ expect: expected, metadata: authorMetadata() })
           return { documents: result.documents, ok: true as const, revision: result.revision?.id ?? null }
         }
         catch (error) {
@@ -472,14 +513,26 @@ function contentTools(
       inputSchema: {
         additionalProperties: false,
         properties: {
-          collection: collectionSchema(names),
-          ids: { description: "Documents to publish. Omit to publish every change in the collection.", items: { description: idDescription, minLength: 1, type: "string" }, minItems: 1, type: "array" },
-          ifHead: {
-            anyOf: [{ minLength: 1, type: "string" }, { type: "null" }],
-            description: "Publish only if the published revision is still this one (currentHead from a conflict). Omit to publish over concurrent publishes.",
+          documents: {
+            description: "The reviewed drafts to publish. The approver sees these digests, and only these versions are published.",
+            items: {
+              additionalProperties: false,
+              properties: {
+                collection: collectionSchema(names),
+                digest: {
+                  anyOf: [{ minLength: 1, type: "string" }, { type: "null" }],
+                  description: "The draft digest from content_status, or null to publish a deletion.",
+                },
+                id: { description: idDescription, minLength: 1, type: "string" },
+              },
+              required: ["collection", "id", "digest"],
+              type: "object",
+            },
+            minItems: 1,
+            type: "array",
           },
         },
-        required: ["collection"],
+        required: ["documents"],
         type: "object",
       },
       metadata: metadata("publish"),
@@ -493,7 +546,8 @@ function contentTools(
 
 /**
  * Tools to read, edit, and publish Content collections from `server/content.ts`. Every non-public action checks
- * `content.can()` with the Invocation's Actor, so `defineContent({ authorize })` decides what the Agent may do.
+ * `content.can()` with the Invocation's Actor and the Auth user it stands for, so `defineContent({ authorize })`
+ * decides what the Agent may do. `content_publish` publishes exactly the draft digests in its input.
  */
 export function content(options: ContentCapabilityOptions = {}): AgentCapabilityDefinition {
   const parsed = v.safeParse(optionsSchema, options)

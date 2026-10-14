@@ -63,12 +63,13 @@ export async function createCapabilityReferences(): Promise<CapabilityReferences
     },
     collections() {
       return [{
+        fields: ["title", "date", "tags"],
         name: "posts",
         path: "posts/**/*.md",
         schema: {
           properties: {
             // The schema that `z.coerce.date()` and `z.array(z.string()).default([])` project to.
-            date: {},
+            date: { format: "date-time", type: "string" },
             tags: { default: [], items: { type: "string" }, type: "array" },
             title: { minLength: 1, type: "string" },
           },

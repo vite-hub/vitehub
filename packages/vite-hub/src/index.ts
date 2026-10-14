@@ -988,6 +988,8 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
       runtimeCapabilityImports: {
+        // Present only with the Auth plugin. It reads users only for Actors that authenticated() resolved.
+        auth: "vite-hub/auth/agent",
         blob: blobEnabled ? `${generatedImportBase}/blob` : false,
         connections: options.connections ? "vite-hub/connections/agent" : false,
         console: options.console ? "vite-hub/console/server" : false,
