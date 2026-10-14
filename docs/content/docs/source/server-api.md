@@ -229,10 +229,10 @@ export const articles = defineCollection({
 
 | Option | Description |
 | --- | --- |
-| `filters` | Field paths a client may filter by. `?category=guide` matches without case, a repeated key matches any of its values, and `?empty=category` matches items with no value. Dot paths read nested objects and every element of nested arrays. |
+| `filters` | Field paths a client may filter by. `?category=guide` matches without case, a repeated key matches any of its values, and `?empty=category` matches items with no value. Dot paths read nested objects and every element of nested arrays. A `Date` value matches its ISO string. |
 | `search` | Field paths that `?search=` matches as a case-insensitive substring. Without it, a non-empty `search` returns `400`. |
 | `facets` | Field paths counted into `page.facets` as `{ value, count }` lists over every matching item. |
-| `sort` | Field path and direction for every page. Numbers sort numerically. Omit it to keep the array order. |
+| `sort` | Field path and direction for every page. Numbers sort numerically and `Date` values by time. Omit it to keep the array order. |
 | `key` | Field path that `collection.get(key)` matches in server code. |
 | `schema` | Standard Schema for one item. Every item is validated on load, and its output type becomes the item type. |
 | `defaultLimit`, `maxLimit` | Page size and the largest accepted `limit`. `maxLimit` also caps the values kept per facet. |

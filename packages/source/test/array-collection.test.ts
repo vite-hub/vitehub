@@ -101,6 +101,20 @@ describe("array()", () => {
     expect((await query(descending, {})).items.map(item => item.slug)).toEqual(["untagged", "gamma", "beta", "alpha"])
   })
 
+  it("sorts Dates by time and filters and facets them as ISO strings", async () => {
+    const items = [
+      { date: new Date("2026-10-02T00:00:00.000Z"), slug: "b" },
+      { date: new Date("2026-09-30T00:00:00.000Z"), slug: "a" },
+      { date: new Date("2026-10-10T00:00:00.000Z"), slug: "c" },
+    ]
+    const dated = defineCollection({ source: array(items, { facets: ["date"], filters: ["date"], sort: { direction: "desc", field: "date" } }) })
+    const page = await dated.page({ query: {} })
+    expect(page.items.map(item => item.slug)).toEqual(["c", "b", "a"])
+    expect(page.facets?.date?.[0]).toEqual({ count: 1, value: "2026-09-30T00:00:00.000Z" })
+    const filtered = await dated.page({ query: { date: ["2026-10-02T00:00:00.000Z"] } })
+    expect(filtered.items.map(item => item.slug)).toEqual(["b"])
+  })
+
   it("bounds pages and facet values by maxLimit", async () => {
     const collection = articles(records, { defaultLimit: 1, maxLimit: 2 })
     expect((await query(collection, {})).items).toHaveLength(1)

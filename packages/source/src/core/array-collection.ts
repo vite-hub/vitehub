@@ -113,15 +113,27 @@ function collectionValueAt(value: unknown, path: string): unknown {
   return visit(value, segments)
 }
 
+// Validated items often carry Dates (`z.coerce.date()`). Treat a valid Date as its ISO string for filters, search,
+// and facets, and as its timestamp for sorting.
+function dateTime(value: unknown): number | undefined {
+  if (Object.prototype.toString.call(value) !== "[object Date]") return
+  const time = Date.prototype.getTime.call(value)
+  return Number.isNaN(time) ? undefined : time
+}
+
 function scalarValues(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(scalarValues)
+  const time = dateTime(value)
+  if (time !== undefined) return [new Date(time).toISOString()]
   if (value === null || value === undefined || Object(value) === value) return []
   return [String(value)]
 }
 
 function firstScalar(value: unknown): unknown {
-  if (!Array.isArray(value)) return value
-  return value.flat(Infinity).find(entry => entry !== null && entry !== undefined && Object(entry) !== entry)
+  const entry = Array.isArray(value)
+    ? value.flat(Infinity).find(item => item !== null && item !== undefined && (Object(item) !== item || dateTime(item) !== undefined))
+    : value
+  return dateTime(entry) ?? entry
 }
 
 function isString(value: unknown): value is string {
