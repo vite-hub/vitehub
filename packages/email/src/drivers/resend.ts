@@ -220,6 +220,7 @@ function payload(message: EmailMessage): Record<string, unknown> {
 }
 
 export default function resendEmailDriver(options: ResendEmailDriverOptions): EmailDriver {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Guard untrusted provider options before reading own properties; each option is validated below.
   const record = options !== null && typeof options === "object" ? options : undefined;
   const apiKey = record && Object.hasOwn(record, "apiKey") ? record.apiKey : undefined;
   requiredOption("resend", apiKey, "apiKey");
