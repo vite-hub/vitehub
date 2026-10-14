@@ -423,7 +423,7 @@ function hasNativeDateJSONHook(value: object): boolean {
   }
   try {
     const own = Reflect.getOwnPropertyDescriptor(value, "toJSON")
-    if (own) return false
+    if (own && "value" in own) return false
     const getTimeDescriptor = findDescriptor(value, "getTime")
     const toISOStringDescriptor = findDescriptor(value, "toISOString")
     const toJSONDescriptor = findDescriptor(value, "toJSON")
@@ -442,7 +442,13 @@ function hasNativeDateJSONHook(value: object): boolean {
     while (prototype && !visited.has(prototype)) {
       visited.add(prototype)
       const descriptor = Reflect.getOwnPropertyDescriptor(prototype, "toJSON")
-      if (descriptor) return isNative(descriptor.value)
+      if (descriptor) {
+        if ("value" in descriptor) return isNative(descriptor.value)
+        // An accessor may expose the native hook while hiding its value from
+        // descriptor inspection. Treat it as unsafe once native Date methods
+        // identify the surrounding object as a Date proxy.
+        return true
+      }
       prototype = Reflect.getPrototypeOf(prototype)
     }
     // Hidden prototype proxies still expose the native Date methods.

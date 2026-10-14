@@ -99,6 +99,12 @@ describe("Agent message date boundaries", () => {
     expect(JSON.parse(JSON.stringify(message)).metadata).toEqual({ value: { timestamp: "date-like" } })
   })
 
+  it("rejects a Date-like proxy whose JSON hook is an accessor", () => {
+    const value: unknown = runInNewContext("Object.create({ getTime: Date.prototype.getTime, toISOString: Date.prototype.toISOString, get toJSON() { return Date.prototype.toJSON } })")
+    expect(() => createMessage({ metadata: { value }, role: "user" })).toThrow("must be serialized before storing")
+    expect(() => validateMessage({ id: "message-1", parts: [{ data: { value }, type: "data" }], role: "user" })).toThrow("must be serialized before storing")
+  })
+
   it.each(["Date.prototype", "Object.getPrototypeOf(new (class Timestamp extends Date {})())"])("preserves an own serializer shadowing %s", (prototype) => {
     const value: unknown = runInNewContext(`Object.defineProperty(Object.create(${prototype}), 'toJSON', { value() { return 'custom' } })`)
     const message = createMessage({ metadata: { value }, parts: [{ data: value, type: "data" }], role: "user" })
