@@ -52,4 +52,25 @@ describe("cross realm Blob bodies", () => {
     await expect(storage.put("file.bin", body)).resolves.toMatchObject([null, { contentType: "application/octet-stream" }])
     expect(put).toHaveBeenCalledWith("file.bin", body, { contentType: "application/octet-stream" })
   })
+
+  it("rejects metadata getters on a non-Blob prototype", async () => {
+    const body: Uint8Array = new Uint8Array([1, 2, 3])
+    const spoof = Object.create(Object.getPrototypeOf(body))
+    Object.defineProperties(spoof, {
+      type: { get: () => "image/x-spoofed" },
+      size: { get: () => 999 },
+    })
+    Object.setPrototypeOf(body, spoof)
+    const put = vi.fn(async (_pathname: string, _body: unknown, options: { contentType?: string }) => ({
+      contentType: options.contentType,
+      customMetadata: {},
+      httpMetadata: options.contentType ? { contentType: options.contentType } : {},
+      pathname: "file.bin",
+      uploadedAt: new Date(),
+    }))
+    const storage = createBlobStorage({ name: "probe", options: {}, put } as never)
+
+    await expect(storage.put("file.bin", body)).resolves.toMatchObject([null, { contentType: "application/octet-stream" }])
+    expect(put).toHaveBeenCalledWith("file.bin", body, { contentType: "application/octet-stream" })
+  })
 })
