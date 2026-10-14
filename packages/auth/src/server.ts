@@ -290,6 +290,13 @@ async function runAccessAuthorize(
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
 const authorizationResponsePrototypeLimit = 32
+const nativeStreamPrototype = ReadableStream.prototype
+const nativeReaderPrototype = Object.getPrototypeOf(new ReadableStream().getReader())
+const nativeStreamLocked = Object.getOwnPropertyDescriptor(nativeStreamPrototype, "locked")?.get
+const nativeStreamGetReader = Object.getOwnPropertyDescriptor(nativeStreamPrototype, "getReader")?.value
+const nativeReaderRead = Object.getOwnPropertyDescriptor(nativeReaderPrototype, "read")?.value
+const nativeReaderCancel = Object.getOwnPropertyDescriptor(nativeReaderPrototype, "cancel")?.value
+const nativeReaderReleaseLock = Object.getOwnPropertyDescriptor(nativeReaderPrototype, "releaseLock")?.value
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
@@ -342,6 +349,17 @@ function streamIntrinsic<T extends PropertyKey>(body: object, key: T): { value: 
   }
 }
 
+function isNativeFunction(value: unknown, localIntrinsic?: unknown): value is (...args: never[]) => unknown {
+  if (typeof value !== "function") return false
+  if (value === localIntrinsic) return true
+  try {
+    return /\[native code\]/.test(Function.prototype.toString.call(value))
+  }
+  catch {
+    return false
+  }
+}
+
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
@@ -352,7 +370,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   const locked = streamIntrinsic(stream, "locked")
   const getReader = locked && streamIntrinsic(locked.owner, "getReader")
   if (!locked || !getReader || locked.owner !== getReader.owner
-    || typeof locked.value !== "function" || typeof getReader.value !== "function") return false
+    || !isNativeFunction(locked.value, nativeStreamLocked) || !isNativeFunction(getReader.value, nativeStreamGetReader)) return false
   return !Reflect.apply(locked.value, stream, [])
 }
 
@@ -377,9 +395,9 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   // Native reader operations have stable names across realms. This rejects
   // replacements installed on a shared reader prototype before any
   // caller-controlled operation is invoked.
-  if (typeof read !== "function" || read.name !== "read"
-    || typeof cancel !== "function" || cancel.name !== "cancel"
-    || typeof releaseLock !== "function" || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
+  if (!isNativeFunction(read, nativeReaderRead) || read.name !== "read"
+    || !isNativeFunction(cancel, nativeReaderCancel) || cancel.name !== "cancel"
+    || !isNativeFunction(releaseLock, nativeReaderReleaseLock) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
   let released = false
   const release = () => {
     if (released) return
