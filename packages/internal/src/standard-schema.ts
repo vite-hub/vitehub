@@ -34,12 +34,13 @@ export function standardJsonSchema(
   schema: unknown,
   direction: StandardJsonSchemaDirection,
   target: StandardJsonSchemaTarget = "draft-2020-12",
+  libraryOptions?: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
   const jsonSchema = readOwn(readOwn(schema, "~standard"), "jsonSchema")
   const project = readOwn(jsonSchema, direction)
   if (!(project instanceof Function)) return
   try {
-    const result: unknown = project({ target })
+    const result: unknown = project(libraryOptions ? { target, libraryOptions } : { target })
     return isRecord(result) ? result : undefined
   }
   catch {
@@ -61,4 +62,22 @@ export function standardIssuePath(issue: StandardSchemaV1.Issue): Array<string |
     const key = isRecord(segment) && "key" in segment ? segment.key : segment
     return Number(key) === key ? key : String(key)
   })
+}
+
+/**
+ * Library options that project dates as ISO strings instead of failing. Zod 4 reads them: a `Date` field, such as
+ * `z.coerce.date()`, becomes `{ type: "string", format: "date-time" }`, and other types that JSON Schema cannot
+ * represent become `{}`. Other libraries ignore them.
+ */
+export const standardJsonSchemaDateOptions: {
+  unrepresentable: "any"
+  override: (context: { jsonSchema: Record<string, unknown>, zodSchema?: unknown }) => void
+} = {
+  unrepresentable: "any",
+  override(context: { jsonSchema: Record<string, unknown>, zodSchema?: unknown }) {
+    const definition = readOwn(readOwn(context.zodSchema, "_zod"), "def")
+    if (readOwn(definition, "type") !== "date") return
+    context.jsonSchema.type = "string"
+    context.jsonSchema.format = "date-time"
+  },
 }

@@ -5,6 +5,7 @@ import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { H3 } from "h3"
+import { toStandardJsonSchema } from "@valibot/to-json-schema"
 import * as v from "valibot"
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 import { z } from "zod"
@@ -92,7 +93,7 @@ describe("document collections", { timeout: 30_000 }, () => {
     })
     expect(await posts.get("hello")).toBeNull()
     expect(await posts.get("hello", { ref: "draft" })).toEqual(saved)
-    expect(await posts.status("hello")).toEqual({ id: "hello", state: "draft", draft: saved.digest, published: null })
+    expect(await posts.status("hello")).toEqual({ collection: "posts", id: "hello", state: "draft", draft: saved.digest, published: null })
   })
 
   it("reports every invalid field with a readable CONTENT_INVALID error", async () => {
@@ -199,6 +200,61 @@ describe("document collections", { timeout: 30_000 }, () => {
     await expect(content.publish({ ids: ["hello"] } as never)).rejects.toMatchObject({ code: "CONTENT_R0009" })
   })
 
+  it("publishes exactly the reviewed drafts with expect", async () => {
+    const { content, posts } = await setup()
+    await posts.save("hello", hello)
+    await posts.save("other", { ...hello, data: { ...hello.data, title: "Other" } })
+    const reviewed = (await posts.status()).map(({ collection, id, draft }) => ({ collection, id, digest: draft }))
+    const [helloDraft] = reviewed
+    const result = await content.publish({ expect: [helloDraft!], message: "Approved hello" })
+    expect(result.documents).toEqual([{ collection: "posts", id: "hello", change: "add" }])
+    expect(await posts.status("other")).toMatchObject({ state: "draft" })
+
+    // A draft saved after review is not published, and nothing else is either.
+    const edited = await posts.save("other", { ...hello, data: { ...hello.data, title: "Edited after review" } })
+    const conflict = await rejection(content.publish({ expect: reviewed }))
+    expect(isWorkspaceConflict(conflict)).toBe(true)
+    expect(conflict.details).toEqual({
+      ref: "draft",
+      documents: [{ collection: "posts", id: "other", expected: reviewed[1]!.digest, actual: edited.digest }],
+    })
+    expect(conflict.message).toContain("posts/other")
+    expect(await posts.get("other")).toBeNull()
+
+    // Documents that already match published are skipped.
+    expect(await content.publish({ expect: [helloDraft!, { collection: "posts", id: "other", digest: edited.digest }] })).toMatchObject({
+      documents: [{ collection: "posts", id: "other", change: "add" }],
+    })
+    expect(await content.publish({ expect: [helloDraft!] })).toEqual({ revision: null, documents: [] })
+  })
+
+  it("publishes an expected deletion and rejects ambiguous expect options", async () => {
+    const { content, posts } = await setup()
+    const saved = await posts.save("hello", hello)
+    await content.publish()
+    // The draft still holds the document, so expecting it deleted conflicts.
+    await expect(content.publish({ expect: [{ collection: "posts", id: "hello", digest: null }] })).rejects.toMatchObject({
+      code: "WORKSPACE_CONFLICT",
+      details: { documents: [{ collection: "posts", id: "hello", expected: null, actual: saved.digest }] },
+    })
+    await posts.remove("hello")
+    expect(await posts.status("hello")).toMatchObject({ state: "deleted", draft: null })
+    expect((await content.publish({ expect: [{ collection: "posts", id: "hello", digest: null }] })).documents).toEqual([
+      { collection: "posts", id: "hello", change: "delete" },
+    ])
+    expect(await posts.get("hello")).toBeNull()
+    // A deletion of a document that was never published publishes nothing.
+    expect(await content.publish({ expect: [{ collection: "posts", id: "never", digest: null }] })).toEqual({ revision: null, documents: [] })
+
+    const entry = { collection: "posts", id: "hello", digest: null }
+    await expect(content.publish({ collection: "posts", expect: [entry] })).rejects.toMatchObject({ code: "CONTENT_R0009" })
+    await expect(content.publish({ collection: "posts", ids: ["hello"], expect: [entry] })).rejects.toMatchObject({ code: "CONTENT_R0009" })
+    await expect(content.publish({ expect: [] })).rejects.toMatchObject({ code: "CONTENT_R0009" })
+    await expect(content.publish({ expect: [entry, entry] })).rejects.toMatchObject({ code: "CONTENT_R0009" })
+    await expect(content.publish({ expect: [{ ...entry, digest: "" }] })).rejects.toMatchObject({ code: "CONTENT_R0009" })
+    await expect(content.publish({ expect: [{ ...entry, collection: "pages" }] })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+  })
+
   it("lists revisions per document, reads them, and restores one", async () => {
     const { content, posts } = await setup()
     const first = await posts.save("hello", hello, { metadata: { author: "ada" } })
@@ -247,6 +303,34 @@ describe("document collections", { timeout: 30_000 }, () => {
     await expect(posts.list({ sort: { field: "title" }, limit: 2, cursor: page.nextCursor! })).rejects.toMatchObject({ reason: "stale" })
   })
 
+  it("reports when each document last changed on the ref it was read from", async () => {
+    const { content, posts, workspace } = await setup()
+    const first = await posts.save("first", hello)
+    const second = await posts.save("second", hello)
+    const { revision: published } = await content.publish({ collection: "posts", ids: ["first"] })
+    const edited = await posts.save("first", { ...hello, body: "Edited" })
+    const updatedAt = (page: { items: Array<{ id: string, updatedAt: string | null }> }) => Object.fromEntries(page.items.map(item => [item.id, item.updatedAt]))
+    // This answer is cached, and the next walk stops at it.
+    expect(updatedAt(await posts.list({ ref: "draft" }))).toEqual({ first: edited.updatedAt, second: second.updatedAt })
+    const facade = useWorkspace(workspace as never, { mode: "write" })
+    const head = await facade.history.head({ ref: "draft" })
+    const foreign = await facade.history.commit({ ref: "draft", ifHead: head!.id, changes: { put: { "posts/third.md": "---\ntitle: Third\ndate: 2026-01-01\n---\n" } } })
+
+    const draft = { first: edited.revision, second: second.revision, third: foreign.id }
+    const createdAt = async (id: string) => (await (await facade.history.open(id)).revision).createdAt
+    const expected = { first: await createdAt(draft.first), second: await createdAt(draft.second), third: foreign.createdAt }
+    expect(edited.updatedAt).toBe(expected.first)
+    expect(first.updatedAt).not.toBe(edited.updatedAt)
+    expect(updatedAt(await posts.list({ ref: "draft" }))).toEqual(expected)
+    expect(updatedAt(await posts.list())).toEqual({ first: published!.createdAt })
+    expect((await posts.get("second", { ref: "draft" }))?.updatedAt).toBe(expected.second)
+
+    // Another runtime walks the history cold and reaches the same answer.
+    const other = defineContent({ workspace, collections: { posts: documents({ path: "posts/**/*.md", fields }) }, logger: false })
+    cleanup.push(() => other.dispose())
+    expect(updatedAt(await other.collection("posts").list({ ref: "draft" }))).toEqual(expected)
+  })
+
   it("serves only published documents from /api/content and refreshes Comark after publish", async () => {
     const { content, posts } = await setup()
     await posts.save("hello", hello)
@@ -276,7 +360,7 @@ describe("document collections", { timeout: 30_000 }, () => {
     const response = await app.request("/posts?tags=vue")
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
-      items: [{ collection: "posts", id: "vue", path: "posts/vue.md", data: { title: "Vue", date: "2026-01-02T00:00:00.000Z", tags: ["vue"] }, digest: expect.any(String), revision: expect.any(String) }],
+      items: [{ collection: "posts", id: "vue", path: "posts/vue.md", data: { title: "Vue", date: "2026-01-02T00:00:00.000Z", tags: ["vue"] }, digest: expect.any(String), revision: expect.any(String), updatedAt: expect.any(String) }],
       nextCursor: null,
       total: 1,
     })
@@ -313,6 +397,46 @@ describe("document collections", { timeout: 30_000 }, () => {
     await expect(stricter.collection("posts").get("untagged")).rejects.toMatchObject({ code: "CONTENT_INVALID", details: { issues: [expect.objectContaining({ field: "tags" })] } })
   })
 
+  it("refuses to publish a draft that no longer validates", async () => {
+    const { posts, workspace } = await setup()
+    await posts.save("untagged", { data: { title: "Untagged", date: "2026-01-01" } })
+    const stricter = defineContent({
+      workspace,
+      collections: { posts: documents({ path: "posts/**/*.md", fields: { ...fields, tags: z.array(z.string()).min(1) } }) },
+      logger: false,
+    })
+    cleanup.push(() => stricter.dispose())
+    await expect(stricter.publish()).rejects.toMatchObject({ code: "CONTENT_INVALID", details: { id: "untagged", issues: [expect.objectContaining({ field: "tags" })] } })
+    expect(await posts.status("untagged")).toMatchObject({ state: "draft", published: null })
+  })
+
+  it("reads the stored file with raw() even when it no longer validates", async () => {
+    const { content, posts, workspace } = await setup()
+    await posts.save("untagged", { data: { title: "Untagged", date: "2026-01-01" }, body: "Body" })
+    await content.publish()
+    const stricter = defineContent({
+      workspace,
+      collections: { posts: documents({ path: "posts/**/*.md", fields: { ...fields, tags: z.array(z.string()).min(1) } }) },
+      logger: false,
+    })
+    cleanup.push(() => stricter.dispose())
+    const strict = stricter.collection("posts")
+    await expect(strict.get("untagged")).rejects.toMatchObject({ code: "CONTENT_INVALID" })
+    const raw = await strict.raw("untagged")
+    expect(raw).toEqual({
+      collection: "posts",
+      id: "untagged",
+      path: "posts/untagged.md",
+      text: "---\ntitle: Untagged\ndate: 2026-01-01\n---\n\nBody",
+      digest: (await posts.status("untagged"))!.published,
+      revision: expect.any(String),
+    })
+    expect(await strict.raw("untagged", { ref: "draft" })).toEqual({ ...raw, revision: expect.any(String) })
+    expect(await strict.raw("untagged", { revision: raw!.revision })).toEqual(raw)
+    expect(await strict.raw("missing")).toBeNull()
+    await expect(strict.raw("untagged", { ref: "draft", revision: raw!.revision })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+  })
+
   it("pins the Comark Source to the draft ref with withRef()", async () => {
     const { content, posts } = await setup()
     await posts.save("hello", hello)
@@ -330,7 +454,7 @@ describe("document collections", { timeout: 30_000 }, () => {
       type: "object",
       properties: {
         title: { type: "string", minLength: 1 },
-        date: {},
+        date: { type: "string", format: "date-time" },
         tags: { type: "array", items: { type: "string" }, default: [] },
         summary: {},
       },
@@ -338,9 +462,49 @@ describe("document collections", { timeout: 30_000 }, () => {
     })
     expect(content.getSource("posts")?.schema).toEqual({
       type: "object",
-      properties: { title: { type: "string" }, date: {}, tags: { type: "array", items: { type: "string" } }, summary: {} },
+      properties: { title: { type: "string" }, date: { type: "string" }, tags: { type: "array", items: { type: "string" } }, summary: {} },
       required: ["title", "date"],
     })
+  })
+
+  it("projects Valibot fields through toStandardJsonSchema() and warns once per untyped field", async () => {
+    const workspace = await historyWorkspace()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const define = () => defineContent({
+      workspace,
+      collections: {
+        events: documents({
+          path: "events/*.md",
+          fields: {
+            title: toStandardJsonSchema(v.string()),
+            day: optional(toStandardJsonSchema(v.pipe(v.string(), v.isoDate()))),
+            venue: v.string(),
+            ends: optional(z.coerce.date()),
+            extra: z.unknown(),
+          },
+        }),
+      },
+      logger: false,
+    })
+    const content = define()
+    cleanup.push(() => content.dispose())
+    const events = content.collection("events")
+    expect(events.schema).toEqual({
+      type: "object",
+      properties: { title: { type: "string" }, day: { type: "string", format: "date" }, venue: {}, ends: { type: "string", format: "date-time" }, extra: {} },
+      required: ["title", "venue"],
+    })
+    expect((await events.save("launch", { data: { title: "Launch", day: "2026-10-14", venue: "Online" } })).data).toEqual({ title: "Launch", day: "2026-10-14", venue: "Online" })
+    const warnings = () => warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes("\"events\""))
+    expect(warnings()).toEqual([
+      expect.stringContaining("field \"venue\" has no JSON Schema"),
+      expect.stringContaining("field \"extra\" has no JSON Schema"),
+    ])
+    expect(warnings()[0]).toContain("toStandardJsonSchema() from @valibot/to-json-schema")
+    expect(warnings()[1]).toContain("https://vitehub.dev/docs/content/configure#json-schema")
+    const again = define()
+    cleanup.push(() => again.dispose())
+    expect(warnings()).toHaveLength(2)
   })
 
   it("treats optional() fields as absent and accepts Standard Schemas from different libraries", async () => {
@@ -380,6 +544,19 @@ describe("document collections", { timeout: 30_000 }, () => {
     await expect(guarded.can({ user: null, collection: "pages", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
   })
 
+  it("passes the Auth user and the Agent Actor to authorize", async () => {
+    const policy = vi.fn<ContentAuthorize>(({ user, actor, action }) => user?.role === "editor" || (action === "read" && actor?.kind === "agent"))
+    const { content } = await setup({ authorize: policy })
+    const actor = { id: "agent:writer", kind: "agent", meta: { authUserId: "u1" } }
+    expect(await content.can({ actor, collection: "posts", action: "read" })).toBe(true)
+    expect(policy).toHaveBeenLastCalledWith({ user: null, actor, collection: "posts", action: "read" })
+    expect(await content.can({ user: { role: "editor" }, actor, collection: "posts", action: "publish", id: "hello" })).toBe(true)
+    expect(policy).toHaveBeenLastCalledWith({ user: { role: "editor" }, actor, collection: "posts", action: "publish", id: "hello" })
+    expect(await content.can({ actor, collection: "posts", action: "write" })).toBe(false)
+    await expect(content.can({ actor: { kind: "agent" } as never, collection: "posts", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.can({ user: "editor" as never, collection: "posts", action: "read" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+  })
+
   it("keeps read-only sources next to collections and rejects bad definitions", async () => {
     const workspace = await historyWorkspace()
     const docs = { keys: () => ["index.md"], getItem: () => "# Docs", getItemRaw: () => "# Docs" }
@@ -387,6 +564,13 @@ describe("document collections", { timeout: 30_000 }, () => {
     cleanup.push(() => content.dispose())
     expect(await content.list("docs")).toEqual([expect.objectContaining({ path: "/" })])
     expect(content.getSource("posts")).toBeDefined()
+    const [posts, ...rest] = content.collections()
+    expect(rest).toEqual([])
+    expect(posts).toBe(content.collection("posts"))
+    expect(posts).toMatchObject({ name: "posts", path: "posts/*.md", fields: ["title", "date", "tags", "summary"], schema: { type: "object" } })
+    const sourcesOnly = defineContent({ sources: { docs }, logger: false })
+    cleanup.push(() => sourcesOnly.dispose())
+    expect(sourcesOnly.collections()).toEqual([])
 
     expect(() => defineContent({ collections: { posts: documents({ path: "posts/*.md", fields }) } })).toThrow(expect.objectContaining({ code: "CONTENT_R0006" }))
     expect(() => defineContent({ workspace, sources: { posts: docs }, collections: { posts: documents({ path: "posts/*.md", fields }) } })).toThrow("same name")
