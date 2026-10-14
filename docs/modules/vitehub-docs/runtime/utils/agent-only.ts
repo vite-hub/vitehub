@@ -10,3 +10,16 @@ export function unwrapAgentOnlyNodes(nodes: unknown[]) {
     else node.splice(2, node.length - 2, ...children);
   }
 }
+
+/** Unwrap agent-only nodes in the document shapes supplied by agent-discovery adapters. */
+export function unwrapAgentOnlyDocument(page: unknown) {
+  // SAFETY: agent-discovery passes a document object whose adapter-specific trees are optional.
+  const document = page as {
+    body?: { value?: unknown };
+    nodes?: unknown;
+  } | undefined;
+  const trees = [document?.body?.value, document?.nodes];
+  for (const tree of trees) {
+    if (Array.isArray(tree)) unwrapAgentOnlyNodes(tree);
+  }
+}

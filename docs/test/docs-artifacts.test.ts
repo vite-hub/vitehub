@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { readDocsArtifactsManifest, recoverAbandonedLock, writeDocsArtifacts } from "../modules/vitehub-docs/artifacts";
 import { toRawMarkdown } from "../modules/vitehub-docs/artifacts/raw-markdown";
 import { isDocsArtifactSource } from "../modules/vitehub-docs/index";
-import { unwrapAgentOnlyNodes } from "../modules/vitehub-docs/runtime/utils/agent-only";
+import { unwrapAgentOnlyDocument, unwrapAgentOnlyNodes } from "../modules/vitehub-docs/runtime/utils/agent-only";
 
 function writeText(filePath: string, contents: string) {
   mkdirSync(dirname(filePath), { recursive: true });
@@ -105,6 +105,14 @@ describe("writeDocsArtifacts", () => {
       ["p", {}, "Agents only."],
       ["note", {}, ["p", {}, "Nested."]],
     ]);
+  });
+
+  it("unwraps the Comark page.nodes document shape", () => {
+    const page = {
+      nodes: [["agent-only", {}, ["p", {}, "Agents only."]]],
+    };
+    unwrapAgentOnlyDocument(page);
+    expect(page.nodes).toEqual([["p", {}, "Agents only."]]);
   });
 
   it("parses YAML block scalar titles", () => {
