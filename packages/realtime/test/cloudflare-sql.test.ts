@@ -45,6 +45,19 @@ describe("Cloudflare SQL carrier discovery", () => {
     expect(databaseSize).not.toHaveBeenCalled()
   })
 
+  it("rejects proxy-wrapped arrow and bound fabricated carriers", () => {
+    const constructor = new Proxy((() => {}).bind(null), {})
+    const exec = new Proxy((() => ({ toArray: () => [] })).bind(null), {})
+    const databaseSize = new Proxy((() => 0).bind(null), {})
+    const prototype = Object.defineProperties({}, {
+      constructor: { value: constructor },
+      exec: { value: exec },
+      databaseSize: { get: databaseSize },
+    })
+
+    expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
+  })
+
   it("returns false if proxy inspection throws", () => {
     const sql = new Proxy({}, { getOwnPropertyDescriptor() { throw new Error("unavailable") } })
     expect(hasCloudflareSqlExec(sql)).toBe(false)

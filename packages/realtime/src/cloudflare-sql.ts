@@ -30,7 +30,12 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
       // own property. A Proxy around an ordinary callback retains it.
       return !Object.hasOwn(value, "prototype")
     }
-    if (!isNativeFunction(constructor) || !isNativeMethod(exec) || !isNativeMethod(databaseSize)) return false
+    // SqlStorage is a constructable platform type. Requiring its own
+    // prototype rejects proxy-wrapped arrow and bound functions, which can
+    // otherwise mimic the native source marker while remaining ordinary JS.
+    const isNativeConstructor = (value: unknown): value is Function =>
+      isNativeFunction(value) && Object.hasOwn(value, "prototype")
+    if (!isNativeConstructor(constructor) || !isNativeMethod(exec) || !isNativeMethod(databaseSize)) return false
 
     // This read-only native getter checks workerd's internal SqlStorage receiver.
     // Copying its prototype onto an ordinary object does not pass the check.
