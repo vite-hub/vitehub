@@ -640,71 +640,71 @@ async function collectBoundedObservationBuiltIns(
     seen.add(value)
     const BlobConstructor = globalThis.Blob
     if (hasRuntimeType(BlobConstructor, "function") && isInstance(value, BlobConstructor)) {
-    const blob = value as Blob
-    const FileConstructor = globalThis.File
-    const file = hasRuntimeType(FileConstructor, "function") && isInstance(value, FileConstructor) ? value as File : undefined
-    const bytes = Array.from(new Uint8Array(await blob.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
-    const representation: Record<string, unknown> = {
-      bytes,
-      mediaType: blob.type,
-      size: blob.size,
-      type: file ? "File" : "Blob",
-    }
-    if (file) {
-      representation.lastModified = file.lastModified
-      representation.name = file.name
-    }
-    builtIns.set(value, {
-      truncated: true,
-      value: representation,
-    })
+      const blob = value
+      const FileConstructor = globalThis.File
+      const file = hasRuntimeType(FileConstructor, "function") && isInstance(value, FileConstructor) ? value : undefined
+      const bytes = Array.from(new Uint8Array(await blob.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
+      const representation = {
+        bytes,
+        mediaType: blob.type,
+        size: blob.size,
+        type: file ? "File" : "Blob",
+      }
+      if (file) {
+        representation.lastModified = file.lastModified
+        representation.name = file.name
+      }
+      builtIns.set(value, {
+        truncated: true,
+        value: representation,
+      })
       return
     }
     const primitive = boxedObservationPrimitive(value)
     if (primitive) {
-    builtIns.set(value, { truncated: true, value: primitive })
+      builtIns.set(value, { truncated: true, value: primitive })
       return
     }
     if (isArray(value)) {
-    const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
-    for (let index = 0; index < length; index++) {
-      if (Object.hasOwn(value, index)) await collectBoundedObservationBuiltIns(value[index], builtIns, budget, seen, depth + 1)
-    }
+      const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+      for (let index = 0; index < length; index++) {
+        if (Object.hasOwn(value, index)) await collectBoundedObservationBuiltIns(value[index], builtIns, budget, seen, depth + 1)
+      }
       return
     }
     const mapEntries = reflectedMapEntries(value)
     if (mapEntries) {
-    let count = 0
-    for (const [key, child] of mapEntries) {
-      if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
-      await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
-      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
-    }
+      let count = 0
+      for (const [key, child] of mapEntries) {
+        if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
+        await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
+        await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+      }
       return
     }
     const setValues = reflectedSetValues(value)
     if (setValues) {
-    let count = 0
-    while (count++ < MAX_OBSERVATION_COLLECTION_ITEMS) {
-      const next = setValues.next()
-      if (next.done) break
-      const child = next.value
-      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
-    }
+      let count = 0
+      while (count++ < MAX_OBSERVATION_COLLECTION_ITEMS) {
+        const next = setValues.next()
+        if (next.done) break
+        const child = next.value
+        await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+      }
       return
     }
     if (isInstance(value, Error)) {
-    if (isInstance(value, AggregateError)) {
-      await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
-    }
-    if (Object.hasOwn(value, "cause")) {
-      await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
-    }
-    for (const [key, child] of Object.entries(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
-      if (key !== "cause" && key !== "errors") {
-        await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+      if (isInstance(value, AggregateError)) {
+        await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
       }
-    }
+      if (Object.hasOwn(value, "cause")) {
+        await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
+      }
+      for (const [key, child] of Object.entries(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
+        if (key !== "cause" && key !== "errors") {
+          await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+        }
+      }
       return
     }
     const prototype = Object.getPrototypeOf(value)
@@ -822,6 +822,7 @@ function boundedObservationValue(
     budget.truncated = true
     const length = Math.min(arrayBufferLength, collectionItems, budget.items)
     try {
+      // SAFETY: The intrinsic byteLength getter validated the ArrayBuffer internal slot above.
       return boundedObservationValue(Array.from(new Uint8Array(value as ArrayBuffer, 0, length)), budget, depth + 1, maxStringLength, builtIns)
     }
     catch {
