@@ -77,6 +77,8 @@ function isBrandedMethod(value: unknown, receiver: object, ...args: unknown[]): 
         return false
       }
     }
+    const receiverResult = value.call(receiver, "__vitehub_brand_probe__")
+    if (receiverResult !== undefined && receiverResult !== null) return false
     // Genuine Web IDL methods reject an unrelated receiver. This also rejects
     // a Proxy around an ordinary function whose source is reported as native.
     value.call(Object.create(null), ...args)
