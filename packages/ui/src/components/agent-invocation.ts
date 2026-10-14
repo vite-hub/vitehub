@@ -1193,8 +1193,8 @@ function renderConfiguration(
   configuration: AgentInvocationConfiguration,
   invocation: AgentInvocationView,
   showCapabilities: boolean,
-  selectTool: (name: string) => void,
   showSources: boolean,
+  selectTool: (name: string) => void,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
@@ -1790,7 +1790,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool, props.showSources) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, props.showSources, selectTool) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",
