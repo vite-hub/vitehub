@@ -328,3 +328,25 @@ it("does not trust a replaced Error.isError predicate", () => {
   }
   expect(normalized).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
 })
+
+it("does not trust a replaced util.types.isNativeError predicate", () => {
+  const processWithBuiltinModule = process as typeof process & {
+    getBuiltinModule?: (name: string) => unknown
+  }
+  const util = processWithBuiltinModule.getBuiltinModule?.("util") as {
+    types?: { isNativeError?: (value: unknown) => boolean }
+  } | undefined
+  if (typeof util?.types?.isNativeError !== "function") return
+
+  const nativeIsNativeError = util.types.isNativeError
+  util.types.isNativeError = () => true
+  const spoof = { message: "not an Error" }
+  let normalized: Error
+  try {
+    normalized = normalizeScheduleRuntimeError(spoof)
+  }
+  finally {
+    util.types.isNativeError = nativeIsNativeError
+  }
+  expect(normalized).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
+})
