@@ -4736,7 +4736,7 @@ function chatMessageDeliveryArtifacts(message: AgentChatMessage): readonly Publi
 function chatReplyTargetId(thread: Thread): string | undefined {
   if (!thread.adapter.reply) return undefined
   const target: unknown = Reflect.get(thread, "_currentMessage")
-  if (!isRecord(target) || target.threadId !== thread.id || (isRecord(target.author) && target.author.isMe === true)) return undefined
+  if (!isRecord(target) || target.threadId !== thread.id || (isRecord(target.author) && (target.author.isMe === true || target.author.isBot === true))) return undefined
   return isChatReplyTargetId(target.id) ? target.id : undefined
 }
 
