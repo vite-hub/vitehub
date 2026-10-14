@@ -30,6 +30,8 @@ export type {
   McpResourcesServer,
   McpResourcesSourceOptions,
 } from "./sources/index.ts"
+export { workspaceFile } from "./collection.ts"
+export type { WorkspaceFileCollectionOptions } from "./collection.ts"
 export { createWorkspaceTools } from "./ai.ts"
 export type * from "./ai.ts"
 export { resolveWorkspaceAutoCommit } from "./core/rules.ts"
