@@ -464,10 +464,10 @@ describe("hubDb", () => {
     const analyticsConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/analytics.config.ts"), "utf8")
     const primaryConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/primary.config.ts"), "utf8")
 
-    expect(analyticsConfig).toContain("import databaseDefinition from \"../../../server/databases/analytics/config.ts\"")
+    expect(analyticsConfig).toContain("import databaseDefinition_0 from \"../../../server/databases/analytics/config.ts\"")
     expect(analyticsConfig).toContain("server/databases/analytics/migrations")
     expect(analyticsConfig).toContain("file:.vitehub/data/database/analytics.sqlite.db")
-    expect(primaryConfig).toContain("import databaseDefinition from \"../../../server/databases/primary/config.ts\"")
+    expect(primaryConfig).toContain("import databaseDefinition_0 from \"../../../server/databases/primary/config.ts\"")
     expect(primaryConfig).toContain("server/databases/primary/migrations")
     expect(primaryConfig).toContain("file:.vitehub/data/database/primary.sqlite.db")
   })
@@ -556,7 +556,8 @@ describe("hubDb", () => {
   })
 
   it("applies Definition Drizzle casing to generated migrations", async () => {
-    const rootDir = await mkdtemp(join(import.meta.dirname, ".drizzle-casing-"))
+    await mkdir(join(import.meta.dirname, "../../../.vitest-tmp"), { recursive: true })
+    const rootDir = await mkdtemp(join(import.meta.dirname, "../../../.vitest-tmp/drizzle-casing-"))
     tempDirs.push(rootDir)
     await mkdir(join(rootDir, "server/databases"), { recursive: true })
     await writeFile(join(rootDir, "server/databases/schema.ts"), [
@@ -604,6 +605,43 @@ describe("hubDb", () => {
     finally {
       client.close()
     }
+  })
+
+  it("rejects one aggregate Drizzle casing for databases with different casing", async () => {
+    await mkdir(join(import.meta.dirname, "../../../.vitest-tmp"), { recursive: true })
+    const rootDir = await mkdtemp(join(import.meta.dirname, "../../../.vitest-tmp/drizzle-mixed-casing-"))
+    tempDirs.push(rootDir)
+    for (const [name, casing] of [["accounts", "snake_case"], ["billing", "camelCase"]] as const) {
+      await mkdir(join(rootDir, "server/databases", name), { recursive: true })
+      await writeFile(join(rootDir, "server/databases", name, "config.ts"), [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+        `const ${name} = sqliteTable('${name}', { id: integer().primaryKey(), displayName: text().notNull() })`,
+        "export default defineDatabase({",
+        `  name: '${name}',`,
+        `  name: '${name}',`,
+        `  drizzle: { casing: '${casing}' },`,
+        `  schema: { ${name} },`,
+        "})",
+        "",
+      ].join("\n"))
+    }
+
+    await resolveConfigResolved(hubDb())({ root: rootDir })
+    const generate = (config: string) => execFileAsync(process.execPath, [
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      "generate",
+      "--config",
+      config,
+    ], { cwd: rootDir })
+
+    await expect(generate(".vitehub/database/drizzle.config.ts")).rejects.toMatchObject({
+      stderr: expect.stringContaining("use different Drizzle casing"),
+    })
+    await generate(".vitehub/database/drizzle/billing.config.ts")
+    const migrationsDir = join(rootDir, "server/databases/billing/migrations")
+    const migrationFile = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))
+    expect(await readFile(join(migrationsDir, migrationFile!), "utf8")).toContain("`displayName` text NOT NULL")
   })
 
   it("lets top-level config disable the database plugin", async () => {

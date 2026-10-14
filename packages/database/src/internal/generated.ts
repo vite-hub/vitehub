@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 
 import { createImportPath } from "@vite-hub/internal/build/paths"
-import { dirname, join } from "pathe"
+import { dirname, join, relative } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
 
@@ -50,15 +50,29 @@ function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
 function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
   const schemaFiles = databaseNames.map(name => config.generatedSchemaFilesByDatabase[name]!)
   const database = config.databases[databaseNames[0]!]!
-  const definition = config.definitions.find(item => item.name === database.name)!
   const out = databaseNames.length === 1 ? database.migrationsDir : ".vitehub/database/migrations"
-  // Read Drizzle options from the Definition so migrations and queries use the same casing.
+  // Read Drizzle options from the Definitions so migrations and queries use the same casing.
+  const definitionImports = databaseNames.map((name, index) => {
+    const definition = config.definitions.find(item => item.name === name)!
+    return `import databaseDefinition_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`
+  })
+  const casingCheck = databaseNames.length === 1
+    ? []
+    : [
+        // One Drizzle config has one casing, so the aggregate config refuses Databases that disagree.
+        `const casings = new Set([${databaseNames.map((_, index) => `databaseDefinition_${index}.drizzle?.casing`).join(", ")}])`,
+        "if (casings.size > 1) {",
+        `  throw new Error(${JSON.stringify(`[vitehub] These Databases use different Drizzle casing. Run drizzle-kit once per Database with ${databaseNames.map(name => relative(config.rootDir, config.generatedDrizzleConfigFilesByDatabase[name]!)).join(", ")}, or run \`vitehub db generate\`.`)})`,
+        "}",
+        "",
+      ]
   return [
-    `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
+    ...definitionImports,
     "",
+    ...casingCheck,
     "export default {",
     "  dialect: \"sqlite\",",
-    "  casing: databaseDefinition.drizzle?.casing,",
+    "  casing: databaseDefinition_0.drizzle?.casing,",
     ...renderDbCredentials(database),
     `  schema: ${JSON.stringify(schemaFiles)},`,
     `  out: ${JSON.stringify(out)},`,
