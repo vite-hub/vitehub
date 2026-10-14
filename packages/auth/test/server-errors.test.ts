@@ -201,7 +201,8 @@ describe("server authentication provider boundaries", () => {
         text() { return Promise.resolve("") }
         get [Symbol.toStringTag]() { return "Request" }
       }
-      return Object.create(Object.create(new Request()))
+      const intermediate = Object.create(Request.prototype)
+      return Object.create(intermediate)
     })()`)
     const response = new Response("ok")
     providerMocks.handler.mockImplementationOnce((input: unknown) => {

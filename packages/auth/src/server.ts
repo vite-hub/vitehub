@@ -63,6 +63,7 @@ function isRequestLike(value: AuthRequest): value is Request {
     // Request implementations only when they provide Better Auth's body API.
     if (Object.prototype.toString.call(value) !== "[object Request]") return false
     const prototype = Reflect.getPrototypeOf(value)
+    if (!prototype) return false
     const accessorPrototype = ["body", "bodyUsed", "headers", "method", "signal", "url"].reduce< object | undefined>((found, property) => {
       if (found) return found
       for (let current = prototype; current; current = Reflect.getPrototypeOf(current)) {
@@ -80,6 +81,12 @@ function isRequestLike(value: AuthRequest): value is Request {
     // value and its accessor surface. Genuine implementations place the
     // request prototype directly above the instance prototype.
     if (Reflect.getPrototypeOf(prototype) !== accessorPrototype) return false
+    // The value must use the implementation's own Request prototype directly.
+    // An intermediate caller-created object can otherwise inherit the complete
+    // surface while retaining the foreign accessor brand.
+    const constructor = Reflect.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the foreign Request prototype marker.
+    if (typeof constructor !== "function" || constructor.name !== "Request") return false
     const hasAccessor = (property: string): boolean => typeof Reflect.getOwnPropertyDescriptor(accessorPrototype, property)?.get === "function"
     // Request implementations expose their state through prototype accessors. This
     // rejects tagged host-shaped objects that merely copy the method names.
