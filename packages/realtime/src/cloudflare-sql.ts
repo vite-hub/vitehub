@@ -37,9 +37,17 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
       isNativeFunction(value) && Object.hasOwn(value, "prototype")
     if (!isNativeConstructor(constructor) || !isNativeMethod(exec) || !isNativeMethod(databaseSize)) return false
 
-    // This read-only native getter checks workerd's internal SqlStorage receiver.
-    // Copying its prototype onto an ordinary object does not pass the check.
-    return Number.isFinite(Reflect.apply(databaseSize, sql, []))
+    // The native getter must enforce workerd's internal SqlStorage brand.
+    // A fabricated getter (including a Proxy-wrapped arrow or bound function)
+    // will also return a finite value for an object that merely copies the
+    // prototype, whereas the platform getter rejects that counterfeit receiver.
+    try {
+      Reflect.apply(databaseSize, Object.create(prototype), [])
+      return false
+    }
+    catch {
+      return Number.isFinite(Reflect.apply(databaseSize, sql, []))
+    }
   }
   catch {
     return false
