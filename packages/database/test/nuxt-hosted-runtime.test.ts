@@ -10,8 +10,10 @@ describe("Nuxt hosted Database module preparation", () => {
   it.each([
     ["cloudflare-module", "cloudflare", "default"],
     ["cloudflare-module", "cloudflare", "orders"],
+    ["cloudflare-module", "cloudflare", "__proto__"],
     ["vercel", "vercel", "default"],
     ["vercel", "vercel", "orders"],
+    ["vercel", "vercel", "__proto__"],
   ])("creates a resolvable %s runtime for the %s provider and %s definition before Vite builds", async (preset, provider, name) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-nuxt-hosted-runtime-"))
     const projectRoot = join(root, "service")
@@ -32,7 +34,7 @@ describe("Nuxt hosted Database module preparation", () => {
       expect(runtimeFile).toBe(join(projectRoot, `.vitehub/database/${provider}-runtime.mjs`))
       const runtime = await readFile(runtimeFile, "utf8")
       expect(runtime).toContain("createHostedDrizzleDb(")
-      expect(runtime).toContain(`${JSON.stringify(name)}: {`)
+      expect(runtime).toContain(`[${JSON.stringify(name)}]: {`)
       // Generated schema imports must exist when Nitro first resolves the alias.
       const schemaImport = /import schema_0 from "([^"]+)"/.exec(runtime)?.[1]
       expect(schemaImport).toBeTruthy()

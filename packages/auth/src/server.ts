@@ -285,7 +285,7 @@ async function runAccessAuthorize(
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
+const authorizationResponseProperties = ["status", "statusText", "headers", "body", "bodyUsed"] as const
 
 const authorizationResponsePrototypeLimit = 32
 
@@ -349,14 +349,16 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
+    const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
+    if (bodyUsed !== false) return
 
     const headerCarrier = Object(headers)
-    const snapshot = { status, statusText, headers, body }
+    const snapshot = { status, statusText, headers, body, bodyUsed }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     let nativeProperties = false
