@@ -323,51 +323,20 @@ async function runAccessAuthorize(
       }
       let normalizedBody: ReadableStream<Uint8Array> | null = null
       if (body !== null) {
-        // Tee through the candidate stream so foreign streams remain usable while
-        // forged reader-shaped objects fail before reaching the host adapter.
-        const lockedAccessor = responseGetter(body as object, "locked")
-        if (!lockedAccessor || typeof lockedAccessor.call(body as object) !== "boolean") {
-          return createForbiddenResponse(context.request)
+        // Transfer through the platform structured-clone operation. This requires
+        // the non-forgeable ReadableStream brand and also works across fetch realms.
+        const transferred = structuredClone(body, { transfer: [body] })
+        const reader = transferred.getReader()
+        const chunks: Uint8Array[] = []
+        while (true) {
+          const chunk = await reader.read()
+          if (chunk.done) break
+          if (!ArrayBuffer.isView(chunk.value)) return createForbiddenResponse(context.request)
+          chunks.push(Uint8Array.from(chunk.value as unknown as ArrayLike<number>))
         }
-        const teeMethod = responseMethod(body as object, "tee")
-        if (!teeMethod) return createForbiddenResponse(context.request)
-        const tee = teeMethod.call(body as object)
-        if (!Array.isArray(tee) || tee.length !== 2) return createForbiddenResponse(context.request)
-        if (!tee[0] || typeof tee[0] !== "object") return createForbiddenResponse(context.request)
-        const consumeBranch = async (branch: unknown): Promise<Uint8Array[] | undefined> => {
-          if (!branch || typeof branch !== "object") return
-          const branchLockedAccessor = responseGetter(branch as object, "locked")
-          if (!branchLockedAccessor || typeof branchLockedAccessor.call(branch as object) !== "boolean") return
-          const readerMethod = responseMethod(branch as object, "getReader")
-          const reader = readerMethod?.call(branch as object) as { read?: () => unknown, releaseLock?: () => void } | undefined
-          if (!reader || typeof reader.read !== "function" || typeof reader.releaseLock !== "function") return
-          const chunks: Uint8Array[] = []
-          try {
-            while (true) {
-              const pending = reader.read()
-              if (!pending || typeof (pending as PromiseLike<unknown>).then !== "function") return
-              const chunk = await pending as { done?: unknown, value?: unknown }
-              if (typeof chunk !== "object" || chunk === null || typeof chunk.done !== "boolean") return
-              if (chunk.done) return chunks
-              if (!ArrayBuffer.isView(chunk.value) || typeof (chunk.value as { byteLength?: unknown }).byteLength !== "number") return
-              chunks.push(Uint8Array.from(chunk.value as unknown as ArrayLike<number>))
-            }
-          }
-          catch {
-            return
-          }
-          finally {
-            try { reader.releaseLock() } catch { /* ignore */ }
-          }
-        }
-        const firstChunks = await consumeBranch(tee[0])
-        const secondChunks = await consumeBranch(tee[1])
-        if (!firstChunks || !secondChunks) {
-          return createForbiddenResponse(context.request)
-        }
-        const bodyBytes = new Uint8Array(secondChunks.reduce((total, chunk) => total + chunk.byteLength, 0))
+        const bodyBytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0))
         let offset = 0
-        for (const chunk of secondChunks) {
+        for (const chunk of chunks) {
           bodyBytes.set(chunk, offset)
           offset += chunk.byteLength
         }
