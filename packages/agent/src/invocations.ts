@@ -545,9 +545,9 @@ function arrayBufferByteLength(value: unknown): number | undefined {
   }
 }
 
-function isInstance<T>(value: unknown, constructor: { prototype: T }): value is T {
+function isInstance<T>(value: unknown, constructor: Function & { prototype: T }): value is T {
   try {
-    return value instanceof (constructor as any)
+    return value instanceof constructor
   }
   catch {
     return false
