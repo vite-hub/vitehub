@@ -39,6 +39,12 @@ function isRequestLike(value: unknown): value is Request {
     const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
     if (typeof constructor !== "function" || constructor.prototype !== prototype) return false
 
+    // Fetch implementations expose the Request brand through the prototype's
+    // toString tag. Require that tag to come from the same prototype as the
+    // accessors above, so an object-level Symbol.toStringTag cannot spoof it.
+    const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
+    if (tag?.value !== "Request" && typeof tag?.get !== "function") return false
+
     const getters = ["url", "method", "headers", "body", "bodyUsed"] as const
     for (const key of getters) {
       const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
