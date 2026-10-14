@@ -4159,7 +4159,8 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
   }) as ChatConfig
 }
 
-function chatFinalDelivery(options: AgentChatOptions | undefined): "new-message" | undefined {
+function chatFinalDelivery(options: AgentChatOptions | undefined): "new-message" | "placeholder" | undefined {
+  if (options?.final?.delivery === "placeholder" || options?.finalDelivery === "placeholder") return "placeholder"
   if (options?.final?.delivery === "new-message" || options?.finalDelivery === "new-message") return "new-message"
 }
 
@@ -4197,8 +4198,43 @@ interface ChatMessagePartOptions {
   rejectOversizedTextAttachments?: boolean
 }
 
+function isChatArrayBuffer(value: unknown): value is ArrayBuffer {
+  try {
+    const getter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+    if (!getter) return false
+    getter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function isChatUint8Array(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  try {
+    const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+    return getter?.call(value) === "Uint8Array"
+  }
+  catch {
+    return false
+  }
+}
+
+function isChatBlob(value: unknown): value is Blob {
+  try {
+    const getter = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get
+    if (!getter) return false
+    getter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (attachment.data instanceof Blob && attachment.data.type.startsWith("image/")) return attachment.data.type
+  if (isChatBlob(attachment.data) && attachment.data.type.startsWith("image/")) return attachment.data.type
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4216,7 +4252,7 @@ function isTextAttachment(attachment: Attachment): boolean {
 }
 
 function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOptions = {}): Uint8Array | undefined {
-  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value instanceof Uint8Array ? value : undefined
+  const bytes = isChatArrayBuffer(value) ? new Uint8Array(value) : isChatUint8Array(value) ? value : undefined
   if (!bytes) return
   if (bytes.byteLength > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
@@ -4242,7 +4278,7 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
       return undefined
     }
   }
-  if (attachment.data instanceof Blob) {
+  if (isChatBlob(attachment.data)) {
     return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
@@ -5024,7 +5060,7 @@ async function flushChatFinishExtensionMessages(
   chat: AgentChatQueuedFinishExtension,
   manualDelivery: ManualChatDeliveryState,
   waitUntil: AgentWaitUntil,
-  finalDelivery?: "new-message",
+  finalDelivery?: "new-message" | "placeholder",
   abortSignal?: AbortSignal,
 ): Promise<void> {
   const messages = chat[chatFinishMessagesKey].splice(0)
@@ -5054,6 +5090,18 @@ async function flushChatFinishExtensionMessages(
           abortSignal?.throwIfAborted()
         }
         const placeholder = manualDelivery.placeholder
+        if (finalDelivery === "placeholder") {
+          const deliveredToPlaceholder = await deliverToManualDeliveryPlaceholder(placeholder, message)
+          if (deliveredToPlaceholder) {
+            if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
+            await settleChatFinishDeliveryCallbacks(callbacks, capture)
+            continue
+          }
+          if (manualDelivery.placeholder === placeholder) manualDelivery.placeholder = undefined
+          await postChatMessage(thread, message, abortSignal)
+          await settleChatFinishDeliveryCallbacks(callbacks, capture)
+          continue
+        }
         if (finalDelivery === "new-message") {
           let posted = false
           try {
@@ -7010,9 +7058,40 @@ function historyBytesToBase64(data: Uint8Array): string {
 const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
 const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
 
+function isChannelHistoryBlob(value: unknown): { size: number, arrayBuffer: () => Promise<ArrayBuffer> } | undefined {
+  if (!isRuntimeObject(value)) return
+  try {
+    const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(value)
+    if (!isRuntimeNumber(size) || !Number.isSafeInteger(size) || size < 0) return
+    const arrayBuffer = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer")!.value
+    if (!isRuntimeFunction(arrayBuffer)) return
+    return { size, arrayBuffer: () => arrayBuffer.call(value) }
+  } catch {
+    return
+  }
+}
+
 function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
-  const bytes = value instanceof Blob ? undefined : value instanceof ArrayBuffer ? new Uint8Array(value) : value instanceof Uint8Array ? value : undefined
-  return bytes && bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
+  let bytes: Uint8Array
+  const prototype = Object.getPrototypeOf(Uint8Array.prototype)
+  if (ArrayBuffer.isView(value) && Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)!.get!.call(value) === "Uint8Array") {
+    // Native accessors read the typed-array slots, ignoring shadowing own properties.
+    bytes = new Uint8Array(
+      Object.getOwnPropertyDescriptor(prototype, "buffer")!.get!.call(value),
+      Object.getOwnPropertyDescriptor(prototype, "byteOffset")!.get!.call(value),
+      Object.getOwnPropertyDescriptor(prototype, "byteLength")!.get!.call(value),
+    )
+  } else {
+    try {
+      // The native getter checks the ArrayBuffer brand across JavaScript realms.
+      Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+      // SAFETY: The native getter above accepts only genuine ArrayBuffer values.
+      bytes = new Uint8Array(value as ArrayBuffer)
+    } catch {
+      return undefined
+    }
+  }
+  return bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
 }
 
 async function boundedChannelHistoryOperation(operation: () => unknown | Promise<unknown>, signal: AbortSignal): Promise<unknown> {
@@ -7107,7 +7186,17 @@ async function channelHistoryAttachment(
   }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
-  if (data instanceof Blob) data = data.size <= maxBytes ? new Uint8Array(await data.arrayBuffer()) : undefined
+  const blob = isChannelHistoryBlob(data)
+  if (blob) {
+    if (blob.size <= maxBytes) {
+      try {
+        // SAFETY: Blob.arrayBuffer() is the native method applied to a branded Blob, so it resolves to an ArrayBuffer.
+        data = new Uint8Array(await boundedChannelHistoryOperation(blob.arrayBuffer, signal) as ArrayBuffer)
+      } catch {
+        data = undefined
+      }
+    } else data = undefined
+  }
   const boundedLazySize = isRuntimeNumber(resolved.size) && Number.isFinite(resolved.size) && resolved.size >= 0 && resolved.size <= maxBytes
   if (!data && resolved.fetchData && boundedLazySize) {
     try {

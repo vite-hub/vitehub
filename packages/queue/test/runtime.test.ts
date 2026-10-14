@@ -757,6 +757,59 @@ describe("vercel provider", () => {
     expect(handleCallback).toHaveBeenCalledTimes(1)
   })
 
+  it("rejects inherited direct Vercel SDK clients", async () => {
+    const inherited = {
+      handleCallback: vi.fn(() => async () => new Response("inherited")),
+      send: vi.fn(async () => ({ messageId: "inherited" })),
+    }
+
+    await expect(createVercelQueueClient({
+      client: Object.create(inherited),
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })).rejects.toMatchObject({
+      code: "VERCEL_QUEUE_SDK_INVALID",
+      details: { provider: "vercel" },
+    })
+
+    await expect(createVercelQueueClient({
+      client: null as never,
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })).rejects.toMatchObject({ code: "VERCEL_QUEUE_SDK_INVALID" })
+
+    const revoked = Proxy.revocable({}, {})
+    revoked.revoke()
+    await expect(createVercelQueueClient({
+      client: revoked.proxy as never,
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })).rejects.toMatchObject({ code: "VERCEL_QUEUE_SDK_INVALID" })
+  })
+
+  it("accepts class-backed direct Vercel SDK clients", async () => {
+    class QueueClient {
+      handleCallback() {
+        return async () => new Response("class")
+      }
+
+      async send() {
+        return { messageId: "class" }
+      }
+    }
+
+    const client = await createVercelQueueClient({
+      client: new QueueClient(),
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    await expect(client.send({ email: "ava@example.com" })).resolves.toMatchObject({
+      messageId: "class",
+      status: "queued",
+    })
+  })
+
   it("uses provider region as the default send region", async () => {
     const send = vi.fn(async () => ({ messageId: "message-1" }))
     const client = await createVercelQueueClient({

@@ -7,7 +7,12 @@ navigation.group: Start
 icon: i-lucide-bot
 ---
 
-::product-hero{tagline="One file under server/agents: a Driver, a Workspace, Capabilities, and Channels, run and recorded on your host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Web chat, HTTP, Slack, Discord, Telegram, Teams, GitHub, GitLab, Forgejo, Gmail" channel-mode="builtin"}
+Define an Agent under `server/agents`. Choose how it runs, which files it can
+use, which tools it may call, and where requests arrive. Each run produces a
+process-local trace. Configure an [Invocation journal](/docs/agents/invocations)
+with a durable store to retain runs after a restart.
+
+::product-hero{tagline="One file under server/agents: a Driver, a Workspace, Capabilities, and Channels, run on your host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Web chat, HTTP, Slack, Discord, Telegram, Teams, GitHub, GitLab, Forgejo, Gmail" channel-mode="builtin"}
   :::agent-demo
   :::
 ::
@@ -31,7 +36,7 @@ icon: i-lucide-bot
   :::
 
   :::product-feature-item{title="Call it like a function, inspect it like a trace" icon="i-lucide-play-circle" to="/docs/agents/invocations"}
-  `runAgent()` returns a result; the Console shows every step.
+  `runAgent()` returns a result. Attach an Invocation journal to inspect retained runs in the Console.
   :::
 
   :::product-feature-item{title="Start from a reusable Agent preset" icon="i-lucide-copy" to="/docs/agents/presets"}
