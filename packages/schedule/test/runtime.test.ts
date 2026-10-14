@@ -634,7 +634,6 @@ describe("Schedule Run bookkeeping", () => {
       expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
     }
   })
-
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({
