@@ -325,6 +325,10 @@ async function runAccessAuthorize(
       if (body !== null) {
         // Tee through the candidate stream so foreign streams remain usable while
         // forged reader-shaped objects fail before reaching the host adapter.
+        const lockedAccessor = responseGetter(body as object, "locked")
+        if (!lockedAccessor || typeof lockedAccessor.call(body as object) !== "boolean") {
+          return createForbiddenResponse(context.request)
+        }
         const teeMethod = responseMethod(body as object, "tee")
         if (!teeMethod) return createForbiddenResponse(context.request)
         const tee = teeMethod.call(body as object)
@@ -332,6 +336,8 @@ async function runAccessAuthorize(
         if (!tee[0] || typeof tee[0] !== "object") return createForbiddenResponse(context.request)
         const consumeBranch = async (branch: unknown): Promise<Uint8Array[] | undefined> => {
           if (!branch || typeof branch !== "object") return
+          const branchLockedAccessor = responseGetter(branch as object, "locked")
+          if (!branchLockedAccessor || typeof branchLockedAccessor.call(branch as object) !== "boolean") return
           const readerMethod = responseMethod(branch as object, "getReader")
           const reader = readerMethod?.call(branch as object) as { read?: () => unknown, releaseLock?: () => void } | undefined
           if (!reader || typeof reader.read !== "function" || typeof reader.releaseLock !== "function") return

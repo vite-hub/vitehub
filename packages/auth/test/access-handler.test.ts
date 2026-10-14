@@ -159,6 +159,28 @@ describe("Auth access handlers", () => {
     expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
   })
 
+  it("rejects inherited forged stream methods with accessor-backed response fields", async () => {
+    const streamPrototype = {
+      tee() {
+        return [
+          { getReader: () => ({ read: () => Promise.resolve({ done: true }), releaseLock() {} }) },
+          { getReader: () => ({ read: () => Promise.resolve({ done: true }), releaseLock() {} }) },
+        ]
+      },
+    }
+    const forgedBody = Object.create(streamPrototype)
+    const forgedResponse = Object.create({
+      get status() { return 409 },
+      get statusText() { return "Conflict" },
+      get headers() { return new Headers() },
+      get body() { return forgedBody },
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => forgedResponse as never }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
+  })
+
   it("rejects response-like results without a body accessor", async () => {
     const forgedResponse = Object.create({
       get status() { return 409 },
