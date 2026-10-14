@@ -16,7 +16,7 @@ icon: i-lucide-sliders-horizontal
 | `sources` | `Record<string, ContentSourceInput>` | Named read-only Sources. Each name becomes a Content instance. |
 | `collections` | `Record<string, documents(...)>` | Editable Markdown collections. Each name becomes a Content instance that serves published documents. See [Document collections](#document-collections). |
 | `workspace` | `string` | The Workspace that stores `collections`. Required with `collections`. It needs retained history. |
-| `authorize` | `({ user, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
+| `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
 | `plugins` | Comark Content plugins | Applied to each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` plugins when you need them. |
 | Other Comark options | `cache`, `hooks`, `markdown`, `logger`, `onError`, `baseURL` | Forwarded to each Comark Content instance. ViteHub sets `basePath` to `/api/content`. |
 
@@ -107,7 +107,31 @@ A document id is the file path below the collection folder, without the extensio
 - **Optional fields.** A field is optional when its validator accepts a missing value, as with `.optional()` or `.default()`. Wrap a validator that has no `.optional()` in `optional()` from `vite-hub/content`.
 - **Stored values.** Saved frontmatter is YAML. Values go through a JSON round trip before validation, so a `Date` is stored as an ISO string. Use validators that accept the stored form, such as `z.coerce.date()` instead of `z.date()`.
 - **Other keys.** Frontmatter keys without a field stay in the file and are left out of `data`.
-- **JSON Schema.** `content.collection('posts').schema` is the frontmatter JSON Schema, built from each field's Standard JSON Schema. Forms and tools read it. A Zod date field, such as `z.coerce.date()`, becomes `{ type: 'string', format: 'date-time' }` because dates are stored as ISO strings. A field without a Standard JSON Schema, such as a Valibot validator, becomes `{}`. Comark gets the same schema narrowed to its subset.
+### JSON Schema
+
+`content.collection('posts').schema` is the frontmatter JSON Schema, built from each field's [Standard JSON Schema](https://standardschema.dev). The Console editor builds its form from it, and the Content Agent Capability builds its tool input from it. Comark gets the same schema narrowed to its subset.
+
+| Field | JSON Schema |
+| --- | --- |
+| `z.string().min(1)` | `{ type: 'string', minLength: 1 }` |
+| `z.coerce.date()` | `{ type: 'string', format: 'date-time' }` |
+| `z.iso.date()` | `{ type: 'string', format: 'date', pattern }` |
+| `toStandardJsonSchema(v.string())` | `{ type: 'string' }` |
+| `v.string()` | `{}` |
+
+Zod 4 schemas carry a Standard JSON Schema. Zod cannot represent a `Date`, so Content projects Zod date fields as the ISO `date-time` string they are stored as. Valibot schemas carry none: wrap them in `toStandardJsonSchema()` from `@valibot/to-json-schema`.
+
+```ts [server/content.ts]
+import { toStandardJsonSchema } from '@valibot/to-json-schema'
+import * as v from 'valibot'
+
+const fields = {
+  title: toStandardJsonSchema(v.pipe(v.string(), v.minLength(1))),
+  day: toStandardJsonSchema(v.pipe(v.string(), v.isoDate())),
+}
+```
+
+A field whose JSON Schema is empty gets no form control or type hint, so `defineContent()` warns once per such field and names the collection and the field. The field still validates.
 
 ### Drafts and publishing
 
@@ -146,10 +170,20 @@ export const content = defineContent({
 
 | Field | Value |
 | --- | --- |
-| `user` | The signed-in user the surface passes, or `null`. |
+| `user` | The signed-in Auth user, or `null`. The Console passes the Console user. An Agent passes the Auth user its Actor stands for, or `null`. |
+| `actor` | The Actor of the Agent Invocation when an Agent makes the call, such as the Content Agent Capability. `undefined` otherwise. |
 | `collection` | The collection name. |
 | `action` | `read` for drafts, `write` for save, remove, and restore, or `publish`. |
 | `id` | The document, when the action targets one. |
+
+One policy covers people and Agents. Check `actor` to give Agents less than the user they act for:
+
+```ts [server/content.ts]
+authorize: ({ user, actor, action }) => {
+  if (user?.role !== 'editor') return false
+  return actor === undefined || action !== 'publish'
+},
+```
 
 Without `authorize`, `content.can()` returns `false` for every action. Published documents are public through `/api/content/**`; `read` covers drafts.
 

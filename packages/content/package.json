@@ -61,6 +61,7 @@
   "devDependencies": {
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/internal": "workspace:*",
     "comark-content": "catalog:markdown",
     "drizzle-orm": "catalog:database",

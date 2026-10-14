@@ -100,7 +100,7 @@ export function optional<TSchema extends StandardSchemaV1>(
 ): StandardSchemaV1<StandardSchemaV1.InferInput<TSchema> | undefined, StandardSchemaV1.InferOutput<TSchema> | undefined> & StandardJSONSchemaV1 {
   if (!isStandardSchema(schema)) throw invalidDefinition("optional() requires a Standard Schema validator.")
   const inner = schema["~standard"]
-  const project = (direction: "input" | "output") => (options: StandardJSONSchemaV1.Options) => standardJsonSchema(schema, direction, options.target) ?? {}
+  const project = (direction: "input" | "output") => (options: StandardJSONSchemaV1.Options) => standardJsonSchema(schema, direction, options.target, options.libraryOptions) ?? {}
   return {
     "~standard": {
       version: 1,
@@ -215,7 +215,10 @@ export function normalizeFrontmatter(data: unknown): Record<string, unknown> {
   return normalized
 }
 
-/** JSON Schema for the frontmatter, for forms and tools. Fields without a Standard JSON Schema become `{}`. */
+/**
+ * JSON Schema for the frontmatter, for forms and tools. A Zod `Date` field, such as `z.coerce.date()`, becomes a
+ * `date-time` string. Fields without a Standard JSON Schema, such as plain Valibot schemas, become `{}`.
+ */
 export function fieldsJsonSchema(fields: ContentFields): Record<string, unknown> {
   const properties: Record<string, unknown> = {}
   const required: string[] = []
@@ -227,6 +230,37 @@ export function fieldsJsonSchema(fields: ContentFields): Record<string, unknown>
     if (!acceptsUndefined(field)) required.push(name)
   }
   return required.length ? { type: "object", properties, required } : { type: "object", properties }
+}
+
+const annotationKeywords: ReadonlySet<string> = new Set(["$schema", "default", "deprecated", "description", "examples", "readOnly", "title", "writeOnly"])
+const warnedUntypedFields = new Set<string>()
+
+/** Fields whose JSON Schema has no type information, only annotations such as `default`. */
+export function untypedFields(schema: Record<string, unknown>): string[] {
+  const properties: unknown = schema.properties
+  if (!isPlainRecord(properties)) return []
+  return Object.entries(properties)
+    .filter(([, value]) => !isPlainRecord(value) || Object.keys(value).every(key => annotationKeywords.has(key)))
+    .map(([name]) => name)
+}
+
+/**
+ * Warn once per process for each collection field whose JSON Schema is empty, because forms and tools then get no
+ * hint for it. Valibot schemas are the usual cause: they need `toStandardJsonSchema()` from `@valibot/to-json-schema`.
+ */
+export function warnUntypedFields(collection: string, fields: ContentFields, schema: Record<string, unknown>): void {
+  for (const field of untypedFields(schema)) {
+    const key = `${collection}\0${field}`
+    if (warnedUntypedFields.has(key)) continue
+    warnedUntypedFields.add(key)
+    const fix = fields[field]?.["~standard"].vendor === "valibot"
+      ? "Wrap the Valibot schema in toStandardJsonSchema() from @valibot/to-json-schema"
+      : "Use a validator that has a Standard JSON Schema"
+    console.warn(
+      `[vitehub] Content collection ${JSON.stringify(collection)} field ${JSON.stringify(field)} has no JSON Schema, so forms and tools get no hint for it. `
+      + `${fix}. See https://vitehub.dev/docs/content/configure#json-schema`,
+    )
+  }
 }
 
 // A field is optional when its validator accepts a missing value. Async validators count as required.
