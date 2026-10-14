@@ -599,6 +599,32 @@ describe("Schedule Run bookkeeping", () => {
     ])
   })
 
+  it("accepts scheduledAt Date values from another JavaScript realm", async () => {
+    const scheduledAt = runInNewContext('new Date("2026-05-23T09:00:00.000Z")') as Date
+    const run = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "cross-realm-date",
+      scheduledAt,
+    })
+    expect(run.scheduledAt).toBeInstanceOf(Date)
+    expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+  })
+
+  it("accepts genuine dates with custom or throwing toString tags", async () => {
+    for (const tag of [() => "CustomDate", () => { throw new Error("Do not inspect tags") }]) {
+      const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+      Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: tag })
+      const run = await executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "custom-tag-date",
+        scheduledAt,
+      })
+      expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+    }
+  })
+
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({

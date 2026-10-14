@@ -35,7 +35,9 @@ describe("hubRealtime", () => {
     const outputs = Array.isArray(result)
       ? result.flatMap(bundle => bundle.output)
       : "output" in result ? result.output : []
-    const entryChunk = outputs.find(output => output.type === "chunk" && output.facadeModuleId === join(root, "entry.js"))
+    const expectedFacade = join(root, "entry.js").replaceAll("\\", "/")
+    const entryChunk = outputs.find(output => output.type === "chunk"
+      && output.facadeModuleId?.replaceAll("\\", "/") === expectedFacade)
     if (entryChunk?.type !== "chunk") throw new Error("Vite did not emit a JavaScript entry chunk")
     expect(entryChunk.exports).toContain("useRealtimeTiptap")
   })
