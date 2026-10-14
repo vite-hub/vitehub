@@ -77,7 +77,8 @@ The delivery options below match the Agent-level `messages` settings that [Chann
 | `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
 | `lifecycleHooks` | `Record<string, unknown>` | none | Lifecycle-hook settings for integrations that read Chat Capability configuration. |
 | `event` | `"directMessage"` | none | Chat event binding hint. |
-| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number }` | current message only | Bounded Chat History Window sent into the `chat.message` Agent Trigger. `maxMessages` includes the current message. |
+| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number; maxImages?: number }` | current message only | Bounded Chat History Window sent into the `chat.message` Agent Trigger. `maxMessages` includes the current message. `maxImages` sends that many of the newest history images again. The default is `0`. |
+| `timeZone` | `string` | `"UTC"` | IANA time zone for the send time in each [message header](/docs/agents/chat-history-sessions#what-the-model-reads). An invalid value uses UTC. |
 | `threadHistory` | `{ maxMessages?: number; ttlMs?: number }` | inherited | Adapter thread backfill and cache. Stores messages but does not define model input. |
 | `messageHistory` | Chat SDK message-history configuration | inherited | Adapter message-history behavior passed to the Chat SDK. |
 | `logger` | Chat SDK logger | inherited | Logger passed to adapter-backed Chat SDK delivery. |

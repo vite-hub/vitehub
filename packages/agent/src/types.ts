@@ -2107,7 +2107,13 @@ export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
 }
 
-export type AgentChatTriggerHistory = "none" | { maxAgeMs?: number, maxMessages: number, source: "thread" }
+export type AgentChatTriggerHistory = "none" | {
+  maxAgeMs?: number
+  /** Send this many of the newest history images to the model again. Only images sent within `maxAgeMs` of the current message count. Defaults to 0. */
+  maxImages?: number
+  maxMessages: number
+  source: "thread"
+}
 
 export interface AgentChatSessionOptions {
   idleTimeoutMs?: number
@@ -2267,6 +2273,8 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   streamingUpdateIntervalMs?: number
   threadHistory?: unknown
   timeout?: number
+  /** IANA time zone for the send time in each message header that the model reads. Defaults to `"UTC"`. An invalid value uses UTC. */
+  timeZone?: string
   transcripts?: TranscriptsConfig
   triggerHistory?: AgentChatTriggerHistory
   userName?: string

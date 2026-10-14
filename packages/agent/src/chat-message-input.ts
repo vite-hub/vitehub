@@ -397,6 +397,13 @@ export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory 
   return normalizedMaxMessages(triggerHistory.maxMessages)
 }
 
+/** Returns how many recent history images to send again, and how old they may be. */
+export function chatTriggerHistoryImages(triggerHistory: AgentChatTriggerHistory | undefined): { maxAgeMs: number, maxImages: number } {
+  if (!chatTriggerHistoryLimit(triggerHistory) || !triggerHistory || triggerHistory === "none") return { maxAgeMs: Infinity, maxImages: 0 }
+  const maxImages = typeof triggerHistory.maxImages === "number" && Number.isFinite(triggerHistory.maxImages) ? Math.max(0, Math.floor(triggerHistory.maxImages)) : 0
+  return { maxAgeMs: normalizedMaxAgeMs(triggerHistory.maxAgeMs) ?? Infinity, maxImages }
+}
+
 function selectRecentChatHistory(messages: UIMessageLike[], triggerHistory: Exclude<AgentChatTriggerHistory, "none">): UIMessageLike[] {
   const maxAgeMs = normalizedMaxAgeMs(triggerHistory.maxAgeMs)
   if (maxAgeMs === undefined || messages.length < 2) return messages
