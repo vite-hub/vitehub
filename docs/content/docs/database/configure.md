@@ -87,7 +87,7 @@ export default defineDatabase({
 
 These rules apply:
 
-- `connection`, `cloudflare`, and `drizzle` come from one Definition. When the application Definition sets one of them, it replaces all layer options, so it must also set each option that a layer sets. Otherwise one layer can set them. Two layers that set them fail discovery until the application sets them.
+- `connection`, `cloudflare`, and `drizzle` come from one Definition. When the application Definition sets one of them, it replaces all layer options, so it must also set each option that a layer sets. A layer must then pass an object literal to `defineDatabase()`, so that ViteHub can read its options. Otherwise one layer can set them. Two layers that set them fail discovery until the application sets them.
 - An application table replaces a layer table with the same key. Use this to add columns to a layer table. Two layers that declare the same table key fail discovery.
 - Migrations go to the application, in `server/databases/migrations` or `server/databases/<name>/migrations`, also when only layers define the database.
 - A project still uses either one Default Database or Named Databases. A layer with a Default Database and another layer with Named Databases fail discovery.

@@ -184,6 +184,26 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
   })
 
+  it("rejects application options next to a layer whose options ViteHub cannot read", async () => {
+    const app = await createLayeredApp()
+    await writeModule(app.layerDefinition("blog"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { integer, sqliteTable } from 'drizzle-orm/sqlite-core'",
+      "const posts = sqliteTable('posts', { id: integer('id').primaryKey() })",
+      "const options = { connection: { url: 'file:.data/blog.db' }, schema: { posts } }",
+      "export default defineDatabase(options)",
+    ])
+    const appDefinition = join(app.appDir, "server/databases/config.ts")
+    await writeModule(appDefinition, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({ drizzle: { casing: 'snake_case' }, schema: {} })",
+    ])
+
+    expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
+      `ViteHub cannot read the options of this layer definition:\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
+    )
+  })
+
   it("rejects two layers that declare the same table until the application declares it", async () => {
     const app = await createLayeredApp()
     await writeModule(app.layerDefinition("blog"), [

@@ -389,7 +389,16 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   const appOptions = app && appConfigures ? readDefinitionOptionKeys(app.handler) : undefined
   if (app && appOptions) {
     for (const layer of configuringLayers) {
-      const missing = [...readDefinitionOptionKeys(layer.handler) ?? []].filter(key => !appOptions.has(key))
+      const layerOptions = readDefinitionOptionKeys(layer.handler)
+      if (!layerOptions) {
+        throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
+          `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
+          "ViteHub cannot read the options of this layer definition:",
+          ...listDefinitionFiles([app, layer]),
+          "Pass an object literal to defineDatabase() in the layer, or set every option in the layer instead of the application.",
+        ].join("\n") })
+      }
+      const missing = [...layerOptions].filter(key => !appOptions.has(key))
       if (!missing.length) continue
       const options = missing.map(key => `\`${key}\``).join(", ")
       throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
