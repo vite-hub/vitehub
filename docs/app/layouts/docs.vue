@@ -22,8 +22,10 @@ const docsShellUi = {
       <slot />
     </UContainer>
 
+
     <div v-else-if="isLanding" class="vh-docs-landing">
       <slot />
+
     </div>
 
     <UPage v-else :ui="docsShellUi">
@@ -49,6 +51,7 @@ const docsShellUi = {
   padding: 0 1rem;
 }
 
+
 .vh-docs-main {
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
 }
@@ -61,8 +64,11 @@ const docsShellUi = {
   .vh-docs-main,
   .vh-docs-landing {
     padding: 0 2rem;
+
   }
 }
+
+ .vh-docs-aside { display: none; }
 
 @media (min-width: 64rem) {
   .vh-docs-aside {

@@ -151,6 +151,8 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
+
+
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
