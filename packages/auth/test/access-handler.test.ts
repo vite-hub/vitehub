@@ -316,37 +316,22 @@ describe("Auth access handlers", () => {
     }
   })
 
-  it("snapshots a serializable Response-shaped prototype without rereading its getters", async () => {
+  it("rejects a response-shaped prototype with attacker-controlled metadata", async () => {
     const sourceBody = new Response("Policy rejected").body
-    const headers = vi.fn()
-      .mockReturnValueOnce(new Headers({ "x-policy": "reject" }))
-      .mockImplementation(() => { throw new Error("unstable headers") })
-    const body = vi.fn()
-      .mockReturnValueOnce(sourceBody)
-      .mockImplementation(() => { throw new Error("unstable body") })
     const prototype = Object.defineProperties({}, {
       constructor: { value: function Response() {} },
       [Symbol.toStringTag]: { value: "Response" },
       status: { get: () => 409 },
       statusText: { get: () => "Conflict" },
-      headers: { get: headers },
-      body: { get: body },
+      headers: { get: () => new Headers({ "x-policy": "reject" }) },
+      body: { get: () => sourceBody },
     })
     const candidate = Object.create(prototype)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => candidate }] },
     }))
 
-    const response = await handler(new Request("https://app.example/"))
-
-    expect(response).toBeInstanceOf(Response)
-    expect(response).not.toBe(candidate)
-    expect(response?.status).toBe(409)
-    expect(response?.statusText).toBe("Conflict")
-    expect(response?.headers.get("x-policy")).toBe("reject")
-    await expect(response?.text()).resolves.toBe("Policy rejected")
-    expect(headers).toHaveBeenCalledTimes(1)
-    expect(body).toHaveBeenCalledTimes(1)
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
   it("preserves foreign status, body, and separate Set-Cookie headers", async () => {

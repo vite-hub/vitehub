@@ -317,8 +317,14 @@ function hasResponsePrototype(value: unknown): boolean {
       seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       const owner = prototype
-      if (constructor?.name === "Response"
-        && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
+      // A response-shaped object can forge a constructor name and accessor set.
+      // Native Response constructors retain an intrinsic native implementation and
+      // point back to the prototype that owns the response accessors.
+      const isNativeConstructor = typeof constructor === "function"
+        && constructor.name === "Response"
+        && constructor.prototype === owner
+        && Function.prototype.toString.call(constructor).includes("[native code]")
+      if (isNativeConstructor && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
       prototype = Object.getPrototypeOf(prototype)
     }
   }
