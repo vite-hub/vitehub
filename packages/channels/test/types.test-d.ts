@@ -33,9 +33,6 @@ const channel = createChannel("alerts", definition)
 const arrayOptions = Object.assign([], { connector: "telegram" as const, chatId: "chat-1" })
 // @ts-expect-error Send options cannot be arrays, even when they carry a connector property.
 channel.send("Build finished.", arrayOptions)
-// @ts-expect-error The public options type also excludes arrays with otherwise valid properties.
-const publicArrayOptions: ChannelSendOptions<typeof definition.connectors> = arrayOptions
-void publicArrayOptions
 const readonlyArrayOptions = Object.assign([] as const, { connector: "telegram" as const, chatId: "chat-1" })
 // @ts-expect-error Readonly tuples are also invalid send options.
 channel.send("Build finished.", readonlyArrayOptions)
@@ -199,3 +196,28 @@ dynamic.send("Build finished.", "room-1")
 
 // @ts-expect-error Discovered Channel names retain connector-specific options.
 discovered.send("Build finished.", { connector: "telegram", channelId: "channel-1" })
+
+// Non-array options retain all property names, including length and array method names.
+interface LengthOptions { destination: string, length: number, map: string }
+const lengthDefinition = defineOutboundChannel({
+  connectors: { webhook: { send: (_text: string, options: LengthOptions) => ({ id: options.destination }) } },
+  defaultConnector: "webhook",
+})
+const lengthChannel = createChannel("length", lengthDefinition)
+lengthChannel.send("message", { destination: "room", length: 1, map: "valid" })
+lengthChannel.send("message", { connector: "webhook", destination: "room", length: 1, map: "valid" })
+const publicLengthOptions: ChannelSendOptions<typeof lengthDefinition.connectors> = { connector: "webhook", destination: "room", length: 1, map: "valid" }
+void publicLengthOptions
+dynamic.send("message", { length: 1, map: "valid" })
+
+const unionDefinition = defineOutboundChannel({
+  connectors: { webhook: { send: (_text: string, _options: LengthOptions | readonly string[]) => ({ id: "accepted" }) } },
+  defaultConnector: "webhook",
+})
+const unionChannel = createChannel("union", unionDefinition)
+unionChannel.send("message", { destination: "room", length: 1, map: "valid" })
+// @ts-expect-error The array branch of a connector's options union is not dispatchable.
+unionChannel.send("message", ["room"])
+// @ts-expect-error Public options filter out the connector's array branch.
+const publicUnionArray: ChannelSendOptions<typeof unionDefinition.connectors> = Object.assign(["room"], { connector: "webhook" as const })
+void publicUnionArray

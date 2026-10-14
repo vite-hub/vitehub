@@ -18,7 +18,8 @@ export interface ChannelConnector<TOptions extends object = Record<string, unkno
 export type ChannelConnectorMap = Record<string, ChannelConnector<never, object>>
 
 type ChannelObjectConstraint<TObject extends object> = Extract<TObject, Function> extends never ? unknown : never
-type ChannelOptionsObject = { readonly length?: never }
+type ChannelOptionsConstraint<TOptions extends object> = Extract<TOptions, readonly unknown[] | Function> extends never ? unknown : never
+type UnionKeys<T> = T extends unknown ? keyof T : never
 
 type ConnectorOptions<TConnector> = TConnector extends { send: (text: string, options: infer TOptions) => unknown }
   ? unknown extends TOptions ? object : NonNullable<TOptions>
@@ -27,9 +28,10 @@ type ConnectorOptions<TConnector> = TConnector extends { send: (text: string, op
 type ValidatedChannelConnectors<TConnectors extends ChannelConnectorMap> = {
   [TName in keyof TConnectors]: TConnectors[TName] extends ChannelConnector<never, infer TResult>
     ? [ConnectorOptions<TConnectors[TName]>] extends [object]
-      ? Extract<ConnectorOptions<TConnectors[TName]>, readonly unknown[]> extends never
-        ? ChannelObjectConstraint<ConnectorOptions<TConnectors[TName]> | TResult> extends never ? never : TConnectors[TName]
-        : never
+      ? [Exclude<ConnectorOptions<TConnectors[TName]>, readonly unknown[]>] extends [never]
+        ? [ConnectorOptions<TConnectors[TName]>] extends [never] ? TConnectors[TName] : never
+        : ChannelObjectConstraint<Exclude<ConnectorOptions<TConnectors[TName]>, readonly unknown[]> | TResult> extends never
+          ? never : TConnectors[TName]
       : never
     : never
 }
@@ -55,7 +57,7 @@ export interface DiscoveredChannelDefinition {
 type ExplicitChannelSendOptions<TConnectors extends ChannelConnectorMap> = {
   [TName in keyof TConnectors & string]: {
     connector: TName
-  } & ConnectorOptions<TConnectors[TName]>
+  } & Exclude<ConnectorOptions<TConnectors[TName]>, readonly unknown[]>
 }[keyof TConnectors & string]
 
 type DynamicChannelSendOptions = {
@@ -67,12 +69,12 @@ type DefaultChannelSendOptions<
   TDefault extends keyof TConnectors & string,
 > = {
   connector?: TDefault
-} & ConnectorOptions<TConnectors[TDefault]>
+} & Exclude<ConnectorOptions<TConnectors[TDefault]>, readonly unknown[]>
 
 export type ChannelSendOptions<
   TConnectors extends ChannelConnectorMap,
   TDefault extends keyof TConnectors & string = never,
-> = ChannelOptionsObject & (string extends keyof TConnectors
+> = (string extends keyof TConnectors
   ? DynamicChannelSendOptions
   : ExplicitChannelSendOptions<TConnectors>
     | ([TDefault] extends [never] ? never : DefaultChannelSendOptions<TConnectors, TDefault>))
@@ -85,7 +87,8 @@ export interface ChannelClient<
   send: <TOptions extends object>(
     text: string,
     options: string extends keyof TConnectors
-      ? TOptions & ChannelObjectConstraint<TOptions> & ChannelSendOptions<TConnectors, TDefault>
-      : ChannelSendOptions<TConnectors, TDefault>,
+      ? TOptions & ChannelOptionsConstraint<TOptions> & ChannelSendOptions<TConnectors, TDefault>
+      : TOptions & ChannelOptionsConstraint<TOptions> & ChannelSendOptions<TConnectors, TDefault>
+        & Record<Exclude<keyof TOptions, UnionKeys<ChannelSendOptions<TConnectors, TDefault>>>, never>,
   ) => Promise<ChannelSendOutcome>
 }

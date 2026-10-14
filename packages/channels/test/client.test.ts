@@ -4,6 +4,14 @@ import { createChannel, defineOutboundChannel, useChannel } from "../src/index.t
 import { setChannelRuntimeRegistry } from "../src/runtime/state.ts"
 
 describe("createChannel", () => {
+  it("dispatches non-array options with length through a union-shaped connector", async () => {
+    const send = vi.fn((_text: string, _options: { destination: string, length: number } | readonly string[]) => ({ id: "accepted" }))
+    const channel = createChannel("union", { connectors: { configured: { send } }, defaultConnector: "configured" })
+    const options = { destination: "room", length: 1 }
+    await expect(channel.send("message", options)).resolves.toMatchObject([null, { id: "accepted" }])
+    expect(send).toHaveBeenCalledWith("message", options)
+  })
+
   it("preserves connector option instances and their private state", async () => {
     class Destination {
       #id = "room-1"
