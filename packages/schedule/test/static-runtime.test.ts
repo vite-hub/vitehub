@@ -309,5 +309,22 @@ it("wraps spoofed and hostile thrown values safely", () => {
 
   expect(normalizeScheduleRuntimeError(spoof)).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
   expect(normalizeScheduleRuntimeError(customPrototypeSpoof)).toMatchObject({ code: "SCHEDULE_R0035", cause: customPrototypeSpoof })
-  expect(normalizeScheduleRuntimeError(hostile)).toMatchObject({ code: "SCHEDULE_R0035", cause: hostile })
+  const normalizedHostile = normalizeScheduleRuntimeError(hostile)
+  expect(normalizedHostile).toMatchObject({ code: "SCHEDULE_R0035" })
+  expect(normalizedHostile.cause).toBe(hostile)
+})
+
+it("does not trust a replaced Error.isError predicate", () => {
+  const errorConstructor = Error as ErrorConstructor & { isError?: (value: unknown) => boolean }
+  const nativeIsError = errorConstructor.isError
+  errorConstructor.isError = () => true
+  const spoof = { message: "not an Error" }
+  let normalized: Error
+  try {
+    normalized = normalizeScheduleRuntimeError(spoof)
+  }
+  finally {
+    errorConstructor.isError = nativeIsError
+  }
+  expect(normalized).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
 })

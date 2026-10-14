@@ -35,6 +35,8 @@ interface CloudflareScheduledEventLike {
   scheduledTime?: number | string | Date
 }
 
+const intrinsicErrorIsError = (Error as ErrorConstructor & { isError?: (value: unknown) => boolean }).isError
+
 export interface StaticScheduleRun extends ScheduleRunContext {
   cron: string
   scheduleId: string
@@ -79,8 +81,6 @@ export function normalizeScheduleRuntimeError(error: unknown): Error {
 function isScheduleRuntimeError(error: unknown): error is Error {
   try {
     if (error instanceof Error) return true
-    const nativeIsError = (Error as ErrorConstructor & { isError?: (value: unknown) => boolean }).isError
-    if (typeof nativeIsError === "function") return nativeIsError(error) === true
   }
   catch {
     return false
@@ -91,11 +91,18 @@ function isScheduleRuntimeError(error: unknown): error is Error {
       process?: { getBuiltinModule?: (name: string) => unknown }
     }).process
     const getBuiltinModule = process?.getBuiltinModule
-    if (typeof getBuiltinModule !== "function") return false
-    const util = getBuiltinModule.call(process, "util") as {
-      types?: { isNativeError?: (value: unknown) => boolean }
-    } | undefined
-    return util?.types?.isNativeError?.(error) === true
+    if (typeof getBuiltinModule === "function") {
+      const util = getBuiltinModule.call(process, "util") as {
+        types?: { isNativeError?: (value: unknown) => boolean }
+      } | undefined
+      if (typeof util?.types?.isNativeError === "function") return util.types.isNativeError(error)
+    }
+  }
+  catch {
+    // Continue with the captured intrinsic predicate when the host utility is unavailable.
+  }
+  try {
+    return typeof intrinsicErrorIsError === "function" && intrinsicErrorIsError(error) === true
   }
   catch {
     return false
