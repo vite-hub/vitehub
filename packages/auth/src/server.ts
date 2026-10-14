@@ -290,19 +290,48 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   if (value === null || typeof value !== "object") return
   try {
     const response = value as Response
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(response)
-    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")!.get!.call(response)
-    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")!.get!.call(response)
-    const bodyStream = Object.getOwnPropertyDescriptor(Response.prototype, "body")!.get!.call(response)
-    Headers.prototype.get.call(headers, "x-vitehub-brand-check")
+    const responsePrototype = findResponsePrototype(response)
+    const status = responsePrototype.status.call(response)
+    const statusText = responsePrototype.statusText.call(response)
+    const headers = responsePrototype.headers.call(response)
+    const bodyStream = responsePrototype.body.call(response)
+    findHeadersGet(headers).call(headers, "x-vitehub-brand-check")
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599 || typeof statusText !== "string") return
     if (response instanceof Response) return response
-    const body = bodyStream === null ? null : await Response.prototype.arrayBuffer.call(response)
+    const body = bodyStream === null ? null : await responsePrototype.arrayBuffer.call(response)
     return new Response(body, { headers: new Headers(headers), status, statusText })
   }
   catch {
     return
   }
+}
+
+function findResponsePrototype(value: object) {
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype) {
+    const descriptors = Object.getOwnPropertyDescriptors(prototype)
+    if (descriptors.status?.get && descriptors.statusText?.get && descriptors.headers?.get && descriptors.body?.get && descriptors.arrayBuffer?.value) {
+      return {
+        status: descriptors.status.get,
+        statusText: descriptors.statusText.get,
+        headers: descriptors.headers.get,
+        body: descriptors.body.get,
+        arrayBuffer: descriptors.arrayBuffer.value,
+      }
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  throw new TypeError("Invalid Web response")
+}
+
+function findHeadersGet(value: object) {
+  let prototype = Object.getPrototypeOf(value)
+  while (prototype) {
+    const get = Object.getOwnPropertyDescriptor(prototype, "get")?.value
+    if (typeof get === "function") return get as (this: object, name: string) => unknown
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  throw new TypeError("Invalid Web headers")
 }
 
 async function checkAuthRequest(
