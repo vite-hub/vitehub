@@ -54,10 +54,12 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
         const stackDescriptor = Object.getOwnPropertyDescriptor(errorRecord, "stack")
         const isNativeStackAccessor = typeof stackDescriptor?.get === "function"
           && Function.prototype.toString.call(stackDescriptor.get).includes("[native code]")
-        return hasErrorPrototype && hasIntrinsicErrorFields && isNativeStackAccessor
-          // Real Error instances receive a native lazy stack accessor. Requiring
-          // that descriptor shape rejects Error.prototype-derived records that
-          // fabricate a stack value while retaining foreign Error instances.
+        const hasNativeStackValue = isNativeStackAccessor
+          && typeof Reflect.get(errorRecord, "stack") === "string"
+        return hasErrorPrototype && hasIntrinsicErrorFields && hasNativeStackValue
+          // Real Error instances receive a native lazy stack accessor and a
+          // generated stack string. Requiring both rejects prototype-derived
+          // records that fabricate Error metadata.
           && Object.prototype.hasOwnProperty.call(errorRecord, "stack")
           && typeof stackDescriptor?.get === "function"
           && typeof stackDescriptor.set === "function"
