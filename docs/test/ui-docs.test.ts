@@ -180,6 +180,8 @@ describe("UI documentation", () => {
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
     expect(sidebars).toContain("overflow: hidden;");
+    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
+    expect(layout).toContain("flex: 1;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
