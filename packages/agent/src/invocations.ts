@@ -2383,7 +2383,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const finishingObservations = [activeObservation, ...pendingObservations]
           const observationDeadline = Date.now() + limits.flushTimeoutMs
           while (observationWrite && Date.now() < observationDeadline) {
-            await boundedStore(() => observationWrite!, observationDeadline - Date.now())
+            await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
           }
           const outcomeObservations = [...finishingObservations, activeObservation, ...pendingObservations]
             .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
