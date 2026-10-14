@@ -38,6 +38,12 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
     .filter(group => group.sections.length > 0);
 }
 
+/** Compatibility helpers for the legacy rail and catalog components. */
+export const getDocsRailCatalog = getDocsCatalog;
+export function getDocsSectionKind(section: DocsSection) {
+  return section.category === "Start" ? "Getting started" : "Server Primitive";
+}
+
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
   return sections.filter(section => !isDocsCategory(section.category));
 }
