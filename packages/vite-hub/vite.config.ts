@@ -233,6 +233,14 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-browser.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-crops.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-detail.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-field.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-focal.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-move.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-picker.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-uploads.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-settings.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-seo-panel.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-list.vue", to: "dist/console/runtime/components" },
@@ -295,6 +303,8 @@ export default defineConfig({
       "src/console/runtime/client/editor.ts",
       "src/console/runtime/client/env-status.ts",
       "src/console/runtime/client/media.ts",
+      "src/console/runtime/client/media-library.ts",
+      "src/console/runtime/client/media-uploads.ts",
       "src/console/runtime/client/publish.ts",
       "src/console/runtime/client/schedule-run.ts",
       "src/console/runtime/client/time.ts",
@@ -339,6 +349,8 @@ export default defineConfig({
         delete exports["./console/runtime/client/editor"];
         delete exports["./console/runtime/client/env-status"];
         delete exports["./console/runtime/client/media"];
+        delete exports["./console/runtime/client/media-library"];
+        delete exports["./console/runtime/client/media-uploads"];
         delete exports["./console/runtime/client/publish"];
         delete exports["./console/runtime/client/schedule-run"];
         delete exports["./console/runtime/client/time"];

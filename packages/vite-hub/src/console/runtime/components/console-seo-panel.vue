@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 
 import { consoleImageUrl, consoleTruncate, describeConsoleSchemaFields } from "../client/documents";
+import { useConsoleMediaPicker } from "../client/media";
 import ConsolePropertyRow from "./console-property-row.vue";
 import ConsoleSchemaField from "./console-schema-field.vue";
 
@@ -61,7 +62,14 @@ const breadcrumb = computed(() => {
   const segments = (url ? url.pathname : path.value).split("/").filter(Boolean);
   return [url?.host ?? host.value, ...segments].join(" › ");
 });
-const imageUrl = computed(() => consoleImageUrl(values.value.image ?? props.fallbacks.image));
+// The media library knows the served URL of a Blob reference; without it, the default serve route is assumed.
+const picker = useConsoleMediaPicker();
+const imageUrl = computed(() => {
+  const image = values.value.image ?? props.fallbacks.image;
+  const pathname = record(image).pathname;
+  const served = String(pathname) === pathname ? picker?.resolveSrc?.(pathname) : undefined;
+  return served ?? consoleImageUrl(image);
+});
 const imageFailed = ref(false);
 watch(imageUrl, () => {
   imageFailed.value = false;
