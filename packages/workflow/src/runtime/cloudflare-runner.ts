@@ -52,7 +52,10 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
           && Reflect.get(intrinsicPrototype, "name") === "Error"
         const errorRecord = error as Record<PropertyKey, unknown>
         return hasErrorPrototype && hasIntrinsicErrorFields
-          && (Object.prototype.hasOwnProperty.call(errorRecord, "stack") || Object.prototype.hasOwnProperty.call(errorRecord, "message"))
+          // Real Error instances receive an own stack slot. Requiring that slot
+          // keeps Error.prototype-derived records with a fabricated message out
+          // of the compatibility path while retaining foreign Error instances.
+          && Object.prototype.hasOwnProperty.call(errorRecord, "stack")
       })()
     return branded && Reflect.get(error, "isRetryable") === false
   }
