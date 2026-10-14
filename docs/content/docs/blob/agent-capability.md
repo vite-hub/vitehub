@@ -2,7 +2,7 @@
 title: Blob capability
 description: Give an Agent a Blob read tool and, in write mode, a tool that puts or deletes objects.
 navigation.title: Agent capability
-navigation.order: 5
+navigation.order: 6
 icon: i-lucide-file-box
 ---
 

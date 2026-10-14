@@ -12,6 +12,8 @@ icon: i-lucide-code-2
 | --- | --- |
 | `blob` from `@vite-hub/blob` | Read and write the Default Blob Store or named Blob Stores. |
 | `image`, `file` from `@vite-hub/blob` | Validate stored Blob references and describe them as JSON Schema for pickers. |
+| `blob.media` from `@vite-hub/blob` | Store and edit [media records](/docs/blob/media), folders, crops, and image variants. |
+| `responsiveImage`, `parseImageVariant`, `imageVariantUrl`, `probeImage` from `@vite-hub/blob/media` | Browser-safe image helpers. `@vite-hub/blob` re-exports them for server code. |
 | `detectContentType` from `vite-hub/blob/content-type` or `@vite-hub/blob/content-type` | Classify common image and PDF signatures before storage. |
 | `ensureBlob` from `@vite-hub/blob` or `@vite-hub/blob/ensure` | Validate upload size and content type. |
 | `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and Provider Output. |
@@ -93,7 +95,9 @@ Pass the cursor returned by `blob.list()` unchanged to the next list call on the
 
 Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It sets content headers and handles conditional GET and HEAD requests through h3. Responses default to `private, no-cache`; set `cacheControl` to choose another policy.
 
-The optional `transform` receives the original `Blob` and returns the response `Blob`. ViteHub caches that result in the same store with its configured access under `_vitehub/derived/`, a namespace reserved from public writes, signed PUTs, and multipart uploads along with its `_vitehub` parent pathname. On filesystem stores, legacy files at either cache directory path are preserved; serving still returns fresh transforms, but caching requires moving those files out of the way. It validates the cached result against the source ETag, content type, and your transform key. Drivers without ETags use a hash of the source bytes. The filesystem driver uses content-based ETags and keeps cached hashes separate from content metadata. If source metadata changes while reading its bytes, ViteHub retries the read before transforming it. Stable ETags determine cache writes; provider timestamps do not.
+To serve a resized or cropped image, pass `variant` instead, or let the generated serve route read it from the query string. Read [Image variants](/docs/blob/media#image-variants).
+
+The optional `transform` receives the original `Blob` and returns the response `Blob`. ViteHub caches that result in the same store with its configured access under `_vitehub/derived/`, a namespace reserved from public writes, signed PUTs, multipart uploads, and the serve route, along with `_vitehub/media/` and the `_vitehub` parent pathname. On filesystem stores, legacy files at either cache directory path are preserved; serving still returns fresh transforms, but caching requires moving those files out of the way. It validates the cached result against the source ETag, content type, and your transform key. Drivers without ETags use a hash of the source bytes. The filesystem driver uses content-based ETags and keeps cached hashes separate from content metadata. If source metadata changes while reading its bytes, ViteHub retries the read before transforming it. Stable ETags determine cache writes; provider timestamps do not.
 
 Change the key when the transformation changes, and include any size or format variants in it. Each source and key has one cache object, which source updates replace on the next request. Distinct keys remain separate variants. `blob.del(originalPath)` removes the original and its cached variants; serving a missing source also clears its variants. Cleanup failures are logged without undoing deletion. Operators can inspect variants with `blob.list({ prefix: '_vitehub/derived/' })` and remove unused ones with `blob.del`. No background eviction runs.
 
@@ -307,7 +311,7 @@ interface BlobReference {
 }
 ```
 
-`image()` and `file()` from `@vite-hub/blob` return validators for that shape. A reference has no URL, because signed and served URLs expire or depend on routes. Serve or sign the pathname when you read the record. A reference also has no store name. The schema's `store` option names the store.
+`image()` and `file()` from `@vite-hub/blob` return validators for that shape. A reference has no URL, because signed and served URLs expire or depend on routes. It has no alt text or dimensions either: read them from the [media record](/docs/blob/media#media-in-content) with `blob.media.get(reference)` when you render. Serve or sign the pathname when you read the record. A reference also has no store name. The schema's `store` option names the store.
 
 ```ts [server/api/profile/avatar.put.ts]
 import { image } from '@vite-hub/blob'
@@ -326,7 +330,7 @@ export default defineEventHandler(async (event) => {
 The validators accept a `BlobObject` from `blob.put()` or `blob.handleUpload()`, or its JSON form, and return only `pathname`, `contentType`, and `size`. They check:
 
 - The value is an object with a string `pathname`.
-- The pathname is relative to its Blob Store. It has no leading slash, no backslashes, no control characters, and no empty, `.`, or `..` segments. It is not under the `_vitehub/derived/` cache namespace that `blob.put()` also rejects.
+- The pathname is relative to its Blob Store. It has no leading slash, no backslashes, no control characters, and no empty, `.`, or `..` segments. It is not under the `_vitehub/derived/` or `_vitehub/media/` namespaces that `blob.put()` also rejects.
 - `contentType` matches `accept`, ignoring case and parameters such as `; charset=utf-8`. A reference must include `contentType` when the schema has `accept`.
 - `size`, when present, is a non-negative integer no larger than `maxSize`.
 
