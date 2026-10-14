@@ -129,7 +129,7 @@ describe("hubDb", () => {
     { name: "remote libSQL with unresolved D1 fallback", connection: "url: 'libsql://database.example',", cloudflare: "databaseId: '   ', databaseName: '   ',", providers: ["cloudflare", "vercel"] },
     { name: "D1 binding", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name',", providers: ["cloudflare"] },
     { name: "D1 HTTP", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name', http: true,", providers: ["cloudflare", "vercel"] },
-    { name: "D1 HTTP without a database name", connection: undefined, cloudflare: "databaseId: 'database-id', http: true,", providers: ["vercel"] },
+    { name: "D1 HTTP without a database name", connection: undefined, cloudflare: "databaseId: 'database-id', http: true,", providers: ["cloudflare", "vercel"] },
   ])("inspects supported provider output for $name", async ({ connection, cloudflare, providers }) => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { connection, cloudflare })
