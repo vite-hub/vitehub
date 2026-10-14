@@ -296,6 +296,9 @@ describe("Agent Box environment", () => {
     expect(boxSharesHostNetwork({ kind: "crabbox", network: "direct" })).toBe(true)
     expect(boxSharesHostNetwork({ kind: "crabbox", profile: "remote" })).toBe(false)
     expect(boxSharesHostNetwork("crabbox")).toBe(false)
+    const custom = { name: "ssh", open: vi.fn(), prepare: vi.fn() }
+    expect(boxSharesHostNetwork({ ...custom, network: "direct" })).toBe(true)
+    expect(boxSharesHostNetwork(custom)).toBe(false)
   })
 })
 

@@ -234,7 +234,7 @@ export function isConsoleConnectionsEnabled(options: { connections?: unknown }, 
   if (development) return true
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Options cross the host boundary as unknown values.
   if (typeof connections !== "object" || connections === null) return false
-  return "management" in connections && Boolean(connections.management)
+  return Object.hasOwn(connections, "management") && Boolean(Reflect.get(connections, "management"))
 }
 
 /** Route name of a contributed section. The Console serves it at `/_vitehub/<id>`. */

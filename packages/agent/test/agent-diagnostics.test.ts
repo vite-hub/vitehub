@@ -107,6 +107,25 @@ describe("Agent diagnostics", () => {
     expect(toAgentPublicError(failure, "http")).toEqual({ code: "INTERNAL", error: "Agent request failed." })
   })
 
+  it("maps enforced budget failures with bounded details", () => {
+    const error = new Error("Agent budget exceeded.")
+    Object.assign(error, {
+      code: "AGENT_BUDGET_EXCEEDED",
+      details: {
+        limits: { tokens: { total: 100 }, usd: "1.25" },
+        exceeded: [{ actual: 120, limit: 100, metric: "totalTokens" }],
+      },
+    })
+    expect(toAgentPublicError(error, "http")).toEqual({
+      code: "AGENT_BUDGET_EXCEEDED",
+      error: "Agent budget exceeded.",
+      details: {
+        limits: { tokens: { total: 100 }, usd: "1.25" },
+        exceeded: [{ actual: 120, limit: 100, metric: "totalTokens" }],
+      },
+    })
+  })
+
   it("keeps cancellation errors unchanged in tool reporting", async () => {
     const failure = new DOMException("Cancelled", "AbortError")
     const tools = withAgentToolStepReporting({
