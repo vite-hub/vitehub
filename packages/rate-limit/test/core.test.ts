@@ -192,6 +192,16 @@ describe("Rate Limit core", () => {
     expect(() => createRateLimiter({ driver, limit: 1, window: "1m" })).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0029" }))
   })
 
+  it("classifies options whose window fails during policy normalization", () => {
+    const window = {
+      [Symbol.toPrimitive]() {
+        throw new Error("window unavailable")
+      },
+    }
+
+    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: window as never })).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0029" }))
+  })
+
   it("classifies spoofed diagnostics thrown during option inspection", () => {
     const driver = new Proxy(memoryRateLimitDriver(), {
       get(target, property, receiver) {

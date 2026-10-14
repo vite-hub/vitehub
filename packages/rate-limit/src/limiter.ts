@@ -1,4 +1,5 @@
 import * as v from "valibot"
+import { Diagnostic } from "nostics"
 import { normalizeRateLimitPolicy } from "./policy.ts"
 
 import type {
@@ -196,6 +197,23 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): { policy:
   }
 }
 
+function isRateLimitDiagnostic(value: unknown): boolean {
+  try {
+    return value instanceof Diagnostic && rateLimitDiagnosticCodes.has(value.code)
+  }
+  catch {
+    return false
+  }
+}
+
+const rateLimitDiagnosticCodes = new Set([
+  ...Array.from({ length: 45 }, (_, index) => `RATE_LIMIT_R${String(index + 1).padStart(4, "0")}`),
+  "RATE_LIMIT_B0001",
+  "RATE_LIMIT_B0002",
+  "RATE_LIMIT_B0003",
+  "RATE_LIMIT_B0004",
+])
+
 export function createRateLimiter(options: CreateRateLimiterOptions): RateLimiter {
   if (!isRateLimiterOptions(options)) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires a Rate Limit driver." })
@@ -207,9 +225,17 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
   catch {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires inspectable Rate Limit options." })
   }
-  const policy = normalizeRateLimitPolicy(inspected.policy)
-  const capabilities = resolveDriverCapabilities(inspected.policy, inspected.capabilities, inspected.driverName)
-  assertDriverSupportsPolicy(inspected.policy, capabilities, policy.windowMs, inspected.driverName)
+  let policy: ResolvedRateLimitPolicy
+  let capabilities: RateLimitDriverCapabilities
+  try {
+    policy = normalizeRateLimitPolicy(inspected.policy)
+    capabilities = resolveDriverCapabilities(inspected.policy, inspected.capabilities, inspected.driverName)
+    assertDriverSupportsPolicy(inspected.policy, capabilities, policy.windowMs, inspected.driverName)
+  }
+  catch (error) {
+    if (isRateLimitDiagnostic(error)) throw error
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires inspectable Rate Limit options." })
+  }
 
   const driverInput = (input: RateLimitConsumeInput): RateLimitDriverInput => ({
     key: input.key,
