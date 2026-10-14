@@ -25,10 +25,10 @@ describe("@vite-hub/shell workspace inspection", () => {
     })
   })
 
-  it("bounds no-match feedback by the output limit", async () => {
+  it("bounds inspection feedback by the output limit", async () => {
     const workspace = new MemoryWorkspace({ "models/orders.sql": "select * from orders\n" })
 
-    await expect(runWorkspaceInspectionCommand(workspace, "true | grep missing .", {
+    await expect(runWorkspaceInspectionCommand(workspace, "rg missing models", {
       broadSearchPaths: ["/workspace/models"],
       commands: ["grep", "true"],
       cwd: workspaceMountPoint,
@@ -37,7 +37,7 @@ describe("@vite-hub/shell workspace inspection", () => {
     })).resolves.toMatchObject({
       outputTruncated: true,
       stdout: "\n[output truncated to 0 characters]\n",
-      workspaceGuardrail: { kind: "no_match" },
+      workspaceGuardrail: { kind: "broad_search" },
     })
   })
 
