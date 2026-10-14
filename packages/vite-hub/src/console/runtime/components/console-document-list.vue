@@ -8,12 +8,19 @@ import {
   consoleErrorMessage,
   consoleFieldIssues,
   consoleInvalidDocument,
+  consoleListQuery,
   consolePublishMismatches,
   describeConsoleSchemaFields,
+  humanizeConsoleFieldIssues,
+  parseConsoleListQuery,
+  rememberConsoleListQuery,
+  stableConsoleJSON,
 } from "../client/documents";
-import { recentTimestamp } from "../client/time";
+import { useConsoleToast } from "../client/toast";
+import ConsoleRelativeTime from "./console-relative-time.vue";
+import ConsoleStatus from "./console-status.vue";
 
-import type { ConsoleDocumentCollection, ConsoleDocumentPage, ConsoleDocumentPublishExpectation, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleDocumentSummary } from "../client/documents";
+import type { ConsoleDocumentCollection, ConsoleDocumentPage, ConsoleDocumentPublishExpectation, ConsoleDocumentsClient, ConsoleDocumentSummary, ConsoleListState } from "../client/documents";
 
 const props = defineProps<{
   changes: number;
@@ -25,23 +32,7 @@ const emit = defineEmits<{ changed: [] }>();
 
 const route = useRoute();
 const router = useRouter();
-const search = ref(String(route.query.q ?? ""));
-const state = ref<ConsoleDocumentState | "all">("all");
-const filters = ref<Record<string, string>>({});
-const items = ref<ConsoleDocumentSummary[]>([]);
-const page = ref<ConsoleDocumentPage>();
-const loading = ref(false);
-const loadingMore = ref(false);
-const error = ref<unknown>();
-const selected = ref<Set<string>>(new Set());
-const publishing = ref(false);
-const publishOpen = ref(false);
-const notice = ref<{ color: "error" | "success", text: string }>();
-/** Why the last publish published nothing: drafts that moved after the list loaded, or a draft that no longer validates. */
-const publishProblem = ref<{ actions: Array<{ label: string, onClick: () => void }>, color: "error" | "warning", description: string, title: string }>();
-const loadedAt = ref(Date.now());
-let request = 0;
-let searchTimer: ReturnType<typeof setTimeout> | undefined;
+const toast = useConsoleToast();
 
 const fields = computed(() => describeConsoleSchemaFields(props.collection.schema));
 // Fields with a small set of values become filters.
@@ -53,23 +44,59 @@ const sortOptions = computed(() => [
   ...(props.collection.titleField ? [{ label: "Title A–Z", value: `${props.collection.titleField}:asc` }] : []),
   { label: "Id A–Z", value: "id:asc" },
 ]);
-const sort = ref(sortOptions.value[0]!.value);
+const defaultSort = computed(() => sortOptions.value[0]!.value);
+
+// The tab, search, sort, and filters live in the URL, so a reload or a shared link opens the same view.
+function readView() {
+  return parseConsoleListQuery(route.query, { facets: facetFields.value.map(field => field.name), sorts: sortOptions.value.map(option => option.value) });
+}
+const initial = readView();
+const search = ref(initial.search);
+const state = ref<ConsoleListState>(initial.state);
+const sort = ref(initial.sort);
+const filters = ref<Record<string, string>>(initial.filters);
+
+const items = ref<ConsoleDocumentSummary[]>([]);
+const page = ref<ConsoleDocumentPage>();
+const loading = ref(false);
+const loadingMore = ref(false);
+const error = ref<unknown>();
+const selected = ref<Set<string>>(new Set());
+const publishing = ref(false);
+const publishOpen = ref(false);
+/** Why the last publish published nothing: drafts that moved after the list loaded, or a draft that no longer validates. */
+const publishProblem = ref<{ actions: Array<{ label: string, color: "neutral", variant: "outline", onClick: () => void }>, color: "error" | "warning", description: string, title: string }>();
+let request = 0;
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 const states = computed(() => page.value?.states ?? { changed: 0, deleted: 0, draft: 0, published: 0 });
 const total = computed(() => states.value.draft + states.value.changed + states.value.published);
 const pendingChanges = computed(() => page.value?.changes.length ?? 0);
+// Geist tabs: a count of zero shows no badge.
 const stateTabs = computed(() => [
-  { label: "All", value: "all", badge: total.value },
-  { label: "Drafts", value: "draft", badge: states.value.draft },
-  { label: "Changed", value: "changed", badge: states.value.changed },
-  { label: "Published", value: "published", badge: states.value.published },
-  ...(states.value.deleted ? [{ label: "Deleted", value: "deleted", badge: states.value.deleted }] : []),
-]);
+  { label: "All", value: "all", count: total.value },
+  { label: "Drafts", value: "draft", count: states.value.draft },
+  { label: "Changed", value: "changed", count: states.value.changed },
+  { label: "Published", value: "published", count: states.value.published },
+  ...(states.value.deleted || state.value === "deleted" ? [{ label: "Deleted", value: "deleted", count: states.value.deleted }] : []),
+].map(({ count, ...tab }) => (count ? { ...tab, badge: { class: "rounded-full tabular-nums", color: "neutral" as const, label: String(count), variant: "soft" as const } } : tab)));
 const selectedPublishable = computed<ConsoleDocumentPublishExpectation[]>(() => items.value
   .filter(item => selected.value.has(item.id) && item.state !== "published")
   .map(item => ({ digest: item.digest, id: item.id })));
-const activeFilterCount = computed(() => Object.keys(activeFilters()).length);
-const filtered = computed(() => Boolean(search.value.trim()) || state.value !== "all" || Object.values(filters.value).some(value => value && value !== "*"));
+const activeFilters = computed(() => Object.entries(filters.value)
+  .filter(([, value]) => value && value !== anyValue)
+  .map(([name, value]) => ({ label: facetFields.value.find(field => field.name === name)?.label ?? name, name, value })));
+// An empty state tab explains the state instead of blaming the filters.
+const emptyState = computed(() => {
+  const plural = props.collection.label.toLowerCase();
+  if (search.value.trim()) return { action: true, description: `Nothing matches “${search.value.trim()}”${activeFilters.value.length || state.value !== "all" ? " with these filters" : ""}.`, title: "No matching documents" };
+  if (activeFilters.value.length) return { action: true, description: "Nothing matches these filters.", title: "No matching documents" };
+  if (state.value === "draft") return { action: false, description: `New ${plural} stay here until you publish them.`, title: "No drafts" };
+  if (state.value === "changed") return { action: false, description: "Published documents with unpublished edits show here.", title: "No unpublished changes" };
+  if (state.value === "deleted") return { action: false, description: "Documents deleted from the draft stay here until you publish the deletion.", title: "Nothing deleted" };
+  if (state.value === "published") return { action: false, description: "Published documents are on the site.", title: "Nothing published yet" };
+  return undefined;
+});
 
 // Facet values come from the last load without field filters, so choosing one value keeps the others available.
 const facetOptions = ref<NonNullable<ConsoleDocumentPage["facets"]>>({});
@@ -80,8 +107,21 @@ function facetItems(name: string, label: string) {
   return [{ label: `Any ${label.toLowerCase()}`, value: anyValue }, ...values.map(entry => ({ label: `${entry.value} (${entry.count})`, value: entry.value }))];
 }
 
-function activeFilters(): Record<string, string> {
-  return Object.fromEntries(Object.entries(filters.value).filter(([, value]) => value && value !== anyValue));
+function filterQuery(): Record<string, string> {
+  return Object.fromEntries(activeFilters.value.map(filter => [filter.name, filter.value]));
+}
+
+function removeFilter(name: string): void {
+  const next = { ...filters.value };
+  delete next[name];
+  filters.value = next;
+}
+
+function writeQuery(): void {
+  const query = consoleListQuery({ filters: filterQuery(), search: search.value, sort: sort.value, state: state.value }, defaultSort.value);
+  rememberConsoleListQuery(props.collection.name, query);
+  if (stableConsoleJSON(query) === stableConsoleJSON(consoleListQuery(readView(), defaultSort.value))) return;
+  void router.replace({ query });
 }
 
 async function load(append = false): Promise<void> {
@@ -93,7 +133,7 @@ async function load(append = false): Promise<void> {
     const result = await props.client.list(props.collection.name, {
       cursor: append ? page.value?.nextCursor ?? undefined : undefined,
       facets: facetFields.value.map(entry => entry.name),
-      filter: activeFilters(),
+      filter: filterQuery(),
       limit: 50,
       search: search.value.trim() || undefined,
       sort: { direction: direction === "desc" ? "desc" : "asc", field: field! },
@@ -101,9 +141,8 @@ async function load(append = false): Promise<void> {
     });
     if (current !== request) return;
     items.value = append ? [...items.value, ...result.items] : result.items;
-    if (!append && !Object.keys(activeFilters()).length && result.facets) facetOptions.value = result.facets;
+    if (!append && !activeFilters.value.length && result.facets) facetOptions.value = result.facets;
     page.value = append ? { ...result, facets: page.value?.facets ?? result.facets, states: result.states } : result;
-    loadedAt.value = Date.now();
     error.value = undefined;
     if (!append) selected.value = new Set();
   }
@@ -118,8 +157,12 @@ async function load(append = false): Promise<void> {
   }
 }
 
+function documentRoute(item: Pick<ConsoleDocumentSummary, "id">) {
+  return { name: route.name ?? undefined, params: { collection: props.collection.name, document: item.id.split("/") }, query: {} };
+}
+
 function open(item: Pick<ConsoleDocumentSummary, "id">): void {
-  void router.push({ name: route.name ?? undefined, params: { collection: props.collection.name, document: item.id.split("/") }, query: {} });
+  void router.push(documentRoute(item));
 }
 
 function create(): void {
@@ -151,27 +194,50 @@ function refreshAfterPublishProblem(): void {
   void load();
 }
 
-/** Publishes exactly the drafts this list showed: every change, or the selected documents. */
+/**
+ * Publishes exactly the drafts this list showed: every change, or the selected documents. Rows show Published at once
+ * (deleted rows leave) and roll back if the request fails.
+ */
 async function publish(expect: readonly ConsoleDocumentPublishExpectation[] = page.value?.changes ?? []): Promise<void> {
-  if (!expect.length) return;
-  publishing.value = true;
-  notice.value = undefined;
+  if (publishing.value || !expect.length) return;
+  const before = { items: items.value, page: page.value, selected: selected.value };
+  const targets = new Set(expect.map(entry => entry.id));
+  const counts = { ...states.value };
+  items.value = items.value.flatMap((item) => {
+    if (item.state === "published" || !targets.has(item.id)) return [item];
+    counts[item.state]--;
+    if (item.state === "deleted") return [];
+    counts.published++;
+    return [{ ...item, state: "published" as const }];
+  });
+  // Changes on other pages are not in `items`; their counts move too.
+  for (const change of page.value?.changes ?? []) {
+    if (!targets.has(change.id) || items.value.some(item => item.id === change.id) || before.items.some(item => item.id === change.id)) continue;
+    counts[change.state]--;
+    if (change.state !== "deleted") counts.published++;
+  }
+  if (page.value) page.value = { ...page.value, changes: page.value.changes.filter(change => !targets.has(change.id)), states: counts };
+  selected.value = new Set();
+  publishOpen.value = false;
   publishProblem.value = undefined;
+  publishing.value = true;
   try {
     const result = await props.client.publish(props.collection.name, expect);
     const count = result.documents.length;
-    notice.value = { color: "success", text: count ? `Published ${count} ${count === 1 ? "change" : "changes"}.` : "Nothing to publish." };
-    publishOpen.value = false;
+    if (count) toast.show({ title: count === 1 ? "Change published" : `${count} changes published` });
     emit("changed");
   }
   catch (publishError) {
-    publishOpen.value = false;
+    items.value = before.items;
+    page.value = before.page;
+    selected.value = before.selected;
     const moved = consolePublishMismatches(publishError);
     const invalid = consoleInvalidDocument(publishError);
+    // A publish that stopped for a reason the reader must act on stays as a note above the list.
     if (moved) {
       const names = moved.map(entry => `${documentTitle(entry.id)}${entry.actual === null ? " (deleted)" : ""}`).join(", ");
       publishProblem.value = {
-        actions: [{ label: "Refresh", onClick: refreshAfterPublishProblem }],
+        actions: [{ color: "neutral", label: "Refresh", onClick: refreshAfterPublishProblem, variant: "outline" }],
         color: "warning",
         description: `Nothing was published. ${names} changed after this list loaded. Refresh to review the latest drafts, then publish again.`,
         title: moved.length === 1 ? "1 document changed since you reviewed it" : `${moved.length} documents changed since you reviewed them`,
@@ -180,47 +246,50 @@ async function publish(expect: readonly ConsoleDocumentPublishExpectation[] = pa
     else if (invalid) {
       const issues = consoleFieldIssues(publishError) ?? [];
       publishProblem.value = {
-        actions: [{ label: `Open ${documentTitle(invalid)}`, onClick: () => open({ id: invalid }) }],
+        actions: [{ color: "neutral", label: `Open ${documentTitle(invalid)}`, onClick: () => open({ id: invalid }), variant: "outline" }],
         color: "error",
-        description: `Nothing was published. ${issues.map(issue => `${[issue.field, ...issue.path].filter(segment => segment !== undefined).join(".") || "Document"}: ${issue.message}`).join(" ")} Open it, fix the fields, and save before you publish.`,
+        description: `Nothing was published. ${humanizeConsoleFieldIssues(fields.value, issues).map(issue => issue.message).join(" ")} Open it, fix the fields, and save before you publish.`,
         title: `${documentTitle(invalid)} no longer validates`,
       };
     }
-    else notice.value = { color: "error", text: consoleErrorMessage(publishError, "Could not publish.") };
+    else toast.error("Couldn't publish. Try again.", { label: "Retry", onClick: () => publish(expect) });
   }
   finally {
     publishing.value = false;
   }
 }
 
-function updatedLabel(value: string | null): string {
-  return (value && recentTimestamp(value, loadedAt.value)) ?? "";
-}
-
-function updatedTitle(value: string | null): string {
-  const date = value ? new Date(value) : undefined;
-  return date && !Number.isNaN(date.getTime()) ? date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Unknown";
-}
-
 function formatValue(value: unknown, kind?: string): string {
-  if (value === undefined || value === null || value === "") return "";
+  if (value === undefined || value === null || value === "") return "—";
   if (kind === "date" || kind === "date-time") {
     const date = new Date(String(value));
-    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC", year: "numeric" });
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString("en", { day: "numeric", month: "short", timeZone: "UTC", year: "numeric" });
   }
-  if (Array.isArray(value)) return value.join(", ");
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
   return String(value);
 }
 
 watch(search, () => {
   if (searchTimer) clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
-    void router.replace({ query: { ...route.query, q: search.value.trim() || undefined } });
+    writeQuery();
     void load();
   }, 200);
 });
-watch([state, sort, filters], () => void load(), { deep: true });
+watch([state, sort, filters], () => {
+  writeQuery();
+  void load();
+}, { deep: true });
+// Back and Forward change the query without this component; read the view from it again.
+watch(() => route.query, () => {
+  const view = readView();
+  if (view.search !== search.value) search.value = view.search;
+  if (view.state !== state.value) state.value = view.state;
+  if (view.sort !== sort.value) sort.value = view.sort;
+  if (stableConsoleJSON(view.filters) !== stableConsoleJSON(filterQuery())) filters.value = view.filters;
+});
 watch(() => [props.collection.name, props.changes], () => void load(), { immediate: true });
+rememberConsoleListQuery(props.collection.name, consoleListQuery(initial, defaultSort.value));
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer);
 });
@@ -236,15 +305,19 @@ onBeforeUnmount(() => {
     </template>
     <template #right>
       <UPopover v-if="collection.access.publish && pendingChanges" v-model:open="publishOpen">
-        <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-send" :label="`Publish ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'}`" />
+        <UButton variant="outline" size="sm" label="Publish" :aria-label="`Publish ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'}`">
+          <template #trailing>
+            <UBadge color="neutral" variant="soft" size="sm" class="rounded-full tabular-nums" :label="String(pendingChanges)" />
+          </template>
+        </UButton>
         <template #content>
           <div class="grid max-w-72 gap-3 p-3">
-            <p class="text-xs text-muted">
+            <p class="text-[13px] text-muted">
               Copy every draft change of {{ collection.label }} to the published site:
               {{ [states.draft && `${states.draft} new`, states.changed && `${states.changed} changed`, states.deleted && `${states.deleted} deleted`].filter(Boolean).join(", ") }}.
             </p>
             <div class="flex justify-end gap-2">
-              <UButton color="neutral" variant="ghost" size="sm" label="Cancel" @click="publishOpen = false" />
+              <UButton variant="ghost" size="sm" label="Cancel" @click="publishOpen = false" />
               <UButton size="sm" label="Publish all" :loading="publishing" @click="publish(page?.changes)" />
             </div>
           </div>
@@ -254,13 +327,13 @@ onBeforeUnmount(() => {
     </template>
   </UDashboardNavbar>
 
-  <div class="flex flex-wrap items-center gap-2 border-b border-default px-4 py-2.5">
+  <div class="flex flex-wrap items-center gap-2 border-b border-default px-4 py-2">
     <UInput
       v-model="search"
       class="w-full sm:w-56"
       icon="i-lucide-search"
       size="sm"
-      placeholder="Search"
+      :placeholder="`Search ${collection.label.toLowerCase()}…`"
       aria-label="Search documents"
     />
     <UTabs
@@ -271,20 +344,38 @@ onBeforeUnmount(() => {
       variant="link"
       color="neutral"
       aria-label="Filter by state"
+      :ui="{ trigger: 'text-[13px]' }"
     />
+    <div v-if="activeFilters.length" class="flex flex-wrap items-center gap-1.5">
+      <UButton
+        v-for="filter in activeFilters"
+        :key="filter.name"
+        variant="soft"
+        size="xs"
+        trailing-icon="i-lucide-x"
+        :label="`${filter.label}: ${filter.value}`"
+        :aria-label="`Remove filter ${filter.label}: ${filter.value}`"
+        @click="removeFilter(filter.name)"
+      />
+    </div>
     <div class="ms-auto flex items-center gap-2">
       <UPopover v-if="facetFields.length" :content="{ align: 'end' }">
-        <UButton
-          color="neutral"
-          variant="outline"
-          size="sm"
-          icon="i-lucide-list-filter"
-          :label="activeFilterCount ? `Filters · ${activeFilterCount}` : 'Filters'"
-        />
+        <UButton variant="outline" size="sm" icon="i-lucide-list-filter" label="Filter" />
         <template #content>
           <div class="grid w-64 gap-3 p-3">
             <UFormField v-for="field in facetFields" :key="field.name" :label="field.label" :ui="{ label: 'text-xs' }">
+              <USelectMenu
+                v-if="field.kind === 'string-list'"
+                v-model="filters[field.name]"
+                size="sm"
+                class="w-full"
+                value-key="value"
+                :items="facetItems(field.name, field.label)"
+                :placeholder="`Any ${field.label.toLowerCase()}`"
+                :search-input="{ placeholder: `Search ${field.label.toLowerCase()}…` }"
+              />
               <USelect
+                v-else
                 v-model="filters[field.name]"
                 size="sm"
                 class="w-full"
@@ -292,7 +383,7 @@ onBeforeUnmount(() => {
                 :placeholder="`Any ${field.label.toLowerCase()}`"
               />
             </UFormField>
-            <UButton v-if="activeFilterCount" class="justify-self-start" color="neutral" variant="link" size="xs" label="Clear filters" @click="filters = {}" />
+            <UButton v-if="activeFilters.length" class="justify-self-start" variant="link" size="xs" label="Clear filters" @click="filters = {}" />
           </div>
         </template>
       </UPopover>
@@ -300,25 +391,25 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <div v-if="notice || selectedPublishable.length" class="flex items-center gap-3 border-b border-default px-4 py-2" role="status" aria-live="polite">
-    <p v-if="notice" class="min-w-0 flex-1 truncate text-xs" :class="notice.color === 'error' ? 'text-error' : 'text-success'">{{ notice.text }}</p>
-    <span v-else class="flex-1" />
+  <div v-if="collection.access.publish && selected.size" class="flex items-center gap-3 border-b border-default px-4 py-1.5">
+    <p class="min-w-0 flex-1 text-[13px] text-muted tabular-nums">{{ selected.size }} selected</p>
+    <UButton variant="ghost" size="xs" label="Clear" @click="selected = new Set()" />
     <UButton
-      v-if="collection.access.publish && selectedPublishable.length"
+      v-if="selectedPublishable.length"
+      variant="outline"
       size="xs"
-      icon="i-lucide-send"
       :loading="publishing"
-      :label="`Publish ${selectedPublishable.length} selected`"
+      :label="`Publish ${selectedPublishable.length}`"
       @click="publish(selectedPublishable)"
     />
   </div>
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="min-h-0 flex-1 overflow-y-auto" aria-live="polite" :aria-busy="loading">
     <UAlert
       v-if="publishProblem"
       class="m-4"
       :color="publishProblem.color"
-      variant="subtle"
+      variant="outline"
       icon="i-lucide-circle-alert"
       role="alert"
       :title="publishProblem.title"
@@ -333,71 +424,80 @@ onBeforeUnmount(() => {
       color="error"
       variant="subtle"
       icon="i-lucide-cloud-off"
-      title="Could not load documents"
+      :title="`Couldn't load ${collection.label.toLowerCase()}`"
       :description="consoleErrorMessage(error)"
-      :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: () => load() }]"
+      :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => load() }]"
     />
-    <div v-else-if="loading && !items.length" class="grid gap-2 p-4">
-      <USkeleton v-for="index in 6" :key="index" class="h-10 rounded-md" />
+    <div v-else-if="loading && !items.length" class="grid gap-px p-4" aria-hidden="true">
+      <USkeleton v-for="index in 6" :key="index" class="h-12 rounded-md" />
     </div>
     <UEmpty
       v-else-if="!items.length"
-      class="py-16"
+      class="m-4 py-12"
       icon="i-lucide-file-text"
-      :title="filtered ? 'No matching documents' : `No ${collection.label.toLowerCase()} yet`"
-      :description="filtered ? 'Change the search or filters.' : collection.access.write ? 'Create the first document.' : 'Documents appear here when someone saves one.'"
-      :actions="!filtered && collection.access.write ? [{ label: 'New document', icon: 'i-lucide-plus', onClick: create }] : []"
+      :title="emptyState?.title ?? `No ${collection.label.toLowerCase()} yet`"
+      :description="emptyState?.description ?? (collection.access.write ? 'Create the first document.' : 'Documents appear here when someone saves one.')"
+      :actions="emptyState ? (emptyState.action ? [{ label: 'Clear filters', color: 'neutral', variant: 'outline', onClick: () => { search = ''; state = 'all'; filters = {} } }] : []) : collection.access.write ? [{ label: 'New document', icon: 'i-lucide-plus', onClick: create }] : []"
     />
-    <table v-else class="w-full table-fixed text-left text-sm">
-      <thead class="sticky top-0 z-10 border-b border-default bg-default text-xs text-muted">
-        <tr>
-          <th v-if="collection.access.publish" class="w-10 px-4 py-2 font-medium">
+    <table v-else class="w-full table-fixed text-left">
+      <thead class="sticky top-0 z-10 bg-default text-xs text-muted shadow-[inset_0_-1px_0_var(--ui-border)]">
+        <tr class="h-9">
+          <th v-if="collection.access.publish" class="w-10 ps-4 font-medium">
             <UCheckbox :model-value="allSelected" aria-label="Select every document on this page" @update:model-value="toggleAll" />
           </th>
-          <th class="py-2 font-medium" :class="collection.access.publish ? 'px-2' : 'px-4'">Title</th>
-          <th class="w-28 px-2 py-2 font-medium">State</th>
-          <th v-if="dateField" class="hidden w-36 px-2 py-2 font-medium md:table-cell">{{ dateField.label }}</th>
-          <th class="hidden w-24 px-2 py-2 font-medium sm:table-cell">Updated</th>
-          <th v-if="tagField" class="hidden w-48 px-2 py-2 font-medium lg:table-cell">{{ tagField.label }}</th>
+          <th class="font-medium" :class="collection.access.publish ? 'px-2' : 'px-4'">Title</th>
+          <th class="w-28 px-2 font-medium">State</th>
+          <th v-if="tagField" class="hidden w-40 px-2 font-medium lg:table-cell">{{ tagField.label }}</th>
+          <th v-if="dateField" class="hidden w-32 px-2 font-medium md:table-cell">{{ dateField.label }}</th>
+          <th class="hidden w-28 pe-4 ps-2 text-right font-medium sm:table-cell">Updated</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-default">
         <tr
           v-for="item in items"
           :key="item.id"
-          class="group cursor-pointer hover:bg-elevated/50"
+          class="group h-12 cursor-pointer hover:bg-elevated/60"
           :class="{ 'bg-elevated/40': selected.has(item.id) }"
           @click="open(item)"
         >
-          <td v-if="collection.access.publish" class="px-4 py-2.5" @click.stop>
-            <UCheckbox :model-value="selected.has(item.id)" :aria-label="`Select ${item.title}`" @update:model-value="toggle(item.id, $event)" />
+          <td v-if="collection.access.publish" class="ps-4" @click.stop>
+            <!-- Row checkboxes appear on hover, on focus, or once anything is selected (Linear, Gmail). -->
+            <UCheckbox
+              :class="selected.size ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100'"
+              :model-value="selected.has(item.id)"
+              :aria-label="`Select ${item.title}`"
+              @update:model-value="toggle(item.id, $event)"
+            />
           </td>
-          <td class="min-w-0 py-2.5" :class="collection.access.publish ? 'px-2' : 'px-4'">
+          <td class="min-w-0" :class="collection.access.publish ? 'px-2' : 'px-4'">
             <a
-              :href="router.resolve({ name: route.name ?? undefined, params: { collection: collection.name, document: item.id.split('/') } }).href"
-              class="block min-w-0 focus-visible:outline-2 focus-visible:outline-primary"
+              :href="router.resolve(documentRoute(item)).href"
+              class="block min-w-0 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2"
               @click.prevent="open(item)"
             >
-              <span class="block truncate font-medium text-highlighted" :class="{ 'line-through decoration-muted': item.state === 'deleted' }">{{ item.title }}</span>
+              <span class="block truncate text-sm font-medium text-highlighted" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': item.state === 'deleted' }">{{ item.title }}</span>
               <span class="block truncate font-mono text-xs text-dimmed">{{ item.id }}</span>
             </a>
           </td>
-          <td class="px-2 py-2.5">
-            <UBadge :color="consoleDocumentStateColor(item.state)" variant="subtle" size="sm" :label="consoleDocumentStateLabel(item.state)" />
+          <td class="px-2">
+            <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" class="text-[13px]" />
           </td>
-          <td v-if="dateField" class="hidden truncate px-2 py-2.5 text-xs text-muted md:table-cell">{{ formatValue(item.data[dateField.name], dateField.kind) }}</td>
-          <td class="hidden truncate px-2 py-2.5 text-xs text-muted sm:table-cell">
-            <UTooltip v-if="item.updatedAt" :text="updatedTitle(item.updatedAt)">
-              <time :datetime="item.updatedAt">{{ updatedLabel(item.updatedAt) }}</time>
-            </UTooltip>
+          <td v-if="tagField" class="hidden truncate px-2 text-[13px] text-muted lg:table-cell">{{ formatValue(item.data[tagField.name]) }}</td>
+          <td v-if="dateField" class="hidden truncate px-2 text-[13px] tabular-nums text-muted md:table-cell">{{ formatValue(item.data[dateField.name], dateField.kind) }}</td>
+          <td class="hidden truncate pe-4 ps-2 text-right text-[13px] text-muted sm:table-cell">
+            <ConsoleRelativeTime v-if="item.updatedAt" :value="item.updatedAt" />
+            <span v-else>—</span>
           </td>
-          <td v-if="tagField" class="hidden truncate px-2 py-2.5 text-xs text-muted lg:table-cell">{{ formatValue(item.data[tagField.name]) }}</td>
         </tr>
       </tbody>
     </table>
     <div v-if="page?.nextCursor" class="flex justify-center p-4">
-      <UButton color="neutral" variant="outline" size="sm" label="Load more" :loading="loadingMore" @click="load(true)" />
+      <UButton variant="outline" size="sm" label="Load more" :loading="loadingMore" @click="load(true)" />
     </div>
-    <p v-if="items.length" class="px-4 pb-4 text-xs text-dimmed">{{ items.length }} of {{ page?.total ?? items.length }}</p>
+    <p v-if="items.length" class="flex flex-wrap gap-x-3 px-4 py-3 text-xs text-dimmed">
+      <span class="tabular-nums">{{ items.length }} of {{ page?.total ?? items.length }}</span>
+      <span v-if="state === 'draft'">Drafts aren't on the site until you publish them.</span>
+      <span v-else-if="state === 'deleted'">Deleted documents stay on the site until you publish the deletion.</span>
+    </p>
   </div>
 </template>
