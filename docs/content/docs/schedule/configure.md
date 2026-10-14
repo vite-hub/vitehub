@@ -84,6 +84,52 @@ Write `manual` and `allowRuntimeSchedules` as literal `true` or `false` values i
 
 Use `waitUntil(promise)` for consequential work that can outlive the handler body. Direct and local execution settles registered work before recording the Schedule Run result; a rejection fails the run with the same diagnostics as a handler rejection. An installed wake runtime instead retains registered work after the handler returns, reports rejection through its `onError` hook, and drains outstanding work when the runtime closes.
 
+## Contribute Schedules from a package
+
+A package can add a Schedule from its own Vite plugin, so applications do not write `server/schedules/<name>.ts` for it. Add `vitehub.schedules` to the plugin object. Each entry names a Schedule and the absolute path of its Definition module:
+
+```ts [my-package/vite.ts]
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import type { Plugin } from 'vite'
+import type { ScheduleContributingPlugin } from '@vite-hub/schedule/vite'
+
+export function myPackage(): Plugin & ScheduleContributingPlugin {
+  return {
+    name: 'my-package/vite',
+    vitehub: {
+      async schedules({ projectRoot }) {
+        const definition = join(projectRoot, '.vitehub/my-package/publish-schedule.ts')
+        await mkdir(dirname(definition), { recursive: true })
+        await writeFile(definition, [
+          `import { defineSchedule } from 'vite-hub/schedule'`,
+          `import { publishDue } from 'my-package/server'`,
+          `export default defineSchedule({ cron: '*/5 * * * *', manual: true, handler: () => publishDue() })`,
+          '',
+        ].join('\n'))
+        return [{ name: 'my-package/publish', definition, reason: 'Publishes scheduled documents.' }]
+      },
+    },
+  }
+}
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Schedule name for `vitehub schedule run <name>`, provider output, and Runtime Schedule targets. Letters, numbers, `.`, `_`, `-`, and `/`. |
+| `definition` | `string` | Absolute path of a module whose default export is `defineSchedule()` or `defineScheduleTarget()`. |
+| `reason` | `string` | Optional. Why the package adds the Schedule. `vitehub inspect` and the Console show it. |
+
+The build reads the cron and the `manual` and `allowRuntimeSchedules` options from source without running the module, the same as discovered files. The Definition module therefore follows the [file rules](#schedule-definition-options): a direct `export default defineSchedule({ ... })` with literal options. That is why a contribution takes a file path instead of a package specifier and export name: bundled package output rarely keeps that form. Generate the module under `.vitehub/` in the project, as above, or ship it as source and pass `fileURLToPath(new URL('./publish-schedule.ts', import.meta.url))`.
+
+`vitehub.schedules` accepts an array or a factory. The factory receives `{ projectRoot, rootDir, serverDirs }` and can be async. The Schedule plugin can read contributions before your plugin's `config` hook runs, so compute them in the factory, not in your own hooks. The factory runs once per discovery pass and must return the same result each time.
+
+A contributed Schedule behaves like a `server/schedules/` file on every host. Its cron is added to Cloudflare Cron Triggers, Vercel cron config, Netlify Scheduled Functions, and the Nitro wake plugin. The Node Process Runtime runs it. It is in the registry that `vitehub schedule run` loads, the generated `ScheduleTargetRegistry` types, `vitehub inspect definitions`, and the Console Schedules section. Inspection shows the contributing plugin and its reason. With `providerOutput: 'auto'`, contributed Schedules take the same delivery path as `server/schedules/` files.
+
+Each Schedule name has one Definition. If a contribution reuses the name of a discovered file or of another plugin's contribution, the build fails with `SCHEDULE_B0006` and lists both sources. An invalid entry fails with `SCHEDULE_B0007`, which is also used when the Definition module does not exist. A module without a default export of `defineSchedule()` fails with `SCHEDULE_B0005`.
+
+`collectScheduleContributions(plugins, context)` from `@vite-hub/schedule/vite` returns the validated contributions. Use it when another build step needs the same list.
+
 ## Storage
 
 | Store | Configure with | Nuance |
