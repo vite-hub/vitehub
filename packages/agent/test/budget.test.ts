@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, expectTypeOf, it, vi } from "vitest"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -11,48 +11,68 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 
 describe("budget Capability", () => {
+  it("installs the same policy from the top-level Agent setting", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ budget: { tokens: 10, pricing: false }, driver: { run: () => "ok" } })
+    expect(agent.capabilities?.map(capability => capability.id)).toContain("budget")
+  })
+
+  it("accepts a capacity-only top-level policy", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ budget: { capacity: { concurrency: 2 } }, driver: { run: () => "ok" } })
+    expect(agent.capabilities?.map(capability => capability.id)).toContain("budget")
+  })
+
+  it("applies capacity-only budgets to Driver admission", async () => {
+    const { createAgentInspectionMetadata, defineAgent, runAgentInline } = await import("../src/index.ts")
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const run = vi.fn(async () => { await gate; return "ok" })
+    const agent = defineAgent({
+      budget: { capacity: { concurrency: 1, queue: { maxPending: 1 } } },
+      driver: { run },
+      runtime: false,
+    })
+    const first = runAgentInline(agent, runtime(), { prompt: "first" })
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1))
+    const second = runAgentInline(agent, runtime(), { prompt: "second" })
+    try {
+      await vi.waitFor(() => expect(createAgentInspectionMetadata(agent)).toMatchObject({
+        config: { driver: { capacity: { active: 1, pending: 1 } } },
+      }))
+      expect(run).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      release()
+      await expect(Promise.all([first, second])).resolves.toEqual(["ok", "ok"])
+    }
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects an empty top-level budget", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    expect(() => defineAgent({ budget: { mode: "enforce" }, driver: { run: () => "ok" } })).toThrow("requires tokens, usd, or capacity")
+  })
+
+  it("rejects a malformed falsy top-level capacity", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    expect(() => defineAgent({ budget: { capacity: null } as never, driver: { run: () => "ok" } })).toThrow("driver.capacity")
+  })
+
   it("emits fallback usage and every finish before a UI source closes or fails", async () => {
     const { budget } = await import("../src/capabilities.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
     let sourceController: ReadableStreamDefaultController<unknown> | undefined
-    const agent = defineAgent({
-      capabilities: [budget({ tokens: 10, pricing: false })],
-      driver: {
-        run: () => ({
-          // Keep the result surface configurable so stream cleanup can attach
-          // resolved usage before the source reports its post-finish failure.
-          usageRecord: {
-            usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
-          },
-          fullStream: (async function* () { yield { type: "finish" } })(),
-          toUIMessageStream: () => new ReadableStream<unknown>({
-            start(controller) {
-              sourceController = controller
-              controller.enqueue({ type: "finish", reason: "first" })
-              controller.enqueue({ type: "finish", reason: "second" })
-            },
-          }),
-        }),
-      },
-    })
-    // SAFETY: This fixture's Driver exposes the UI message stream inspected below.
-    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as {
-      toUIMessageStream: () => ReadableStream<unknown>
-    }
+    const agent = defineAgent({ capabilities: [budget({ tokens: 10, pricing: false })], driver: { run: () => ({ usageRecord: { usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 } }, fullStream: (async function* () { yield { type: "finish" } })(), toUIMessageStream: () => new ReadableStream<unknown>({ start(controller) { sourceController = controller; controller.enqueue({ type: "finish", reason: "first" }); controller.enqueue({ type: "finish", reason: "second" }) } }) }) } })
+    const result = await runAgent(agent, runtime(), { prompt: "hello" }) as { toUIMessageStream: () => ReadableStream<unknown> }
     const reader = result.toUIMessageStream().getReader()
     try {
-      expect((await reader.read()).value).toMatchObject({
-        type: "usage", usageRecord: { usage: { totalTokens: 12 } },
-      })
+      expect((await reader.read()).value).toMatchObject({ type: "usage", usageRecord: { usage: { totalTokens: 12 } } })
       expect((await reader.read()).value).toEqual({ type: "finish", reason: "first" })
       expect((await reader.read()).value).toEqual({ type: "finish", reason: "second" })
-      const failure = new Error("source failed after finish")
-      sourceController!.error(failure)
+      sourceController!.error(new Error("source failed after finish"))
       await expect(reader.read()).rejects.toThrow("source failed after finish")
-    }
-    finally {
-      await reader.cancel().catch(() => {})
-    }
+    } finally { await reader.cancel().catch(() => {}) }
   }, 15_000)
 
   it("accepts provider usage records backed by getters on a prototype", async () => {
@@ -187,6 +207,24 @@ describe("budget Capability", () => {
 
   it("rejects an empty budget", async () => {
     const { budget } = await import("../src/capabilities.ts")
-    expect(() => budget({ pricing: false })).toThrow("requires tokens or usd")
+    expect(() => budget({ pricing: false })).toThrow("requires tokens, usd, or capacity")
+  })
+
+  it("does not let extra public arguments bypass standalone capacity rejection", async () => {
+    const { budget } = await import("../src/capabilities.ts")
+    expectTypeOf(budget).parameters.toEqualTypeOf<[options: import("../src/types.ts").AgentBudgetOptions]>()
+    expect(() => Reflect.apply(budget, undefined, [
+      { capacity: { concurrency: 1 }, pricing: false },
+      { allowCapacity: true },
+    ])).toThrow("capacity is only supported through defineAgent")
+    expect(() => Reflect.apply(budget, undefined, [
+      { tokens: 10, capacity: { typo: true }, pricing: false },
+      { allowCapacity: true },
+    ])).toThrow("capacity is only supported through defineAgent")
+  })
+
+  it("rejects capacity on standalone budget capabilities", async () => {
+    const { budget } = await import("../src/capabilities.ts")
+    expect(() => budget({ capacity: { concurrency: 1 }, pricing: false })).toThrow("capacity is only supported through defineAgent")
   })
 })
