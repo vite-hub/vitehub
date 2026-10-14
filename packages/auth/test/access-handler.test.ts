@@ -104,8 +104,8 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("normalizes compatible authorization responses from another realm", async () => {
-    const foreignResponse = runInNewContext(`new (class {
+  it("rejects response-shaped objects without a native Response brand", async () => {
+    const responseShape = runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
       get headers() { return [["set-cookie", "policy=denied"], ["x-policy", "rejected"]] }
@@ -114,20 +114,13 @@ describe("Auth access handlers", () => {
       get [Symbol.toStringTag]() { return "Response" }
     })()`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+      access: { routes: [{ route: "/**", authorize: () => responseShape as never }] },
     }))
 
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
-    expect(response).not.toBe(foreignResponse)
-    expect(response?.status).toBe(409)
-    expect(response?.headers.getSetCookie()).toEqual(["policy=denied"])
-    const headers: string[] = []
-    response?.headers.forEach((_value, key) => headers.push(key))
-    expect(headers).toContain("x-policy")
-    const reader = response!.body!.getReader()
-    expect(await reader.read()).toMatchObject({ value: new Uint8Array([110, 111]), done: false })
-    reader.releaseLock()
+    expect(response).not.toBe(responseShape)
+    expect(response?.status).toBe(403)
   })
 
   it("does not expose a tag-only response shape to adapters", async () => {
