@@ -84,7 +84,9 @@ function isRequestLike(value: AuthRequest): value is Request {
     // implementation's internal request state and rejects interface spoofs.
     const clone = Reflect.get(value, "clone")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the foreign Request clone capability before bypassing host-input normalization.
-    if (typeof clone !== "function" || Reflect.apply(clone, value, []) === value) return false
+    if (typeof clone !== "function") return false
+    const cloned = Reflect.apply(clone, value, [])
+    if (cloned === value || Object.prototype.toString.call(cloned) !== "[object Request]") return false
     return true
   }
   catch {

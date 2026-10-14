@@ -163,7 +163,7 @@ describe("server authentication provider boundaries", () => {
       get method() { return "GET" }
       get signal() { return undefined }
       get url() { return "https://example.com/api/private" }
-      clone() { return this }
+      clone() { return {} }
       arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) }
       blob() { return Promise.resolve(new Blob()) }
       formData() { return Promise.resolve(new FormData()) }
