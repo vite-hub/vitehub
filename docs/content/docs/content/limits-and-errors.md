@@ -35,17 +35,27 @@ icon: i-lucide-circle-alert
 - Without `authorize`, `content.can()` denies every action.
 - The Store retains every revision. There is no pruning.
 
+## Sessions
+
+- `content.sessions` needs the `vitehub_content_sessions` table from `contentSessionsSchema` in the Database of the Workspace history. Without it, `content.sessions` throws `CONTENT_R0012`, and writes skip the lease check for a minute at a time before they look again.
+- A session is present for 45 seconds after a report. A lease lasts 5 minutes after `acquire()`, a renewing report, or a save with `session`, and stops blocking others after 15 minutes without reported input. Times use the Database clock.
+- Session tokens are 8 to 128 letters, digits, `-`, or `_`. User names keep their first 256 characters and images their first 2,048.
+- `save()`, `remove()`, and `restore()` run one extra Database query for the lease check, unless the collection has `editing: { lease: false }` or the write passes `lease: 'override'`. The check runs once before the commit, so a lease taken during the commit does not stop that write.
+- Workspace writers that bypass Content, such as Workspace `fs` writes or raw history commits, do not check leases.
+
 ## Errors
 
 | Code | Cause | What to do |
 | --- | --- | --- |
 | `CONTENT_INVALID` | A document failed its fields, from `save()`, `restore()`, `get()`, `publish()`, or any Workspace writer. `details.issues` lists `{ field, path, message }`. | Fix the listed fields. |
 | `WORKSPACE_CONFLICT` | `ifDigest` no longer matches the draft document, or `ifHead` no longer matches the published head. `details` carry `ref`, `expected`, and `actual`. From `publish({ expect })`, a draft changed after review: `details` are `{ ref: 'draft', documents: [{ collection, id, expected, actual }] }`. | Read the document or head again and retry. After a `publish({ expect })` conflict, review the listed documents again. |
+| `CONTENT_LEASE_HELD` | Another session holds the edit lease of the document, from `save()`, `remove()`, or `restore()`. `details` carry `collection`, `id`, and `holder: { user, since, expiresAt }`. The Console returns it as `409`. | Wait for the holder to finish, take the lease with `content.sessions.acquire({ takeover: true })`, or pass `lease: 'override'`. See [Editing together](/docs/content/editing-together). |
 | `CONTENT_NOT_FOUND` | `remove()`, `restore()`, or `publish({ ids })` named a document that does not exist, or `unschedule()` named a schedule that already ran or is gone. | Check the id, ref, or revision. |
 | `CONTENT_R0004` | A Comark Source read a file that is not in its revision. | Refresh the instance. |
 | `CONTENT_R0005` | The Content handler received an unsupported request or body. | Send a Web or Node request. |
 | `CONTENT_R0006` | A Content definition is invalid. | Fix `defineContent()` or `documents()`. |
 | `CONTENT_R0007` | The collection Workspace has no retained history. | Use the Blob + Database Store. |
-| `CONTENT_R0008` | An unknown collection, an invalid document id or ref, or invalid call options. | Use a defined collection, a relative id inside its path, and `draft` or `published`. |
+| `CONTENT_R0008` | An unknown collection, an invalid document id or ref, or invalid call options, such as a malformed session token or `lease` other than `'override'`. | Use a defined collection, a relative id inside its path, and `draft` or `published`. |
 | `CONTENT_R0009` | Invalid `publish()` options, such as `ids` without `collection`, `expect` combined with `collection` or `ids`, an empty or repeated `expect` entry, or an invalid digest. | Pass `collection` with `ids`, or `expect` alone with one entry per document, and `ifHead` as a revision id or `null`. |
+| `CONTENT_R0012` | `content.sessions` cannot reach its table: the Database of the Workspace history has no `vitehub_content_sessions` table, or the Workspace does not use the Blob + Database Store. | Add `contentSessionsSchema` from `vite-hub/content/database` to that Database next to `workspaceHistorySchema`, then run `vitehub db generate` and `vitehub db migrate`. |
 | `CONTENT_R0011` | Invalid `schedule()` options: `at` not in the future or without a time zone, an invalid `expect`, every document already published as reviewed, or a document that already has a pending schedule. | Pass a future time with a zone, and `unschedule()` the existing schedule first. See [Scheduling](/docs/content/scheduling). |

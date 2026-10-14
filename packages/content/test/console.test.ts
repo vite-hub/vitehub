@@ -20,6 +20,7 @@ import { contentConsoleSection } from "../src/vite.ts"
 import type { ContentAuthorize } from "../src/index.ts"
 
 const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
+const sessionsMigration = await readFile(new URL("./fixtures/sessions.sql", import.meta.url), "utf8")
 const cleanup: Array<() => Promise<void> | void> = []
 let workspaces = 0
 
@@ -33,12 +34,12 @@ async function temporaryRoot(): Promise<string> {
   return root
 }
 
-async function historyWorkspace(): Promise<string> {
+async function historyWorkspace(options: { sessions?: boolean } = {}): Promise<string> {
   const root = await temporaryRoot()
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
   const database = drizzle(client, { schema: workspaceHistorySchema })
-  for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
+  for (const statement of (options.sessions ? `${migration};${sessionsMigration}` : migration).split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `console-site-${++workspaces}`
   registerWorkspace(name, { store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: name }) })
@@ -435,6 +436,80 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
   it("requires the defineContent() runtime as `content`", () => {
     expect(() => createContentConsoleActions({})).toThrow("must export the defineContent() runtime as `content`")
     expect(() => createContentConsoleActions({ content: { collection: () => undefined } })).toThrow(TypeError)
+  })
+})
+
+describe("Content Console sessions", { timeout: 30_000 }, () => {
+  const tabA = "console-tab-0001"
+  const tabB = "console-tab-0002"
+
+  it("reports presence with the Console user and marks this tab", async () => {
+    const { actions } = await setup(await historyWorkspace({ sessions: true }))
+    const viewing = await actions.session({ collection: "posts", id: "hello", session: tabA, action: "report", kind: "view" }, editor)
+    expect(viewing).toMatchObject({
+      user: { id: "ada", name: "Ada" },
+      available: true,
+      editing: false,
+      lease: true,
+      holder: null,
+      sessions: [{ collection: "posts", id: "hello", user: { id: "ada", name: "Ada" }, kind: "view", since: null, self: true }],
+    })
+    // A user without a name shows as their id; another tab never sees this tab's token.
+    const other = await actions.session({ collection: "posts", id: "hello", session: tabB, action: "report", kind: "view" }, writer)
+    expect(other.sessions.map(entry => [entry.user.name, entry.self])).toEqual(expect.arrayContaining([["Ada", false], ["wes", true]]))
+    expect(JSON.stringify(other)).not.toContain(tabA)
+  })
+
+  it("takes the lease on first edit, blocks other tabs, and hands it over", async () => {
+    const { actions } = await setup(await historyWorkspace({ sessions: true }))
+    const created = await actions.save({ ...hello, session: tabA }, editor)
+    expect((await actions.session({ collection: "posts", id: "hello", session: tabA, action: "acquire" }, editor)).editing).toBe(true)
+    const blocked = await actions.session({ collection: "posts", id: "hello", session: tabB, action: "acquire" }, writer)
+    expect(blocked).toMatchObject({ editing: false, holder: { user: { name: "Ada" }, kind: "edit", self: false } })
+    expect(blocked.holder!.since).toEqual(expect.any(String))
+    expect(await failure(actions.save({ ...hello, ifDigest: created.digest, session: tabB }, writer))).toMatchObject({
+      status: 409,
+      code: "CONTENT_LEASE_HELD",
+      message: "Ada is editing this document.",
+      details: { holder: { user: { id: "ada", name: "Ada" }, since: blocked.holder!.since } },
+    })
+    const saved = await actions.save({ ...hello, data: { ...hello.data, title: "By Ada" }, ifDigest: created.digest, session: tabA }, editor)
+    const taken = await actions.session({ collection: "posts", id: "hello", session: tabB, action: "takeover" }, writer)
+    expect(taken).toMatchObject({ editing: true, holder: { user: { id: "wes" }, self: true } })
+    const former = await actions.session({ collection: "posts", id: "hello", session: tabA, action: "report", kind: "edit", input: true }, editor)
+    expect(former).toMatchObject({ editing: false, holder: { user: { id: "wes" } } })
+    expect(await failure(actions.save({ ...hello, ifDigest: saved.digest, session: tabA }, editor))).toMatchObject({ status: 409, code: "CONTENT_LEASE_HELD" })
+    await actions.session({ collection: "posts", id: "hello", session: tabB, action: "release" }, writer)
+    await expect(actions.save({ ...hello, ifDigest: saved.digest, session: tabA }, editor)).resolves.toMatchObject({ id: "hello" })
+  })
+
+  it("needs write access to take the lease and read access to report", async () => {
+    const { actions } = await setup(await historyWorkspace({ sessions: true }))
+    await expect(actions.session({ collection: "posts", id: "hello", session: tabA, action: "report", kind: "view" }, reader)).resolves.toMatchObject({ editing: false })
+    expect(await failure(actions.session({ collection: "posts", id: "hello", session: tabA, action: "acquire" }, reader))).toMatchObject({ status: 403 })
+    expect(await failure(actions.session({ collection: "posts", id: "hello", session: tabA, action: "takeover" }, reader))).toMatchObject({ status: 403 })
+    expect(await failure(actions.session({ collection: "posts", id: "hello", session: tabA, action: "report" }, anonymous))).toMatchObject({ status: 403 })
+    expect(await failure(actions.session({ collection: "posts", id: "hello", session: tabA, action: "steal" as never }, editor))).toMatchObject({ status: 400 })
+  })
+
+  it("lists open tabs across readable collections for list rows and the dashboard", async () => {
+    const { actions } = await setup(await historyWorkspace({ sessions: true }))
+    await actions.session({ collection: "posts", id: "hello", session: tabA, action: "acquire" }, editor)
+    await actions.session({ collection: "notes", id: "today", session: tabB, action: "report", kind: "view" }, writer)
+    const all = await actions.sessions({ session: tabA }, editor)
+    expect(all).toMatchObject({ user: { id: "ada" }, available: true })
+    expect(all.sessions.map(entry => `${entry.collection}/${entry.id}:${entry.user.name}:${entry.kind}:${entry.self}`)).toEqual(["notes/today:wes:view:false", "posts/hello:Ada:edit:true"])
+    expect((await actions.sessions({ collection: "posts" }, reader)).sessions.map(entry => entry.id)).toEqual(["hello"])
+    expect(await failure(actions.sessions({ collection: "posts" }, anonymous))).toMatchObject({ status: 403 })
+  })
+
+  it("stays editable when the Database has no sessions table", async () => {
+    const { actions } = await setup()
+    const presence = await actions.session({ collection: "posts", id: "hello", session: tabA, action: "acquire" }, editor)
+    expect(presence).toMatchObject({ available: false, editing: true, holder: null, sessions: [] })
+    expect(presence.reason).toContain("contentSessionsSchema")
+    await expect(actions.sessions({}, editor)).resolves.toMatchObject({ available: false, sessions: [] })
+    await expect(actions.save({ ...hello, session: tabA }, editor)).resolves.toMatchObject({ id: "hello" })
   })
 })
 

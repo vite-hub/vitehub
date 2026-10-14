@@ -13,6 +13,8 @@ icon: i-lucide-code-2
 | `defineContent` from `vite-hub/content` | Define the Content runtime that ViteHub serves from `server/content.ts`. |
 | `documents`, `singleton`, `optional` from `vite-hub/content` | Define an editable collection or a singleton, and mark a field optional. |
 | `seo` from `vite-hub/content` | A per-document [SEO field](/docs/content/seo#seo-fields). |
+| `contentSessionsSchema` from `vite-hub/content/database` | The table behind [`content.sessions`](/docs/content/editing-together). Add it to the Database of the Workspace history. |
+| `contentSessionTimeouts` from `vite-hub/content` | Presence, lease, and idle durations in milliseconds: `{ presence: 45_000, lease: 300_000, idle: 900_000 }`. |
 | `contentHead` from `vite-hub/content` or `vite-hub/content/client` | [Head tags](/docs/content/seo#head-tags) for a document, in the shape `useHead()` takes. |
 | `defineContentSitemapHandler`, `defineContentRobotsHandler`, `renderContentSitemap` from `vite-hub/content` | Serve or render the [sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt) in another server. |
 | `contentSource` from `vite-hub/content` | Adapt one Source and set Comark options such as `prefix` and `schema`. |
@@ -93,6 +95,8 @@ export default defineEventHandler(async (event) => {
 | `content.revisions(collection, id?, options?)` | Revisions that saved, removed, restored, or published one document, newest first. Omit `id` for a singleton. |
 | `content.revisions(options?)` | Revisions that changed documents of any collection on one ref, newest first. |
 | `content.can({ user?, actor?, collection, action, id? })` | Evaluates `authorize`. Returns `false` when no policy is defined. |
+| `content.sessions.report()`, `.acquire()`, `.release()`, `.list()` | Presence and edit leases of documents. See [Editing together](/docs/content/editing-together). |
+| `posts.editing` | `{ lease }` from the definition's `editing` option. |
 | `content.sitemap(options?)` | The [sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents with a URL. |
 | `content.robots(options?)` | The robots.txt text for `defineContent({ seo: { robots } })`. |
 
@@ -176,6 +180,8 @@ await posts.remove('old-post')
 | `ifDigest` | The document digest you edited on `draft`. `null` requires that the document does not exist yet. Omit it to overwrite the draft. |
 | `message` | Revision message. Defaults to a message such as `Save posts/hello`. |
 | `metadata` | JSON-safe revision metadata, such as the author. Content reserves the `content` key. |
+| `session` | The caller's [session](/docs/content/editing-together) token. Its own edit lease does not block the write, and the write renews it. |
+| `lease` | `'override'` writes even while another session holds the edit lease. Without it, the write fails with `CONTENT_LEASE_HELD` while another session holds a live lease. |
 
 Saving content identical to the draft keeps the current draft revision. A first save on an empty draft starts the draft from `published`, so no published file is lost.
 

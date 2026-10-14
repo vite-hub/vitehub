@@ -31,7 +31,7 @@ instead of one root barrel.
 | `@vite-hub/box` | Box Definitions and provider-neutral execution sessions | `@vite-hub/box` |
 | `@vite-hub/channels` | Provider-neutral outbound Channel Definitions (`defineOutboundChannel()`), server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
 | `@vite-hub/connections` | Connection Definitions, OAuth 2 grants, API keys, access rules, activity, typed Operations, and Agent access | `@vite-hub/connections`, `@vite-hub/connections/google`, `@vite-hub/connections/server`, `@vite-hub/connections/http`, `@vite-hub/connections/agent`, `@vite-hub/connections/vite` |
-| `@vite-hub/content` | Comark Content runtime, ViteHub Source adaptation, server handler, and typed client | `@vite-hub/content`, `@vite-hub/content/client` |
+| `@vite-hub/content` | Comark Content runtime, ViteHub Source adaptation, server handler, and typed client | `@vite-hub/content`, `@vite-hub/content/client`, `@vite-hub/content/database` |
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database wiring | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |
 | `@vite-hub/email` | Portable provider integration, built-in transports, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
