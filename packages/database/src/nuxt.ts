@@ -136,6 +136,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       viteConfig.database = { ...configuredDatabase, ...viteOptions }
     }
     installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root })
+    // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the hook this integration calls.
     installNuxtExtendPlugin(viteConfig, nuxt as NuxtLike)
     // Other Nuxt modules extend Databases through the Nuxt hook or Vite plugins, after every module has run setup.
     const resolveRuntime = async () => {

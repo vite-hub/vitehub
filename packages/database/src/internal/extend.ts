@@ -24,6 +24,7 @@ export function collectDatabaseExtendHooks(plugins: unknown): DatabaseExtendHook
 }
 
 function resolveSchemaFile(rootDir: string, database: string, value: unknown) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Extension hooks are untyped JavaScript input; validate each pushed schema path.
   if (typeof value !== "string" || !value.trim()) {
     throw databaseErrorDiagnostics.DATABASE_C0008({ message: `[vitehub] A schema file added to Database ${JSON.stringify(database)} must be a nonblank path.` })
   }
