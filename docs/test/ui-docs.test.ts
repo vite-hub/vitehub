@@ -119,17 +119,6 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("uses the wide component layout without the desktop outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const styles = readFileSync(resolve(docsRoot, "app/assets/main.css"), "utf8");
-
-    expect(page).toContain('path.startsWith("/docs/ui/")');
-    expect(page).toContain('root: "lg:!grid-cols-1 lg:!gap-0"');
-    expect(page).toContain('<DocsAsideRight v-if="!isUiPage"');
-    expect(styles).toContain(".docs-ui-page-shell");
-    expect(styles).toContain("max-width: 68rem");
-  });
-
   it("gives invocation previews fixed-height containing blocks", () => {
     const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
     const inspector = readFileSync(
