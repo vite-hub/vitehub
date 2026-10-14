@@ -382,18 +382,20 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       || Object.prototype.hasOwnProperty.call(readerObject, "releaseLock")) return false
     let readerPrototype: object | null = Object.getPrototypeOf(readerObject)
     let releaseLock: (() => void) | undefined
+    let closed: (() => unknown) | undefined
     const readerPrototypes = new Set<object>()
     for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (readerPrototypes.has(readerPrototype)) return false
       readerPrototypes.add(readerPrototype)
       const descriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
-      if (typeof descriptor?.value === "function") {
-        releaseLock = descriptor.value
-        break
-      }
+      const closedDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "closed")
+      if (!closed && typeof closedDescriptor?.get === "function") closed = closedDescriptor.get
+      if (typeof descriptor?.value === "function") releaseLock = descriptor.value
+      if (releaseLock && closed) break
       readerPrototype = Object.getPrototypeOf(readerPrototype)
     }
-    if (!releaseLock) return false
+    if (!releaseLock || !closed) return false
+    Reflect.apply(closed, readerObject, [])
     Reflect.apply(releaseLock, readerObject, [])
     return responsePropertyDescriptor(candidate, "getReader")?.value === getReader
   }
