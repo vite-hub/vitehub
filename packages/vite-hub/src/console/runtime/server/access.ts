@@ -57,9 +57,13 @@ function authorizationResponse(value: unknown): Response | undefined {
     // SAFETY: Headers validates the foreign iterable and all its entries at this boundary.
     const headers = new Headers(value.headers as Headers)
     const init = { headers, status: value.status, statusText: value.statusText }
-    // Calling the native clone algorithm verifies Response internal slots;
-    // a candidate-owned clone method and toStringTag are both spoofable.
-    const clone = Response.prototype.clone.call(value)
+    // Use the candidate implementation's inherited clone algorithm so a Response
+    // from another Fetch implementation can pass its own internal-slot check.
+    // An own clone property is untrusted and cannot establish the Response brand.
+    if (Object.prototype.hasOwnProperty.call(value, "clone")) return undefined
+    const cloneMethod = Reflect.get(value, "clone")
+    if (typeof cloneMethod !== "function") return undefined
+    const clone = Reflect.apply(cloneMethod, value, [])
     if (!clone || clone === value) return undefined
     // Validate init before taking ownership of a foreign stream.
     const empty = new Response(null, init)
