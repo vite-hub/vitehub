@@ -310,7 +310,6 @@ async function installConsole(
     await Reflect.apply(uiModule, undefined, [{}, nuxt])
   }
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
-  installConsoleSections(projectRoot, sections, independentAuth)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   if (installInvocations && nuxt.options.dev && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot, undefined, observations, journal && "databaseUrl" in journal ? journal.databaseUrl : undefined, journal && "d1Binding" in journal ? { binding: journal.d1Binding, env: async () => {
     const workers = await import("cloudflare:workers")
@@ -326,6 +325,7 @@ async function installConsole(
     const entry = await consoleContributedSections.get(section)?.documents?.entry({ discoveryRoot, projectRoot, serverDirs })
     return entry ? [section] : []
   }))).flat()
+  installConsoleSections(projectRoot, [...sections, ...documentEditorSections], independentAuth)
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- @nuxt/icon declares this hook, while this structural seam keeps narrow nitro-only test hosts assignable.
   // SAFETY: @nuxt/icon calls this hook with the mutable Set of client bundle icon names.
   const hookIcons = nuxt.hook as unknown as ((name: "icon:clientBundleIcons", callback: (icons: Set<string>) => void) => void) | undefined

@@ -444,7 +444,12 @@ export function defineCollection<
           }
           page.total = result.total
         }
-        if (result.facets !== undefined) page.facets = result.facets
+        if (result.facets !== undefined) {
+          if (!isCollectionFacets(result.facets)) {
+            throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] Provider Collection facets must map fields to { value, count } lists." })
+          }
+          page.facets = result.facets
+        }
         return page
       }
       // SAFETY: A cursor definition is paired with a cursor loader by the public overloads.
@@ -484,6 +489,13 @@ export function defineCollection<
     Object.assign(collection, { get: lookup as NonNullable<Collection<TItem>["get"]> })
   }
   return collection
+}
+
+function isCollectionFacets(value: unknown): value is CollectionFacets {
+  return Object(value) === value && !Array.isArray(value) && Object.values(Object(value)).every(entries =>
+    Array.isArray(entries) && entries.every(entry => Object(entry) === entry
+      && String(Reflect.get(entry, "value")) === Reflect.get(entry, "value")
+      && Number.isSafeInteger(Reflect.get(entry, "count"))))
 }
 
 function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue, TCursorOutput extends CollectionCursorValue, TItem>(
