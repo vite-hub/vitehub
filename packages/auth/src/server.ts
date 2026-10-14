@@ -306,18 +306,19 @@ function isResponseLike(value: unknown): value is Response {
       responsePrototype = Object.getPrototypeOf(responsePrototype)
     }
     if (!responseConstructor || !statusGetter || !statusTextGetter || !headersGetter || !bodyUsedGetter || !bodyGetter) return false
-    if (!["error", "json", "redirect"].every(method => typeof (responseConstructor as Record<string, unknown>)[method] === "function")) return false
+    if (!(response instanceof responseConstructor)) return false
+    if (!["error", "json", "redirect"].every(method => typeof Object.getOwnPropertyDescriptor(responseConstructor, method)?.value === "function")) return false
     const status = statusGetter.call(response) as unknown
     const statusText = statusTextGetter.call(response)
     const headers = headersGetter.call(response) as Headers
     const bodyUsed = bodyUsedGetter.call(response)
     const body = bodyGetter.call(response) as ReadableStream<Uint8Array> | null
-    if (!Number.isInteger(status) || status < 0 || status > 599) return false
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
     if (typeof statusText !== "string" || typeof bodyUsed !== "boolean") return false
     const methods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"] as const
     if (!methods.every(method => typeof response[method] === "function")) return false
     if (!headers || typeof headers.get !== "function" || typeof headers[Symbol.iterator] !== "function") return false
-    return body === null || (typeof body === "object" && typeof body.getReader === "function" && typeof body.cancel === "function" && typeof body.tee === "function")
+    return body === null || (typeof body === "object" && body !== null && typeof body.getReader === "function" && typeof body.cancel === "function" && typeof body.tee === "function")
   }
   catch {
     return false
