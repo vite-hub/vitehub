@@ -123,8 +123,8 @@ describe("Cloudflare workflow errors", () => {
     }
   })
 
-  it("does not translate an Error.prototype spoof with an inherited message", async () => {
-    const original = Object.create(Error.prototype) as Error & { isRetryable: false }
+  it.each(["local", "foreign"])("does not translate a %s Error.prototype spoof with an inherited message", async (realm) => {
+    const original = (realm === "local" ? Object.create(Error.prototype) : runInNewContext("Object.create(Error.prototype)")) as Error & { isRetryable: false }
     Object.defineProperty(original, Symbol.toStringTag, { value: "Error" })
     original.isRetryable = false
     const createNonRetryableError = vi.fn((_error: Error & { isRetryable: false }) => new Error("converted"))
