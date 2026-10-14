@@ -996,7 +996,7 @@ onBeforeUnmount(() => {
             <template #content>
               <div class="flex items-center gap-2 border-b border-default px-3 py-2">
                 <UIcon name="i-ph-funnel-light" class="size-4 shrink-0 text-muted" />
-                <p class="min-w-0 flex-1 truncate text-[11px] font-medium uppercase tracking-[.08em] text-muted">
+                <p class="min-w-0 flex-1 truncate text-xs text-dimmed">
                   Filter sessions
                 </p>
                 <UBadge
@@ -1571,19 +1571,17 @@ onBeforeUnmount(() => {
   min-height: 2.75rem;
 }
 
-/* Section labels follow the Executor sidebar: small uppercase text with a quiet count. */
+/* Section labels are quiet sentence-case text with a count, like the labels on onmax.me. */
 .vitehub-console__section-label {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--ui-text-dimmed);
   display: flex;
-  font-size: 0.6875rem;
-  font-weight: 500;
+  font-size: 0.75rem;
+  font-weight: 400;
   gap: 0.375rem;
   height: 1.75rem;
-  letter-spacing: 0.08em;
   min-width: 0;
   padding-inline: 0.625rem;
-  text-transform: uppercase;
   width: 100%;
 }
 
@@ -1690,7 +1688,7 @@ button.vitehub-console__section-label:focus-visible {
   font-size: 0.75rem;
 }
 
-/* Recency headings sit under the uppercase Sessions label, so they use sentence case. */
+/* Recency headings sit under the Sessions label and use the same sentence case. */
 .vitehub-console__session-list .vh-invocation-list__group-heading {
   color: var(--ui-text-dimmed);
   font-size: 0.6875rem;

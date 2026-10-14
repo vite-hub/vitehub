@@ -466,10 +466,10 @@ onBeforeUnmount(() => {
               <h2 class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted">
                 {{ selectedValue.key || "(empty key)" }}
               </h2>
-              <span class="font-mono text-[10px] uppercase tracking-[.08em] text-muted">{{
+              <span class="text-xs text-dimmed">{{
                 selectedValue.type
               }}</span>
-              <span class="font-mono text-[10px] uppercase tracking-[.08em] text-muted">{{
+              <span class="text-xs text-dimmed">{{
                 selectedValue.format
               }}</span>
               <UBadge
