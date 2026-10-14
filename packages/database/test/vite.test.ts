@@ -226,7 +226,7 @@ describe("hubDb", () => {
     const handler = join(rootDir, ".vitehub/nitro/database/request-scope.mjs")
     expect(options.handlers).toEqual([{ handler, middleware: true }])
     const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next: () => unknown) => unknown
-    const { getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const { getActiveCloudflareEnv, getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }
     const scopes = [
       middleware({ req: { runtime: { cloudflare: { env } } } }, () => getActiveCloudflareRequestScope()),
@@ -234,6 +234,11 @@ describe("hubDb", () => {
     ]
     expect(scopes[0]).toBeDefined()
     expect(scopes[0]).not.toBe(scopes[1])
+
+    const nitro2Env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/nitro2" } }
+    middleware({ req: { runtime: { cloudflare: { env: nitro2Env } } } }, undefined)
+    expect(getActiveCloudflareEnv()).toBe(nitro2Env)
+    expect(getActiveCloudflareRequestScope()).toBeDefined()
   })
 
   it("serializes shared Provider Output finalization", () => {
