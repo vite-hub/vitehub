@@ -402,9 +402,33 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>) {
   // Invoke the source stream's native operations so separate realms retain their brand.
   const reader = Reflect.apply(getReader, body, [])
-  const read = Reflect.get(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
-  const cancel = Reflect.get(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
-  const releaseLock = Reflect.get(reader, "releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+  const nativeReaderMethod = (key: "read" | "cancel" | "releaseLock") => {
+    if (Object.prototype.hasOwnProperty.call(reader, key)) throw new Error("Malformed authorization response reader")
+    let prototype: object | null = Object.getPrototypeOf(reader)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) throw new Error("Malformed authorization response reader")
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+      if (descriptor) {
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (typeof descriptor.value !== "function" || constructor?.name !== "ReadableStreamDefaultReader") {
+          throw new Error("Malformed authorization response reader")
+        }
+        let parent = Object.getPrototypeOf(prototype)
+        for (let parentDepth = 0; parent && parentDepth < authorizationResponsePrototypeLimit; parentDepth++) {
+          if (Object.getOwnPropertyDescriptor(parent, key)) throw new Error("Malformed authorization response reader")
+          parent = Object.getPrototypeOf(parent)
+        }
+        return descriptor.value as (...args: unknown[]) => unknown
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    throw new Error("Malformed authorization response reader")
+  }
+  const read = nativeReaderMethod("read") as ReadableStreamDefaultReader<Uint8Array>["read"]
+  const cancel = nativeReaderMethod("cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+  const releaseLock = nativeReaderMethod("releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
   let released = false
   const release = () => {
     if (released) return
