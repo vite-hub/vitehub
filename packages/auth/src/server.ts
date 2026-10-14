@@ -2,6 +2,7 @@ import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 
 import { normalizeAuthBasePath } from "./shared.ts"
+import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
@@ -71,11 +72,6 @@ function toRequest(request: AuthRequest): Request {
   return new Request(request.url, init)
 }
 
-function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
-  // SAFETY: AuthRequestInput is a request or an own-property host wrapper; inherited req values must not replace the request.
-  return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
-}
-
 export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
@@ -126,11 +122,17 @@ export function createAuthForRequest(
 
 export function handleAuthRequest(
   definition: AuthDefinition,
-  request: AuthRequest,
+  input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
+  event: unknown = input,
 ): Promise<Response> {
+  const request = unwrapAuthRequest(input)
   return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+}
+
+/** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
+export function toAuthRequest(input: AuthRequestInput): AuthRequest {
+  return unwrapAuthRequest(input)
 }
 
 export function createAuthHandler(
@@ -189,8 +191,7 @@ export function handleAuth(
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
 ): Promise<Response> {
-  const request = unwrapAuthRequest(input)
-  return handleAuthRequest(resolveDefaultDefinition(), request, runtimeOptions, input)
+  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions, input)
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
@@ -313,7 +314,7 @@ function hasResponsePrototype(value: unknown): boolean {
     let prototype: object | null = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
+      if (seen.has(prototype)) return
       seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       const owner = prototype
@@ -328,13 +329,15 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
-function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
+function isSerializableAuthorizationBody(
+  body: unknown,
+  nativeReader: ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined,
+): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
-  if (typeof body !== "object") return false
+  if (typeof body !== "object" || !nativeReader) return false
   try {
     const locked = Reflect.get(body, "locked")
-    const getReader = Reflect.get(body, "getReader")
-    return locked === false && typeof getReader === "function"
+    return locked === false
   }
   catch {
     return false
@@ -446,7 +449,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       ? (() => { throw new Error("A null body has no reader") })
       : getNativeAuthorizationBodyReader(body)
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
-    if (!nativeBodyReader || !isSerializableAuthorizationBody(body)) return
+    if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
