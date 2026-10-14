@@ -321,7 +321,15 @@ async function runAccessAuthorize(
         if (!reader || typeof reader.read !== "function" || typeof reader.releaseLock !== "function") return createForbiddenResponse(context.request)
         const readResult = reader.read()
         if (!readResult || typeof (readResult as PromiseLike<unknown>).then !== "function") return createForbiddenResponse(context.request)
-        reader.releaseLock()
+        try {
+          await readResult
+        }
+        catch {
+          return createForbiddenResponse(context.request)
+        }
+        finally {
+          reader.releaseLock()
+        }
         normalizedBody = new Response(tee[1] as ConstructorParameters<typeof Response>[0]).body
       }
       return new Response(normalizedBody, {
