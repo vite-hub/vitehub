@@ -216,6 +216,9 @@ const unionDefinition = defineOutboundChannel({
 })
 const unionChannel = createChannel("union", unionDefinition)
 unionChannel.send("message", { destination: "room", length: 1, map: "valid" })
+const unionTypedOptions: { destination: string, length: number } | readonly string[] = { destination: "room", length: 1 }
+// @ts-expect-error Union-typed options containing an array branch are not dispatchable.
+unionChannel.send("message", unionTypedOptions)
 // @ts-expect-error The array branch of a connector's options union is not dispatchable.
 unionChannel.send("message", ["room"])
 // @ts-expect-error Public options filter out the connector's array branch.

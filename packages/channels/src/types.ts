@@ -18,7 +18,7 @@ export interface ChannelConnector<TOptions extends object = Record<string, unkno
 export type ChannelConnectorMap = Record<string, ChannelConnector<never, object>>
 
 type ChannelObjectConstraint<TObject extends object> = Extract<TObject, Function> extends never ? unknown : never
-type ChannelOptionsConstraint<TOptions extends object> = TOptions extends readonly unknown[] | Function ? never : unknown
+type ChannelOptionsConstraint<TOptions extends object> = [Extract<TOptions, readonly unknown[] | Function>] extends [never] ? unknown : never
 type NonArrayOptions<TOptions> = TOptions extends readonly unknown[] ? never : TOptions
 type UnionKeys<T> = T extends unknown ? keyof T : never
 
