@@ -74,6 +74,10 @@ const hasPanel = computed(
     flex: none;
     height: calc(100dvh - var(--ui-header-height));
   }
+
+  .vh-docs-content {
+    flex: 1;
+  }
 }
 
 @media (min-width: 64rem) {
