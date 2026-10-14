@@ -205,7 +205,36 @@ function readDefinitionCloudflareResource(expression: string | undefined): Defin
   return resource
 }
 
-function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource: boolean, value?: CloudflareD1BindingConfig } {
+function readOpaqueResourceOwnership(expression: string | undefined, source: string, seen = new Set<string>()): boolean | undefined {
+  const trimmed = expression?.trim()
+  if (!trimmed) return undefined
+  const body = objectLiteralBody(trimmed)
+  if (body !== undefined) {
+    let ownership: boolean | undefined = false
+    for (const property of splitTopLevel(body)) {
+      const normalized = stripLeadingEntryComments(property).trim()
+      if (!normalized) continue
+      if (normalized.startsWith("...")) {
+        const spread = readOpaqueResourceOwnership(normalized.slice(3), source, seen)
+        if (spread === true) ownership = true
+        else if (spread === undefined) ownership = undefined
+        continue
+      }
+      const key = readEntryKey(normalized)
+      if (key !== "databaseId" && key !== "databaseName") continue
+      if (readEntryValue(normalized)?.trim() !== "undefined") ownership = true
+    }
+    return ownership
+  }
+  const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
+  if (!identifier || seen.has(identifier)) return undefined
+  seen.add(identifier)
+  const declaration = new RegExp(`(?:const|let|var)\\s+${identifier}\\s*=\\s*([^;\\n]+)`).exec(source)?.[1]
+  return readOpaqueResourceOwnership(declaration, source, seen)
+}
+
+function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource?: boolean, value?: CloudflareD1BindingConfig } {
+  const source = readFileSync(file, "utf8")
   const definitionBody = readDefinitionObjectBody(file)
   const definitionEntries = definitionBody === undefined
     ? []
@@ -225,7 +254,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
   }
   const body = objectLiteralBody(expression)
   if (resource === "opaque") {
-    const ownsOpaqueResource = /\b(?:databaseId|databaseName)\s*:/.test(expression ?? "")
+    const ownsOpaqueResource = readOpaqueResourceOwnership(expression, source)
     if (cloudflareEntries.length && expression?.trim() !== "undefined") return { resource, configured: true, ownsOpaqueResource, value: {} }
     return { resource, configured: false, ownsOpaqueResource }
   }
@@ -464,7 +493,7 @@ export function resolveDBViteConfig(
   const cloudflareBindings = new Map<string, string>()
   for (const definition of definitions) {
     const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
-    if (definitionCloudflare.resource === "opaque" && definitionCloudflare.ownsOpaqueResource) continue
+    if (definitionCloudflare.resource === "opaque" && definitionCloudflare.ownsOpaqueResource !== false) continue
     const binding = databases[definition.name]?.cloudflare?.binding
       ?? (definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
     if (!binding) continue
