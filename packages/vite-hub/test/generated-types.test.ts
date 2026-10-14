@@ -706,8 +706,7 @@ describe("framework generated types", () => {
 
     expect(handlers).toEqual([{
       handler: join(root, ".vitehub/content/preview.mjs"),
-      middleware: true,
-      route: "/**",
+      plugin: true,
     }, {
       handler: join(root, ".vitehub/content/route.mjs"),
       route: "/api/content/**",
@@ -723,18 +722,20 @@ describe("framework generated types", () => {
     )
     await expect(readFile(join(root, ".vitehub/content/preview.mjs"), "utf8")).resolves.toBe(
       [
-        `import { defineContentPreviewMiddleware } from "vite-hub/content"`,
+        `import { defineContentPreviewPlugin } from "vite-hub/content"`,
         `import { content } from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
         ``,
-        `export default defineContentPreviewMiddleware(content)`,
+        `export default defineContentPreviewPlugin(content)`,
         ``,
       ].join("\n"),
     )
     const previewModule: unknown = await import(pathToFileURL(handlers[0]!.handler).href)
-    const previewMiddleware = Reflect.get(Object(previewModule), "default")
-    if (!(previewMiddleware instanceof Function)) throw new TypeError("Expected a generated Content preview middleware.")
-    // A request without the preview cookie passes straight through.
-    expect(previewMiddleware({ req: new Request("https://example.test/") }, () => "next")).toBe("next")
+    const previewPlugin = Reflect.get(Object(previewModule), "default")
+    if (!(previewPlugin instanceof Function)) throw new TypeError("Expected a generated Content preview plugin.")
+    // The plugin wraps Nitro's fetch entry; a request without the preview cookie passes straight through.
+    const nitroApp = { fetch: () => "next" }
+    previewPlugin(nitroApp)
+    expect(nitroApp.fetch()).toBe("next")
     const generatedModule: unknown = await import(pathToFileURL(handlers[1]!.handler).href)
     const generatedHandler = Reflect.get(Object(generatedModule), "default")
     if (!(generatedHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
@@ -835,7 +836,7 @@ describe("framework generated types", () => {
     })).rejects.toThrow('Generated Content route "/api/content/**" conflicts with an existing handler')
   })
 
-  it("adds the Content preview middleware next to other global middleware", async () => {
+  it("adds the Content preview Nitro plugin without touching route handlers", async () => {
     const { root } = await createNestedProject()
     await mkdir(join(root, "server"), { recursive: true })
     await writeFile(join(root, "server/content.ts"), contentModule())
@@ -843,11 +844,10 @@ describe("framework generated types", () => {
 
     const contribution = await config(sourcePlugin())({ nitro: { handlers: [authMiddleware] }, root })
 
-    expect(Reflect.get(Object(contribution), "nitro")).toMatchObject({
-      handlers: [
-        { handler: join(root, ".vitehub/content/preview.mjs"), middleware: true, route: "/**" },
-        { handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" },
-      ],
+    expect(Reflect.get(Object(contribution), "nitro")).toEqual({
+      handlers: [{ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" }],
+      modules: [expect.objectContaining({ name: "vite-hub/generated-route-guard" })],
+      plugins: [join(root, ".vitehub/content/preview.mjs")],
     })
   })
 

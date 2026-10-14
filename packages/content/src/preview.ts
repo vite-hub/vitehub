@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
+import { addCacheBypass } from "@vite-hub/internal/runtime/cache-bypass"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
@@ -60,8 +61,8 @@ export interface ContentPreview {
   disable(event: ContentPreviewEvent): ContentPreviewCookie
   /**
    * Run `callback` with the event's preview grant when its cookie holds a valid token, and mark the response
-   * `Cache-Control: private, no-store`. Without a valid token `callback` runs unchanged. The generated middleware and
-   * `/api/content/**` call it for you; call it yourself only where that middleware cannot wrap the request.
+   * `Cache-Control: private, no-store`. Without a valid token `callback` runs unchanged. In a ViteHub app the generated
+   * Nitro plugin and `/api/content/**` call it for you; call it yourself for requests that do not go through Nitro.
    */
   run<TResult>(event: ContentPreviewEvent, callback: () => TResult | Promise<TResult>): Promise<TResult>
   /** Whether Content reads in the current request use the `draft` ref. */
@@ -327,12 +328,17 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
     },
     async run(event, callback) {
       if (!options.enabled || !isObject(event)) return await callback()
-      let pending = resolved.get(event)
-      if (!pending) {
-        pending = grantFor(event)
-        resolved.set(event, pending)
+      // A nested run in the same request, such as /api/content inside the generated plugin's scope, keeps its grant.
+      const current = scope.getStore()
+      let grant = previewGrant.check(current) === undefined ? undefined : current
+      if (!grant) {
+        let pending = resolved.get(event)
+        if (!pending) {
+          pending = grantFor(event)
+          resolved.set(event, pending)
+        }
+        grant = await pending
       }
-      const grant = await pending
       if (!grant) return await callback()
       markPrivate(event)
       const result = await scope.run(grant, callback)
@@ -346,20 +352,50 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
   }
 }
 
-/** The part of a Content runtime the preview middleware needs. A runtime without `preview` passes requests through. */
+/** The part of a Content runtime the preview plugin needs. A runtime without `preview` leaves requests unchanged. */
 export interface ContentPreviewHost {
   preview?: ContentPreview
 }
 
+function hasPreviewCookie(event: ContentPreviewEvent): boolean {
+  return cookieValues(requestHeader(event, "cookie"), contentPreviewCookieName).length > 0
+}
+
 /**
- * Scope each request that carries the preview cookie to the draft ref. ViteHub generates this middleware for
- * `server/content.ts`. Requests without the cookie pass straight through. It needs Nitro 3 middleware, which passes
- * `next`; on Nitro 2 it does nothing, and `/api/content/**` still honors the cookie.
+ * A Nitro plugin that scopes each request carrying the preview cookie to the draft ref, on Nitro 3 and on Nitro 2
+ * (Nuxt 4). It wraps Nitro's request entry, so the scope covers route rules, middleware, cached routes, and every
+ * handler. During a preview request Nitro's cache is bypassed: cached handlers, `cache`/`swr` route rules, and
+ * cached functions neither read nor write an entry. Requests without the cookie pass straight through.
+ * ViteHub generates this plugin for `server/content.ts`.
  */
-export function defineContentPreviewMiddleware(content: ContentPreviewHost): (event: ContentPreviewEvent, next?: () => unknown) => unknown {
-  return (event, next) => {
-    if (!(next instanceof Function)) return
-    if (!content.preview || !cookieValues(requestHeader(event, "cookie"), contentPreviewCookieName).length) return next()
-    return content.preview.run(event, next)
+export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroApp: unknown) => void {
+  return (nitroApp) => {
+    const preview = content.preview
+    if (!preview || !isObject(nitroApp)) return
+    // ViteHub routes Nitro's cache module through this check (nitroCacheBypass); the grant scope is the request's.
+    addCacheBypass(() => preview.active())
+    const scoped = (event: unknown, next: () => unknown): unknown =>
+      isObject(event) && hasPreviewCookie(event) ? preview.run(event, next) : next()
+    // Nitro 3: the Web fetch entry every preset and internal fetch calls.
+    if (nitroApp.fetch instanceof Function) {
+      const fetch = nitroApp.fetch
+      nitroApp.fetch = (request: unknown, ...rest: unknown[]) => scoped(request, () => Reflect.apply(fetch, nitroApp, [request, ...rest]))
+      return
+    }
+    // Nitro 2: the h3 v1 app handler. h3 v1 middleware cannot wrap the rest of a request, and the app handler can.
+    const h3App = nitroApp.h3App
+    if (isObject(h3App) && h3App.handler instanceof Function) {
+      const handler = h3App.handler
+      h3App.handler = (event: unknown) => scoped(event, () => Reflect.apply(handler, h3App, [event]))
+      // Route rule headers run inside the request, so mark the response private again just before it is sent.
+      const hooks = nitroApp.hooks
+      if (isObject(hooks) && hooks.hook instanceof Function) {
+        Reflect.apply(hooks.hook, hooks, ["beforeResponse", (event: ContentPreviewEvent) => {
+          if (preview.active()) markPrivate(event)
+        }])
+      }
+      return
+    }
+    throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] defineContentPreviewPlugin() needs a Nitro 2 or Nitro 3 app." })
   }
 }

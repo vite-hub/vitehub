@@ -14,7 +14,9 @@ import { defineCollectionHandler } from "@vite-hub/source/server"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
-import { contentPreviewCookieName, defineContent, defineContentHandler, defineContentPreviewMiddleware, documents } from "../src/index.ts"
+import { shouldBypassCache } from "@vite-hub/internal/runtime/cache-bypass"
+
+import { contentPreviewCookieName, defineContent, defineContentHandler, defineContentPreviewPlugin, documents } from "../src/index.ts"
 
 const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
 const cleanup: Array<() => Promise<void> | void> = []
@@ -73,6 +75,23 @@ function tokenOf(cookie: string): string {
 async function titleOf(response: Response): Promise<unknown> {
   const body: unknown = await response.json()
   return Reflect.get(Object(Reflect.get(Object(body), "data")), "title")
+}
+
+interface ServerResponseLike {
+  body?: unknown
+  headers: Record<string, string>
+  headersSent: boolean
+  setHeader(name: string, value: string): void
+}
+
+function serverResponse(): ServerResponseLike {
+  return {
+    headers: {},
+    headersSent: false,
+    setHeader(name, value) {
+      this.headers[name.toLowerCase()] = value
+    },
+  }
 }
 
 function contentApp(content: Awaited<ReturnType<typeof setup>>["content"]) {
@@ -188,27 +207,69 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(await (await app.request("/api/content/get/posts/hello")).json()).toMatchObject({ data: { title: "Published" } })
   })
 
-  it("scopes whole requests through the generated middleware", async () => {
+  it("scopes whole Nitro 3 requests through the generated plugin and bypasses Nitro's cache", async () => {
     const { content, posts } = await setup()
     const cookie = await previewCookie(content)
     const run = vi.spyOn(content.preview, "run")
     const app = new H3()
-      .use(defineContentPreviewMiddleware(content))
-      .get("/blog/hello", async () => ({ title: (await posts.get("hello"))?.data.title }))
+      .get("/blog/hello", async event => {
+        // Route rule headers, such as an swr rule's, must not make a draft response public.
+        event.res.headers.set("cache-control", "s-maxage=60")
+        return { bypass: shouldBypassCache(), title: (await posts.get("hello"))?.data.title }
+      })
       .get("/posts", defineCollectionHandler(posts))
+      .all("/api/content/**", defineContentHandler(content))
+    // The shape of a Nitro 3 app: plugins may replace the fetch entry before presets read it.
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
 
-    const page = await app.request("/blog/hello")
-    expect(await page.json()).toEqual({ title: "Published" })
-    expect(page.headers.get("cache-control")).toBeNull()
+    const page = await nitroApp.fetch(new Request("https://site.test/blog/hello"))
+    expect(await page.json()).toEqual({ bypass: false, title: "Published" })
+    expect(page.headers.get("cache-control")).toBe("s-maxage=60")
     expect(run).not.toHaveBeenCalled()
 
-    const preview = await app.request("/blog/hello", { headers: { cookie } })
-    expect(await preview.json()).toEqual({ title: "Draft" })
+    const preview = await nitroApp.fetch(new Request("https://site.test/blog/hello", { headers: { cookie } }))
+    expect(await preview.json()).toEqual({ bypass: true, title: "Draft" })
     expect(preview.headers.get("cache-control")).toBe("private, no-store")
-    expect(run).toHaveBeenCalledTimes(1)
+    expect(preview.headers.get("x-robots-tag")).toBe("noindex, nofollow")
 
-    expect(await (await app.request("/posts", { headers: { cookie } })).json()).toMatchObject({ total: 2 })
-    expect(await (await app.request("/posts")).json()).toMatchObject({ total: 1 })
+    expect(await (await nitroApp.fetch(new Request("https://site.test/posts", { headers: { cookie } }))).json()).toMatchObject({ total: 2 })
+    expect(await (await nitroApp.fetch(new Request("https://site.test/posts"))).json()).toMatchObject({ total: 1 })
+    expect(await titleOf(await nitroApp.fetch(new Request("https://site.test/api/content/get/posts/hello", { headers: { cookie } })))).toBe("Draft")
+    expect(shouldBypassCache()).toBe(false)
+  })
+
+  it("scopes whole Nitro 2 requests through the generated plugin, isolated per request", async () => {
+    const { content, posts } = await setup()
+    const cookie = await previewCookie(content)
+    const beforeResponse: Array<(event: unknown) => void> = []
+    // The shape of a Nitro 2 app: h3 v1 middleware has no next(), so the plugin wraps the app handler.
+    const nitroApp = {
+      h3App: {
+        async handler(event: { node: { req: { headers: Record<string, string> }, res: ServerResponseLike } }) {
+          await new Promise(resolve => setTimeout(resolve, Math.random() * 5))
+          const title = (await posts.get("hello"))?.data.title
+          event.node.res.setHeader("cache-control", "s-maxage=60")
+          for (const hook of beforeResponse) hook(event)
+          event.node.res.body = { bypass: shouldBypassCache(), title }
+        },
+      },
+      hooks: { hook: (name: string, hook: (event: unknown) => void) => name === "beforeResponse" && beforeResponse.push(hook) },
+    }
+    defineContentPreviewPlugin(content)(nitroApp)
+
+    const results = await Promise.all(Array.from({ length: 24 }, async (_, index) => {
+      const preview = index % 2 === 0
+      const headers: Record<string, string> = preview ? { cookie } : {}
+      const event = { node: { req: { headers }, res: serverResponse() } }
+      await nitroApp.h3App.handler(event)
+      return { preview, body: event.node.res.body, cacheControl: event.node.res.headers["cache-control"] }
+    }))
+    for (const result of results) {
+      expect(result).toEqual(result.preview
+        ? { preview: true, body: { bypass: true, title: "Draft" }, cacheControl: "private, no-store" }
+        : { preview: false, body: { bypass: false, title: "Published" }, cacheControl: "s-maxage=60" })
+    }
   })
 
   it("sets and clears a secure, HttpOnly, SameSite=Strict cookie through an H3 event", async () => {

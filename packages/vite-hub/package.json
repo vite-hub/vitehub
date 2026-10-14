@@ -302,6 +302,7 @@
     "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "20.14.5",
     "miniflare": "4.20260730.0",
+    "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "reka-ui": "^2.10.5",
     "tailwindcss": "^4.3.3",

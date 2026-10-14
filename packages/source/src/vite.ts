@@ -28,12 +28,22 @@ const initialHostRefreshRetryDelay = 25
 const maximumHostRefreshRetryDelay = 1_000
 const hostRestartOwnerSettlementTimeout = 30_000
 
-export interface GeneratedSourceHandler {
+/** A file ViteHub generates for Nitro: a route handler, or a Nitro plugin such as the Content preview scope. */
+export type GeneratedSourceHandler = GeneratedSourceRoute | GeneratedSourcePlugin
+
+export interface GeneratedSourceRoute {
   handler: string
   method?: "get"
-  /** A global middleware, such as the Content preview scope. Middleware never conflicts with routes. */
-  middleware?: true
+  plugin?: never
   route: string
+}
+
+/** A generated Nitro plugin. It registers no route, so it never conflicts with one. */
+export interface GeneratedSourcePlugin {
+  handler: string
+  method?: never
+  plugin: true
+  route?: never
 }
 
 export interface SourceGenerationOptions {
@@ -69,6 +79,7 @@ interface DiscoveredCollection {
 interface NitroGeneratedConfig {
   handlers?: Array<{ handler: string, method?: string, middleware?: boolean, route?: string }>
   modules?: unknown[]
+  plugins?: unknown[]
 }
 
 interface SourceNitroHost extends NitroRouteGuard {
@@ -234,17 +245,17 @@ function methodsOverlap(left: string | undefined, right: string | undefined): bo
   return !left || !right || left.toLowerCase() === right.toLowerCase()
 }
 
-function generatedRouteOwner(handler: GeneratedSourceHandler): "Collection" | "Content" {
+function generatedRouteOwner(handler: GeneratedSourceRoute): "Collection" | "Content" {
   return handler.route === "/api/content/**" ? "Content" : "Collection"
 }
 
-function generatedRouteDescription(handler: GeneratedSourceHandler): string {
+function generatedRouteDescription(handler: GeneratedSourceRoute): string {
   return handler.method ? `${handler.method.toUpperCase()} handler` : "handler"
 }
 
 function assertGeneratedRoutes(nitro: NitroRouteGuard, generatedHandlers: GeneratedSourceHandler[]): void {
   for (const generatedHandler of generatedHandlers) {
-    if (generatedHandler.middleware) continue
+    if (generatedHandler.plugin) continue
     const duplicate = nitro.scannedHandlers.some(candidate =>
       !candidate.middleware
       && candidate.route === generatedHandler.route
@@ -272,16 +283,20 @@ export function mergeGeneratedSourceNitroConfig(
   if (Object(value) === value && !Array.isArray(value)) Object.assign(nitro, value)
   if (generatedHandlers.length === 0) return nitro
   const kit = createNitroServerKit(nitro)
-  // SAFETY: The kit materializes Nitro handler entries as the generated source handler shape.
-  const handlers = kit.config.handlers as Array<GeneratedSourceHandler>
+  // SAFETY: The kit materializes Nitro handler entries as the generated route shape, plus Nitro's middleware flag.
+  const handlers = kit.config.handlers as Array<GeneratedSourceRoute & { middleware?: boolean }>
 
   for (const handler of generatedHandlers) {
+    if (handler.plugin) {
+      kit.addPlugin(handler.handler)
+      continue
+    }
     const exact = handlers.some(candidate =>
       candidate.handler === handler.handler
       && candidate.route === handler.route
       && candidate.method?.toLowerCase() === handler.method?.toLowerCase())
     if (exact) continue
-    const duplicate = !handler.middleware && handlers.some(candidate =>
+    const duplicate = handlers.some(candidate =>
       !candidate.middleware && candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
@@ -476,15 +491,15 @@ async function writeContentArtifact(
     "export default defineContentHandler(content)",
     "",
   ].join("\n"))
-  // Scopes each request that carries the Content preview cookie to drafts.
+  // A Nitro plugin: scopes each request that carries the Content preview cookie to drafts and out of Nitro's cache.
   await writeFileIfChanged(preview, [
-    `import { defineContentPreviewMiddleware } from ${importBase}`,
+    `import { defineContentPreviewPlugin } from ${importBase}`,
     `import { content } from ${contentModule}`,
     "",
-    "export default defineContentPreviewMiddleware(content)",
+    "export default defineContentPreviewPlugin(content)",
     "",
   ].join("\n"))
-  return [{ handler: preview, middleware: true, route: "/**" }, { handler: output, route: "/api/content/**" }]
+  return [{ handler: preview, plugin: true }, { handler: output, route: "/api/content/**" }]
 }
 
 export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
@@ -495,7 +510,8 @@ export async function prepareSourceGeneration(options: SourceGenerationOptions):
   return [
     ...await writeCollectionArtifacts(options, collections),
     ...await writeContentArtifact(options, content),
-  ].sort((left, right) => left.route.localeCompare(right.route))
+  // Plugins have no route and sort first.
+  ].sort((left, right) => (left.route ?? "").localeCompare(right.route ?? ""))
 }
 
 function applicationBaseURL(base: string | undefined): string {
@@ -521,11 +537,13 @@ function generatedSourceNitroContribution(
   const merged = mergeGeneratedSourceNitroConfig(existing, generatedHandlers)
   const handlers = merged.handlers?.slice(Array.isArray(existing.handlers) ? existing.handlers.length : 0)
   const modules = merged.modules?.slice(Array.isArray(existing.modules) ? existing.modules.length : 0)
-  if (!handlers?.length && !modules?.length) return
-  return {
-    ...(handlers?.length ? { handlers } : {}),
-    ...(modules?.length ? { modules } : {}),
-  }
+  const plugins = merged.plugins?.slice(Array.isArray(existing.plugins) ? existing.plugins.length : 0)
+  if (!handlers?.length && !modules?.length && !plugins?.length) return
+  const contribution: NitroGeneratedConfig = {}
+  if (handlers?.length) contribution.handlers = handlers
+  if (modules?.length) contribution.modules = modules
+  if (plugins?.length) contribution.plugins = plugins
+  return contribution
 }
 
 function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: string[] | undefined): boolean {
@@ -653,6 +671,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     if (Array.isArray(nitro.modules) && contributedModules.length > 0) {
       nitro.modules = nitro.modules.filter(module => !contributedModules.includes(module))
     }
+    const contributedPlugins = configuredNitroContribution?.plugins ?? []
+    if (Array.isArray(nitro.plugins) && contributedPlugins.length > 0) {
+      nitro.plugins = nitro.plugins.filter(plugin => !contributedPlugins.includes(plugin))
+    }
     return mergeGeneratedSourceNitroConfig(nitro, handlers)
   }
   return {
@@ -751,9 +773,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const nitro = replaceConfiguredNitroContribution(nitroHost.options, handlers, nitroHostContribution)
           nitroHostContribution = {
             handlers: nitro.handlers?.filter(handler => handlers.some(generated =>
-              handler.handler === generated.handler && handler.route === generated.route && handler.method === generated.method)),
+              !generated.plugin && handler.handler === generated.handler && handler.route === generated.route && handler.method === generated.method)),
+            plugins: handlers.flatMap(generated => generated.plugin ? [generated.handler] : []),
           }
           nitroHost.options.handlers = nitro.handlers
+          nitroHost.options.plugins = nitro.plugins
           nitroHandlers.splice(0, nitroHandlers.length, ...handlers)
           nitroHost.routing.sync()
         }

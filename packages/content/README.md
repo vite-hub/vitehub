@@ -79,7 +79,7 @@ Every save commits to the `draft` history ref; `publish()` copies selected docum
 if (!await content.can({ user, collection: "posts", action: "read" })) throw createError({ statusCode: 403 })
 await content.preview.enable(event, { maxAge: 900 })
 content.preview.disable(event)
-await content.preview.run(event, () => content.collection("posts").get("hello")) // where no middleware scopes the request
+await content.preview.run(event, () => content.collection("posts").get("hello")) // outside Nitro
 ```
 
-ViteHub generates `defineContentPreviewMiddleware()` for Nitro 3 apps, so pages and server routes read drafts without changes. Without the key, preview works only when `NODE_ENV` is `development` or `test`; elsewhere `enable()` throws `CONTENT_R0010` and cookies are ignored.
+ViteHub generates a `defineContentPreviewPlugin()` Nitro plugin for Nitro 3 and Nuxt 4 (Nitro 2) apps. It wraps Nitro's request entry, so pages and server routes read drafts without changes, and Nitro's cached handlers, `cache`/`swr` route rules, and cached functions skip preview requests. Without the key, preview works only when `NODE_ENV` is `development` or `test`; elsewhere `enable()` throws `CONTENT_R0010` and cookies are ignored.
