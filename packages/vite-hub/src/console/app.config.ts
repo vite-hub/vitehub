@@ -2,8 +2,8 @@ export const consoleAppConfig = {
   colors: {
     error: "red",
     info: "sky",
-    neutral: "zinc",
-    primary: "blue",
+    neutral: "neutral",
+    primary: "neutral",
     success: "emerald",
     warning: "amber",
   },
@@ -82,7 +82,7 @@ export const consoleAppConfig = {
   dropdownMenu: {
     slots: {
       content: "bg-(color:--vitehub-console-floating) shadow-md backdrop-blur-md",
-      label: "text-[11px] font-medium uppercase tracking-[.08em] text-muted",
+      label: "text-xs text-dimmed",
     },
   },
   empty: {
@@ -134,7 +134,7 @@ export const consoleAppConfig = {
   },
   table: {
     slots: {
-      th: "h-8 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[.08em] text-muted",
+      th: "h-8 px-2.5 py-1.5 text-xs font-normal text-muted",
       td: "h-8 px-2.5 py-1.5 text-[11px] text-toned",
     },
   },

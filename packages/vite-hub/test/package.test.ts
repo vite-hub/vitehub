@@ -751,8 +751,10 @@ describe("framework package contract", () => {
     if (!consoleCssFile) throw new TypeError("Expected one hashed Console stylesheet asset.");
     const consoleCss = readFileSync(`${packageRoot}/${consoleCssFile}`, "utf8");
     expect(consoleCss).toContain("vitehub-console");
-    expect(consoleCss).toContain("--ui-bg:#fdfdfd");
-    expect(consoleCss).toContain("--ui-text:#27272a");
+    expect(consoleCss).toContain("--ui-bg:oklch(100% 0 0)");
+    expect(consoleCss).toContain("--ui-text:oklch(37.1% 0 0)");
+    // Geist ships inside the stylesheet, so the Console does not depend on fonts that the host installs.
+    expect(consoleCss).toMatch(/font-family:["']?Geist Variable/);
     expect(
       globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot }).length,
     ).toBeGreaterThan(0);

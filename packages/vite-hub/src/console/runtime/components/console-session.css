@@ -184,7 +184,6 @@
   font-family: inherit;
   font-size: 0.6875rem;
   height: auto;
-  letter-spacing: 0.08em;
   min-width: 0;
   padding: 0;
 }
@@ -401,9 +400,7 @@
   display: block;
   font-size: 0.625rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
   margin: 0 0 0.45rem;
-  text-transform: uppercase;
 }
 
 .session-inspector__intro h3 {
@@ -1077,8 +1074,6 @@
 .session-trace__summary dt {
   color: var(--ui-text-muted);
   font-size: 0.625rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 .session-trace__summary dd {
   margin: 0;

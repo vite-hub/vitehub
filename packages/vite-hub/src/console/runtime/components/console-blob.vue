@@ -302,7 +302,7 @@ onBeforeUnmount(() => {
                   ['HTTP ETag', selectedBlob.httpEtag || 'Unavailable'],
                   ['Access URL', selectedBlob.urlAvailable ? 'Available from the configured provider' : 'Unavailable'],
                 ]" :key="field[0]" class="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
-                  <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">{{ field[0] }}</dt>
+                  <dt class="text-xs text-dimmed">{{ field[0] }}</dt>
                   <dd class="break-all font-mono text-xs text-highlighted">{{ field[1] }}</dd>
                 </div>
               </dl>
