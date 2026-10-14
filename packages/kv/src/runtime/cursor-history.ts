@@ -9,8 +9,11 @@ function isString(value: unknown): value is string {
   return Object.prototype.toString.call(value) === "[object String]"
 }
 
-function encodeContinuation(id: number, providerCursor: string, history: CursorHistory): string {
-  const token = `vhc1:${id}:${encodeURIComponent(JSON.stringify({ format: "vitehub-continuation", providerCursor, history: [...history] }))}`
+function encodeContinuation(providerCursor: string, history: CursorHistory): string {
+  // A random nonce makes accidental provider-cursor collisions impractical.
+  // The nonce is carried in the token so continuations remain portable.
+  const nonce = globalThis.crypto.randomUUID()
+  const token = `vhc1:${nonce}:${encodeURIComponent(JSON.stringify({ format: "vitehub-continuation", providerCursor, history: [...history] }))}`
   if (token.length > MAX_CONTINUATION_LENGTH) throw new Error("ViteHub continuation cursor exceeds the maximum size.")
   return token
 }
@@ -19,7 +22,7 @@ function decodeContinuation(cursor: string): Continuation | undefined {
   if (!cursor.startsWith("vhc1:")) return undefined
   if (cursor.length > MAX_CONTINUATION_LENGTH) return undefined
   const separator = cursor.indexOf(":", 5)
-  if (separator === -1) return undefined
+  if (separator === -1 || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cursor.slice(5, separator))) return undefined
   try {
     const value: unknown = JSON.parse(decodeURIComponent(cursor.slice(separator + 1)))
     if (!value || typeof value !== "object") return undefined
@@ -37,7 +40,6 @@ function decodeContinuation(cursor: string): Continuation | undefined {
 /** Keeps continuation history tied to an opaque, traversal-owned token. */
 export function createCursorHistory() {
   const continuations = new Map<string, Continuation>()
-  let nextId = 0
   function take(cursor: string): Continuation {
     const continuation = continuations.get(cursor)
     if (!continuation) {
@@ -55,7 +57,7 @@ export function createCursorHistory() {
     return continuation
   }
   function store(providerCursor: string, history: CursorHistory): string {
-    const token = encodeContinuation(nextId++, providerCursor, history)
+    const token = encodeContinuation(providerCursor, history)
     continuations.set(token, { providerCursor, history })
     while (continuations.size > MAX_CURSOR_HISTORIES) {
       const oldest = continuations.keys().next().value as string | undefined
