@@ -147,23 +147,21 @@ Built-in Agent Drivers and Box runtimes are selected by literal or tagged values
 
 ## Record Agent invocations in a Database
 
-Pass an explicit journal to an Agent Definition to record invocations when the Console is disabled:
+Set `invocations` to record invocations when the Console is disabled:
 
 ```ts
 import { defineAgent } from "vite-hub/agent"
-import { createDatabaseAgentInvocationStore } from "vite-hub/agent/invocations/database"
-import { defineAgentInvocations } from "vite-hub/agent/server"
 
 export default defineAgent({
-  invocations: defineAgentInvocations({
-    store: createDatabaseAgentInvocationStore({ database: "default" }),
-  }),
+  invocations: "database",
 })
 ```
 
+Set `agent: { invocations: "database" }` in the `vitehub()` options to give every Agent Definition from `vite-hub/agent` the same journal. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off. `"memory"` keeps records in the server process. The object form, such as `{ store: "database", database: "journal", content: "content" }`, accepts the other `defineAgentInvocations()` options.
+
 The store uses a discovered ViteHub Database and creates its journal tables on first use. It supports local SQLite and hosted libSQL through Drizzle, plus native Cloudflare D1. D1 over HTTP is rejected by a read-only probe before schema creation or writes because its raw query results do not contain column names. The `database` option defaults to `default`.
 
-Retention defaults to 30 days and 10,000 terminal records. Set `maxAgeMs` or `maxRecords` on the store options to change each limit, or set either to `false` to disable it. The Console can inspect an Agent's explicit journal but does not own its retention settings.
+Retention defaults to 30 days and 10,000 terminal records. To change a limit, pass `createDatabaseAgentInvocationStore({ maxAgeMs, maxRecords })` from `vite-hub/agent/invocations/database` to `defineAgentInvocations({ store })` from `vite-hub/agent/server`. Set either limit to `false` to disable it. The Console shows a configured journal but does not own its retention settings.
 
 ## Invoke Agents from the Console
 

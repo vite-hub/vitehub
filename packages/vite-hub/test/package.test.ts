@@ -258,6 +258,7 @@ describe("framework package contract", () => {
         .sort(),
     ).toEqual([
       ".",
+      "./_internal/agent/invocations",
       "./_internal/database/runtime/state",
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
