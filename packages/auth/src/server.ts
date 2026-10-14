@@ -374,7 +374,12 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>) | undefined
   const cancel = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown) => Promise<void>) | undefined
   const releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as ((this: ReadableStreamDefaultReader<Uint8Array>) => void) | undefined
-  if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") throw new Error("Non-native response reader")
+  // Native reader operations have stable names across realms. This rejects
+  // replacements installed on a shared reader prototype before any
+  // caller-controlled operation is invoked.
+  if (typeof read !== "function" || read.name !== "read"
+    || typeof cancel !== "function" || cancel.name !== "cancel"
+    || typeof releaseLock !== "function" || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
   let released = false
   const release = () => {
     if (released) return
