@@ -44,14 +44,20 @@ function rejection(status: number, message: string): Response {
 }
 
 function isResponse(value: unknown): value is Response {
-  return value instanceof Response
-    || (value !== null
-      && typeof value === "object"
-      && Object.prototype.toString.call(value) === "[object Response]"
-      && "status" in value
-      && typeof value.status === "number"
-      && "text" in value
-      && typeof value.text === "function")
+  if (value instanceof Response) return true
+  if (value === null || typeof value !== "object") return false
+
+  // Response's accessors perform the Fetch brand check and work across realms.
+  // Unlike Object.prototype.toString(), this cannot be spoofed with Symbol.toStringTag.
+  const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+  if (!status) return false
+  try {
+    status.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 /** Install the Console access policy. Generated Console output calls this before it serves a request. */
