@@ -41,14 +41,27 @@ function isRequest(value: unknown): value is Request {
     if (value === null || typeof value !== "object") return false
 
     // Fetch accessors perform the host's Request brand check on their receiver.
-    // Calling them directly avoids constructor coercion, user supplied tags and
-    // body cloning while still accepting requests from another realm.
-    for (const key of ["headers", "url", "method", "bodyUsed"] as const) {
-      const getter = Object.getOwnPropertyDescriptor(Request.prototype, key)?.get
-      if (typeof getter !== "function") return false
-      getter.call(value)
+    // Find the accessors on the candidate's Request prototype so this also works
+    // when the request came from another host realm. Calling them directly avoids
+    // constructor coercion, user supplied tags and body cloning.
+    let prototype: object | null = Object.getPrototypeOf(value)
+    while (prototype) {
+      const accessors = ["headers", "url", "method", "bodyUsed"] as const
+      const descriptors = accessors.map(key => Object.getOwnPropertyDescriptor(prototype, key)?.get)
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+      const hostAccessors = descriptors.every(getter => typeof getter === "function"
+        && /\[native code\]|brandCheck/.test(Function.prototype.toString.call(getter)))
+      if (hostAccessors
+        && typeof constructor === "function"
+        && constructor.prototype === prototype
+        && typeof clone === "function") {
+        for (const getter of descriptors) getter.call(value)
+        return true
+      }
+      prototype = Object.getPrototypeOf(prototype)
     }
-    return true
+    return false
   } catch {
     return false
   }
