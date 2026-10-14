@@ -24,6 +24,11 @@ function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDataba
 }
 
 function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
+  if (database.dialect === "postgresql") {
+    const url = renderConfigValueExpression(database.connection?.url)
+    return url ? ["  dbCredentials: {", `    url: ${url},`, "  },"] : []
+  }
+
   const databaseId = renderConfigValueExpression(database.cloudflare?.databaseId)
   if (database.cloudflare?.http && databaseId) {
     return [
@@ -53,7 +58,7 @@ function renderGeneratedDrizzleConfig(config: ResolvedDBViteConfig, databaseName
   const out = databaseNames.length === 1 ? database.migrationsDir : ".vitehub/database/migrations"
   return [
     "export default {",
-    "  dialect: \"sqlite\",",
+    `  dialect: ${JSON.stringify(database.dialect)},`,
     ...renderDbCredentials(database),
     `  schema: ${JSON.stringify(schemaFiles)},`,
     `  out: ${JSON.stringify(out)},`,
@@ -62,12 +67,13 @@ function renderGeneratedDrizzleConfig(config: ResolvedDBViteConfig, databaseName
   ].join("\n")
 }
 
-function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatabaseDefinition[]) {
+function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatabaseDefinition[], databases: ResolvedDBViteConfig["databases"]) {
   const imports = definitions.map((definition, index) =>
     `import type database_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`)
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
   const registryEntries = definitions.flatMap((definition, index) => [
     `    ${JSON.stringify(definition.name)}: {`,
+    ...(databases[definition.name]?.dialect === "postgresql" ? ["      dialect: \"postgresql\""] : []),
     `      schema: typeof database_${index}.schema`,
     "    },",
   ])
@@ -112,7 +118,7 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
   await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config), "utf8")
   await mkdir(dirname(generatedTypesFile), { recursive: true })
-  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config.definitions), "utf8")
+  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config.definitions, config.databases), "utf8")
   await Promise.all(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })

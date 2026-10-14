@@ -2,6 +2,7 @@ export { defineDatabase } from "./definition.ts"
 export type {
   CloudflareD1BindingConfig,
   CloudflareD1HttpConfig,
+  CloudflareHyperdriveConfig,
   DatabaseConfigValue,
   DatabaseConnectionConfig,
   Database,
@@ -16,10 +17,15 @@ export type {
   DBModulePublicOptions,
   DiscoveredDatabaseDefinition,
   DrizzleCasing,
+  PostgresConnectionConfig,
+  PostgresDatabaseDefinition,
+  PostgresDatabaseDefinitionOptions,
   ResolvedCloudflareD1BindingConfig,
+  ResolvedCloudflareHyperdriveConfig,
   ResolvedDBViteConfig,
   ResolvedDrizzleDatabaseConfig,
   RuntimeDrizzleDatabase,
   RuntimeDrizzleDatabaseConfig,
   RuntimeEnvDeclarationLike,
+  RuntimePostgresDatabase,
 } from "./types.ts"

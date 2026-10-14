@@ -71,6 +71,7 @@ export default defineDatabase({
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | `string` | Named Databases only | Runtime identity. Must match the discovered file or directory name. |
+| `dialect` | `'sqlite' \| 'postgresql'` | No | Database dialect. Defaults to `sqlite`. Write it as a string literal. See [Define a Postgres database](#define-a-postgres-database) for the `postgresql` options. |
 | `schema` | `Record<string, Drizzle table>` | Yes | Database Table Schema source of truth. |
 | `connection.url` | `DatabaseConfigValue` | No | SQLite or libSQL connection URL. Defaults to `file:.vitehub/data/database/sqlite.db` for a Default Database and `file:.vitehub/data/database/<name>.sqlite.db` for a Named Database. |
 | `connection.authToken` | `DatabaseConfigValue` | No | Hosted database auth token. |
@@ -94,4 +95,38 @@ An opaque Definition that selects its own resource uses HTTP or libSQL access. N
 
 Direct Vite and Nuxt output retain provisioned IDs as fallbacks for unset runtime Env values. Runtime values take precedence. Opaque Definitions that select their own resource do not receive integration provision IDs. Provision state is read from the Vite root even when `projectRoot` sets another root for Definitions and generated files.
 
-ViteHub currently exposes `sqlite` as the only public `DatabaseDialect`.
+## Define a Postgres database
+
+Set `dialect: 'postgresql'` and declare the tables with `drizzle-orm/pg-core`. Install the [`postgres`](https://github.com/porsager/postgres) driver in the app.
+
+```bash
+pnpm add postgres
+```
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { pgTable, serial, text } from 'drizzle-orm/pg-core'
+
+export default defineDatabase({
+  dialect: 'postgresql',
+  cloudflare: { hyperdriveId: process.env.CLOUDFLARE_HYPERDRIVE_ID },
+  connection: { url: process.env.DATABASE_URL },
+  schema: {
+    notes: pgTable('notes', {
+      id: serial('id').primaryKey(),
+      title: text('title').notNull(),
+    }),
+  },
+})
+```
+
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `connection.url` | `DatabaseConfigValue` | No | Postgres connection URL. Node, Vercel, local development, and `vitehub db migrate` use it. |
+| `cloudflare.binding` | `string` | No | Cloudflare Hyperdrive binding. Defaults to `HYPERDRIVE` for a Default Database and `HYPERDRIVE_<NAME>` for a Named Database. |
+| `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive configuration id. When it resolves at build time, ViteHub adds the binding to the generated Wrangler config. |
+| `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. |
+
+A Postgres Definition owns its connection. It does not use the integration `connection`, the D1 options, or the local SQLite default. When the Hyperdrive binding is present at runtime, ViteHub uses its connection string. Otherwise it uses `connection.url`. A query fails with `DATABASE_R0017` when neither is available.
+
+`defineDatabase()` returns the Definition for a Postgres database. Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.

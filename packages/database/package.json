@@ -6,6 +6,7 @@
     "database",
     "db",
     "drizzle",
+    "postgres",
     "sqlite",
     "vite",
     "vitehub"
@@ -45,6 +46,7 @@
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/d1": "./dist/runtime/d1.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
+    "./runtime/postgres": "./dist/runtime/postgres.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
     "./runtime/virtual-databases": "./dist/runtime/virtual-databases.js",
@@ -74,6 +76,7 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
+    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -83,9 +86,13 @@
   "peerDependencies": {
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
+    "postgres": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "postgres": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

@@ -9,7 +9,7 @@ export default defineConfig({
     ],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "esbuild", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime"],
+      neverBundle: ["vite", "esbuild", "postgres", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime"],
       onlyBundle: false,
     },
     plugins: [{
@@ -36,6 +36,7 @@ export default defineConfig({
       "src/runtime/definition-hosted.ts",
       "src/runtime/definition-local.ts",
       "src/runtime/hosted.ts",
+      "src/runtime/postgres.ts",
       "src/runtime/state.ts",
       "src/runtime/virtual-databases.ts",
       "src/runtime/virtual-schema.ts",

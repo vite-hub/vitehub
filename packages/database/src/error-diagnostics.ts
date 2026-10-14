@@ -15,6 +15,8 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     DATABASE_C0005: dynamicError,
     DATABASE_C0006: dynamicError,
     DATABASE_C0007: dynamicError,
+    DATABASE_C0008: dynamicError,
+    DATABASE_C0009: dynamicError,
     DATABASE_R0001: dynamicError,
     DATABASE_R0002: dynamicError,
     DATABASE_R0003: dynamicError,
@@ -24,6 +26,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     DATABASE_B0004: dynamicError,
     DATABASE_B0005: dynamicError,
     DATABASE_B0006: dynamicError,
+    DATABASE_B0007: dynamicError,
     DATABASE_R0004: dynamicError,
     DATABASE_R0005: dynamicError,
     DATABASE_R0006: dynamicError,
@@ -37,5 +40,6 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     DATABASE_R0014: dynamicError,
     DATABASE_R0015: dynamicError,
     DATABASE_R0016: dynamicError,
+    DATABASE_R0017: dynamicError,
   },
 })

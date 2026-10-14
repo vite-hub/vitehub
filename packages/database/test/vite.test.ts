@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 import { createServer as createViteServer, type ViteDevServer } from "vite"
@@ -195,6 +196,44 @@ describe("hubDb", () => {
     ])
     await expect(readFile(join(serverDir, ".vitehub/database/migrations/DB/0001_init.sql"), "utf8")).resolves.toBe("create table notes (title text);\n")
     expect(vercelNitro.options.cloudflare).toBeUndefined()
+  })
+
+  it("merges Postgres Hyperdrive bindings into Cloudflare Nitro output", async () => {
+    const rootDir = await createTempProject()
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    await writeFile(join(rootDir, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { pgTable, text } from 'drizzle-orm/pg-core'",
+      "export default defineDatabase({",
+      "  dialect: 'postgresql',",
+      "  cloudflare: { binding: 'APP_HYPERDRIVE', hyperdriveId: 'hyperdrive-id' },",
+      "  schema: { notes: pgTable('notes', { title: text('title') }) },",
+      "})",
+      "",
+    ].join("\n"))
+    const options: { cloudflare?: { wrangler?: { d1_databases?: unknown, hyperdrive?: unknown } }, handlers?: Array<{ handler: string, middleware?: boolean, route?: string }>, output: { serverDir: string }, preset: string } = {
+      cloudflare: { wrangler: { hyperdrive: [{ binding: "APP_HYPERDRIVE", id: "stale-id" }] } },
+      output: { serverDir: join(rootDir, ".output", "server") },
+      preset: "cloudflare-module",
+    }
+    const plugin = hubDb()
+    plugin.nitro.setup({ hooks: { hook: () => {} }, options })
+
+    await resolveConfigResolved(plugin)({ root: rootDir })
+
+    expect(options.cloudflare?.wrangler?.hyperdrive).toEqual([{ binding: "APP_HYPERDRIVE", id: "hyperdrive-id" }])
+    expect(options.cloudflare?.wrangler?.d1_databases).toBeUndefined()
+    const handler = join(rootDir, ".vitehub/nitro/database/request-scope.mjs")
+    expect(options.handlers).toEqual([{ handler, middleware: true }])
+    const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next: () => unknown) => unknown
+    const { getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }
+    const scopes = [
+      middleware({ req: { runtime: { cloudflare: { env } } } }, () => getActiveCloudflareRequestScope()),
+      middleware({ req: { runtime: { cloudflare: { env } } } }, () => getActiveCloudflareRequestScope()),
+    ]
+    expect(scopes[0]).toBeDefined()
+    expect(scopes[0]).not.toBe(scopes[1])
   })
 
   it("serializes shared Provider Output finalization", () => {
