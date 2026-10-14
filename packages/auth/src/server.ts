@@ -354,7 +354,11 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown): value is (.
   if (typeof value !== "function") return false
   if (value === localIntrinsic) return true
   try {
-    return /\[native code\]/.test(Function.prototype.toString.call(value))
+    const source = Function.prototype.toString.call(value)
+    if (typeof localIntrinsic === "function") {
+      return source === Function.prototype.toString.call(localIntrinsic)
+    }
+    return /\[native code\]/.test(source)
   }
   catch {
     return false
@@ -390,6 +394,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     || !isNativeFunction(getReaderIntrinsic.value, nativeStreamGetReader)) throw new Error("Non-native response stream")
   const streamPrototype = locked.owner
   const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
+  // The constructor is metadata only. Never call or construct a value supplied by the response.
   if (typeof streamConstructor !== "function" || streamConstructor.name !== "ReadableStream"
     || streamConstructor.prototype !== streamPrototype) throw new Error("Non-native response stream")
   const getReader = getReaderIntrinsic.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
