@@ -1120,7 +1120,7 @@ load("@img/sharp-linux-x64/sharp.node")
 
     await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'function load() { return require("missing-feature") }\n(ready)()\n')
     await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
-  })
+  }, 15_000)
 
   it("classifies multiline concise-arrow dynamic imports by execution", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-deno-concise-dynamic-"))

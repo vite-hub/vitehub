@@ -538,6 +538,15 @@ describe("@vite-hub/runtime", () => {
     expect(trace).toHaveBeenCalledWith({ name: "agent.run", type: "run" }, context)
   })
 
+  it("preserves timestamps from another JavaScript realm", async () => {
+    const log = createTraceEventLog()
+    const timestamp = runInNewContext('new Date("2020-01-02T03:04:05.000Z")')
+
+    await log.append({ name: "cross-realm-date", timestamp, type: "lifecycle" })
+
+    expect(log.entries()[0]?.timestamp).toBe("2020-01-02T03:04:05.000Z")
+  })
+
   it("records metadata-only trace events and derives run views", async () => {
     const log = createTraceEventLog()
     const context = createExecutionContext({
@@ -741,6 +750,38 @@ describe("@vite-hub/runtime", () => {
       payload: { value: { files: ["before.txt"] }, visibility: "public" },
     })
   })
+
+  it("keeps a cross-realm typed array public payload", async () => {
+    const log = createTraceEventLog()
+    const value = runInNewContext("new Uint8Array([1, 2, 3])")
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    const entry = log.entries()[0]
+    expect(entry?.payload?.visibility).toBe("public")
+    if (!entry || !entry.payload || entry.payload.visibility !== "public") throw new Error("Expected a public typed-array payload.")
+    expect(entry.payload.value).toBeInstanceOf(Uint8Array)
+    expect(Array.from(entry.payload.value as Uint8Array)).toEqual([1, 2, 3])
+  })
+
+  it("keeps a cross-realm typed-array subclass named Buffer public", async () => {
+    const log = createTraceEventLog()
+    const value = runInNewContext("class Buffer extends Uint8Array {}; new Buffer([1, 2, 3])")
+    await log.append({
+      name: "custom.event",
+      payload: { value, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    const entry = log.entries()[0]
+    expect(entry?.payload?.visibility).toBe("public")
+    if (!entry || !entry.payload || entry.payload.visibility !== "public") throw new Error("Expected a public typed-array payload.")
+    expect(Array.from(entry.payload.value as Uint8Array)).toEqual([1, 2, 3])
+  })
+
 
   it("preserves public Blob payload snapshots", async () => {
     const log = createTraceEventLog()
