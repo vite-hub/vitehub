@@ -1,5 +1,4 @@
 import { runInNewContext } from "node:vm"
-
 import { describe, expect, it, vi } from "vitest"
 
 import { getTranscriptionResults, openRouterTranscriptionModel, streamTranscription, title, transcribe } from "../src/capabilities.ts"
@@ -692,6 +691,47 @@ describe("agent transcription", () => {
         model: "mock-transcription-model",
       }))
       expect(context.messages.at(-1)?.parts.at(-1)).toMatchObject({ text: "voice transcript", type: "text" })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
+  it("normalizes foreign audio binaries and enforces direct and fetched size limits", async () => {
+    const aiTranscribe = vi.fn(async (_options: unknown) => ({ text: "voice transcript" }))
+    vi.doMock("ai", () => ({
+      createDownload: vi.fn(() => vi.fn()),
+      transcribe: aiTranscribe,
+    }))
+    try {
+      const blob = new Blob([new Uint8Array([1, 2, 3])])
+      Object.setPrototypeOf(blob, runInNewContext("Object.create(null, descriptors)", {
+        descriptors: Object.getOwnPropertyDescriptors(Blob.prototype),
+      }))
+      expect(blob instanceof Blob).toBe(false)
+      const values: Array<ArrayBuffer | Blob | Uint8Array> = [
+        blob,
+        runInNewContext("new Uint8Array([1, 2, 3]).buffer"),
+        runInNewContext("new Uint8Array([0, 1, 2, 3, 0]).subarray(1, 4)"),
+      ]
+      for (const data of values) {
+        for (const attachment of [{ data }, { fetchData: () => data }]) {
+          const audio = { ...attachment, mediaType: "audio/ogg", type: "audio" as const }
+          const context = () => createTranscriptionCapabilityContext([
+            createMessage({ parts: [audio], role: "user" }),
+          ]).context
+          await transcribe({ maxBytes: 3, model: "mock-transcription-model" }).input?.(context() as never)
+          expect(aiTranscribe).toHaveBeenLastCalledWith(expect.objectContaining({
+            audio: expect.any(Uint8Array),
+          }))
+          expect(aiTranscribe.mock.calls.at(-1)?.[0]).toMatchObject({ audio: new Uint8Array([1, 2, 3]) })
+          await expect(audioBytes(audio, { maxBytes: 3 })).resolves.toEqual(new Uint8Array([1, 2, 3]))
+          aiTranscribe.mockClear()
+          await expect(transcribe({ maxBytes: 2, model: "mock-transcription-model" }).input?.(context() as never)).rejects.toThrow("exceeds maxBytes")
+          await expect(audioBytes(audio, { maxBytes: 2 })).rejects.toThrow("exceeds maxBytes")
+          expect(aiTranscribe).not.toHaveBeenCalled()
+        }
+      }
     }
     finally {
       vi.doUnmock("ai")

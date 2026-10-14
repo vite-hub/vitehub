@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -11,6 +12,28 @@ afterEach(async () => {
 })
 
 describe("hubRealtime", () => {
+  it("bundles the public Vue entry without server Node modules", async () => {
+    const { build } = await import("vite")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-browser-"))
+    tempDirs.push(root)
+    const entry = fileURLToPath(new URL("../dist/vue.js", import.meta.url))
+    await writeFile(join(root, "index.html"), `<script type="module" src="/entry.js"></script>`)
+    await writeFile(join(root, "entry.js"), `import * as realtime from ${JSON.stringify(entry)}; globalThis.realtimeProbe = realtime`)
+    await build({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [{
+        name: "reject-server-builtins-in-browser",
+        enforce: "pre",
+        resolveId(id) {
+          if (id.startsWith("node:")) throw new Error(`Browser entry imports server builtin ${id}`)
+        },
+      }],
+      build: { write: false },
+    })
+  })
+
   it("uses Nitro's Durable Object transport for standalone Cloudflare realtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
