@@ -42,6 +42,41 @@ export interface AgentChatData {
 export type AttachmentData = ArrayBuffer | Blob | string | Uint8Array
 export type AudioData = AttachmentData
 
+const blobSizeGetter = hasRuntimeType(globalThis.Blob, "function") ? Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")?.get : undefined
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+
+/** Brand checks that work for values created in another JavaScript realm. */
+export function isBlobValue(value: unknown): value is Blob {
+  if (!blobSizeGetter) return false
+  try {
+    Reflect.apply(blobSizeGetter, value, [])
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  if (!arrayBufferByteLengthGetter) return false
+  try {
+    Reflect.apply(arrayBufferByteLengthGetter, value, [])
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  if (!typedArrayTagGetter) return false
+  try {
+    return Reflect.apply(typedArrayTagGetter, value, []) === "Uint8Array"
+  } catch {
+    return false
+  }
+}
+
 export interface AttachmentPart {
   data?: AttachmentData
   fetchData?: () => Promise<AttachmentData> | AttachmentData
@@ -139,32 +174,7 @@ export type MessagePart =
   | ToolCallPart
   | ToolResultPart
 
-export function isAttachmentBlob(value: unknown): value is Blob {
-  const sizeGetter = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get
-  if (!sizeGetter) return false
-  try {
-    sizeGetter.call(value)
-    return true
-  } catch {
-    return false
-  }
-}
-
-export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
-  if (value instanceof ArrayBuffer) return true
-  try {
-    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
-    return true
-  } catch {
-    return false
-  }
-}
-
-const typedArrayTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
-
-export function isUint8ArrayValue(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && typedArrayTag?.call(value) === "Uint8Array"
-}
+export const isAttachmentBlob = isBlobValue
 
 export function isAttachmentData(value: unknown): value is AttachmentData {
   return hasRuntimeType(value, "string")
@@ -172,7 +182,7 @@ export function isAttachmentData(value: unknown): value is AttachmentData {
     : isArrayBufferValue(value)
       ? value.byteLength > 0
       : isAttachmentBlob(value)
-        ? value.size > 0
+        ? true
         : isUint8ArrayValue(value) && value.byteLength > 0
 }
 

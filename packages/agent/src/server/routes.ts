@@ -43,7 +43,7 @@ import { isAgentInvocationCancellationError } from "../internal/invocation-cance
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
-import { attachmentStringBytes, isAttachmentBlob, isAttachmentData } from "../messages.ts"
+import { attachmentStringBytes, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -4217,7 +4217,7 @@ function isTextAttachment(attachment: Attachment): boolean {
 }
 
 function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOptions = {}): Uint8Array | undefined {
-  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value instanceof Uint8Array ? value : undefined
+  const bytes = isArrayBufferValue(value) ? new Uint8Array(value) : isUint8ArrayValue(value) ? value : undefined
   if (!bytes) return
   if (bytes.byteLength > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
@@ -7042,9 +7042,40 @@ function historyBytesToBase64(data: Uint8Array): string {
 const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
 const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
 
+function isChannelHistoryBlob(value: unknown): { size: number, arrayBuffer: () => Promise<ArrayBuffer> } | undefined {
+  if (!isRuntimeObject(value)) return
+  try {
+    const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(value)
+    if (!isRuntimeNumber(size) || !Number.isSafeInteger(size) || size < 0) return
+    const arrayBuffer = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer")!.value
+    if (!isRuntimeFunction(arrayBuffer)) return
+    return { size, arrayBuffer: () => arrayBuffer.call(value) }
+  } catch {
+    return
+  }
+}
+
 function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
-  const bytes = value instanceof Blob ? undefined : value instanceof ArrayBuffer ? new Uint8Array(value) : value instanceof Uint8Array ? value : undefined
-  return bytes && bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
+  let bytes: Uint8Array
+  const prototype = Object.getPrototypeOf(Uint8Array.prototype)
+  if (ArrayBuffer.isView(value) && Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)!.get!.call(value) === "Uint8Array") {
+    // Native accessors read the typed-array slots, ignoring shadowing own properties.
+    bytes = new Uint8Array(
+      Object.getOwnPropertyDescriptor(prototype, "buffer")!.get!.call(value),
+      Object.getOwnPropertyDescriptor(prototype, "byteOffset")!.get!.call(value),
+      Object.getOwnPropertyDescriptor(prototype, "byteLength")!.get!.call(value),
+    )
+  } else {
+    try {
+      // The native getter checks the ArrayBuffer brand across JavaScript realms.
+      Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+      // SAFETY: The native getter above accepts only genuine ArrayBuffer values.
+      bytes = new Uint8Array(value as ArrayBuffer)
+    } catch {
+      return undefined
+    }
+  }
+  return bytes.byteLength <= channelHistoryAttachmentMaxBytes ? bytes : undefined
 }
 
 async function boundedChannelHistoryOperation(operation: () => unknown | Promise<unknown>, signal: AbortSignal): Promise<unknown> {
@@ -7140,11 +7171,11 @@ async function channelHistoryAttachment(
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
   if (isAttachmentBlob(data)) {
-    if (data.size <= maxBytes) {
+    const blob = isChannelHistoryBlob(data)
+    if (blob && blob.size <= maxBytes) {
       try {
-        const blob = data
-        // SAFETY: Blob.arrayBuffer() always resolves to an ArrayBuffer by the Blob contract.
-        data = new Uint8Array(await boundedChannelHistoryOperation(() => blob.arrayBuffer(), signal) as ArrayBuffer)
+        // SAFETY: The helper binds the native arrayBuffer method to a branded Blob.
+        data = new Uint8Array(await boundedChannelHistoryOperation(blob.arrayBuffer, signal) as ArrayBuffer)
       } catch {
         data = undefined
       }
@@ -7157,11 +7188,11 @@ async function channelHistoryAttachment(
     } catch {}
   }
   if (isAttachmentBlob(data)) {
-    if (data.size <= maxBytes) {
+    const blob = isChannelHistoryBlob(data)
+    if (blob && blob.size <= maxBytes) {
       try {
-        const blob = data
-        // SAFETY: Blob.arrayBuffer() always resolves to an ArrayBuffer by the Blob contract.
-        data = new Uint8Array(await boundedChannelHistoryOperation(() => blob.arrayBuffer(), signal) as ArrayBuffer)
+        // SAFETY: The helper binds the native arrayBuffer method to a branded Blob.
+        data = new Uint8Array(await boundedChannelHistoryOperation(blob.arrayBuffer, signal) as ArrayBuffer)
       } catch {
         data = undefined
       }

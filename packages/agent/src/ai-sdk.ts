@@ -2,7 +2,7 @@ import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
-import { getMessageText, isAttachmentBlob, isAttachmentData, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
+import { getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
@@ -347,7 +347,7 @@ function aiSdkAttachmentMaxBytes(options: AiSdkAttachmentOptions | undefined): n
 
 function attachmentDataByteLength(data: AttachmentData | undefined): number | undefined {
   if (isAttachmentBlob(data)) return data.size
-  if (data instanceof ArrayBuffer) return data.byteLength
+  if (isArrayBufferValue(data)) return data.byteLength
   if (ArrayBuffer.isView(data)) return data.byteLength
   if (hasRuntimeType(data, "string")) return new TextEncoder().encode(data).byteLength
 }
@@ -366,9 +366,9 @@ function resolvedImageMediaType(data: AttachmentData): string | undefined {
       return
     }
   }
-  const bytes = data instanceof ArrayBuffer
+  const bytes = isArrayBufferValue(data)
     ? new Uint8Array(data)
-    : data instanceof Uint8Array ? data : undefined
+    : isUint8ArrayValue(data) ? new Uint8Array(data) : undefined
   if (!bytes) return
   const startsWith = (signature: number[], offset = 0) =>
     signature.every((byte, index) => bytes[offset + index] === byte)
