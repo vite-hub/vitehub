@@ -1,3 +1,4 @@
+import { isResponse } from "./internal/response.ts"
 import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
@@ -821,7 +822,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield { type: "finish" }
     return
   }
-  if (value instanceof Response) {
+  if (isResponse(value)) {
     if (value.body) {
       for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
         if (text) yield { text, type: "text-delta" }
