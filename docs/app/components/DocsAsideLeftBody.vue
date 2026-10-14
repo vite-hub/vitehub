@@ -25,7 +25,6 @@ const pageGroups = computed(() => {
       ? { ...group, pages: [...group.pages, perspective] }
       : group,
   );
-  );
 });
 const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
 const related = computed(() =>
