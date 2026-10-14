@@ -280,38 +280,25 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value instanceof Response) return value
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    const responsePrototype = Object.getPrototypeOf(value)
-    const getter = (name: string) => {
-      let prototype = responsePrototype
-      while (prototype !== null) {
-        const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
-        if (descriptor?.get) return descriptor.get
-        prototype = Object.getPrototypeOf(prototype)
-      }
-      return undefined
-    }
-    const status = getter("status")?.call(value)
-    const statusText = getter("statusText")?.call(value)
-    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return false
-    if (typeof statusText !== "string") return false
-    const headers = getter("headers")?.call(value)
-    if (headers === null || typeof headers !== "object") return false
-    const responseHeaders = headers as { forEach?: unknown, get?: unknown }
-    if (typeof responseHeaders.get !== "function"
-      || typeof responseHeaders.forEach !== "function") return false
-    const body = getter("body")?.call(value)
-    return body === null || (body !== undefined && typeof body === "object" && typeof (body as { getReader?: unknown }).getReader === "function")
+    if (Object.prototype.toString.call(value) !== "[object Response]") return
+    // SAFETY: Foreign responses are untrusted. Copy their data into a local
+    // Response so adapters only receive native Headers and body operations.
+    const response = value as Response
+    if (typeof response.arrayBuffer !== "function") return
+    const headers = new Headers(response.headers)
+    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
+    return new Response(body, { headers, status: response.status, statusText: response.statusText })
   }
   catch {
-    return false
+    return
   }
 }
 

@@ -73,7 +73,6 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
 
 function dateTime(value: unknown): number | undefined {
   try {
-    if (Object.prototype.toString.call(value) !== "[object Date]") return undefined
     const time = Date.prototype.getTime.call(value as Date)
     return Number.isNaN(time) ? undefined : time
   }
