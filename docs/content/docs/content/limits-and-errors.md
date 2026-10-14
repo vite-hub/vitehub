@@ -1,8 +1,8 @@
 ---
 title: Content limits and errors
-description: Definition, path, collection, history, and access limits for Content, and the errors they raise.
+description: Definition, path, collection, history, preview, and access limits for Content, and the errors they raise.
 navigation.title: Limits and errors
-navigation.order: 5
+navigation.order: 6
 icon: i-lucide-circle-alert
 ---
 
@@ -29,9 +29,16 @@ icon: i-lucide-circle-alert
 - `list()` reads every document of one revision into server memory. Content caches parsed documents by digest and up to 32 MB of file text per runtime, so later revisions reread only changed files. Keep collections to a size you can hold in memory.
 - Content reads check the `published` head with one Database query per call, so they see publishes from other instances.
 - Frontmatter is YAML and values must survive a JSON round trip. A `Date` is stored as an ISO string.
-- `/api/content/**` serves published documents only. Content has no write routes, and the runtime methods do not call `authorize`.
+- `/api/content/**` serves published documents, or drafts to a request with a valid [preview cookie](/docs/content/preview). Content has no write routes, and the runtime methods do not call `authorize`.
 - Without `authorize`, `content.can()` denies every action.
 - The Store retains every revision. There is no pruning.
+
+## Preview
+
+- Preview tokens are signed with `VITEHUB_CONTENT_KEY`. Without it, preview works only when `NODE_ENV` is `development` or `test`, with a key that changes on restart.
+- A token lives from 60 seconds to 24 hours (default one hour) and previews every collection. It is not bound to a user, and the server cannot revoke one token before it expires. Rotating the key ends all of them.
+- The generated preview middleware needs Nitro 3. On Nitro 2, wrap direct `content` reads in `content.preview.run(event, callback)`.
+- CDNs and Nitro route caches do not see the cookie. Bypass them for preview requests; see [Caching](/docs/content/preview#caching).
 
 ## Errors
 
@@ -44,5 +51,6 @@ icon: i-lucide-circle-alert
 | `CONTENT_R0005` | The Content handler received an unsupported request or body. | Send a Web or Node request. |
 | `CONTENT_R0006` | A Content definition is invalid. | Fix `defineContent()` or `documents()`. |
 | `CONTENT_R0007` | The collection Workspace has no retained history. | Use the Blob + Database Store. |
-| `CONTENT_R0008` | An unknown collection, an invalid document id or ref, or invalid call options. | Use a defined collection, a relative id inside its path, and `draft` or `published`. |
+| `CONTENT_R0008` | An unknown collection, an invalid document id or ref, invalid call options, or `content.preview.enable()` without collections. | Use a defined collection, a relative id inside its path, and `draft` or `published`. Pass `maxAge` from 60 to 86400. |
 | `CONTENT_R0009` | Invalid `publish()` options, such as `ids` without `collection`. | Pass `collection` with `ids`, and `ifHead` as a revision id or `null`. |
+| `CONTENT_R0010` | `content.preview.enable()` has no signing key outside development and tests, or `VITEHUB_CONTENT_KEY` is not 32 bytes. | Set `VITEHUB_CONTENT_KEY` to `openssl rand -base64 32` on every instance. |

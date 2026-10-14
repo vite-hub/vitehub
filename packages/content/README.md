@@ -69,4 +69,17 @@ await content.publish({ collection: "posts", ids: ["hello"] })
 await content.revisions("posts", "hello")
 ```
 
-Every save commits to the `draft` history ref; `publish()` copies selected documents to `published`. `/api/content/**` and the collection Comark instances serve only `published`. Content registers a `write:validate` Workspace plugin, so every Workspace writer is validated on the collection paths. Saves of different documents retry over each other; `ifDigest` rejects a save when the same document changed. The runtime methods are trusted server API; surfaces such as the Console and Agent Capability check `content.can()` first.
+Every save commits to the `draft` history ref; `publish()` copies selected documents to `published`. `/api/content/**` and the collection Comark instances serve `published`, except to a request with a valid preview cookie. Content registers a `write:validate` Workspace plugin, so every Workspace writer is validated on the collection paths. Saves of different documents retry over each other; `ifDigest` rejects a save when the same document changed. The runtime methods are trusted server API; surfaces such as the Console and Agent Capability check `content.can()` first.
+
+## Draft preview
+
+`content.preview.enable(event)` signs an HMAC token with `VITEHUB_CONTENT_KEY` (32 random bytes as base64 or hex) and sets it as an `HttpOnly`, `SameSite=Strict` cookie for one hour by default. A request with a valid cookie reads `draft` through `/api/content/**`, `content.get()`/`list()`/`navigation()`/`search()`, and collection `get()`/`list()`, and gets `Cache-Control: private, no-store`. The grant lives in `AsyncLocalStorage` for that request only.
+
+```ts
+if (!await content.can({ user, collection: "posts", action: "read" })) throw createError({ statusCode: 403 })
+await content.preview.enable(event, { maxAge: 900 })
+content.preview.disable(event)
+await content.preview.run(event, () => content.collection("posts").get("hello")) // where no middleware scopes the request
+```
+
+ViteHub generates `defineContentPreviewMiddleware()` for Nitro 3 apps, so pages and server routes read drafts without changes. Without the key, preview works only when `NODE_ENV` is `development` or `test`; elsewhere `enable()` throws `CONTENT_R0010` and cookies are ignored.

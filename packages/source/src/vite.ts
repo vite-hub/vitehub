@@ -21,6 +21,7 @@ const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-regist
 const legacyCollectionTypesEntry = ".vitehub/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
+const contentPreviewEntry = ".vitehub/content/preview.mjs"
 // Auth owns this virtual module. Generated routes import it only when Auth is enabled.
 const authServerModuleId = "#vitehub/auth/server"
 const initialHostRefreshRetryDelay = 25
@@ -30,6 +31,8 @@ const hostRestartOwnerSettlementTimeout = 30_000
 export interface GeneratedSourceHandler {
   handler: string
   method?: "get"
+  /** A global middleware, such as the Content preview scope. Middleware never conflicts with routes. */
+  middleware?: true
   route: string
 }
 
@@ -64,7 +67,7 @@ interface DiscoveredCollection {
 }
 
 interface NitroGeneratedConfig {
-  handlers?: Array<{ handler: string, method?: string, route?: string }>
+  handlers?: Array<{ handler: string, method?: string, middleware?: boolean, route?: string }>
   modules?: unknown[]
 }
 
@@ -75,7 +78,7 @@ interface SourceNitroHost extends NitroRouteGuard {
 
 interface NitroRouteGuard {
   hooks: { hook(name: "build:before", callback: () => void): void }
-  scannedHandlers: Array<{ method?: string, route?: string }>
+  scannedHandlers: Array<{ method?: string, middleware?: boolean, route?: string }>
 }
 
 interface SourcePluginConfig {
@@ -184,6 +187,7 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
     collectionTypesPackageEntry,
     legacyCollectionTypesEntry,
     contentRouteEntry,
+    contentPreviewEntry,
   ]
   for (const entry of fixedEntries) {
     const path = resolve(projectRoot, entry)
@@ -215,6 +219,7 @@ async function restoreGeneratedSourceArtifacts(
     collectionTypesPackageEntry,
     legacyCollectionTypesEntry,
     contentRouteEntry,
+    contentPreviewEntry,
   ]) {
     const path = resolve(projectRoot, entry)
     if (!snapshot.files.has(path)) await rm(path, { force: true })
@@ -239,8 +244,10 @@ function generatedRouteDescription(handler: GeneratedSourceHandler): string {
 
 function assertGeneratedRoutes(nitro: NitroRouteGuard, generatedHandlers: GeneratedSourceHandler[]): void {
   for (const generatedHandler of generatedHandlers) {
+    if (generatedHandler.middleware) continue
     const duplicate = nitro.scannedHandlers.some(candidate =>
-      candidate.route === generatedHandler.route
+      !candidate.middleware
+      && candidate.route === generatedHandler.route
       && methodsOverlap(candidate.method, generatedHandler.method))
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0001({ message: `[vitehub] Generated ${generatedRouteOwner(generatedHandler)} route ${JSON.stringify(generatedHandler.route)} conflicts with an existing ${generatedRouteDescription(generatedHandler)}. Remove the matching server route.` })
@@ -274,8 +281,8 @@ export function mergeGeneratedSourceNitroConfig(
       && candidate.route === handler.route
       && candidate.method?.toLowerCase() === handler.method?.toLowerCase())
     if (exact) continue
-    const duplicate = handlers.some(candidate =>
-      candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
+    const duplicate = !handler.middleware && handlers.some(candidate =>
+      !candidate.middleware && candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
     }
@@ -455,18 +462,29 @@ async function writeContentArtifact(
   file: string | undefined,
 ): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, contentRouteEntry)
+  const preview = resolve(options.projectRoot, contentPreviewEntry)
   if (!file) {
-    await rm(output, { force: true })
+    await Promise.all([rm(output, { force: true }), rm(preview, { force: true })])
     return []
   }
+  const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
+  const contentModule = JSON.stringify(toRuntimeModuleSpecifier(file))
   await writeFileIfChanged(output, [
-    `import { defineContentHandler } from ${JSON.stringify(options.contentImportBase ?? "@vite-hub/content")}`,
-    `import { content } from ${JSON.stringify(toRuntimeModuleSpecifier(file))}`,
+    `import { defineContentHandler } from ${importBase}`,
+    `import { content } from ${contentModule}`,
     "",
     "export default defineContentHandler(content)",
     "",
   ].join("\n"))
-  return [{ handler: output, route: "/api/content/**" }]
+  // Scopes each request that carries the Content preview cookie to drafts.
+  await writeFileIfChanged(preview, [
+    `import { defineContentPreviewMiddleware } from ${importBase}`,
+    `import { content } from ${contentModule}`,
+    "",
+    "export default defineContentPreviewMiddleware(content)",
+    "",
+  ].join("\n"))
+  return [{ handler: preview, middleware: true, route: "/**" }, { handler: output, route: "/api/content/**" }]
 }
 
 export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {

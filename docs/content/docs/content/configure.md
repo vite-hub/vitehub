@@ -151,7 +151,7 @@ export const content = defineContent({
 | `action` | `read` for drafts, `write` for save, remove, and restore, or `publish`. |
 | `id` | The document, when the action targets one. |
 
-Without `authorize`, `content.can()` returns `false` for every action. Published documents are public through `/api/content/**`; `read` covers drafts.
+Without `authorize`, `content.can()` returns `false` for every action. Published documents are public through `/api/content/**`; `read` covers drafts, including a [preview cookie](/docs/content/preview).
 
 The runtime methods, such as `save()` and `publish()`, are trusted server API. They do not call `authorize`. Check `content.can()` yourself before you call them from a route that acts for a user.
 
