@@ -559,6 +559,25 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
       status: "available",
     }
   }
+  if (capability.id === "content") {
+    // SAFETY: content() writes its enabled operations and collection scope into its metadata.
+    const metadata = capability.metadata as { collections?: string[] | "all", operations?: string[] } | undefined
+    const operations = new Set(metadata?.operations ?? [])
+    return {
+      category: "capability",
+      commands: [
+        ...(operations.has("read") ? ["content_list_collections", "content_list_documents", "content_get_document", "content_status"] : []),
+        ...(operations.has("write") ? ["content_save_draft"] : []),
+        ...(operations.has("publish") ? ["content_publish"] : []),
+      ],
+      description: Array.isArray(metadata?.collections)
+        ? `Read, draft, and publish documents in the ${metadata.collections.join(", ")} Content collections.`
+        : "Read, draft, and publish documents in Content collections.",
+      icon: "i-lucide-file-pen-line",
+      name: "content",
+      status: "available",
+    }
+  }
   if (capability.id === "sandbox") {
     return {
       category: "execution",

@@ -702,12 +702,16 @@ describe("framework generated types", () => {
     ])
     await writeFile(join(root, "server/content.ts"), contentModule())
 
-    const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
+    const plugin = sourcePlugin()
+    expect(plugin.api.getContentDefinition(root)).toBeUndefined()
+    const handlers = await plugin.api.prepareSources({ projectRoot: root })
 
     expect(handlers).toEqual([{
       handler: join(root, ".vitehub/content/route.mjs"),
       route: "/api/content/**",
     }])
+    // Agents receive this file's `content` export as the content primitive.
+    expect(plugin.api.getContentDefinition(root)).toEqual({ handler: join(root, "server/content.ts") })
     await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).resolves.toBe(
       [
         `import { defineContentHandler } from "vite-hub/content"`,
