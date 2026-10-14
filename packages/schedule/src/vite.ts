@@ -675,8 +675,25 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       viteRoot = roots.viteRoot
       // The resolved list includes plugins that other plugins add after the `config` hook.
       contributions = await collectPluginScheduleContributions(config.plugins, roots)
+      const definitions = discoverRegistrySchedules()
+      emitStandaloneProviderOutput = (options.runtime === undefined || options.providerOutput === "standalone") && shouldEmitStandaloneProviderOutput(definitions, options)
+      standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
+      if (config.command) {
+        const nitro = await createScheduleNitroConfig({
+          ...options,
+          command: config.command,
+          contributions,
+          nitro: (config as ResolvedConfig & { nitro?: unknown }).nitro,
+          nitroOwnsPaths: hasNitroConfigContext(config),
+          root: config.root,
+          serverDirs,
+        } as InternalScheduleNitroConfigOptions)
+        if (nitro) {
+          ;(config as unknown as ViteConfigWithNitro).nitro = nitro
+        }
+      }
       // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
-      await writeScheduleTypes(projectRoot, discoverRegistrySchedules(), (options as InternalScheduleVitePluginOptions).typesImportBase)
+      await writeScheduleTypes(projectRoot, definitions, (options as InternalScheduleVitePluginOptions).typesImportBase)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
