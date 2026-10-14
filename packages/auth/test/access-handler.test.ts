@@ -334,6 +334,22 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
+  it("rejects a class that copies the foreign Response constructor shape", async () => {
+    class _Response {
+      #state = true
+      brandCheck() {}
+      get status() { return 409 }
+      get statusText() { return "Conflict" }
+      get headers() { return new Headers() }
+      get body() { return null }
+    }
+    const candidate = new _Response()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => candidate as never }] },
+    }))
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("preserves foreign status, body, and separate Set-Cookie headers", async () => {
     const foreign = new ForeignResponse("Policy rejected", {
       status: 409,
