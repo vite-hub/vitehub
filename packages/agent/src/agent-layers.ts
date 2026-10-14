@@ -406,6 +406,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     // SAFETY: ArrayBuffer's intrinsic accessors accept only genuine ArrayBuffers;
     // the nativePrototype check excludes application-defined subclasses.
     if (variablePresetBacking(value as ArrayBuffer, false) || detachedPresetBacking(value as ArrayBuffer, false)) return value
+    // SAFETY: nativePrototype and the guarded backing checks establish an ArrayBuffer internal slot.
     return finish(clonePresetBacking(value as ArrayBuffer, false))
   }
   if (globalThis.SharedArrayBuffer && nativePrototype(value, SharedArrayBuffer)) {
