@@ -44,8 +44,6 @@ function isHeadersLike(value: unknown): value is Headers {
     if (Object.prototype.hasOwnProperty.call(value, "get")) return false
     const descriptor = getPrototypeDescriptor(value, "get")
     if (!isBrandedMethod(descriptor?.value, value, descriptor?.owner, "ce-vqsregion")) return false
-    const result = descriptor.value.call(value, "ce-vqsregion")
-    if (result !== undefined && result !== null && typeof result !== "string") return false
     return true
   }
   catch {
@@ -91,6 +89,8 @@ function isBrandedMethod(value: unknown, receiver: object, owner: object | undef
     }
     const receiverResult = value.call(receiver, "__vitehub_brand_probe__")
     if (receiverResult !== undefined && receiverResult !== null) return false
+    const receiverArgumentResult = value.call(receiver, ...args)
+    if (receiverArgumentResult !== undefined && receiverArgumentResult !== null) return false
     // Genuine Web IDL methods reject an unrelated receiver. This also rejects
     // a Proxy around an ordinary function whose source is reported as native.
     value.call(Object.create(null), ...args)
