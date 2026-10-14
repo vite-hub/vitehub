@@ -65,8 +65,7 @@ function isRequest(value: unknown): value is Request {
 
 function isRequestAccessor(key: string, accessor: Function): boolean {
   const source = Function.prototype.toString.call(accessor)
-  return source.includes("[native code]")
-    || new RegExp(`get\\s+${key}\\s*\\(\\s*\\)[^{]*\\{[\\s\\S]*webidl\\.brandCheck\\(this,\\s*Request\\)`).test(source)
+  return new RegExp(`get\\s+${key}\\s*\\(\\s*\\)[^{]*\\{[\\s\\S]*webidl\\.brandCheck\\(this,\\s*Request\\)`).test(source)
 }
 
 /** Adapt one H3 operation. Await flushWaitUntil when the host has no lifetime API. */
