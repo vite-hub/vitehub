@@ -1,10 +1,19 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { findContentEntry, inspectContentEntry } from "@vite-hub/source/vite"
+import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { registerViteHubNitroDevEndpoint } from "@vite-hub/internal/dev-endpoint"
+import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { findContentEntry, inspectContentEntry, toRuntimeModuleSpecifier } from "@vite-hub/source/vite"
 
+import { contentDevHeader, contentDevHeaderValue, contentDevRoute, contentDevRuntimeRoute } from "./dev.ts"
+
+import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubConsoleDocumentEditorSection, ViteHubConsoleDocumentSetup } from "@vite-hub/internal/console"
+import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 
 export interface ContentConsoleOptions {
   projectRoot: string
@@ -182,4 +191,124 @@ export async function contributeContentRealtime(options: ContentRealtimeContribu
     ].join("\n")),
   ])
   return { definitions: [{ handler: definition, name: contentRealtimeDefinitionName }], plugins: [plugin] }
+}
+
+export const CONTENT_VITE_PLUGIN_NAME = "@vite-hub/content/vite"
+const contentPackageName = "@vite-hub/content"
+const generatedNitroDevHandler = ".vitehub/nitro/content/dev-handler.ts"
+
+/** Message that the Content dev endpoint returns when the host does not run Nitro in the Vite process. */
+export const contentDevRuntimeUnavailableMessage = "This Vite Development Server does not run Nitro in process, so it cannot reach the Content runtime. `vitehub content` commands need a Vite + Nitro host. Nuxt and plain Vite are not supported."
+
+export interface ContentVitePluginOptions {
+  /** Import prefix of the generated Nitro dev handler, for example `vite-hub/_internal/content`. Defaults to `@vite-hub/content`. */
+  importBase?: string
+}
+
+export type ContentVitePlugin = Plugin & {
+  vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata
+}
+
+type ContentPluginConfig = UserConfig & {
+  [VITEHUB_PROJECT_ROOT]?: string
+  [VITEHUB_SERVER_DIRS]?: string[]
+}
+
+/** Renders the dev-only Nitro handler that passes `vitehub content` requests to the app's Content runtime. */
+export function renderContentDevHandler(options: { definition: string, importBase?: string }): string {
+  return [
+    "import { defineEventHandler } from 'h3'",
+    `import { handleContentDevRequest } from ${JSON.stringify(`${options.importBase ?? contentPackageName}/runtime/dev`)}`,
+    `import * as definition from ${JSON.stringify(toRuntimeModuleSpecifier(options.definition))}`,
+    "",
+    "export default defineEventHandler(event => handleContentDevRequest(event.req, definition.content))",
+    "",
+  ].join("\n")
+}
+
+function readNitroBaseURL(config: ResolvedConfig | undefined): string | undefined {
+  const nitro: unknown = config ? Reflect.get(config, "nitro") : undefined
+  const baseURL: unknown = nitro !== null && Object(nitro) === nitro ? Reflect.get(Object(nitro), "baseURL") : undefined
+  return String(baseURL) === baseURL ? baseURL : process.env.NITRO_APP_BASE_URL
+}
+
+/**
+ * Registers the `vitehub content` commands, the Content Definition inspector, and the dev-only endpoint those
+ * commands call. The endpoint forwards each operation into the Nitro dev environment, where `server/content.ts`
+ * and its Workspace Store live. Deployed apps have no such endpoint.
+ */
+export function hubContent(options: ContentVitePluginOptions = {}): ContentVitePlugin {
+  let projectRoot = process.cwd()
+  let serverDirs: string[] | undefined
+  let resolved: ResolvedConfig | undefined
+  const discover = () => findContentEntry({ projectRoot, serverDirs })
+
+  return {
+    name: CONTENT_VITE_PLUGIN_NAME,
+    enforce: "post",
+    vitehub: {
+      cli: async () => {
+        if (!await discover()) return
+        const { createContentCliContributor } = await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./cli.ts" : "./cli.js")
+        return createContentCliContributor()
+      },
+      inspect: async () => {
+        const definition = await discover()
+        if (!definition) return
+        return {
+          definitions: [{
+            kind: "content",
+            label: "Content",
+            list: () => [{
+              fields: [
+                { label: "Route", value: "/api/content/**" },
+                { label: "Collections", value: "vitehub content collections" },
+              ],
+              file: relativeDefinitionFile(projectRoot, definition),
+              name: "content",
+              source: "server-content",
+            }],
+          }],
+        }
+      },
+    },
+    config: {
+      order: "pre",
+      async handler(config, env) {
+        // SAFETY: ViteHub attaches its symbol-keyed project metadata to the user config.
+        const viteConfig = config as ContentPluginConfig
+        projectRoot = viteConfig[VITEHUB_PROJECT_ROOT]
+          ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
+          : resolveViteHubProjectRoot(config.root || process.cwd())
+        serverDirs = viteConfig[VITEHUB_SERVER_DIRS] ?? serverDirs
+        if (env.command !== "serve") return
+        const handler = resolve(projectRoot, generatedNitroDevHandler)
+        const definition = await discover()
+        if (!definition) {
+          await rm(handler, { force: true })
+          return
+        }
+        await mkdir(dirname(handler), { recursive: true })
+        await writeFile(handler, renderContentDevHandler({ definition, importBase: options.importBase }), "utf8")
+        // Vite keeps the `nitro` key that the Nitro Vite plugin reads. The kit copies it and adds one handler.
+        const kit = createNitroServerKit(Reflect.get(config, "nitro"))
+        kit.addHandler({ handler, route: contentDevRuntimeRoute })
+        Reflect.set(config, "nitro", kit.config)
+      },
+    },
+    configResolved(config) {
+      resolved = config
+    },
+    configureServer(server) {
+      registerViteHubNitroDevEndpoint(server, {
+        header: contentDevHeader,
+        headerValue: contentDevHeaderValue,
+        label: "Content Dev",
+        nitroBaseURL: () => readNitroBaseURL(resolved),
+        route: contentDevRoute,
+        runtimeRoute: contentDevRuntimeRoute,
+        unavailable: { code: "CONTENT_DEV_RUNTIME_UNAVAILABLE", message: contentDevRuntimeUnavailableMessage },
+      })
+    },
+  }
 }

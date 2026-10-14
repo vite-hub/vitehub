@@ -29,6 +29,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    },
     "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js"
@@ -49,6 +53,10 @@
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js"
     },
+    "./runtime/dev": {
+      "types": "./dist/runtime/dev.d.ts",
+      "import": "./dist/runtime/dev.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
@@ -68,6 +76,7 @@
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "diff": "catalog:runtime",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "yaml": "catalog:tooling"

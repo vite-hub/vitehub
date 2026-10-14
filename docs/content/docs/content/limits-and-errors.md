@@ -35,6 +35,7 @@ icon: i-lucide-circle-alert
 - `/api/content/**` serves published documents only. Content has no write routes, and the runtime methods do not call `authorize`.
 - Without `authorize`, `content.can()` denies every action.
 - The Store retains every revision. There is no pruning.
+- [`vitehub content`](/docs/content/cli) reaches only a local Vite + Nitro Development Server. It cannot inspect or publish a deployed app.
 
 ## Sessions
 
@@ -58,6 +59,10 @@ icon: i-lucide-circle-alert
 | `CONTENT_R0007` | The collection Workspace has no retained history. | Use the Blob + Database Store. |
 | `CONTENT_R0008` | An unknown collection, an invalid document id or ref, or invalid call options, such as a malformed session token or `lease` other than `'override'`. | Use a defined collection, a relative id inside its path, and `draft` or `published`. |
 | `CONTENT_R0009` | Invalid `publish()` options, such as `ids` without `collection`, `expect` combined with `collection` or `ids`, an empty or repeated `expect` entry, or an invalid digest. | Pass `collection` with `ids`, or `expect` alone with one entry per document, and `ifHead` as a revision id or `null`. |
+| `CONTENT_R0010` | Invalid [`vitehub content`](/docs/content/cli) arguments, such as a missing id or `--id` without `--collection`. | Run the command with `--help`. |
 | `CONTENT_R0012` | `content.sessions` cannot reach its table: the Database of the Workspace history has no `vitehub_content_sessions` table, or the Workspace does not use the Blob + Database Store. | Add `contentSessionsSchema` from `vite-hub/content/database` to that Database next to `workspaceHistorySchema`, then run `vitehub db generate` and `vitehub db migrate`. |
 | `CONTENT_R0013` | A writer other than `publish()` deleted a document from the `published` ref, such as a raw history commit. | Remove the document from the draft with `remove()`, then publish the deletion with `content.publish()`. |
 | `CONTENT_R0011` | Invalid `schedule()` options: `at` not in the future or without a time zone, an invalid `expect`, every document already published as reviewed, or a document that already has a pending schedule. | Pass a future time with a zone, and `unschedule()` the existing schedule first. See [Scheduling](/docs/content/scheduling). |
+| `CONTENT_UNDEFINED` | `vitehub content` reached a Content file that does not export a `defineContent()` runtime named `content`. | Export `content` from `server/content.ts`. |
+| `CONTENT_PUBLISH_UNCONFIRMED` | `vitehub content publish` ran without an interactive terminal and without `--yes`. | Pass `--yes`, or `--dry-run` to only list the changes. |
+| `CONTENT_DEV_RUNTIME_UNAVAILABLE` | The Development Server does not run Nitro in the Vite process, as with Nuxt or plain Vite. | Run the commands against a Vite + Nitro app. |

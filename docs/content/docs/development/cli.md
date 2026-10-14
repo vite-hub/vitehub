@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types` and `box`, and the CLI includes the built-in `inspect` and `provision` namespaces. `box` does not load the project config, so it also runs in a deployed container without Vite.
+The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types` and `box`, and the CLI includes the built-in `inspect` and `provision` namespaces. `box` does not load the project config, so it also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -40,6 +40,7 @@ Available namespaces:
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores in a running Vite + Nitro Development Server.
   channels    External Channel registration workflows.
+  content     Inspect and publish Content document collections in a running Vite + Nitro Development Server.
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
   env         Server Env inspection workflows.
@@ -70,6 +71,11 @@ Available namespaces:
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
 | `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
+| `vitehub content collections` | Available | Content Package | List document collections with their fields and document counts. |
+| `vitehub content status` | Available | Content Package | Show whether each document is draft, published, changed, or deleted. |
+| `vitehub content diff` | Available | Content Package | Print a unified diff of one document from published to draft. |
+| `vitehub content revisions` | Available | Content Package | List the revisions of one document, newest first. |
+| `vitehub content publish` | Available | Content Package | Publish draft documents in one revision after confirmation. |
 | `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
@@ -167,41 +173,7 @@ Both commands load the Vite config in the selected stage mode, including `.env.<
 
 ## Inspect Definitions and Provider Output
 
-`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
-
-```bash [Terminal]
-pnpm vitehub inspect definitions
-pnpm vitehub inspect definitions --kind rate-limit
-pnpm vitehub inspect definitions --json
-```
-
-```txt [Output]
-Rate Limits (rate-limit): 1
-  checkout  server/api/checkout.post.ts  [require-rate-limit]
-    Limit: 10
-    Window: 1m
-    Enforcement: Strict
-    Provider failure: Deny
-    Source location: 4:9
-```
-
-`--json` prints `{ "definitions": [{ "kind", "label", "definitions": [...] }] }`. Each Definition has `name`, `file` relative to the project root, `source`, and `fields`. An unknown `--kind` exits with status 1 and lists the available kinds.
-
-`inspect provider-output` lists the Provider Output files that active packages and the deployment preset write, and shows which ones exist. Deployment paths use the preset's default output directory, for example `.output` or `.vercel/output`. Run a production build first to generate deployment output.
-
-```bash [Terminal]
-pnpm build
-pnpm vitehub inspect provider-output
-pnpm vitehub inspect provider-output --json
-```
-
-`--json` includes the parsed content of each JSON file. The CLI redacts values under keys that name secrets, such as `token`, `secret`, `password`, or `apiKey`, every Worker `vars` value, and URLs with embedded credentials. Read [Provider output](/docs/reference/provider-output) for each file's owner and purpose.
-
-Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it.
-
-## Inspect Definitions and Provider Output
-
-`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
+`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `content`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
 
 ```bash [Terminal]
 pnpm vitehub inspect definitions
@@ -354,6 +326,22 @@ Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with
 
 The commands use a guarded dev endpoint that `hubKv()` registers only on the Development Server. The endpoint forwards each operation into the Nitro dev environment, which owns the KV storage. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 and the CLI prints that the host is not supported. Deployed runtimes do not expose the endpoint.
 
+
+## Inspect and publish Content
+
+Start the app's Vite Development Server, then run `vitehub content` from another terminal. The commands call the app's `server/content.ts` in the Nitro dev environment, so they see the same drafts and published documents as the app.
+
+```bash [Terminal]
+pnpm vitehub content collections
+pnpm vitehub content status posts
+pnpm vitehub content diff posts hello
+pnpm vitehub content revisions posts hello --ref published
+pnpm vitehub content publish --collection posts --id hello
+```
+
+`publish` lists the pending changes and asks for confirmation. Pass `--yes` to skip the prompt, or `--dry-run` to only list the changes. Without an interactive terminal, `publish` fails unless you pass `--yes`. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`.
+
+The commands use a guarded dev endpoint that the Content Vite plugin registers only on the Development Server. They cannot reach a deployed app, and Nuxt and plain Vite hosts are not supported. Read [Content CLI](/docs/content/cli) for each command's output.
 
 ## Run a Schedule on demand
 
