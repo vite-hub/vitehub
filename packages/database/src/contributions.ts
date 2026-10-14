@@ -21,6 +21,24 @@ export interface DatabaseContribution {
   export?: string
 }
 
+/**
+ * A Database Definition that another package adds from its Vite plugin, for example because the application has no
+ * Database the package can use. It behaves like a discovered Definition: `vitehub db generate`, the runtime,
+ * provisioning, and inspection see it. Its migrations go where an application Definition with the same name keeps
+ * them, so adding that Definition later continues the same history.
+ */
+export interface DatabaseDefinitionContribution {
+  /** Database name. The application must not define a Database with this name. */
+  name: string
+  /** Absolute path of a module whose default export is `defineDatabase({ schema })` with the same `name`. */
+  definition: string
+  /** Why the package adds the Database. `vitehub inspect` shows it. */
+  reason?: string
+}
+
+/** One entry of `vitehub.databases`: tables for an existing Database, or a whole Database Definition. */
+export type DatabaseContributionEntry = DatabaseContribution | DatabaseDefinitionContribution
+
 /** Discovery roots that the Database plugin passes to contribution factories. */
 export interface DatabaseContributionContext {
   /** Root that Database Definitions are discovered from, after `database.projectRoot`. */
@@ -30,17 +48,17 @@ export interface DatabaseContributionContext {
 }
 
 export type DatabaseContributionFactory = (context: DatabaseContributionContext) =>
-  | readonly DatabaseContribution[]
+  | readonly DatabaseContributionEntry[]
   | undefined
-  | Promise<readonly DatabaseContribution[] | undefined>
+  | Promise<readonly DatabaseContributionEntry[] | undefined>
 
 /** Vite plugin metadata that contributes Database tables. */
 export interface DatabaseContributionPluginMetadata {
   /**
-   * Tables to add. A factory runs once per discovery pass, so it must be idempotent and must not depend on the order
-   * of Vite config hooks.
+   * Tables or Database Definitions to add. A factory runs once per discovery pass, so it must be idempotent and must
+   * not depend on the order of Vite config hooks.
    */
-  databases?: readonly DatabaseContribution[] | DatabaseContributionFactory
+  databases?: readonly DatabaseContributionEntry[] | DatabaseContributionFactory
 }
 
 export interface DatabaseContributingPlugin {
@@ -51,6 +69,19 @@ export interface DatabaseContributingPlugin {
 /** A validated contribution with the name of the plugin that contributed it. */
 export interface CollectedDatabaseContribution extends DatabaseContribution {
   contributor: string
+}
+
+/** A validated Database Definition contribution with the name of the plugin that contributed it. */
+export interface CollectedDatabaseDefinitionContribution extends DatabaseDefinitionContribution {
+  contributor: string
+}
+
+/** Everything that Vite plugins contribute to the Database primitive. */
+export interface CollectedDatabaseContributions {
+  /** Database Definitions, by contribution order. */
+  definitions: CollectedDatabaseDefinitionContribution[]
+  /** Tables for Databases that the application or a contributed Definition defines. */
+  tables: CollectedDatabaseContribution[]
 }
 
 /** A contribution whose target Database is resolved. */
@@ -95,6 +126,23 @@ function invalidContribution(contributor: string, reason: string): Error {
   return databaseErrorDiagnostics.DATABASE_B0012({ message: `[vitehub] Plugin "${contributor}" contributed invalid Database tables: ${reason}` })
 }
 
+function validateDefinitionContribution(value: Record<string, unknown>, contributor: string): CollectedDatabaseDefinitionContribution {
+  const { definition, name, reason } = value
+  if (!isNonEmptyString(name) || !/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(name)) {
+    throw invalidContribution(contributor, "a contributed Database Definition needs a `name` of letters, numbers, dots, underscores, dashes, and slashes.")
+  }
+  if (!isNonEmptyString(definition) || !isAbsolute(definition)) {
+    throw invalidContribution(contributor, `Database ${JSON.stringify(name)} needs \`definition\`, the absolute path of its Definition module.`)
+  }
+  if (reason !== undefined && !isNonEmptyString(reason)) throw invalidContribution(contributor, `\`reason\` of Database ${JSON.stringify(name)} must be a non-empty string.`)
+  if (Object.hasOwn(value, "module") || Object.hasOwn(value, "database") || Object.hasOwn(value, "export")) {
+    throw invalidContribution(contributor, `Database ${JSON.stringify(name)} mixes a Definition contribution { name, definition, reason? } with a table contribution { database?, module, export? }. Contribute them as two entries.`)
+  }
+  const contribution: CollectedDatabaseDefinitionContribution = { contributor, definition, name }
+  if (reason !== undefined) contribution.reason = reason
+  return contribution
+}
+
 function validateContribution(value: unknown, contributor: string): CollectedDatabaseContribution {
   if (!isPlainObject(value)) throw invalidContribution(contributor, "expected { database?, module, export? }.")
   const { database, export: exportName, module } = value
@@ -124,15 +172,16 @@ export function describeDatabaseContribution(contribution: DatabaseContribution 
 
 /**
  * Collects `vitehub.databases` contributions from Vite plugins. The same contribution from two plugin instances is
- * kept once.
+ * kept once. Two plugins that contribute different Definitions with one name fail with `DATABASE_B0013`.
  */
 export async function collectDatabaseContributions(
   plugins: readonly unknown[] | undefined,
   context: DatabaseContributionContext,
-): Promise<CollectedDatabaseContribution[]> {
+): Promise<CollectedDatabaseContributions> {
   const candidates: object[] = []
   flattenPluginOptions(plugins ?? [], candidates, new Set())
   const contributions: CollectedDatabaseContribution[] = []
+  const definitions: CollectedDatabaseDefinitionContribution[] = []
   for (const plugin of candidates) {
     if (!Object.hasOwn(plugin, "vitehub")) continue
     const metadata: unknown = Reflect.get(plugin, "vitehub")
@@ -144,11 +193,20 @@ export async function collectDatabaseContributions(
     if (!entries) continue
     if (!Array.isArray(entries)) throw invalidContribution(contributor, "`vitehub.databases` must be an array or return one.")
     for (const entry of entries) {
+      if (isPlainObject(entry) && Object.hasOwn(entry, "definition")) {
+        const definition = validateDefinitionContribution(entry, contributor)
+        const existing = definitions.find(candidate => candidate.name === definition.name)
+        if (!existing) definitions.push(definition)
+        else if (existing.definition !== definition.definition) {
+          throw databaseErrorDiagnostics.DATABASE_B0013({ message: `[vitehub] Database "${definition.name}" is contributed more than once:\n  - ${existing.definition} (contributed by "${existing.contributor}")\n  - ${definition.definition} (contributed by "${contributor}")\nEach Database name must have one Definition.` })
+        }
+        continue
+      }
       const contribution = validateContribution(entry, contributor)
       if (!contributions.some(existing => sameContribution(existing, contribution))) contributions.push(contribution)
     }
   }
-  return contributions
+  return { definitions, tables: contributions }
 }
 
 /**

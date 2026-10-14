@@ -113,16 +113,46 @@ The Definition object that you import from its file keeps only its own `schema`.
 
 A contribution without `database` targets the Database named `default`, or the only Database when there is one. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` applies the same rule, so a package can pick the same Database for its own runtime code. The Console uses it to choose its D1 journal.
 
+### Contribute a Database
+
+When the application has no Database a package can use, the package can add a whole Database Definition. Write the Definition module, for example under `.vitehub/`, and return `{ name, definition, reason? }` from `vitehub.databases`, next to its tables:
+
+```ts [my-package/vite.ts]
+import { discoverDatabaseDefinitions } from '@vite-hub/database/config'
+
+// In the plugin object:
+vitehub: {
+  databases: async ({ rootDir }) => {
+    const names = discoverDatabaseDefinitions(rootDir).map(definition => definition.name)
+    if (names.length) return [{ module: 'my-package/schema', export: 'historySchema' }]
+    const definition = await writeDefinition(rootDir) // export default defineDatabase({ schema: {} })
+    return [
+      { name: 'default', definition, reason: 'my-package stores its history here because the app has no Database.' },
+      { database: 'default', module: 'my-package/schema', export: 'historySchema' },
+    ]
+  },
+},
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Database name. The application must not define a Database with this name. |
+| `definition` | `string` | Absolute path of a module whose default export is `defineDatabase({ schema })` with the same `name`. |
+| `reason` | `string` | Why the package adds the Database. `vitehub inspect` shows it. |
+
+A contributed Database works like one in `server/databases/`: `vitehub db generate` and `db migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection lists its `Contributed by`, `Reason`, and `Migrations` fields. Its migrations go where an application Definition with the same name keeps them, `server/databases/migrations/` for `default` and `server/databases/<name>/migrations/` otherwise, so adding that Definition later keeps the migration history. The [Content CMS preset](/docs/content/cms-preset) uses this to add the `default` Database.
+
 ### Contribution errors
 
 | Code | Cause |
 | --- | --- |
 | `DATABASE_B0010` | A contributed table uses the key or SQL table name of an application table or another contribution. If the Definition already lists the contributed tables, remove them from its schema. |
 | `DATABASE_B0011` | The target Database does not exist, the app has no Database, or `database` is omitted while several Named Databases exist and none is named `default`. The message lists the Database names to choose from. |
-| `DATABASE_B0012` | The contribution is not `{ database?, module, export? }`, its `module` is relative, or its export is missing or is not an object of tables. |
+| `DATABASE_B0012` | The contribution is not `{ database?, module, export? }` or `{ name, definition, reason? }`, its `module` is relative, its `definition` is not an absolute path to an existing file, or its export is missing or is not an object of tables. |
+| `DATABASE_B0013` | Two plugins contribute different Definitions with one Database name, or the application already defines the contributed Database. |
 | `DATABASE_B0007` | The contributed module cannot load. `vitehub db generate` fails. `vite dev` and builds print a warning and keep the tables in the runtime schema, without drizzle-kit exports. |
 
-`collectDatabaseContributions(plugins, context)` and `resolveDatabaseContributionTargets(names, contributions)` from `@vite-hub/database/vite` return the validated contributions and their targets for other build steps.
+`collectDatabaseContributions(plugins, context)` from `@vite-hub/database/vite` returns the validated `{ definitions, tables }`, and `resolveDatabaseContributionTargets(names, tables)` returns the target of each table contribution, for other build steps.
 
 ## Database Definition options
 

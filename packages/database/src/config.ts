@@ -31,7 +31,7 @@ import type {
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveDatabaseContributionTargets } from "./contributions.ts"
 
-import type { CollectedDatabaseContribution } from "./contributions.ts"
+import type { CollectedDatabaseContribution, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
@@ -350,9 +350,49 @@ function discoverViteDatabases(rootDir: string) {
   return [...defaultDefinitions, ...suffixDefinitions]
 }
 
-export function discoverDatabaseDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
-  const definitions = [...discoverServerDatabases(rootDir, options.serverDirs), ...discoverViteDatabases(rootDir)]
+/** Source of Database Definitions that Vite plugins contribute. */
+export const contributedDatabaseSource = "vite-plugin-contribution"
+
+function createContributedDatabaseDefinition(
+  contribution: CollectedDatabaseDefinitionContribution,
+  rootDir: string,
+  serverDirs: readonly string[] | undefined,
+  existing: DiscoveredDatabaseDefinition | undefined,
+): DiscoveredDatabaseDefinition {
+  if (existing) {
+    throw databaseErrorDiagnostics.DATABASE_B0013({ message: `[vitehub] Database "${contribution.name}" is defined by the app in ${existing.handler} and contributed by "${contribution.contributor}" (${contribution.definition}). Each Database name must have one Definition. Remove the app Definition or stop the contribution.` })
+  }
+  if (!existsSync(contribution.definition)) {
+    throw databaseErrorDiagnostics.DATABASE_B0012({ message: `[vitehub] Plugin "${contribution.contributor}" contributed Database "${contribution.name}" from ${contribution.definition}, which does not exist.` })
+  }
+  const mode = contribution.name === "default" ? "default" : "named"
+  const definition = createDatabaseDefinition(contributedDatabaseSource, contribution.definition, contribution.name, mode)
+  // Migrations go where an app Definition with this name would keep them, so adding one later keeps the history.
+  const databasesDir = resolve(serverDirs?.[0] ?? resolve(rootDir, "server"), "databases")
+  definition.migrationsDir = resolve(databasesDir, ...(mode === "default" ? [] : [contribution.name]), "migrations")
+  definition.contributor = contribution.contributor
+  if (contribution.reason) definition.reason = contribution.reason
+  return definition
+}
+
+export interface DatabaseDiscoveryOptions {
+  /** Database Definitions that Vite plugins contribute. See `collectDatabaseContributions()`. */
+  definitions?: readonly CollectedDatabaseDefinitionContribution[]
+  serverDirs?: string[]
+}
+
+export function discoverDatabaseDefinitions(rootDir: string, options: DatabaseDiscoveryOptions = {}): DiscoveredDatabaseDefinition[] {
+  const discovered = [...discoverServerDatabases(rootDir, options.serverDirs), ...discoverViteDatabases(rootDir)]
     .filter((definition, index, all) => all.findIndex(item => item.handler === definition.handler) === index)
+  const definitions = [
+    ...discovered,
+    ...(options.definitions ?? []).map(contribution => createContributedDatabaseDefinition(
+      contribution,
+      rootDir,
+      options.serverDirs,
+      discovered.find(definition => definition.name === contribution.name),
+    )),
+  ]
   const hasDefault = definitions.some(definition => definition.mode === "default")
   const hasNamed = definitions.some(definition => definition.mode === "named")
   if (hasDefault && hasNamed) {
@@ -365,7 +405,7 @@ export function discoverDatabaseDefinitions(rootDir: string, options: { serverDi
 }
 
 function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition) {
-  return relative(rootDir, resolve(dirname(definition.handler), "migrations"))
+  return relative(rootDir, definition.migrationsDir ?? resolve(dirname(definition.handler), "migrations"))
 }
 
 function normalizeCloudflareConfig(
@@ -430,16 +470,16 @@ export function resolveDBViteConfig(
   options?: DBModulePublicOptions,
   rootDir = process.cwd(),
   context: {
-    /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
-    contributions?: readonly CollectedDatabaseContribution[]
+    /** Tables and Database Definitions that Vite plugins contribute. See `collectDatabaseContributions()`. */
+    contributions?: { definitions?: readonly CollectedDatabaseDefinitionContribution[], tables?: readonly CollectedDatabaseContribution[] }
     provisionRoot?: string
     serverDirs?: string[]
   } = {},
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
-  const definitions = discoverDatabaseDefinitions(rootDir, context)
-  const tableContributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions ?? [])
+  const definitions = discoverDatabaseDefinitions(rootDir, { definitions: context.contributions?.definitions, serverDirs: context.serverDirs })
+  const tableContributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.tables ?? [])
   if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)

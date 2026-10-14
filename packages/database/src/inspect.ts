@@ -36,12 +36,15 @@ async function describeContributedTables(contribution: ResolvedDatabaseContribut
  * contribute. Definitions are read from source without loading them.
  */
 export async function inspectDatabaseDefinitions(options: DatabaseInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
-  const definitions = discoverDatabaseDefinitions(options.rootDir, { serverDirs: options.serverDirs })
   const contributions = await collectDatabaseContributions(options.plugins, { rootDir: options.rootDir, serverDirs: options.serverDirs })
-  const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions)
+  const definitions = discoverDatabaseDefinitions(options.rootDir, { definitions: contributions.definitions, serverDirs: options.serverDirs })
+  const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions.tables)
   return await Promise.all(definitions.map(async definition => ({
     fields: [
       { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },
+      ...(definition.contributor ? [{ label: "Contributed by", value: definition.contributor }] : []),
+      ...(definition.reason ? [{ label: "Reason", value: definition.reason }] : []),
+      ...(definition.migrationsDir ? [{ label: "Migrations", value: relativeDefinitionFile(options.projectRoot, definition.migrationsDir) }] : []),
       { label: "Tables", value: describeTables(definition.handler) },
       ...await Promise.all((contributionsByDatabase[definition.name] ?? []).map(contribution => describeContributedTables(contribution, options.rootDir))),
     ],

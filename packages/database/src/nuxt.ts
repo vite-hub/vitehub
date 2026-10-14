@@ -22,7 +22,7 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
-import type { CollectedDatabaseContribution } from "./contributions.ts"
+import type { CollectedDatabaseContributions } from "./contributions.ts"
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions } from "./types.ts"
 import type { Plugin } from "vite"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -140,7 +140,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     if (typeof hook === "function") {
       let localNitroConfig: Record<string, unknown> | undefined
       let localRuntimeRefresh = Promise.resolve()
-      let contributions: CollectedDatabaseContribution[] = []
+      let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
       const definitionDirectories = new Set([
@@ -155,7 +155,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             definitionFiles.add(definition.handler)
             definitionDirectories.add(dirname(definition.handler))
           }
-          for (const contribution of contributions) {
+          for (const contribution of contributions.tables) {
             if (isAbsolute(contribution.module)) contributionFiles.add(contribution.module)
           }
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
@@ -174,7 +174,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         })
       }
       hook("nitro:config", async (config) => {
-        // Vite plugins in the Nuxt config can contribute tables, as they do through `hubDb()` in a Vite app.
+        // Vite plugins in the Nuxt config can contribute tables and Definitions, as they do through `hubDb()` in a Vite app.
         contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, { rootDir: root, serverDirs })
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         if (!nuxtOptions.dev && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
@@ -254,7 +254,7 @@ async function installNitroLocalDatabaseRuntime(
   options: ResolvedDatabaseNuxtIntegrationOptions,
   serverDirs?: string[],
   d1?: ResolvedDatabaseNuxtD1Options,
-  contributions: readonly CollectedDatabaseContribution[] = [],
+  contributions: CollectedDatabaseContributions = { definitions: [], tables: [] },
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
   const alias = isRecord(config.alias) ? config.alias : undefined

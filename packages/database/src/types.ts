@@ -90,9 +90,15 @@ export type RuntimeDrizzleDatabase<TSchema extends Record<string, unknown>> = Ba
 export type Database<TSchema extends Record<string, unknown> = Record<string, unknown>> = DatabaseDefinition<TSchema> & RuntimeDrizzleDatabase<TSchema>
 
 export interface DiscoveredDatabaseDefinition {
+  /** Plugin that contributed the Definition. Unset for Definitions in the app. */
+  contributor?: string
   handler: string
+  /** Absolute migrations directory, when it is not `migrations/` beside the Definition. */
+  migrationsDir?: string
   mode: "default" | "named"
   name: string
+  /** Why a plugin contributed the Definition. */
+  reason?: string
   source: string
 }
 

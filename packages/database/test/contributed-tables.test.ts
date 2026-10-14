@@ -64,7 +64,7 @@ function contributions(...entries: Array<DatabaseContribution & { contributor?: 
 const historyContribution = { export: "historySchema", module: "history-tables/schema" }
 
 async function generate(rootDir: string, contributed = contributions(historyContribution)) {
-  const config = resolveDBViteConfig(undefined, rootDir, { contributions: contributed })!
+  const config = resolveDBViteConfig(undefined, rootDir, { contributions: { tables: contributed } })!
   await writeGeneratedDatabaseArtifacts(config)
   return config
 }
@@ -85,10 +85,25 @@ describe("collectDatabaseContributions", () => {
     const factory = { name: "factory/vite", vitehub: { databases: async (input: typeof context) => [{ database: "default", module: `${input.rootDir}/tables.ts` }] } }
     const array = { name: "array/vite", vitehub: { databases: [historyContribution] } }
 
-    await expect(collectDatabaseContributions([[array, factory], array, { name: "other" }, null], context)).resolves.toEqual([
-      { contributor: "array/vite", ...historyContribution },
-      { contributor: "factory/vite", database: "default", module: "/app/tables.ts" },
-    ])
+    await expect(collectDatabaseContributions([[array, factory], array, { name: "other" }, null], context)).resolves.toEqual({
+      definitions: [],
+      tables: [
+        { contributor: "array/vite", ...historyContribution },
+        { contributor: "factory/vite", database: "default", module: "/app/tables.ts" },
+      ],
+    })
+  })
+
+  it("separates Database Definition contributions from table contributions", async () => {
+    const definition = { definition: "/app/.vitehub/content/database.ts", name: "default", reason: "Needed by the preset." }
+    const plugin = { name: "content/vite", vitehub: { databases: [definition, historyContribution] } }
+
+    await expect(collectDatabaseContributions([plugin, plugin], context)).resolves.toEqual({
+      definitions: [{ contributor: "content/vite", ...definition }],
+      tables: [{ contributor: "content/vite", ...historyContribution }],
+    })
+    await expect(collectDatabaseContributions([plugin, { name: "other/vite", vitehub: { databases: [{ ...definition, definition: "/app/other.ts" }] } }], context))
+      .rejects.toMatchObject({ code: "DATABASE_B0013", message: expect.stringContaining("Database \"default\" is contributed more than once") })
   })
 
   it.each([
@@ -97,6 +112,9 @@ describe("collectDatabaseContributions", () => {
     [{ databases: [{ module: "" }] }, "`module` must be a non-empty string"],
     [{ databases: [{ export: "", module: "pkg" }] }, "`export`"],
     [{ databases: [{ database: " default ", module: "pkg" }] }, "`database`"],
+    [{ databases: [{ definition: "/app/db.ts", name: " default" }] }, "`name`"],
+    [{ databases: [{ definition: "./db.ts", name: "default" }] }, "absolute path"],
+    [{ databases: [{ definition: "/app/db.ts", module: "pkg", name: "default" }] }, "Contribute them as two entries"],
   ])("rejects invalid contributions %#", async (vitehub, message) => {
     await expect(collectDatabaseContributions([{ name: "broken/vite", vitehub }], context)).rejects.toMatchObject({
       code: "DATABASE_B0012",
@@ -126,8 +144,70 @@ describe("contribution targets", () => {
   it("fails config resolution when no Database Definition exists", async () => {
     const rootDir = await createProject({})
 
-    expect(() => resolveDBViteConfig(undefined, rootDir, { contributions: contributions(historyContribution) })).toThrow(expect.objectContaining({ code: "DATABASE_B0011" }))
-    expect(resolveDBViteConfig(false, rootDir, { contributions: contributions(historyContribution) })).toBeUndefined()
+    expect(() => resolveDBViteConfig(undefined, rootDir, { contributions: { tables: contributions(historyContribution) } })).toThrow(expect.objectContaining({ code: "DATABASE_B0011" }))
+    expect(resolveDBViteConfig(false, rootDir, { contributions: { tables: contributions(historyContribution) } })).toBeUndefined()
+  })
+})
+
+describe("contributed Database Definitions", () => {
+  async function contributedDefinition(rootDir: string, name = "default") {
+    const file = join(rootDir, ".vitehub/content/database.ts")
+    await writeProjectFile(rootDir, ".vitehub/content/database.ts", [
+      "import { defineDatabase } from '@vite-hub/database'",
+      `export default defineDatabase({ ${name === "default" ? "" : `name: ${JSON.stringify(name)}, `}schema: {} })`,
+      "",
+    ].join("\n"))
+    return { contributor: "content/vite", definition: file, name, reason: "The preset needs a Database." }
+  }
+
+  it("adds a Database with the app's migrations directory, and tables can target it", async () => {
+    const rootDir = await createProject({})
+    const definition = await contributedDefinition(rootDir)
+    const config = resolveDBViteConfig(undefined, rootDir, { contributions: { definitions: [definition], tables: contributions(historyContribution) } })!
+
+    expect(config.databaseNames).toEqual(["default"])
+    expect(config.definitions[0]).toMatchObject({ contributor: "content/vite", handler: definition.definition, mode: "default", reason: "The preset needs a Database.", source: "vite-plugin-contribution" })
+    expect(config.databases.default?.migrationsDir).toBe("server/databases/migrations")
+    expect(config.databases.default?.connection?.url).toBe("file:.vitehub/data/database/sqlite.db")
+    expect(config.tableContributionsByDatabase.default).toHaveLength(1)
+
+    await writeGeneratedDatabaseArtifacts(config)
+    await execFileAsync(process.execPath, [join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"), "generate", "--config", config.generatedDrizzleConfigFile], { cwd: rootDir })
+    const migrations = join(rootDir, "server/databases/migrations")
+    const sql = await readFile(join(migrations, (await readdir(migrations)).find(file => file.endsWith(".sql"))!), "utf8")
+    expect(sql).toContain("CREATE TABLE `history_refs`")
+  }, 60_000)
+
+  it("keeps named migrations beside where the app would define the Database", async () => {
+    const rootDir = await createProject({})
+    const definition = await contributedDefinition(rootDir, "content")
+    const config = resolveDBViteConfig(undefined, rootDir, { contributions: { definitions: [definition] } })!
+
+    expect(config.databases.content?.migrationsDir).toBe("server/databases/content/migrations")
+  })
+
+  it("fails when the app already defines the contributed Database", async () => {
+    const rootDir = await createProject()
+    const definition = await contributedDefinition(rootDir)
+
+    expect(() => resolveDBViteConfig(undefined, rootDir, { contributions: { definitions: [definition] } })).toThrow(expect.objectContaining({
+      code: "DATABASE_B0013",
+      message: expect.stringContaining("is defined by the app in"),
+    }))
+  })
+
+  it("shows the contributor and reason in inspection", async () => {
+    const rootDir = await createProject({})
+    const definition = await contributedDefinition(rootDir)
+    const plugin = { name: "content/vite", vitehub: { databases: [{ definition: definition.definition, name: "default", reason: definition.reason }] } }
+
+    const [summary] = await inspectDatabaseDefinitions({ plugins: [plugin], projectRoot: rootDir, rootDir })
+    expect(summary).toMatchObject({ file: ".vitehub/content/database.ts", name: "default", source: "vite-plugin-contribution" })
+    expect(summary?.fields).toEqual(expect.arrayContaining([
+      { label: "Contributed by", value: "content/vite" },
+      { label: "Reason", value: "The preset needs a Database." },
+      { label: "Migrations", value: "server/databases/migrations" },
+    ]))
   })
 })
 

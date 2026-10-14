@@ -27,7 +27,7 @@ import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
-import type { CollectedDatabaseContribution, DatabaseContributionPluginMetadata } from "./contributions.ts"
+import type { CollectedDatabaseContributions, DatabaseContributionPluginMetadata } from "./contributions.ts"
 import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
@@ -39,9 +39,13 @@ export { inspectDatabaseDefinitions, type DatabaseInspectionOptions } from "./in
 export { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "./contributions.ts"
 export type {
   CollectedDatabaseContribution,
+  CollectedDatabaseContributions,
+  CollectedDatabaseDefinitionContribution,
   DatabaseContributingPlugin,
   DatabaseContribution,
   DatabaseContributionContext,
+  DatabaseContributionEntry,
+  DatabaseDefinitionContribution,
   DatabaseContributionFactory,
   DatabaseContributionPluginMetadata,
   DefaultDatabaseResolution,
@@ -150,7 +154,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
-  let contributions: CollectedDatabaseContribution[] = []
+  let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
   let contributionFiles = new Set<string>()
 
   function resolvedOptions() {
@@ -246,7 +250,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const db = resolvedOptions()
         if (db === false) return
         const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig)
-        const provision = [createDatabaseProvisionStep(databaseRoot, db)]
+        const provision = [createDatabaseProvisionStep(databaseRoot, db, () => ({ contributions, serverDirs: databaseServerDirs() }))]
         return contributor ? { ...contributor, provision } : { namespaces: [], provision }
       },
       inspect: () => {
@@ -279,10 +283,10 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
       contributions = resolvedOptions() === false
-        ? []
+        ? { definitions: [], tables: [] }
         : await collectDatabaseContributions(config.plugins, { rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
       const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
-      contributionFiles = new Set(contributions.flatMap(contribution => {
+      contributionFiles = new Set(contributions.tables.flatMap(contribution => {
         try {
           return [normalize(require.resolve(contribution.module))]
         }
