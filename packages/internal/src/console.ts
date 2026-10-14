@@ -199,6 +199,18 @@ export interface ViteHubConsoleDocumentCollection {
   titleField?: string
   /** Comark components that bodies may use. The editor offers them in its insert menu. */
   components?: readonly ViteHubConsoleDocumentComponent[]
+  /**
+   * `documents` (default) for a list of documents, or `singleton` for one document at a fixed path, such as site
+   * settings. The editor opens a singleton directly, without a list.
+   */
+  kind?: "documents" | "singleton"
+  /** The id of the one document when `kind` is `singleton`. */
+  document?: string
+  /**
+   * How documents are stored. `markdown` (default) has fields and a Markdown body. `json` and `yaml` are fields only,
+   * so the editor shows no body editor.
+   */
+  format?: "markdown" | "json" | "yaml"
   access: ViteHubConsoleDocumentAccess
 }
 
@@ -275,7 +287,7 @@ export interface ViteHubConsoleDocument {
   id: string
   path: string
   data: Record<string, unknown>
-  /** Markdown body after the frontmatter. */
+  /** Markdown body after the frontmatter. Empty for `json` and `yaml` documents. */
   body: string
   /** Digest of the version the editor read. Send it back as `ifDigest` so a save cannot overwrite a newer version. */
   digest: string

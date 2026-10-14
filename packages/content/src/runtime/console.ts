@@ -20,7 +20,7 @@ import type {
   ViteHubConsoleDocumentState,
 } from "@vite-hub/internal/console"
 import type { ContentAction, ContentDocumentsRuntime } from "../index.ts"
-import type { ContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections.ts"
+import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections.ts"
 
 type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions">
 
@@ -177,7 +177,7 @@ function revisionAction(metadata: Record<string, unknown> | undefined): string {
 export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory = (module) => {
   const content = contentRuntime(module.content)
 
-  function open(name: unknown): ContentCollection {
+  function open(name: unknown): AnyContentCollection {
     const collectionName = text(name, "collection")
     if (!content.collections().some(collection => collection.name === collectionName)) {
       throw failure(404, "CONTENT_COLLECTION_NOT_FOUND", `Content has no collection named ${JSON.stringify(collectionName)}.`)
@@ -185,7 +185,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     return content.collection(collectionName)
   }
 
-  async function allow(context: ViteHubConsoleDocumentActionContext, collection: ContentCollection, action: ContentAction, id?: string): Promise<void> {
+  async function allow(context: ViteHubConsoleDocumentActionContext, collection: AnyContentCollection, action: ContentAction, id?: string): Promise<void> {
     const allowed = await content.can(id === undefined
       ? { user: context.user, collection: collection.name, action }
       : { user: context.user, collection: collection.name, action, id })
@@ -194,11 +194,18 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     }
   }
 
-  async function stateOf(collection: ContentCollection, id: string): Promise<ViteHubConsoleDocumentState | undefined> {
+  /** Every document status of a collection, or the one status of a singleton. */
+  async function statusesOf(collection: AnyContentCollection): Promise<ContentDocumentStatus[]> {
+    if (collection.kind === "documents") return await collection.status()
+    const status = await collection.status()
+    return status ? [status] : []
+  }
+
+  async function stateOf(collection: AnyContentCollection, id: string): Promise<ViteHubConsoleDocumentState | undefined> {
     return (await collection.status(id))?.state
   }
 
-  async function view(collection: ContentCollection, document: ContentDocument, state?: ViteHubConsoleDocumentState): Promise<ViteHubConsoleDocument> {
+  async function view(collection: AnyContentCollection, document: ContentDocument, state?: ViteHubConsoleDocumentState): Promise<ViteHubConsoleDocument> {
     const result: ViteHubConsoleDocument = {
       collection: document.collection,
       id: document.id,
@@ -214,20 +221,20 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     return result
   }
 
-  async function readable(context: ViteHubConsoleDocumentActionContext): Promise<ContentCollection[]> {
+  async function readable(context: ViteHubConsoleDocumentActionContext): Promise<AnyContentCollection[]> {
     const collections = content.collections()
     const allowed = await Promise.all(collections.map(collection => content.can({ user: context.user, collection: collection.name, action: "read" })))
     return collections.filter((_collection, index) => allowed[index])
   }
 
-  function titleOf(collection: ContentCollection, summary: Pick<ContentDocumentSummary, "data" | "id"> | undefined, id: string): string {
+  function titleOf(collection: AnyContentCollection, summary: Pick<ContentDocumentSummary, "data" | "id"> | undefined, id: string): string {
     const field = titleFieldOf(collection.schema)
     const title = field && summary ? summary.data[field] : undefined
     return String(title) === title && title.trim() ? title : id
   }
 
   /** Summaries of some documents in one read per ref: drafts from `draft`, documents deleted on the draft from `published`. */
-  async function summaries(collection: ContentCollection, ids: ReadonlySet<string>, statuses: ReadonlyMap<string, ContentDocumentStatus>): Promise<Map<string, ContentDocumentSummary>> {
+  async function summaries(collection: AnyContentCollection, ids: ReadonlySet<string>, statuses: ReadonlyMap<string, ContentDocumentStatus>): Promise<Map<string, ContentDocumentSummary>> {
     const onDraft = [...ids].filter(id => statuses.get(id)?.draft != null)
     const onPublished = [...ids].filter(id => statuses.get(id)?.draft == null && statuses.get(id)?.published != null)
     const read = async (ref: "draft" | "published", list: string[]): Promise<ContentDocumentSummary[]> => list.length
@@ -249,12 +256,15 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           name: collection.name,
           label: label(collection.name),
           path: collection.path,
+          kind: collection.kind,
+          format: collection.format,
           schema,
           access: { read: Boolean(read), write: Boolean(write), publish: Boolean(publish) },
         }
+        if (collection.kind === "singleton") entry.document = collection.id
         const titleField = titleFieldOf(schema)
         if (titleField) entry.titleField = titleField
-        const components = Object.entries(collection.components).map(([name, component]) => {
+        const components = Object.entries(collection.kind === "documents" ? collection.components : {}).map(([name, component]) => {
           const described: ViteHubConsoleDocumentComponent = { name, kind: component.kind ?? "block", label: component.label ?? label(name), props: json(component.props ?? {}) }
           if (component.description) described.description = component.description
           return described
@@ -273,7 +283,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const limit = input.limit ?? 50
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > maximumListLimit) throw invalidInput(`limit must be an integer from 1 to ${maximumListLimit}.`)
       return await attempt(async () => {
-        const statuses = await collection.status()
+        const statuses = await statusesOf(collection)
         const states: Record<ViteHubConsoleDocumentState, number> = { draft: 0, published: 0, changed: 0, deleted: 0 }
         const statusById = new Map(statuses.map(status => [status.id, status]))
         const changes: ViteHubConsoleDocumentChange[] = []
@@ -456,7 +466,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         })
         const titles = new Map<string, string>()
         const overviews = await Promise.all(collections.map(async (collection): Promise<ViteHubConsoleDocumentOverviewCollection> => {
-          const statuses = await collection.status()
+          const statuses = await statusesOf(collection)
           const states: Record<ViteHubConsoleDocumentState, number> = { draft: 0, published: 0, changed: 0, deleted: 0 }
           for (const status of statuses) states[status.state]++
           const pending = statuses.filter(status => status.state !== "published")
@@ -495,7 +505,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       return await attempt(async () => {
         const found = await Promise.all(collections.map(async (collection) => {
           // The draft search covers the collection's search fields and the body; ids match as text too.
-          const [statuses, page] = await Promise.all([collection.status(), collection.list({ ref: "draft", search: query, limit })])
+          const [statuses, page] = await Promise.all([statusesOf(collection), collection.list({ ref: "draft", search: query, limit })])
           const byId = new Map(statuses.map(status => [status.id, status]))
           const items = new Map(page.items.map(item => [item.id, item]))
           const idMatches = statuses.filter(status => status.draft !== null && !items.has(status.id) && status.id.toLowerCase().includes(needle)).slice(0, limit)

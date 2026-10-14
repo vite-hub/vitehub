@@ -5,6 +5,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 import {
   compactConsoleFieldValues,
   consoleDocumentSlug,
+  consoleDocumentHasBody,
   consoleDocumentStateColor,
   consoleDocumentStateLabel,
   consoleErrorMessage,
@@ -37,7 +38,8 @@ import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevisio
  * Edits one document as a page: a large title, the fields as property rows, then the body. Drafts save on their own
  * one second after typing stops, and ⌘S saves at once. Every save sends the digest of the version the editor read, so
  * a save never overwrites a newer version: a conflict pauses saving and offers a comparison. Invalid fields come back
- * from the owner validators and show inline.
+ * from the owner validators and show inline. JSON and YAML documents have no body, so the property rows are the page.
+ * A singleton, such as site settings, has no list: it starts from its defaults before its first save.
  */
 const props = defineProps<{
   changes: number;
@@ -61,16 +63,19 @@ const route = useRoute();
 const router = useRouter();
 const toast = useConsoleToast();
 const creating = computed(() => props.documentId === undefined);
+const single = computed(() => props.collection.kind === "singleton");
+const hasBody = computed(() => consoleDocumentHasBody(props.collection));
 const fields = computed(() => describeConsoleSchemaFields(props.collection.schema));
 const noun = computed(() => consoleSingularLabel(props.collection.label));
-const titleField = computed(() => fields.value.find(field => field.name === props.collection.titleField && field.kind === "string"));
+// A singleton is named by its label, so every field, a `title` too, is a property row.
+const titleField = computed(() => (single.value ? undefined : fields.value.find(field => field.name === props.collection.titleField && field.kind === "string")));
 
 const loading = ref(!creating.value);
 const loadError = ref<unknown>();
 /** The version the editor read: the last loaded or saved document. Null for a new or deleted document. */
 const base = ref<ConsoleDocument | null>(null);
 const state = ref<ConsoleDocumentState | undefined>();
-const draft = ref<Version>({ body: "", data: creating.value ? consoleSchemaDefaults(props.collection.schema) : {} });
+const draft = ref<Version>({ body: "", data: creating.value || single.value ? consoleSchemaDefaults(props.collection.schema) : {} });
 const newId = ref("");
 const idEdited = ref(false);
 const saving = ref(false);
@@ -114,22 +119,31 @@ const id = computed(() => (creating.value ? newId.value.trim() : props.documentI
 const savedVersion = computed<Version>(() => (base.value ? { body: base.value.body, data: base.value.data } : { body: "", data: consoleSchemaDefaults(props.collection.schema) }));
 const dirty = computed(() => {
   if (creating.value) return Boolean(newId.value.trim()) || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(savedVersion.value.data)) || Boolean(draft.value.body.trim());
-  if (!base.value) return false;
+  // A singleton that does not exist yet is dirty once it differs from its defaults.
+  if (!base.value) return single.value && state.value !== "deleted" && stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(savedVersion.value.data));
   // The editor writes canonical Markdown, which can drop a trailing newline that the stored file has.
   return draft.value.body.trimEnd() !== base.value.body.trimEnd() || dataDirty.value;
 });
 const dataDirty = computed(() => Boolean(base.value) && stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(base.value!.data)));
 const deleted = computed(() => !creating.value && !loading.value && !base.value && state.value === "deleted");
-const missing = computed(() => !creating.value && !loading.value && !base.value && !loadError.value && state.value !== "deleted");
+// A singleton that was never saved opens with its defaults instead.
+const missing = computed(() => !single.value && !creating.value && !loading.value && !base.value && !loadError.value && state.value !== "deleted");
 const publishable = computed(() => canPublish.value && !creating.value && (dirty.value || state.value === "draft" || state.value === "changed" || state.value === "deleted"));
 const title = computed(() => {
+  if (single.value) return props.collection.label;
   const value = titleField.value ? draft.value.data[titleField.value.name] : undefined;
   return String(value) === value && value.trim() ? value : creating.value ? `New ${noun.value.toLowerCase()}` : props.documentId!;
 });
+// The stored file name, such as `hello.md` or `settings.json`, for history and conflict comparisons.
+const fileExtension = computed(() => /\.[\w-]+$/.exec(props.collection.path)?.[0] ?? ".md");
+const fileName = computed(() => base.value?.path.split("/").pop() ?? `${id.value}${fileExtension.value}`);
 const errorCount = computed(() => Object.values(fieldErrors.value).reduce((count, messages) => count + messages.length, 0));
 const idError = computed(() => (creating.value && newId.value && !isConsoleDocumentId(newId.value.trim()) ? "Id can use letters, numbers, dashes, and slashes, such as hello-world or 2026/launch." : fieldErrors.value[""]?.join(" ")));
-/** Drafts save on their own once they exist. A new document waits for Create, since its id names the file. */
-const autosaves = computed(() => canWrite.value && !creating.value && Boolean(base.value) && !conflict.value && !publishing.value && !restoring.value);
+/**
+ * Drafts save on their own once they exist. A new document waits for Create, since its id names the file. A singleton
+ * has a fixed file, so its first edit creates it.
+ */
+const autosaves = computed(() => canWrite.value && !creating.value && (Boolean(base.value) || (single.value && state.value !== "deleted")) && !conflict.value && !publishing.value && !restoring.value);
 const sourceParts = computed(() => (storedFile.value === undefined ? undefined : splitConsoleFrontmatter(storedFile.value)));
 
 // "Saving…" shows only when a save takes longer than 200ms, then stays at least 400ms, so fast saves do not flicker.
@@ -161,7 +175,7 @@ const headerStatus = computed<{ action?: HeaderAction, label: string, pending?: 
   if (errorCount.value) return { action: "fields", label: `${errorCount.value === 1 ? "1 field needs" : `${errorCount.value} fields need`} attention`, tone: "error" };
   if (saveError.value && dirty.value) return { action: "retry", label: "Not saved · retry", tone: "error" };
   if (creating.value) return dirty.value ? { label: "Not created yet", tone: "neutral" } : undefined;
-  if (!state.value) return undefined;
+  if (!state.value) return single.value && !base.value && !loading.value ? { label: "Not saved yet", tone: "neutral" } : undefined;
   const label = dirty.value && !autosaves.value ? "Unsaved" : consoleDocumentStateLabel(state.value);
   return { label, savedAt: savedAt.value ?? base.value?.updatedAt ?? undefined, tone: dirty.value && !autosaves.value ? "warning" : consoleDocumentStateColor(state.value) };
 });
@@ -203,6 +217,7 @@ async function load(): Promise<void> {
     if (document) accept(document);
     else {
       base.value = null;
+      if (single.value) draft.value = { body: "", data: consoleSchemaDefaults(props.collection.schema) };
       // A document removed from the draft is still listed as deleted while it stays published.
       const listed = await props.client.list(props.collection.name, { filter: { id: props.documentId! }, limit: 1, state: "deleted" });
       state.value = listed.items[0]?.state;
@@ -575,7 +590,7 @@ function onKeydown(event: KeyboardEvent): void {
     event.preventDefault();
     void saveFromShortcut();
   }
-  if (event.key === "/" && !creating.value) {
+  if (event.key === "/" && !creating.value && hasBody.value) {
     event.preventDefault();
     toggleMode();
   }
@@ -682,21 +697,23 @@ onBeforeUnmount(() => {
 
 const menuItems = computed(() => [[
   ...(!creating.value ? [{ label: "History", icon: "i-lucide-history", onSelect: openHistory }] : []),
-  ...(!creating.value ? [{ label: mode.value === "rich" ? "View source" : "Edit rich text", icon: "i-lucide-file-code", kbds: ["meta", "/"], onSelect: toggleMode }] : []),
+  ...(!creating.value && hasBody.value ? [{ label: mode.value === "rich" ? "View source" : "Edit rich text", icon: "i-lucide-file-code", kbds: ["meta", "/"], onSelect: toggleMode }] : []),
   { label: "Copy id", icon: "i-lucide-copy", onSelect: () => void navigator.clipboard?.writeText(id.value) },
   ...(base.value ? [{ label: "Copy path", icon: "i-lucide-folder", onSelect: () => void navigator.clipboard?.writeText(base.value!.path) }] : []),
-], ...(canWrite.value && base.value ? [[{ label: "Delete", icon: "i-lucide-trash-2", color: "error" as const, onSelect: () => (deleteOpen.value = true) }]] : [])]);
+], ...(canWrite.value && base.value && !single.value ? [[{ label: "Delete", icon: "i-lucide-trash-2", color: "error" as const, onSelect: () => (deleteOpen.value = true) }]] : [])]);
 </script>
 
 <template>
   <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-1.5' }" :toggle="{ 'aria-label': 'Open collections' }">
-    <template #leading>
+    <template v-if="!single" #leading>
       <UButton :to="listRoute()" variant="ghost" size="sm" icon="i-lucide-arrow-left" :aria-label="`Back to ${collection.label}`" />
     </template>
     <template #title>
       <span class="flex min-w-0 items-center gap-2">
-        <RouterLink :to="listRoute()" class="hidden shrink-0 text-sm font-normal text-muted hover:text-highlighted sm:inline">{{ collection.label }}</RouterLink>
-        <span class="hidden text-dimmed sm:inline" aria-hidden="true">/</span>
+        <template v-if="!single">
+          <RouterLink :to="listRoute()" class="hidden shrink-0 text-sm font-normal text-muted hover:text-highlighted sm:inline">{{ collection.label }}</RouterLink>
+          <span class="hidden text-dimmed sm:inline" aria-hidden="true">/</span>
+        </template>
         <span class="truncate text-sm font-medium text-highlighted">{{ title }}</span>
       </span>
     </template>
@@ -719,7 +736,7 @@ const menuItems = computed(() => [[
         </UTooltip>
       </span>
       <div
-        v-if="!creating && !missing && !deleted && !loadError"
+        v-if="hasBody && !creating && !missing && !deleted && !loadError"
         class="hidden items-center rounded-md p-0.5 ring-1 ring-default ring-inset md:flex"
         role="radiogroup"
         aria-label="Editing mode"
@@ -755,7 +772,7 @@ const menuItems = computed(() => [[
           aria-label="Toggle the side panel"
           :active="Boolean(panel)"
           active-variant="soft"
-          @click="setPanel(panel ? undefined : 'outline')"
+          @click="setPanel(panel ? undefined : hasBody ? 'outline' : 'history')"
         />
       </UTooltip>
       <UDropdownMenu v-if="!missing" :items="menuItems" :content="{ align: 'end' }">
@@ -802,7 +819,8 @@ const menuItems = computed(() => [[
         </p>
 
         <template v-if="mode === 'rich'">
-          <div v-if="titleField" class="mb-4">
+          <h1 v-if="single" class="mb-4 text-[32px]/[40px] font-semibold tracking-[-0.04rem] text-highlighted">{{ collection.label }}</h1>
+          <div v-else-if="titleField" class="mb-4">
             <label :for="`field-${titleField.name}`" class="sr-only">{{ titleField.label }}</label>
             <textarea
               :id="`field-${titleField.name}`"
@@ -826,6 +844,7 @@ const menuItems = computed(() => [[
             :exclude="titleField ? [titleField.name] : []"
             :errors="fieldErrors"
             :disabled="!canWrite"
+            :unfolded="!hasBody"
             @submit="saveFromShortcut"
           >
             <ConsolePropertyRow v-if="creating" icon="i-lucide-file" label="Id" control="field-id" :error="idError" :missing="!newId.trim() && !idError">
@@ -841,7 +860,7 @@ const menuItems = computed(() => [[
                 @update:model-value="idEdited = true"
               >
                 <template #trailing>
-                  <span id="field-id-hint" class="text-xs text-dimmed">{{ idEdited ? `${collection.path.split('*')[0]}${newId || '…'}.md` : "From the title" }}</span>
+                  <span id="field-id-hint" class="text-xs text-dimmed">{{ idEdited ? `${collection.path.split('*')[0]}${newId || '…'}${fileExtension}` : "From the title" }}</span>
                 </template>
               </UInput>
             </ConsolePropertyRow>
@@ -852,7 +871,7 @@ const menuItems = computed(() => [[
             </ConsolePropertyRow>
           </ConsoleDocumentProperties>
 
-          <hr class="my-6 border-default">
+          <hr v-if="hasBody" class="my-6 border-default">
         </template>
 
         <section v-else class="mb-4 grid gap-3" aria-label="Stored file">
@@ -869,6 +888,7 @@ const menuItems = computed(() => [[
         </section>
 
         <ConsoleMarkdownEditor
+          v-if="hasBody"
           v-show="mode === 'rich'"
           ref="bodyEditor"
           v-model="draft.body"
@@ -881,7 +901,7 @@ const menuItems = computed(() => [[
           @outline="outline = $event"
         />
         <UTextarea
-          v-if="mode === 'source'"
+          v-if="hasBody && mode === 'source'"
           v-model="draft.body"
           :disabled="!canWrite"
           autoresize
@@ -897,7 +917,7 @@ const menuItems = computed(() => [[
     <aside v-if="panel && !creating && !missing" class="hidden w-72 shrink-0 flex-col border-s border-default lg:flex" aria-label="Side panel">
       <div class="flex h-11 shrink-0 items-center gap-1 border-b border-default px-2">
         <UButton
-          v-for="option in [{ label: 'Outline', value: 'outline' }, { label: 'History', value: 'history' }] as const"
+          v-for="option in (hasBody ? [{ label: 'Outline', value: 'outline' }, { label: 'History', value: 'history' }] as const : [{ label: 'History', value: 'history' }] as const)"
           :key="option.value"
           size="xs"
           variant="ghost"
@@ -954,7 +974,7 @@ const menuItems = computed(() => [[
           <span class="font-medium text-highlighted">added lines</span> are yours.
           <template v-if="!conflict.theirs"> The saved version deleted this {{ noun.toLowerCase() }}.</template>
         </p>
-        <ConsoleDocumentDiff :before="conflict.theirs ? { body: conflict.theirs.body, data: conflict.theirs.data } : null" :after="conflict.mine" :name="`${id}.md`" />
+        <ConsoleDocumentDiff :before="conflict.theirs ? { body: conflict.theirs.body, data: conflict.theirs.data } : null" :after="conflict.mine" :format="collection.format" :name="fileName" />
       </div>
     </template>
     <template #footer>
@@ -989,7 +1009,7 @@ const menuItems = computed(() => [[
         </div>
         <div v-if="previewLoading" class="flex justify-center py-8"><UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" /></div>
         <p v-else-if="!preview.document" class="text-xs text-muted">The {{ noun.toLowerCase() }} does not exist in this version.</p>
-        <ConsoleDocumentDiff v-else :before="preview.current?.text ?? null" :after="preview.document.text" :name="`${id}.md`" />
+        <ConsoleDocumentDiff v-else :before="preview.current?.text ?? null" :after="preview.document.text" :format="collection.format" :name="fileName" />
       </div>
       <ConsoleDocumentHistory
         v-else

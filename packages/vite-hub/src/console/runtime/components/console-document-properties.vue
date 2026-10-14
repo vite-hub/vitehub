@@ -6,8 +6,8 @@ import ConsoleSchemaField from "./console-schema-field.vue";
 
 /**
  * The fields of a document as Notion-style property rows, generated from the object JSON Schema of the collection.
- * Optional fields without a value fold behind "Show N more", unless they have an issue. Pass server issues in `errors`,
- * keyed by dotted field path. Rows before the fields, such as the id, go in the default slot.
+ * Optional fields without a value fold behind "Show N more", unless they have an issue or `unfolded` is set. Pass server
+ * issues in `errors`, keyed by dotted field path. Rows before the fields, such as the id, go in the default slot.
  */
 const props = defineProps<{
   disabled?: boolean;
@@ -15,6 +15,8 @@ const props = defineProps<{
   /** Fields the page shows elsewhere, such as the title. */
   exclude?: readonly string[];
   schema: Record<string, unknown>;
+  /** Show every field, for documents whose fields are the whole page, such as JSON and YAML data. */
+  unfolded?: boolean;
 }>();
 
 const emit = defineEmits<{ submit: [] }>();
@@ -34,7 +36,7 @@ function empty(value: unknown): boolean {
 }
 
 /** Fields that fold away: optional, empty, and valid. A field someone just filled stays visible. */
-const folded = computed(() => fields.value.filter(field => !field.required && field.kind !== "boolean" && !touched.value.has(field.name) && empty(model.value[field.name])
+const folded = computed(() => props.unfolded ? [] : fields.value.filter(field => !field.required && field.kind !== "boolean" && !touched.value.has(field.name) && empty(model.value[field.name])
   && !Object.keys(formErrors.value).some(key => key === field.name || key.startsWith(`${field.name}.`))));
 const visible = computed(() => (showAll.value ? fields.value : fields.value.filter(field => !folded.value.includes(field))));
 

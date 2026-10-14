@@ -25,6 +25,7 @@ import type { ConsoleContributedSection, ConsoleDocumentCollection, ConsoleSecti
  * - `/<section>`: the index page, such as the dashboard, or the first collection when the section has none.
  * - `/<section>/-/<page>`: another page, such as Media.
  * - `/<section>/<collection>/<document id>`: a collection and a document; `?new` opens an empty document.
+ * - `/<section>/<singleton>`: the editor of a singleton, such as site settings, without a list.
  */
 const props = defineProps<{
   agentsBase: string;
@@ -113,6 +114,8 @@ function pendingLabel(states: Record<ConsoleDocumentState, number> | undefined):
   const parts = [states.draft && `${states.draft} ${states.draft === 1 ? "draft" : "drafts"}`, states.changed && `${states.changed} changed`, states.deleted && `${states.deleted} deleted`].filter(Boolean);
   return parts.length ? parts.join(", ") : undefined;
 }
+/** The document the editor opens: the route id, or the one document of a singleton. */
+const editorDocumentId = computed(() => (collection.value?.kind === "singleton" ? collection.value.document : documentId.value));
 
 async function loadCollections(): Promise<void> {
   loading.value = true;
@@ -334,12 +337,12 @@ watch(changes, () => void loadOverview());
           :actions="[{ label: `Open ${indexPage?.label ?? details.label}`, color: 'neutral', variant: 'outline', to: indexPage ? pageRoute(indexPage) : { name: mainRouteName() } }]"
         />
       </template>
-      <template v-else-if="collection && (documentId || creating)">
+      <template v-else-if="collection && (editorDocumentId || creating)">
         <ConsoleDocumentEditor
-          :key="`${collection.name}/${documentId ?? '~new'}`"
+          :key="`${collection.name}/${editorDocumentId ?? '~new'}`"
           :client="client"
           :collection="collection"
-          :document-id="documentId"
+          :document-id="editorDocumentId"
           :changes="changes"
           @changed="changes++"
         />

@@ -5,6 +5,7 @@ import { isWorkspaceConflict, registerWorkspacePlugin, useWorkspace } from "@vit
 
 import {
   comarkJsonSchema,
+  compileSingletonPath,
   compileDocumentsPath,
   contentInvalid,
   fieldsJsonSchema,
@@ -20,7 +21,16 @@ import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
 import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView, WorkspaceWriteInput } from "@vite-hub/workspace"
 import type { JsonSchema, Source as ComarkContentSource } from "comark-content"
-import type { CompiledDocumentsPath, ContentFieldIssue, ContentFields, ContentFieldsInput, ContentFieldsOutput, DocumentComponent, DocumentsDefinition } from "./documents.ts"
+import type {
+  CompiledDocumentsPath,
+  ContentCollectionDefinition,
+  ContentFieldIssue,
+  ContentFields,
+  ContentFieldsInput,
+  ContentFieldsOutput,
+  ContentFormat,
+  DocumentComponent,
+} from "./documents.ts"
 
 /** The history refs Content owns: every save commits to `draft`; `publish()` copies documents to `published`. */
 export type ContentRef = "draft" | "published"
@@ -37,11 +47,11 @@ export interface ContentDocument<TData = Record<string, unknown>> {
   collection: string
   /** Path below the collection folder without the extension, such as `hello` or `2026/hello`. */
   id: string
-  /** Workspace path of the Markdown file, such as `posts/hello.md`. */
+  /** Workspace path of the file, such as `posts/hello.md` or `settings.json`. */
   path: string
-  /** Validated frontmatter. */
+  /** Validated fields: the frontmatter of a Markdown file, or the whole object of a JSON or YAML file. */
   data: TData
-  /** Markdown body after the frontmatter. */
+  /** Markdown body after the frontmatter. Always empty for JSON and YAML documents. */
   body: string
   /** SHA-256 of the file bytes. Pass it as `ifDigest` to save only over this version. */
   digest: string
@@ -61,7 +71,7 @@ export type ContentDocumentSummary<TData = Record<string, unknown>> = Omit<Conte
 export interface ContentRawDocument {
   collection: string
   id: string
-  /** Workspace path of the Markdown file, such as `posts/hello.md`. */
+  /** Workspace path of the file, such as `posts/hello.md` or `settings.json`. */
   path: string
   /** The file text, frontmatter included. */
   text: string
@@ -111,9 +121,12 @@ export interface ContentPage<TData = Record<string, unknown>> {
 }
 
 export interface ContentSaveInput<TInput = Record<string, unknown>> {
-  /** Frontmatter field values. They are validated, stored as YAML, and must survive a JSON round trip. */
+  /**
+   * Field values. They are validated, must survive a JSON round trip, and are stored in the file's format: YAML
+   * frontmatter for Markdown, an indented JSON object, or a YAML mapping.
+   */
   data: TInput
-  /** Markdown body. Defaults to an empty body. */
+  /** Markdown body. Defaults to an empty body. JSON and YAML documents have no body and reject a non-empty one. */
   body?: string
 }
 
@@ -151,7 +164,8 @@ export interface ContentDocumentStatus {
 export interface ContentPublishExpectation {
   /** Collection name. An unknown name throws `CONTENT_R0008`. */
   collection: string
-  id: string
+  /** Document id. Omit it for a singleton defined with `singleton()`. */
+  id?: string
   /** The draft digest that was reviewed, from `status()` or `get({ ref: 'draft' })`. `null` expects the document deleted on the draft. */
   digest: string | null
 }
@@ -210,16 +224,24 @@ export interface ContentRevisionsResult {
   cursor?: string
 }
 
-/** An editable collection of Markdown documents. It is also a read-only Collection over the `published` ref. */
-export interface ContentCollection<TFields extends ContentFields = ContentFields>
-  extends Collection<ContentDocumentSummary<ContentFieldsOutput<TFields>>, ArrayCollectionQuery<string>> {
+/** What every Content collection describes about itself, for forms, tools, and the Console. */
+interface ContentCollectionInfo {
   readonly name: string
+  /** How documents are stored: Markdown with frontmatter and a body, or JSON or YAML data without a body. */
+  readonly format: ContentFormat
+  /** Field names, in definition order. */
+  readonly fields: readonly string[]
+  /** JSON Schema of the fields, built from each field's Standard JSON Schema. Forms and tools read it. */
+  readonly schema: Record<string, unknown>
+}
+
+/** An editable collection of documents. It is also a read-only Collection over the `published` ref. */
+export interface ContentCollection<TFields extends ContentFields = ContentFields>
+  extends ContentCollectionInfo, Collection<ContentDocumentSummary<ContentFieldsOutput<TFields>>, ArrayCollectionQuery<string>> {
+  /** `documents` for a collection defined with `documents()`. */
+  readonly kind: "documents"
   /** The collection glob, such as `posts/**\/*.md`. */
   readonly path: string
-  /** Frontmatter field names, in definition order. */
-  readonly fields: readonly string[]
-  /** JSON Schema of the frontmatter, built from each field's Standard JSON Schema. Forms and tools read it. */
-  readonly schema: Record<string, unknown>
   /** Comark components that bodies may use, keyed by tag. Editors offer them in their insert menu. */
   readonly components: Readonly<Record<string, DocumentComponent>>
   /** List documents with filters, search, sort, facets, and a total. Reads `published` unless `ref` says otherwise. */
@@ -239,6 +261,43 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
   /** Compare every document on `draft` and `published`, sorted by id. */
   status(): Promise<ContentDocumentStatus[]>
 }
+
+/**
+ * One editable document at a fixed path, defined with `singleton()`, such as site settings. Every method works without
+ * an id. Generic code may pass the document `id` like it does for a collection; any other id throws `CONTENT_R0008`.
+ * `list()` and the read-only Collection contract return at most this one document.
+ */
+export interface ContentSingleton<TFields extends ContentFields = ContentFields>
+  extends ContentCollectionInfo, Collection<ContentDocumentSummary<ContentFieldsOutput<TFields>>, ArrayCollectionQuery<string>> {
+  /** `singleton` for a singleton defined with `singleton()`. */
+  readonly kind: "singleton"
+  /** The Workspace path of the file, such as `settings.json`. */
+  readonly path: string
+  /** The document id: the file name without the extension, such as `settings`. */
+  readonly id: string
+  /** List the document when it exists on the ref, with the same options as a collection. */
+  list(options?: ContentListOptions<ContentFieldsOutput<TFields>>): Promise<ContentPage<ContentFieldsOutput<TFields>>>
+  /** Read the document, or null before its first save. Throws `CONTENT_INVALID` when it no longer validates. */
+  get(options?: ContentReadOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>> | null>
+  get(id: string, options?: ContentReadOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>> | null>
+  /** Read the stored file without parsing or validating it, or null when it does not exist. */
+  raw(options?: ContentReadOptions): Promise<ContentRawDocument | null>
+  raw(id: string, options?: ContentReadOptions): Promise<ContentRawDocument | null>
+  /** Validate and commit the document to the `draft` ref. The first save creates it. */
+  save(input: ContentSaveInput<ContentFieldsInput<TFields>>, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
+  save(id: string, input: ContentSaveInput<ContentFieldsInput<TFields>>, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
+  /** Delete the document from the `draft` ref. It stays published until the next publish. */
+  remove(options?: ContentWriteOptions): Promise<void>
+  remove(id: string, options?: ContentWriteOptions): Promise<void>
+  /** Save the version from an earlier revision as the new draft. */
+  restore(revision: string, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
+  restore(id: string, revision: string, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
+  /** Compare the document on `draft` and `published`. Null when it exists on neither. */
+  status(id?: string): Promise<ContentDocumentStatus | null>
+}
+
+/** A collection or a singleton from `defineContent({ collections })`. Narrow it with `kind`. */
+export type AnyContentCollection<TFields extends ContentFields = ContentFields> = ContentCollection<TFields> | ContentSingleton<TFields>
 
 // Caches
 
@@ -338,14 +397,15 @@ export type ContentHistorySource = ComarkContentSource & { readonly loadedRevisi
 
 export interface ContentCollectionsOptions {
   workspace: string
-  collections: Record<string, DocumentsDefinition>
+  collections: Record<string, ContentCollectionDefinition>
 }
 
 export interface ContentCollectionsRuntime {
-  readonly collections: ReadonlyMap<string, ContentCollection>
-  collection(name: string): ContentCollection
+  readonly collections: ReadonlyMap<string, AnyContentCollection>
+  collection(name: string): AnyContentCollection
   publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
-  revisions(collection: string, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /** Revisions of one document. `id` may be omitted for a singleton. */
+  revisions(collection: string, id: string | undefined, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Content revisions of every collection on one ref, newest first. */
   history(options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** A Comark Source over the `published` ref of one collection. `withRef("draft")` pins the draft. */
@@ -578,21 +638,32 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
   type CollectionRuntime = ReturnType<typeof createCollection>
 
-  function createCollection(name: string, definition: DocumentsDefinition) {
-    const compiled: CompiledDocumentsPath = compileDocumentsPath(definition.path)
+  function createCollection(name: string, definition: ContentCollectionDefinition) {
+    const single = definition.kind === "singleton" ? compileSingletonPath(definition.path) : undefined
+    const compiled: CompiledDocumentsPath = single ?? compileDocumentsPath(definition.path)
+    const format = compiled.format
     const fieldNames = new Set(Object.keys(definition.fields))
     const schema = fieldsJsonSchema(definition.fields)
     warnUntypedFields(name, definition.fields, schema)
     const comarkSchema: JsonSchema = comarkJsonSchema(schema)
     const parsedTexts = new BoundedCache<Promise<ParsedText>>(10_000)
     const indexes = new BoundedCache<Promise<IndexedDocument[]>>(4)
-    const searchFields = (definition.search ?? [
+    const searchFields = ((definition.kind === "documents" ? definition.search : undefined) ?? [
       ...Object.keys(definition.fields).filter((field) => {
         const type = Reflect.get(Object(Reflect.get(Object(schema.properties), field)), "type")
         return type === "string" || (Array.isArray(type) && type.includes("string")) || type === undefined
       }),
-      "body",
+      // Only Markdown has a body to search.
+      ...(format === "markdown" ? ["body"] : []),
     ]).map(fieldPath)
+
+    function inFieldOrder(values: Record<string, unknown>): Record<string, unknown> {
+      const ordered: Record<string, unknown> = {}
+      for (const field of fieldNames) {
+        if (Object.hasOwn(values, field)) ordered[field] = values[field]
+      }
+      return Object.assign(ordered, values)
+    }
 
     function fieldPath(field: string): string {
       return fieldNames.has(field) ? `data.${field}` : field
@@ -603,6 +674,12 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
 
     function pathFor(id: unknown): string {
+      if (single) {
+        if (id !== single.id) {
+          throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content singleton ${JSON.stringify(name)} has the id ${JSON.stringify(single.id)} (${single.path}). Omit the id, or pass ${JSON.stringify(single.id)}; received ${JSON.stringify(id)}.` })
+        }
+        return single.path
+      }
       if (String(id) !== id || !id || id.startsWith("/") || id.endsWith("/") || id.includes("\\")
         || id.split("/").some(segment => !segment || segment === "." || segment === "..")) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content document id must be a relative path such as "hello" or "2026/hello", received ${JSON.stringify(id)}.` })
@@ -623,7 +700,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
 
     async function parseText(text: string): Promise<ParsedText> {
-      const file = parseDocumentFile(text)
+      const file = parseDocumentFile(text, format)
       if ("issues" in file) return { issues: file.issues }
       const result = await validateFields(definition.fields, file.frontmatter)
       if (result.issues) return { issues: result.issues }
@@ -780,6 +857,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (input === null || Object(input) !== input) throw contentInvalid(name, id, path, [{ message: "save() requires { data, body }.", path: [] }])
       const body = input.body ?? ""
       if (String(body) !== body) throw contentInvalid(name, id, path, [{ message: "body must be a Markdown string.", path: ["body"] }])
+      if (format !== "markdown" && body) {
+        throw contentInvalid(name, id, path, [{ message: `${format === "json" ? "JSON" : "YAML"} documents have no body. Store the value in a field.`, path: ["body"] }])
+      }
       let frontmatter: Record<string, unknown>
       try {
         frontmatter = normalizeFrontmatter(input.data)
@@ -789,9 +869,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       }
       const validated = await validateFields(definition.fields, frontmatter)
       if (validated.issues) throw contentInvalid(name, id, path, validated.issues)
-      const text = renderDocumentFile(frontmatter, body)
+      // Fields are stored in definition order, then other keys, so the same values give the same bytes from any writer.
+      const text = renderDocumentFile(inFieldOrder(frontmatter), body, format)
       // Read the stored text back so `body` matches what get() returns.
-      const stored = parseDocumentFile(text)
+      const stored = parseDocumentFile(text, format)
       const storedBody = "issues" in stored ? body : stored.body
       // SAFETY: A put always returns the stored document.
       return (await commitDocument(id, path, { text, digest: await sha256(text), data: validated.data, body: storedBody }, writeOptions, "save"))!
@@ -845,25 +926,44 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       },
     })
 
-    const collection: ContentCollection = {
+    const shared = {
       name,
-      path: definition.path,
+      format,
       fields: Object.freeze([...fieldNames]),
       schema,
-      components: definition.components ?? {},
       page: published.page,
       parseQuery: published.parseQuery,
       querySchema: published.querySchema,
       list,
-      get,
-      raw,
-      save,
-      remove,
-      restore,
-      status,
+    }
+    let collection: AnyContentCollection
+    if (single) {
+      // A singleton takes every method without its id. A string first argument is the id, as generic code passes it.
+      const id = single.id
+      const isId = (value: unknown): value is string => String(value) === value
+      const singleton: ContentSingleton = {
+        ...shared,
+        kind: "singleton",
+        path: single.path,
+        id,
+        get: ((first?: string | ContentReadOptions, second?: ContentReadOptions) => isId(first) ? get(first, second) : get(id, first)) as ContentSingleton["get"],
+        raw: ((first?: string | ContentReadOptions, second?: ContentReadOptions) => isId(first) ? raw(first, second) : raw(id, first)) as ContentSingleton["raw"],
+        save: ((first: string | ContentSaveInput, second?: ContentSaveInput | ContentWriteOptions, third?: ContentWriteOptions) =>
+          // SAFETY: The id form passes (id, input, options); the short form passes (input, options).
+          isId(first) ? save(first, second as ContentSaveInput, third) : save(id, first, second as ContentWriteOptions | undefined)) as ContentSingleton["save"],
+        remove: ((first?: string | ContentWriteOptions, second?: ContentWriteOptions) => isId(first) ? remove(first, second) : remove(id, first)) as ContentSingleton["remove"],
+        restore: ((first: string, second?: string | ContentWriteOptions, third?: ContentWriteOptions) =>
+          isId(second) ? restore(first, second, third) : restore(id, first, second)) as ContentSingleton["restore"],
+        status: (documentId?: string) => status(documentId ?? id),
+      }
+      collection = singleton
+    }
+    else {
+      const components = (definition.kind === "documents" ? definition.components : undefined) ?? {}
+      collection = { ...shared, kind: "documents", path: definition.path, components, get, raw, save, remove, restore, status }
     }
 
-    return { name, compiled, comarkSchema, collection, entries, idFor, parseText, pathFor }
+    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseText, pathFor }
   }
 
   for (const [name, definition] of Object.entries(options.collections)) {
@@ -903,8 +1003,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     return expected.map((entry: unknown) => {
       if (entry === null || Object(entry) !== entry) throw publishInvalid("Each publish({ expect }) entry must be { collection, id, digest }.")
       const digest: unknown = Reflect.get(Object(entry), "digest")
-      const id: unknown = Reflect.get(Object(entry), "id")
       const collection = requireCollection(Reflect.get(Object(entry), "collection"))
+      // A singleton needs no id.
+      const id: unknown = Reflect.get(Object(entry), "id") ?? collection.single?.id
       const path = collection.pathFor(id)
       // SAFETY: pathFor() accepts only nonempty string ids.
       const documentId = id as string
@@ -1042,10 +1143,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     return cursor ? { revisions: found, cursor } : { revisions: found }
   }
 
-  async function documentRevisions(collection: string, id: string, revisionOptions: ContentRevisionsOptions = {}): Promise<ContentRevisionsResult> {
+  async function documentRevisions(collection: string, documentId: string | undefined, revisionOptions: ContentRevisionsOptions = {}): Promise<ContentRevisionsResult> {
     const runtime = requireCollection(collection)
+    const id = documentId ?? runtime.single?.id
     runtime.pathFor(id)
-    return await scanRevisions(revisionOptions, revision => revisionTouches(revision, runtime.name, id))
+    // SAFETY: pathFor() accepts only nonempty string ids.
+    const touched = id as string
+    return await scanRevisions(revisionOptions, revision => revisionTouches(revision, runtime.name, touched))
   }
 
   /** Revisions that Content wrote for documents of a defined collection, such as saves and publishes. */

@@ -28,8 +28,9 @@ The sidebar lists the dashboard, every collection with its draft and changed cou
 | Task | How |
 | --- | --- |
 | Find a document | Search, filter by state (draft, changed, published, deleted), filter by enum, boolean, and tag fields, and sort by title or the first date field. **Updated** shows when each document last changed; hover it for the exact time. |
-| Edit fields | Property rows under the title, built from the collection's [JSON Schema](/docs/content/configure#fields). Empty optional fields fold behind **Show N more**. |
+| Edit fields | Property rows under the title, built from the collection's [JSON Schema](/docs/content/configure#fields). Empty optional fields fold behind **Show N more**. JSON and YAML documents have no body, so their property rows are the page and show every field. |
 | Edit the body | A block editor over the Markdown. Select text for formatting, type <kbd>/</kbd> to insert blocks, images, and the collection's [components](/docs/content/configure#define-collections), and hover a block for ⋮⋮ (move, turn into, duplicate, copy link, delete) and + (insert below). |
+| Edit settings | A [singleton](/docs/content/configure#singletons-and-data-files), such as `settings`, opens straight into its editor, without a list. Before its first save it shows the field defaults, and the first edit saves it. |
 | See the file | **Source** (<kbd>⌘</kbd> <kbd>/</kbd>) shows the stored file: the frontmatter read-only and the Markdown body editable. |
 | Save | Drafts save one second after typing stops. <kbd>⌘</kbd> <kbd>S</kbd> saves at once. A new document saves when you choose **Create**, since its id names the file. |
 | Publish | **Publish** on a document, **Publish N changes** on a collection, **Publish** on the dashboard for every collection, or select documents and publish only those. |
@@ -141,6 +142,6 @@ Saves, restores, deletes, and publishes record the user's `name`, `email`, or `i
 - Recent activity shows the last 20 revisions. Content scans at most 1,000 revisions of each ref to find them.
 - Publishing from the dashboard or search publishes one collection at a time. When a draft moved after the page loaded, that collection publishes nothing and the Console asks you to refresh.
 - History shows the last 20 saves and the last 20 publishes of a document, then older saves on request. Content scans at most 1,000 revisions per page.
-- Media upload, a media library, single documents such as site settings, and a live preview of the page are not available yet.
+- Media upload, a media library, and a live preview of the page are not available yet.
 - Drafts save on their own only after a document exists. Leaving the page right after typing saves first; closing the tab asks.
 - The Nuxt module registers the page, but this editor has been verified only in the Vite Console. Nuxt hosts need `comark` and `comark-tiptap` installed.

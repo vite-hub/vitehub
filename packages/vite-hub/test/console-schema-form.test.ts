@@ -21,7 +21,6 @@ import {
   isConsoleDocumentId,
   parseConsoleListQuery,
   rememberConsoleListQuery,
-  renderConsoleFrontmatter,
 } from "../src/console/runtime/client/documents.ts"
 import { ConsoleRequestError } from "../src/console/runtime/client/request.ts"
 
@@ -41,6 +40,8 @@ const posts = {
     author: { type: "object", properties: { name: { type: "string" }, url: { type: "string", format: "uri" } }, required: ["name"] },
     cover: { type: "object", properties: { pathname: { type: "string" } }, required: ["pathname"], "x-vitehub-blob": { kind: "image", store: "media" } },
     links: { type: "array", items: { type: "object" } },
+    social: { type: "array", items: { type: "string", format: "uri" } },
+    days: { type: "array", items: { type: "string", format: "date" } },
     extra: {},
   },
   required: ["title", "date"],
@@ -62,6 +63,8 @@ describe("Console schema form model", () => {
       ["author", "object", false],
       ["cover", "blob", false],
       ["links", "json", false],
+      ["social", "string-list", false],
+      ["days", "json", false],
       ["extra", "json", false],
     ])
     expect(fields.find(field => field.name === "category")?.enum).toEqual(["guide", "release"])
@@ -162,26 +165,6 @@ describe("Console schema form model", () => {
     rememberConsoleListQuery("posts", { state: "draft" })
     expect(consoleListQueryFor("posts")).toEqual({ state: "draft" })
     expect(consoleListQueryFor("pages")).toEqual({})
-  })
-
-  it("renders frontmatter as nested YAML-style lines for comparisons", () => {
-    expect(renderConsoleFrontmatter({
-      title: "Launch notes",
-      author: { url: "https://vitehub.dev", name: "Ada" },
-      tags: ["console", "guide"],
-      draft: "true",
-      count: 3,
-      empty: [],
-    })).toBe([
-      "author:",
-      "  name: Ada",
-      "  url: \"https://vitehub.dev\"",
-      "count: 3",
-      "draft: \"true\"",
-      "empty: []",
-      "tags: [console, guide]",
-      "title: Launch notes",
-    ].join("\n"))
   })
 
   it("groups revisions by day and names collections in the singular", () => {

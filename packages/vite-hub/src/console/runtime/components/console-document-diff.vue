@@ -2,25 +2,28 @@
 import { AgentMultiFileDiff } from "@vite-hub/ui";
 import { computed } from "vue";
 
-import { renderConsoleFrontmatter } from "../client/documents";
+import { consoleDocumentText } from "../client/documents";
+
+import type { ConsoleDocumentFormat } from "../client/documents";
 
 /** A stored file as written, or unsaved editor values that the diff renders as one. */
 type Version = string | { body: string, data: Record<string, unknown> } | null;
 
-/** Shows two versions of one document as Markdown files with frontmatter. */
+/** Shows two versions of one document as files in its format: Markdown with frontmatter, JSON, or YAML. */
 const props = defineProps<{
   after: Version;
   before: Version;
+  /** Defaults to Markdown. */
+  format?: ConsoleDocumentFormat;
   name: string;
 }>();
 
 function render(version: Version): string {
   if (version === null) return "";
   if (!(version instanceof Object)) return version;
-  const fields = renderConsoleFrontmatter(version.data);
-  // Compare bodies by content, not by a trailing newline that the rich editor drops.
-  const body = version.body.endsWith("\n") ? version.body : `${version.body}\n`;
-  return `${fields ? `---\n${fields}\n---\n\n` : ""}${body}`;
+  // Both sides list fields in one order, so only changed values differ.
+  const data = Object.fromEntries(Object.entries(version.data).sort(([left], [right]) => left.localeCompare(right)));
+  return consoleDocumentText({ body: version.body, data }, props.format);
 }
 
 const oldFile = computed(() => ({ contents: render(props.before), name: props.name }));
