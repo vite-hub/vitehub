@@ -35,6 +35,7 @@ import ConsoleDocumentHistory from "./console-document-history.vue";
 import ConsoleDocumentProperties from "./console-document-properties.vue";
 import ConsoleMarkdownEditor from "./console-markdown-editor.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSeoPanel from "./console-seo-panel.vue";
 import ConsoleStatus from "./console-status.vue";
@@ -813,21 +814,12 @@ const menuItems = computed(() => [[
 </script>
 
 <template>
-  <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-1.5' }" :toggle="{ 'aria-label': 'Open collections' }">
-    <template v-if="back" #leading>
-      <UButton :to="back.to" variant="ghost" size="sm" icon="i-lucide-arrow-left" :aria-label="`Back to ${back.label}`" />
-    </template>
-    <template #title>
-      <span class="flex min-w-0 items-center gap-2">
-        <template v-if="back">
-          <RouterLink :to="back.to" class="hidden shrink-0 text-sm font-normal text-muted hover:text-highlighted sm:inline">{{ back.label }}</RouterLink>
-          <span class="hidden text-dimmed sm:inline" aria-hidden="true">/</span>
-        </template>
-        <span class="truncate text-sm font-medium text-highlighted">{{ title }}</span>
-        <UTooltip v-if="schedule" :text="scheduleHint" :content="{ side: 'bottom' }">
-          <ConsoleStatus class="shrink-0" :tone="consoleDocumentScheduleTone(schedule)" :label="consoleDocumentScheduleLabel(schedule)" />
-        </UTooltip>
-      </span>
+  <!-- A singleton named like its page, such as Settings, shows the name once. -->
+  <ConsolePageHeader :title="title" :back="back" :trail="back && back.label !== title ? [back] : []">
+    <template v-if="schedule" #title-trailing>
+      <UTooltip :text="scheduleHint" :content="{ side: 'bottom' }">
+        <ConsoleStatus class="shrink-0" :tone="consoleDocumentScheduleTone(schedule)" :label="consoleDocumentScheduleLabel(schedule)" />
+      </UTooltip>
     </template>
     <template #right>
       <span class="me-1 hidden sm:inline-flex" role="status" aria-live="polite">
@@ -899,7 +891,7 @@ const menuItems = computed(() => [[
         <UButton variant="ghost" size="sm" icon="i-lucide-ellipsis" aria-label="More actions" />
       </UDropdownMenu>
     </template>
-  </UDashboardNavbar>
+  </ConsolePageHeader>
 
   <div class="flex min-h-0 flex-1">
     <div class="vitehub-document-editor min-h-0 min-w-0 flex-1 overflow-y-auto">
@@ -919,6 +911,7 @@ const menuItems = computed(() => [[
       <UEmpty
         v-else-if="missing"
         class="py-16"
+        variant="naked"
         icon="i-lucide-file-question"
         :title="`This ${noun.toLowerCase()} does not exist`"
         description="It may have been deleted and published, or the id is wrong."
@@ -927,6 +920,7 @@ const menuItems = computed(() => [[
       <UEmpty
         v-else-if="deleted"
         class="py-16"
+        variant="naked"
         icon="i-lucide-file-x"
         title="Deleted from the draft"
         description="It stays on the published site until you publish the deletion. Open History to restore an earlier version."

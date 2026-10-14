@@ -16,6 +16,7 @@ import ConsoleDocumentSettings from "./console-document-settings.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMediaLibrary from "./console-media-library.vue";
 import ConsoleMediaPicker from "./console-media-picker.vue";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 
 import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/documents";
@@ -384,7 +385,7 @@ watch(changes, () => void loadOverview());
         :section="section"
       />
       <template v-else-if="unknownPage !== undefined">
-        <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :title="details.label" />
+        <ConsolePageHeader :title="details.label" />
         <UEmpty
           class="min-h-0 flex-1"
           variant="naked"
@@ -395,7 +396,7 @@ watch(changes, () => void loadOverview());
         />
       </template>
       <template v-else-if="collection && (editorDocumentId || creating) && mediaPending">
-        <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :title="collection.label" />
+        <ConsolePageHeader :title="collection.label" />
         <div class="flex min-h-0 flex-1 items-center justify-center">
           <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
         </div>
@@ -415,9 +416,10 @@ watch(changes, () => void loadOverview());
         <ConsoleDocumentList :key="collection.name" :client="client" :collection="collection" :changes="changes" @changed="changes++" />
       </template>
       <template v-else-if="!loading && collectionName && !error">
-        <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :title="details.label" />
+        <ConsolePageHeader :title="details.label" />
         <UEmpty
           class="min-h-0 flex-1"
+          variant="naked"
           icon="i-lucide-folder-x"
           :title="`No collection named ${collectionName}`"
           description="It does not exist, or you cannot read its drafts."
@@ -425,11 +427,12 @@ watch(changes, () => void loadOverview());
         />
       </template>
       <template v-else>
-        <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :title="details.label" />
+        <ConsolePageHeader :title="details.label" />
         <div class="flex min-h-0 flex-1 items-center justify-center">
           <UIcon v-if="loading" name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
           <UEmpty
             v-else
+            variant="naked"
             :icon="details.icon"
             title="Nothing to edit yet"
             :description="details.view.notice"
