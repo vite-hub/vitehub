@@ -92,6 +92,8 @@ function isResponseLike(value: unknown): value is Response {
       && hasResponseTag
       && typeof constructor === "function"
       && constructor.name === "Response"
+      && typeof (constructor as { json?: unknown }).json === "function"
+      && typeof (constructor as { redirect?: unknown }).redirect === "function"
       && Function.prototype.toString.call(constructor).startsWith("class ")
       && constructor.prototype === Object.getPrototypeOf(value)
     return typeof response.status === "number"
