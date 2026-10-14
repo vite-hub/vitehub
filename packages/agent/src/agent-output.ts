@@ -802,6 +802,8 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   return false
 }
 
+const responseStreams = new WeakMap<object, ReadableStream<Uint8Array>>()
+
 function isResponseLike(value: unknown): value is Response {
   if (!isRuntimeObject(value)) return false
   try {
@@ -829,20 +831,14 @@ function isResponseLike(value: unknown): value is Response {
     if (!isRuntimeObject(body)) return false
     // Keep the structural contract local so TypeScript does not widen the
     // foreign stream back to `object` after the runtime checks above.
-    const stream = body as {
-      getReader?: unknown
-      pipeThrough?: unknown
-    }
-    if (!hasRuntimeType(stream.pipeThrough, "function")) return false
-    // Calling the stream's own getReader performs a cross-realm brand check.
-    // The current realm's ReadableStream accessors reject foreign streams.
-    const getReader = stream.getReader
-    if (!hasRuntimeType(getReader, "function")) return false
-    const reader = Reflect.apply(getReader, body, [])
-    if (!isRuntimeObject(reader)) return false
-    const readableReader = reader as { read?: unknown, releaseLock?: unknown }
-    if (!hasRuntimeType(readableReader.read, "function") || !hasRuntimeType(readableReader.releaseLock, "function")) return false
-    Reflect.apply(readableReader.releaseLock, reader, [])
+    // Structured cloning is a host brand operation. It accepts genuine streams
+    // from another realm, rejects spoofed objects, and gives us a local stream
+    // whose methods are no longer controlled by the output object.
+    if (!hasRuntimeType(globalThis.structuredClone, "function")) return false
+    const transferableBody = body as ReadableStream
+    const stream = globalThis.structuredClone(transferableBody, { transfer: [transferableBody] })
+    if (!(stream instanceof ReadableStream)) return false
+    responseStreams.set(value, stream)
     return value.body === body
   }
   catch {
@@ -920,8 +916,9 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   }
   // Explicit Agent streams take precedence over response-shaped output fields.
   if (isResponseLike(value)) {
-    if (value.body) {
-      for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
+    const body = responseStreams.get(value)
+    if (body) {
+      for await (const text of body.pipeThrough(new TextDecoderStream())) {
         if (text) yield { text, type: "text-delta" }
       }
     }
