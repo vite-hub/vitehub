@@ -30,6 +30,7 @@ export interface ShellNetworkGrantExecutor {
 export interface ShellNetworkRequest {
   body?: unknown
   method: "GET" | "HEAD" | "POST"
+  signal?: AbortSignal
   url: string
 }
 
@@ -57,6 +58,16 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
       enforcedBy: "provider",
       supported: true,
     },
+    execution: {
+      isolation: "in_process",
+      model: "virtual",
+    },
+    resources: {
+      output: {
+        enforcedBy: "unsupported",
+        unit: "characters",
+      },
+    },
   }
 
   return {
@@ -64,11 +75,13 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
     boundary,
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const cwd = execOptions.cwd ?? options.cwd ?? "/workspace"
-      const result = await withProviderTimeout(command, { ...execOptions, cwd }, async () => {
+      const result = await withProviderTimeout(command, { ...execOptions, cwd }, async (runOptions) => {
         const curlResult = await runControlledCurlCommand(command, {
           commands,
           cwd,
           networkGrants,
+          maxOutputLength: runOptions.maxOutputLength,
+          signal: runOptions.signal,
         })
         if (curlResult) return curlResult
 
@@ -79,22 +92,25 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           cwd,
           fs: options.fs,
         })
-        const signal = typeof execOptions.timeout === "number"
-          ? AbortSignal.timeout(execOptions.timeout)
-          : undefined
         return await bash.exec(command, {
           cwd,
           env: execOptions.env,
-          signal,
+          signal: runOptions.signal,
         })
-          .then(result => ({
-            command,
-            cwd,
-            event: "command_finished",
-            exitCode: result.exitCode,
-            stderr: result.stderr,
-            stdout: result.stdout,
-          } satisfies ShellObservation))
+          .then(result => {
+            const stdout = boundOutput(result.stdout, runOptions.maxOutputLength)
+            const stderr = boundOutput(result.stderr, runOptions.maxOutputLength)
+            return {
+              command,
+              cwd,
+              event: "command_finished",
+              exitCode: result.exitCode,
+              maxOutputLength: runOptions.maxOutputLength,
+              outputTruncated: stdout.truncated || stderr.truncated,
+              stderr: stderr.content,
+              stdout: stdout.content,
+            } satisfies ShellObservation
+          })
       })
       execOptions.onStdout?.(result.stdout)
       execOptions.onStderr?.(result.stderr)
@@ -103,6 +119,8 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
         cwd: result.cwd ?? cwd,
         event: result.timedOut ? "command_timed_out" : result.event,
         exitCode: result.exitCode,
+        maxOutputLength: result.maxOutputLength,
+        outputTruncated: result.outputTruncated,
         stderr: result.stderr,
         stdout: result.stdout,
         timedOut: result.timedOut,
@@ -113,9 +131,10 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
 
 async function runControlledCurlCommand(
   command: string,
-  options: { commands?: string[], cwd?: string, networkGrants?: ShellNetworkGrantExecutor },
+  options: { commands?: string[], cwd?: string, maxOutputLength?: number, networkGrants?: ShellNetworkGrantExecutor, signal?: AbortSignal },
 ): Promise<ShellObservation | undefined> {
   if (!mentionsCurlCommand(command)) return undefined
+  options.signal?.throwIfAborted()
   if (options.commands && !options.commands.includes("curl")) {
     return policyDeniedCurl(command, options.cwd, "curl is not in the permitted commands for this shell.")
   }
@@ -127,21 +146,36 @@ async function runControlledCurlCommand(
   }
 
   try {
-    const result = await options.networkGrants.executeSourceRequest({
+    const request: ShellNetworkRequest = {
       body: parsed.body,
       method: parsed.method,
       url: parsed.url,
+    }
+    // Keep the cancellation signal on the request without changing the
+    // enumerable request shape used by Source descriptor matching and
+    // existing integrations.
+    if (options.signal) Object.defineProperty(request, "signal", {
+      configurable: true,
+      enumerable: false,
+      value: options.signal,
     })
+    const result = await options.networkGrants.executeSourceRequest(request)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Source responses intentionally support text and binary content at this boundary.
+    const stdout = typeof result.content === "string" ? result.content : new TextDecoder().decode(result.content)
+    const bounded = boundOutput(stdout, options.maxOutputLength)
     return {
       command,
       cwd: options.cwd,
       event: "command_finished",
       exitCode: 0,
       stderr: "",
-      stdout: typeof result.content === "string" ? result.content : new TextDecoder().decode(result.content),
+      maxOutputLength: options.maxOutputLength,
+      outputTruncated: bounded.truncated,
+      stdout: bounded.content,
     }
   }
   catch (error) {
+    if (options.signal?.aborted) throw options.signal.reason
     const message = error instanceof Error ? error.message : String(error)
     const httpFailure = message.includes("HTTP request failed")
     return {
@@ -357,27 +391,72 @@ function policyDeniedCurl(command: string, cwd: string | undefined, message: str
 async function withProviderTimeout(
   command: string,
   options: ShellRuntimeExecOptions,
-  run: () => Promise<ShellObservation>,
+  run: (options: ShellRuntimeExecOptions) => Promise<ShellObservation>,
 ): Promise<ShellObservation> {
-  if (typeof options.timeout !== "number") return await run()
+  options.signal?.throwIfAborted()
+  const controller = new AbortController()
+  const abortListener = options.signal ? () => controller.abort(options.signal?.reason) : undefined
+  if (abortListener) options.signal?.addEventListener("abort", abortListener, { once: true })
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Timeout is an optional public numeric execution control.
+  const runOptions = options.signal || typeof options.timeout === "number"
+    ? { ...options, signal: controller.signal }
+    : options
   let timeout: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  const aborted = options.signal
+    ? new Promise<never>((_resolve, reject) => {
+        const handleAbort = () => reject(options.signal?.reason)
+        onAbort = handleAbort
+        options.signal?.addEventListener("abort", handleAbort, { once: true })
+        if (options.signal?.aborted) handleAbort()
+      })
+    : undefined
   try {
-    return await Promise.race([
-      run(),
-      new Promise<ShellObservation>((resolve) => {
-        timeout = setTimeout(() => resolve({
-          command,
-          cwd: options.cwd,
-          event: "command_timed_out",
-          exitCode: null,
-          stderr: `[vitehub] Workspace shell command timed out after ${options.timeout}ms.`,
-          stdout: "",
-          timedOut: true,
-        }), options.timeout)
-      }),
-    ])
+    const running = run(runOptions)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Timeout is an optional public numeric execution control.
+    if (typeof options.timeout !== "number" && !aborted) return await running
+    const races: Array<Promise<ShellObservation> | Promise<never>> = [running]
+    if (aborted) races.push(aborted)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Timeout is an optional public numeric execution control.
+    if (typeof options.timeout === "number") {
+      races.push(new Promise<ShellObservation>((resolve) => {
+        timeout = setTimeout(() => {
+          resolve({
+            command,
+            cwd: options.cwd,
+            event: "command_timed_out",
+            exitCode: null,
+            maxOutputLength: options.maxOutputLength,
+            outputTruncated: false,
+            stderr: `[vitehub] Workspace shell command timed out after ${options.timeout}ms.`,
+            stdout: "",
+            timedOut: true,
+          })
+          // Resolve the structured timeout observation before aborting the
+          // provider. Some providers reject their running promise when the
+          // signal is aborted; resolving first ensures that rejection cannot
+          // win the race and replace the documented timeout result.
+          controller.abort(new Error("Shell command timed out."))
+        }, options.timeout)
+      }))
+    }
+    return await Promise.race(races)
   }
   finally {
     if (timeout) clearTimeout(timeout)
+    if (onAbort) options.signal?.removeEventListener("abort", onAbort)
+    if (abortListener) options.signal?.removeEventListener("abort", abortListener)
+  }
+}
+
+function boundOutput(content: string, maxLength?: number): { content: string, truncated: boolean } {
+  const limit = maxLength === undefined
+    ? undefined
+    : maxLength === Number.POSITIVE_INFINITY ? undefined
+    : Number.isFinite(maxLength) ? Math.max(0, Math.floor(maxLength)) : 0
+  if (limit === undefined || content.length <= limit) return { content, truncated: false }
+  return {
+    content: `${content.slice(0, limit)}\n[output truncated to ${limit} characters]\n`,
+    truncated: true,
   }
 }

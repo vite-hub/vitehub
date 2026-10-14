@@ -51,6 +51,15 @@ describe("ViteHub CLI config loading", () => {
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
   })
 
+  it("handles regular expression braces before the Agent CLI opt-out", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), `
+      export default { vitehub: { pattern: /}/, agent: { cli: false } } }
+    `, "utf8")
+    await expect(isAgentCliEnabled(root)).resolves.toBe(false)
+  })
+
   it("does not treat unrelated agent options in a plugin call as ViteHub config", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
     roots.push(root)

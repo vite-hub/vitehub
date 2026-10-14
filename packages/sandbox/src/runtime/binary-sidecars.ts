@@ -27,11 +27,20 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object'
 }
 
-function isBoxedJsonPrimitive(value: object) {
-  return value instanceof Boolean
-    || value instanceof Number
-    || value instanceof String
-    || Object.getPrototypeOf(value) === BigInt.prototype
+const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+
+function isUint8Array(value: unknown): value is Uint8Array {
+  return ArrayBuffer.isView(value) && typedArrayTagGetter?.call(value) === 'Uint8Array'
+}
+
+function unboxJsonPrimitive(value: unknown): { value: unknown } | undefined {
+  for (const unbox of [Boolean.prototype.valueOf, Number.prototype.valueOf, String.prototype.valueOf, BigInt.prototype.valueOf]) {
+    try {
+      return { value: Reflect.apply(unbox, value, []) }
+    }
+    catch {}
+  }
+  return undefined
 }
 
 function hasMarker(value: Record<string, unknown>) {
@@ -99,7 +108,7 @@ export async function encodeSandboxValue(
       throw transferLimitError(label, 'maxDepth', depth, limits.maxDepth)
     const blob = typeof Blob !== 'undefined' && entry instanceof Blob
     const buffer = typeof Buffer !== 'undefined' && Buffer.isBuffer(entry)
-    if (blob || entry instanceof Uint8Array) {
+    if (blob || isUint8Array(entry)) {
       throwIfAborted()
       if (state.nextId + 1 > limits.maxSidecars)
         throw transferLimitError(label, 'maxSidecars', state.nextId + 1, limits.maxSidecars)
@@ -145,7 +154,8 @@ export async function encodeSandboxValue(
     }
 
     if (!isObjectRecord(entry)) return entry
-    if (isBoxedJsonPrimitive(entry)) return await encode(entry.valueOf(), ancestors, key, false, depth)
+    const boxed = unboxJsonPrimitive(entry)
+    if (boxed) return await encode(boxed.value, ancestors, key, false, depth)
     if (ancestors.has(entry))
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
 
@@ -256,7 +266,7 @@ export async function decodeSandboxValue(
     state.sidecars++
     state.sidecarBytes += bytes.byteLength
     return descriptor.kind === 'blob'
-      ? new Blob([bytes], { type: hasRuntimeType(descriptor.type, 'string') ? descriptor.type : '' })
+      ? new Blob([bytes], { type: descriptor.type ?? '' })
       : descriptor.kind === 'buffer'
         ? Buffer.from(bytes)
         : bytes
