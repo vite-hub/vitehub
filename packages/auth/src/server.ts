@@ -289,24 +289,26 @@ async function runAccessAuthorize(
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value instanceof Response) return value
   try {
-    const response = value as { status?: unknown, statusText?: unknown, headers?: unknown, body?: unknown, arrayBuffer?: () => Promise<ArrayBuffer> }
+    const response = value as { arrayBuffer?: () => Promise<ArrayBuffer> }
+    const readForeign = (name: "status" | "statusText" | "headers" | "body") => {
+      let prototype = Object.getPrototypeOf(value)
+      while (prototype) {
+        const getter = Object.getOwnPropertyDescriptor(prototype, name)?.get
+        if (getter) return getter.call(value)
+        prototype = Object.getPrototypeOf(prototype)
+      }
+    }
     const readNative = (name: "status" | "statusText" | "headers" | "body") => {
       try {
         return Object.getOwnPropertyDescriptor(Response.prototype, name)?.get?.call(value)
       } catch {
-        return undefined
+        return readForeign(name)
       }
     }
     let status: unknown = readNative("status")
     let statusText: unknown = readNative("statusText")
     let headers: unknown = readNative("headers")
     let body: unknown = readNative("body")
-    if (typeof status !== "number" || typeof statusText !== "string" || typeof response.arrayBuffer !== "function") {
-      status = response.status
-      statusText = response.statusText
-      headers = response.headers
-      body = response.body
-    }
     if (typeof status !== "number" || typeof statusText !== "string" || !headers || typeof response.arrayBuffer !== "function") return
     const bodyBytes = body === null ? null : new Uint8Array(await response.arrayBuffer())
     return new Response(bodyBytes, { headers: new Headers(headers as ConstructorParameters<typeof Headers>[0]), status, statusText })
