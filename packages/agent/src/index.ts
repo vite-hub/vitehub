@@ -80,7 +80,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
+import { createMessage, isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasUnreplayableAgentInputContext,
@@ -115,9 +115,9 @@ import {
   withCapabilityCleanup,
   withResponseCleanup,
 } from "./capability-runtime.ts"
-import type { AgentCapabilityRegistries, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
+import type { AgentCapabilityRegistries, AgentFinishDeliveryReminder, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
-import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
+import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, normalizeUIMessageStreamResponse, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -133,6 +133,7 @@ import {
   traceAgentInvocationCancelled,
   traceAgentInvocationError,
   traceAgentChannelDeliveryEffect,
+  traceAgentChannelDeliveryReminder,
   traceAgentInvocationFinish,
   traceAgentInvocationStart,
 } from "./trace.ts"
@@ -3454,6 +3455,34 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
     && !(syntheticWorkspaceRun in agent.run)
 }
 
+function isSettledAgentResult(result: unknown): boolean {
+  if (result instanceof Response) return false
+  if (isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)) return false
+  return true
+}
+
+function deliveryReminderTranscript<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  invocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
+  transcript: Message[] | undefined,
+  previousText: string | undefined,
+  instruction: string,
+): Message[] {
+  const messages = transcript ?? (invocation.messages.length ? [...invocation.messages] : invocation.prompt ? [createMessage({ role: "user", text: invocation.prompt })] : [])
+  if (previousText) messages.push(createMessage({ role: "assistant", text: previousText }))
+  messages.push(createMessage({ role: "user", text: instruction }))
+  return messages
+}
+
+function deliveryReminderUsageAttributes(result: unknown): Record<string, number> {
+  const usage = toAgentRunResult(result).usageRecord
+  if (!usage) return {}
+  const attributes: Record<string, number> = {}
+  for (const [key, value] of Object.entries(usage)) {
+    if (typeof value === "number") attributes[`channel.delivery.reminder.previous.usage.${key}`] = value
+  }
+  return attributes
+}
+
 interface RunAgentInlineOptions {
   output?: "raw" | "rendered"
   tools?: AgentToolSet
@@ -3472,6 +3501,7 @@ type AgentInvocationContext<
   driverContributions: AgentDriverContribution[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
+  finishDeliveryReminderProviders: AgentFinishDeliveryReminder[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
@@ -4926,6 +4956,7 @@ async function createAgentInvocationContext<
       driverContributions: capabilities.driverContributions,
       finalOutputRenderers: capabilities.registries.finalOutputRenderers,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
+      finishDeliveryReminderProviders: capabilities.registries.finishDeliveryReminderProviders,
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       errorHook: definition?.hooks?.["agent:error"] as never,
@@ -5052,6 +5083,7 @@ type InvocationRunContext<
   driverContributions?: AgentDriverContribution[]
   durableErrorFallbackTimeout?: number
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
+  finishDeliveryReminderProviders: AgentFinishDeliveryReminder[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
@@ -6743,6 +6775,7 @@ async function finalizeAgentInvocationResult<
 ): Promise<Response | AsyncIterable<unknown> | TResult> {
   const shouldWrapOutput = options.holdOutput === true || shouldWrapInvocationOutput(context)
   try {
+    result = normalizeUIMessageStreamResponse(result) ?? result
     if (result instanceof Response) {
       const finalized = await options.finalizeResponse?.(result)
       if (finalized) {
@@ -7086,6 +7119,55 @@ async function executeAgentInvocationWithCapacityLease<
   }
   catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
+  }
+
+  if (invocation.finishDeliveryReminderProviders.length) {
+    try {
+      let transcript: Message[] | undefined
+      for (const provider of invocation.finishDeliveryReminderProviders) {
+        while (isSettledAgentResult(result)) {
+          const reminder = provider.next(invocation.context)
+          if (!reminder) break
+          invocation.input.abortSignal?.throwIfAborted()
+          const previousText = finalTextFromAgentOutput(result)?.trim() || undefined
+          transcript = deliveryReminderTranscript(invocation, transcript, previousText, reminder.instruction)
+          await traceAgentChannelDeliveryReminder(toTraceContext(invocation), {
+            "capability.id": provider.capabilityId,
+            "channel.delivery.reminder.previous.textLength": previousText?.length ?? 0,
+            "channel.delivery.reminder.tool": provider.tool,
+            "channel.delivery.reminder.turn": reminder.turn,
+            "channel.delivery.reminder.turns": reminder.turns,
+            ...deliveryReminderUsageAttributes(result),
+          })
+          const reminderInput = { ...invocation.input, messages: transcript, prompt: transcript }
+          if (customRun) {
+            const original = { input: invocation.input, messages: invocation.messages, prompt: invocation.prompt }
+            invocation.input = reminderInput
+            invocation.messages = transcript
+            invocation.prompt = undefined
+            try {
+              result = await agent.run(invocation)
+            }
+            finally {
+              invocation.input = original.input
+              invocation.messages = original.messages
+              invocation.prompt = original.prompt
+            }
+          }
+          else {
+            const reminderContext = toAgentAdapterRunContext(invocation)
+            reminderContext.input = reminderInput
+            reminderContext.messages = transcript
+            reminderContext.prompt = undefined
+            if (options.kind === "run" && !options.renderOutput) reminderContext.nativeStructuredOutput = false
+            result = await adapter!.generate(reminderContext as never)
+          }
+        }
+      }
+    }
+    catch (error) {
+      return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
+    }
   }
 
   if (options.kind === "run"
