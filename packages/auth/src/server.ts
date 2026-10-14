@@ -326,14 +326,22 @@ function hasResponsePrototype(value: unknown): boolean {
         const getter = Object.getOwnPropertyDescriptor(owner, key)?.get
         if (typeof getter !== "function") return false
         const source = Function.prototype.toString.call(getter)
-        return source.includes("brandCheck") || source === Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+        if (source === Function.prototype.toString.call(Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)) return true
+        if (!source.includes("brandCheck")) return false
+        try {
+          Reflect.apply(getter, {}, [])
+          return false
+        }
+        catch {
+          return true
+        }
       })
       const isNativeConstructor = typeof constructor === "function"
         && constructor.name === "Response"
         && constructor.prototype === owner
         && (constructorSource === Function.prototype.toString.call(Response)
           || /^function Response\(\) \{ \[native code\] \}$/.test(constructorSource)
-          || (/^class _?Response\b/.test(constructorSource)
+          || (/^class Response\b/.test(constructorSource)
             && constructorSource.includes("#state")
             && constructorSource.includes("brandCheck")))
       if (isNativeConstructor && accessorsAreBranded) return true
