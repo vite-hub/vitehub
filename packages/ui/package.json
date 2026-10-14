@@ -120,6 +120,10 @@
       "types": "./dist/bubble.d.ts",
       "import": "./dist/bubble.js"
     },
+    "./code-block": {
+      "types": "./dist/code-block.d.ts",
+      "import": "./dist/code-block.js"
+    },
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js"
@@ -167,7 +171,8 @@
     "katex": "^0.17.0",
     "@json-render/vue": "0.21.0",
     "@json-render/core": "0.21.0",
-    "reka-ui": "catalog:ui"
+    "reka-ui": "catalog:ui",
+    "shiki": "^4.5.0"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",

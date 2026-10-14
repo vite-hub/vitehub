@@ -94,6 +94,7 @@ describe("@vite-hub/ui package contract", () => {
       "@types/node": "catalog:tooling",
       "nostics": "catalog:runtime",
       "reka-ui": "catalog:ui",
+      shiki: "^4.5.0",
     });
   });
 
