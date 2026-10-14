@@ -111,9 +111,9 @@ describe("package entry result transport", () => {
       `export default () => {`,
       `  const headers = {}`,
       `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
-      `  const prototype = { get body() { return null } }`,
+      `  const prototype = { clone() { return this }, get body() { return null } }`,
       `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers, extra: 'kept' })`,
-      `  return Object.defineProperties(value, { [Symbol.toStringTag]: { value: 'Response' }, clone: { value: () => value }, arrayBuffer: { value: async () => new ArrayBuffer() } })`,
+      `  return Object.defineProperties(value, { [Symbol.toStringTag]: { value: 'Response' }, arrayBuffer: { value: async () => new ArrayBuffer() } })`,
       `}`,
     ].join("\n"))
 
