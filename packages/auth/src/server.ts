@@ -344,7 +344,20 @@ async function runAccessAuthorize(
         finally {
           reader.releaseLock()
         }
-        normalizedBody = new Response(tee[1] as ConstructorParameters<typeof Response>[0]).body
+        const second = tee[1]
+        if (!second || typeof second !== "object" || typeof ReadableStream !== "function") return createForbiddenResponse(context.request)
+        let secondReader: { releaseLock?: () => void } | undefined
+        try {
+          const getReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
+          if (typeof getReader !== "function") return createForbiddenResponse(context.request)
+          secondReader = getReader.call(second) as { releaseLock?: () => void }
+        }
+        catch {
+          return createForbiddenResponse(context.request)
+        }
+        if (!secondReader || typeof secondReader.releaseLock !== "function") return createForbiddenResponse(context.request)
+        secondReader.releaseLock()
+        normalizedBody = new Response(second as ConstructorParameters<typeof Response>[0]).body
       }
       return new Response(normalizedBody, {
         headers: new Headers(headers as ConstructorParameters<typeof Headers>[0]),
