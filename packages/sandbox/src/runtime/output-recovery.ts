@@ -91,7 +91,11 @@ export function tryParseSandboxOutput<TResult>(outputRaw: string) {
 
   try {
     const output: unknown = JSON.parse(outputRaw)
-    if (!hasRuntimeType(output, 'object') || output === null || Array.isArray(output) || !hasRuntimeType(Reflect.get(output, 'ok'), 'boolean'))
+    if (!hasRuntimeType(output, 'object') || output === null || Array.isArray(output))
+      return null
+    // SAFETY: JSON objects are string-keyed records after the object/array checks above.
+    const record = output as Record<string, unknown>
+    if (!hasRuntimeType(record.ok, 'boolean'))
       return null
     // SAFETY: The runtime checks above establish an object with a boolean `ok` field before this generic result cast.
     return output as {
