@@ -401,6 +401,9 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (!releaseLock || !closed) return false
     Reflect.apply(closed, readerObject, [])
     Reflect.apply(releaseLock, readerObject, [])
+    // Releasing the reader must unlock the same fresh stream. An override can
+    // otherwise lock the fresh stream while returning a reader from elsewhere.
+    if (Reflect.apply(locked, freshStream, [])) return false
     return responsePropertyDescriptor(candidate, "getReader")?.value === getReader
   }
   catch {
