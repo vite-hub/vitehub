@@ -684,7 +684,7 @@ function normalizeFiles<Context>(
             const resolved = await resolveValue(value.contents, context);
             if (resolved === undefined) throw boxErrorDiagnostics.BOX_R0047({ message: `[vitehub] Box file ${path} is required.` });
             if (typeof resolved === "string") return new TextEncoder().encode(resolved);
-            if (resolved instanceof Uint8Array) return resolved;
+            if (isUint8ArrayValue(resolved)) return resolved;
             throw boxErrorDiagnostics.BOX_R0048({ message: `[vitehub] Box file ${path} must resolve to text or bytes.` });
           },
         },
@@ -702,6 +702,19 @@ function normalizeFiles<Context>(
       throw boxErrorDiagnostics.BOX_R0049({ message: `[vitehub] Box project file is unavailable: ${path}` });
     }
     return new Uint8Array(await readFile(source));
+  }
+}
+
+function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false;
+  try {
+    const elementType = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(Uint8Array.prototype),
+      Symbol.toStringTag,
+    )?.get;
+    return !!elementType && Reflect.apply(elementType, value, []) === "Uint8Array";
+  } catch {
+    return false;
   }
 }
 
@@ -792,7 +805,10 @@ function normalizeRequirements(
     ) {
       throw boxErrorDiagnostics.BOX_R0058({ message: "[vitehub] Box requirements must be commands or direct command checks." });
     }
-    const args = value.args === undefined ? [] : [...value.args];
+    const rawArgs = value.args;
+    if (rawArgs !== undefined && !Array.isArray(rawArgs))
+      throw boxErrorDiagnostics.BOX_R0059({ message: "[vitehub] Box requirement arguments must be an array of strings." });
+    const args = rawArgs === undefined ? [] : [...rawArgs];
     if (args.some((argument) => typeof argument !== "string"))
       throw boxErrorDiagnostics.BOX_R0059({ message: "[vitehub] Box requirement arguments must be strings." });
     const command = value.command.trim();
