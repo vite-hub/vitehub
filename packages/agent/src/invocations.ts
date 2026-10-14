@@ -640,8 +640,10 @@ async function collectBoundedObservationBuiltIns(
     seen.add(value)
     const BlobConstructor = globalThis.Blob
     if (hasRuntimeType(BlobConstructor, "function") && isInstance(value, BlobConstructor)) {
+      // SAFETY: isInstance verified the Blob internal brand before this narrowed access.
       const blob = value as Blob
       const FileConstructor = globalThis.File
+      // SAFETY: isInstance verified the File internal brand before this narrowed access.
       const file = hasRuntimeType(FileConstructor, "function") && isInstance(value, FileConstructor) ? value as File : undefined
       const bytes = Array.from(new Uint8Array(await blob.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
       const representation: {
