@@ -2,6 +2,7 @@ import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 
 import { normalizeAuthBasePath } from "./shared.ts"
+import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
@@ -71,11 +72,6 @@ function toRequest(request: AuthRequest): Request {
   return new Request(request.url, init)
 }
 
-function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
-  // SAFETY: AuthRequestInput is a request or an own-property host wrapper; inherited req values must not replace the request.
-  return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
-}
-
 export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
@@ -126,11 +122,17 @@ export function createAuthForRequest(
 
 export function handleAuthRequest(
   definition: AuthDefinition,
-  request: AuthRequest,
+  input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
+  event: unknown = input,
 ): Promise<Response> {
+  const request = unwrapAuthRequest(input)
   return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+}
+
+/** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
+export function toAuthRequest(input: AuthRequestInput): AuthRequest {
+  return unwrapAuthRequest(input)
 }
 
 export function createAuthHandler(
@@ -189,8 +191,7 @@ export function handleAuth(
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
 ): Promise<Response> {
-  const request = unwrapAuthRequest(input)
-  return handleAuthRequest(resolveDefaultDefinition(), request, runtimeOptions, input)
+  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions, input)
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
@@ -312,6 +313,7 @@ function isResponseLike(value: unknown): value is Response {
     if (typeof get !== "function" || typeof forEach !== "function") return false
     get.call(headers, "x-vitehub-probe")
     if (body !== null) {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate a foreign response body before probing its reader contract.
       if (typeof body !== "object") return false
       let getReader: unknown
       for (let prototype = Object.getPrototypeOf(body); prototype; prototype = Object.getPrototypeOf(prototype)) {
@@ -321,11 +323,15 @@ function isResponseLike(value: unknown): value is Response {
           break
         }
       }
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A foreign stream must expose a callable reader factory before the usability probe.
       if (typeof getReader !== "function") return false
       const reader = getReader.call(body)
       if (reader === null || typeof reader !== "object") return false
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Confirm the foreign reader can be consumed before accepting the response.
       if (typeof (reader as { read?: unknown }).read !== "function") return false
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the reader cleanup operation before releasing the probe lock.
       if (typeof (reader as { releaseLock?: unknown }).releaseLock !== "function") return false
+      // SAFETY: The preceding check establishes that this reader has a callable releaseLock method.
       ;(reader as { releaseLock: () => void }).releaseLock()
     }
     return true
