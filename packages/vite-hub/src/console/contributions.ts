@@ -1,4 +1,4 @@
-import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, readViteHubConsoleSection } from "@vite-hub/internal/console"
+import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
 import { contentConsoleSection } from "@vite-hub/content/vite"
 import { emailConsoleSection } from "@vite-hub/email/vite"
 import { queueConsoleSection } from "@vite-hub/queue/vite"
@@ -131,7 +131,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
  * the Console build (`console.vite.config.ts`) bundles this list. The prebuilt Console then never fetches an icon at
  * runtime.
  */
-export const consoleContributedSectionIcons: readonly string[] = [...new Set(registeredSections.map(section => section.descriptor.icon))]
+export const consoleContributedSectionIcons: readonly string[] = [...new Set(registeredSections.flatMap(section => [section.descriptor.icon, ...section.descriptor.pages?.map(page => page.icon) ?? []]))]
 
 export const consoleContributedSections: ReadonlyMap<ConsoleSectionId, ConsoleRegisteredSection> = new Map(
   registeredSections.map(section => [section.descriptor.id, section]),
@@ -141,11 +141,17 @@ export function isConsoleContributedSectionId(section: ConsoleSectionId): boolea
   return consoleContributedSections.has(section)
 }
 
-/** Returns the descriptors of the enabled contributed sections in navigation order. */
+/**
+ * Returns the descriptors of the enabled contributed sections in navigation order. Each keeps only the pages whose
+ * required sections are enabled too, such as Content Media with Blob.
+ */
 export function describeConsoleContributedSections(sections: readonly ConsoleSectionId[]): ConsoleContributedSection[] {
   return sections.flatMap((section) => {
     const registered = consoleContributedSections.get(section)
-    return registered ? [registered.descriptor] : []
+    if (!registered) return []
+    const { pages: _pages, ...descriptor } = registered.descriptor
+    const pages = resolveViteHubConsoleSectionPages(registered.descriptor, sections)
+    return [pages.length ? { ...descriptor, pages } : descriptor]
   })
 }
 

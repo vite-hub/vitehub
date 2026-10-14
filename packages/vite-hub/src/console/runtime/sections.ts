@@ -257,6 +257,47 @@ export function consoleSectionRouteName(section: ConsoleSectionId): string {
 }
 
 /**
+ * Route segment between a section and its pages, as in `/_vitehub/content/-/media`. Section and page ids start with a
+ * letter, so `-` never collides with a page, and the main view of a section never gets it as its first segment.
+ */
+export const consoleSectionPageSegment = "-"
+
+/** Route name of a section page: `vitehub-console-<section>--<page>`. */
+export function consoleSectionPageRouteName(section: ConsoleSectionId, page: string): string {
+  return `${consoleSectionRouteName(section)}--${page}`
+}
+
+/** One route of a contributed section, below the Console root. */
+export interface ConsoleSectionRoute {
+  name: string
+  /** Path below `/_vitehub`, such as `/content/-/media`. */
+  path: string
+  /** The page that the route serves. Absent for the main view. */
+  page?: string
+  /** Path below `/_vitehub` to redirect to. An index page redirects from `/-/<id>` to the section root. */
+  redirect?: string
+}
+
+/**
+ * Routes of a contributed section. Vite and Nuxt hosts both register these, so deep links match:
+ *
+ * - `/<section>`: the main view. A document editor section adds `/:collection?/:document(.*)*`, and its root serves
+ *   the index page when one exists.
+ * - `/<section>/-/<page>`: every other page. The path of the index page redirects to the root.
+ */
+export function describeConsoleSectionRoutes(section: { id: ConsoleSectionId, pages?: readonly { id: string, index?: boolean }[], view: { kind: string } }): ConsoleSectionRoute[] {
+  const name = consoleSectionRouteName(section.id)
+  if (section.view.kind !== "document-editor") return [{ name, path: `/${section.id}` }]
+  return [
+    ...(section.pages ?? []).map((page): ConsoleSectionRoute => {
+      const route = { name: consoleSectionPageRouteName(section.id, page.id), path: `/${section.id}/${consoleSectionPageSegment}/${page.id}` }
+      return page.index ? { ...route, redirect: `/${section.id}` } : { ...route, page: page.id }
+    }),
+    { name, path: `/${section.id}/:collection?/:document(.*)*` },
+  ]
+}
+
+/**
  * Returns the enabled section ids in navigation order. Owner packages contribute `rate-limits`, `sandboxes`,
  * `workspaces`, `workflows`, `queues`, and `schedules`. `console/contributions.ts` maps each id to its owner.
  */
