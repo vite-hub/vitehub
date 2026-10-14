@@ -65,7 +65,7 @@ export function createEntrySource(definitionPath: string, execution: 'definition
     `}`,
     ``,
     `function hasEnumerableProperties(value) {`,
-    `  return Object.keys(value).length > 0 || Object.getOwnPropertySymbols(value).some(symbol => Object.prototype.propertyIsEnumerable.call(value, symbol))`,
+    `  return Object.keys(value).length > 0`,
     `}`,
     ``,
     `function isResponse(value) {`,
