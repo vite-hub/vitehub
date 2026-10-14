@@ -8,6 +8,40 @@ import {
 import { resolveBox } from "../src/index.ts";
 
 describe("Cloudflare Computer Box runtime", () => {
+  it("cancels a pending file read when its signal aborts", async () => {
+    let cancelled = false
+    const workspace = {
+      fs: {
+        async lstat() { return stat("file", 1) },
+        async mkdir() {},
+        async readFile() {
+          return new ReadableStream<Uint8Array>({
+            start() {},
+            cancel() { cancelled = true },
+          })
+        },
+        async readdir() { return [] },
+        async rm() {},
+        async writeFile() {},
+      },
+      runtime: { async exec() { throw new Error("unused") } },
+    } satisfies CloudflareComputerWorkspace
+    const box = await resolveBox({
+      runtime: createCloudflareComputerRuntime({
+        getWorkspace: async () => workspace,
+        namespace: { get: () => ({}), idFromName: name => name },
+      }),
+    }, {})
+    const session = await box.open()
+    const controller = new AbortController()
+    const pending = session.files.read("/pending", { signal: controller.signal })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    controller.abort(new Error("cancelled"))
+    await expect(pending).rejects.toThrow("cancelled")
+    expect(cancelled).toBe(true)
+    await session.close()
+  })
+
   it("adapts a durable Computer workspace without owning its lifecycle", async () => {
     const files = new Map<string, Uint8Array>();
     const directories = new Set(["/"]);
