@@ -247,24 +247,25 @@ function splitSetCookieHeader(value: string): string[] {
   const values: string[] = []
   let start = 0
   let inAttributes = false
-  let attributeName = ""
   let unknownAttribute = false
+  let unknownAttributeHasValue = false
   for (let index = 0; index < value.length; index++) {
     const character = value[index]
     if (character === ";") {
       inAttributes = true
-      const match = value.slice(index + 1).match(/^\s*([^=;,\s]+)\s*(?:=|;|$)/)
-      attributeName = match?.[1]?.toLowerCase() ?? ""
+      const match = value.slice(index + 1).match(/^\s*([^=;,\s]+)\s*(=|;|,|$)/)
+      const attributeName = match?.[1]?.toLowerCase() ?? ""
       unknownAttribute = !!attributeName && !["expires", "max-age", "domain", "path", "secure", "httponly", "samesite", "partitioned", "priority"].includes(attributeName)
+      unknownAttributeHasValue = unknownAttribute && match?.[2] === "="
       continue
     }
     if (character !== "," || !/^\s*[^;,=\s]+=/.test(value.slice(index + 1))) continue
-    if (inAttributes && unknownAttribute) continue
+    if (inAttributes && unknownAttribute && unknownAttributeHasValue) continue
     values.push(value.slice(start, index).trim())
     start = index + 1
     inAttributes = false
-    attributeName = ""
     unknownAttribute = false
+    unknownAttributeHasValue = false
   }
   values.push(value.slice(start).trim())
   return values.filter(Boolean)
