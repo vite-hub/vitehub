@@ -163,8 +163,10 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
 function isRateLimitDiagnostic(value: unknown): boolean {
   try {
     // Diagnostic identity is intentionally package-instance local. Nostics does
-    // not expose a non-forgeable cross-realm marker, so structural fallbacks
-    // would let user-thrown objects bypass the invalid-options boundary.
+    // not expose a non-forgeable cross-realm marker; accepting structural
+    // fallbacks would let user-thrown objects bypass the invalid-options
+    // boundary. Cross-instance and cross-realm diagnostics are therefore
+    // outside createRateLimiter's supported passthrough contract.
     return value instanceof Diagnostic && rateLimitDiagnosticCodes.has(value.code)
   }
   catch {
