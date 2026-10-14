@@ -442,8 +442,8 @@ const nativeFunctionToString = (() => {
     if (intrinsicFunctionToString.call(intrinsicFunctionToString).replace(/\s+/g, " ") !== "function toString() { [native code] }") return false
     // A replacement can forge native-looking source for selected functions. Probe
     // the ordinary source and required TypeError behavior before trusting it.
-    function probe() {}
-    if (intrinsicFunctionToString.call(probe) !== "function probe() {}") return false
+    function probe() { return 1 }
+    if (intrinsicFunctionToString.call(probe) !== "function probe() { return 1 }") return false
     try {
       intrinsicFunctionToString.call(null)
       return false
@@ -535,7 +535,18 @@ function isSharedArrayBuffer(value: unknown): boolean {
   }
   // If native operation validation was tampered with before module load, fail closed.
   // Treating unknown objects as shared keeps trace payloads private in that case.
-  if (!ordinaryBufferOperations) return true
+  if (!ordinaryBufferOperations) {
+    try {
+      const prototype = Object.getPrototypeOf(value)
+      if (prototype === Object.prototype) return false
+      const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)?.value
+      const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")?.get
+      return tag === "SharedArrayBuffer" && hasRuntimeType(byteLength, "function")
+    }
+    catch {
+      return true
+    }
+  }
   try {
     // The validated native DataView operation first proves a buffer internal slot.
     // Only the validated native ArrayBuffer getter's rejection then proves shared memory.
