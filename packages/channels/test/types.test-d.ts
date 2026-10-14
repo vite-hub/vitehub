@@ -221,3 +221,14 @@ unionChannel.send("message", ["room"])
 // @ts-expect-error Public options filter out the connector's array branch.
 const publicUnionArray: ChannelSendOptions<typeof unionDefinition.connectors> = Object.assign(["room"], { connector: "webhook" as const })
 void publicUnionArray
+
+const objectUnionDefinition = defineOutboundChannel({
+  connectors: {
+    webhook: {
+      send: (_text: string, options: { destination: string } | { roomId: string }) => ({ id: "destination" in options ? options.destination : options.roomId }),
+    },
+  },
+})
+const objectUnionChannel = createChannel("object-union", objectUnionDefinition)
+objectUnionChannel.send("message", { connector: "webhook", destination: "room" })
+objectUnionChannel.send("message", { connector: "webhook", roomId: "room" })

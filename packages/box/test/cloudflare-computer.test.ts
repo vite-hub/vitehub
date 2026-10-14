@@ -85,9 +85,38 @@ describe("Cloudflare Computer Box runtime", () => {
     expect(settled).toBe(false)
     finishCancel()
     await expect(pending).rejects.toThrow("cancelled")
-    const closing = session.close()
-    await closing
+    await session.close()
     expect(disposeWorkspace).toHaveBeenCalledTimes(1)
+  })
+
+  it("cancels a stream acquired after its signal aborts", async () => {
+    let resolveReadFile!: (stream: ReadableStream<Uint8Array>) => void
+    let cancelled = false
+    const workspace = {
+      fs: {
+        async lstat() { return stat("file", 1) },
+        async mkdir() {},
+        readFile() { return new Promise<ReadableStream<Uint8Array>>(resolve => { resolveReadFile = resolve }) },
+        async readdir() { return [] },
+        async rm() {},
+        async writeFile() {},
+      },
+      runtime: { async exec() { throw new Error("unused") } },
+    } satisfies CloudflareComputerWorkspace
+    const box = await resolveBox({
+      runtime: createCloudflareComputerRuntime({
+        getWorkspace: async () => workspace,
+        namespace: { get: () => ({}), idFromName: name => name },
+      }),
+    }, {})
+    const session = await box.open()
+    const controller = new AbortController()
+    const pending = session.files.read("/pending", { signal: controller.signal })
+    controller.abort(new Error("cancelled"))
+    resolveReadFile(new ReadableStream({ cancel() { cancelled = true } }))
+    await expect(pending).rejects.toThrow("cancelled")
+    expect(cancelled).toBe(true)
+    await session.close()
   })
 
   it("adapts a durable Computer workspace without owning its lifecycle", async () => {

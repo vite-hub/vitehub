@@ -19,6 +19,7 @@ export type ChannelConnectorMap = Record<string, ChannelConnector<never, object>
 
 type ChannelObjectConstraint<TObject extends object> = Extract<TObject, Function> extends never ? unknown : never
 type ChannelOptionsConstraint<TOptions extends object> = TOptions extends readonly unknown[] | Function ? never : unknown
+type NonArrayOptions<TOptions> = TOptions extends readonly unknown[] ? never : TOptions
 type UnionKeys<T> = T extends unknown ? keyof T : never
 
 type ConnectorOptions<TConnector> = TConnector extends { send: (text: string, options: infer TOptions) => unknown }
@@ -28,9 +29,9 @@ type ConnectorOptions<TConnector> = TConnector extends { send: (text: string, op
 type ValidatedChannelConnectors<TConnectors extends ChannelConnectorMap> = {
   [TName in keyof TConnectors]: TConnectors[TName] extends ChannelConnector<never, infer TResult>
     ? [ConnectorOptions<TConnectors[TName]>] extends [object]
-      ? [Exclude<ConnectorOptions<TConnectors[TName]>, readonly unknown[]>] extends [never]
+      ? [NonArrayOptions<ConnectorOptions<TConnectors[TName]>>] extends [never]
         ? [ConnectorOptions<TConnectors[TName]>] extends [never] ? TConnectors[TName] : never
-        : ChannelObjectConstraint<Exclude<ConnectorOptions<TConnectors[TName]>, readonly unknown[]> | TResult> extends never
+        : ChannelObjectConstraint<NonArrayOptions<ConnectorOptions<TConnectors[TName]>> | TResult> extends never
           ? never : TConnectors[TName]
       : never
     : never
@@ -57,7 +58,7 @@ export interface DiscoveredChannelDefinition {
 type ExplicitChannelSendOptions<TConnectors extends ChannelConnectorMap> = {
   [TName in keyof TConnectors & string]: {
     connector: TName
-  } & Exclude<ConnectorOptions<TConnectors[TName]>, readonly unknown[]>
+  } & NonArrayOptions<ConnectorOptions<TConnectors[TName]>>
 }[keyof TConnectors & string]
 
 type DynamicChannelSendOptions = {
@@ -69,7 +70,7 @@ type DefaultChannelSendOptions<
   TDefault extends keyof TConnectors & string,
 > = {
   connector?: TDefault
-} & Exclude<ConnectorOptions<TConnectors[TDefault]>, readonly unknown[]>
+} & NonArrayOptions<ConnectorOptions<TConnectors[TDefault]>>
 
 export type ChannelSendOptions<
   TConnectors extends ChannelConnectorMap,
