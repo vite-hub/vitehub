@@ -43,7 +43,11 @@ export interface ViteHubConsoleDocumentDashboardView {
   kind: "document-dashboard"
 }
 
-/** The media library of a section. Until Blob media records exist, the Console shows where the files live. */
+/**
+ * The media library of a document editor section: folders, uploads, alt text, focal points, and crops of the Blob Store
+ * that `blob.serve` serves. The owner decides who may use it with `mediaAccess`, and finds the documents that use a file
+ * with `references`. The page needs the Blob section, so declare it with `requires: ["blob"]`.
+ */
 export interface ViteHubConsoleMediaLibraryView {
   kind: "media-library"
 }
@@ -434,6 +438,41 @@ export interface ViteHubConsoleDocumentSearchResult {
   updatedAt: string | null
 }
 
+/**
+ * What the signed-in user may do in the media library of a document editor section. Blob still owns storage: the
+ * Console runs each change through `blob.media` of the served Blob Store.
+ */
+export interface ViteHubConsoleMediaAccess {
+  /** Browse files and pick them for documents. */
+  read: boolean
+  /** Upload files, create folders, and change alt text, captions, focal points, and crops. */
+  write: boolean
+  /**
+   * Move, rename, and delete files and folders. These change what published documents show at once, without a publish,
+   * so owners usually tie them to publish access.
+   */
+  manage: boolean
+}
+
+export interface ViteHubConsoleDocumentReferencesInput {
+  /** Blob pathnames to look for, at most 100. */
+  pathnames: readonly string[]
+}
+
+/** A document that uses a Blob pathname in a field or in its body. */
+export interface ViteHubConsoleDocumentReference {
+  collection: string
+  id: string
+  title: string
+  /** The refs whose version uses the pathname: `draft`, `published`, or both. */
+  refs: Array<"draft" | "published">
+}
+
+/** The documents that use each pathname, in collections the user may read. Pathnames without users map to `[]`. */
+export interface ViteHubConsoleDocumentReferences {
+  references: Record<string, ViteHubConsoleDocumentReference[]>
+}
+
 /** The signed-in Console user, or `null` when the Console access mode has no user. */
 export interface ViteHubConsoleDocumentActionContext {
   user: Record<string, unknown> | null
@@ -475,11 +514,18 @@ export interface ViteHubConsoleDocumentActions {
   overview(input: { activity?: number }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentOverview>
   /** Finds draft documents across every collection the user may read, for Console search. */
   search(input: ViteHubConsoleDocumentSearchInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<{ items: ViteHubConsoleDocumentSearchResult[] }>
+  /**
+   * Finds the draft and published documents that use Blob pathnames, as a Blob reference field value or in the body.
+   * The media library shows them as "Used in" and warns before a move or delete.
+   */
+  references(input: ViteHubConsoleDocumentReferencesInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentReferences>
+  /** What the user may do in the media library of the section. The Console calls it before every media change. */
+  mediaAccess(context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleMediaAccess>
 }
 
-export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections">
+export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections" | "mediaAccess">
 
-export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "publish", "raw", "remove", "restore", "revisions", "save", "schedule", "search", "unschedule"]
+export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "unschedule"]
 
 /** Creates the document actions from the namespace of the application module that `entry` found. */
 export type ViteHubConsoleDocumentActionsFactory = (module: Record<string, unknown>) => ViteHubConsoleDocumentActions

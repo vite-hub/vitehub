@@ -362,6 +362,50 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     await expect(failure(actions.get(null as never, editor))).resolves.toMatchObject({ status: 400 })
   })
 
+  it("finds the draft and published documents that use Blob pathnames", async () => {
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      collections: {
+        posts: documents({
+          path: "posts/*.md",
+          fields: { title: z.string(), cover: z.object({ pathname: z.string(), contentType: z.string().optional() }).optional(), gallery: z.array(z.string()).default([]) },
+        }),
+        notes: documents({ path: "notes/*.md", fields: { title: z.string() } }),
+      },
+      authorize: ({ user, collection }) => user?.role === "editor" || (user?.role === "writer" && collection === "posts"),
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const actions = createContentConsoleActions({ content })
+    const cover = { pathname: "heroes/launch.jpg", contentType: "image/jpeg" }
+    const launch = await actions.save({ collection: "posts", id: "launch", data: { title: "Launch", cover }, body: "Text\n", ifDigest: null }, editor)
+    await actions.publish({ collection: "posts", expect: [{ id: "launch", digest: launch.digest }] }, editor)
+    // The draft drops the cover; the published version still uses it.
+    await actions.save({ collection: "posts", id: "launch", data: { title: "Launch" }, body: "Text\n", ifDigest: launch.digest }, editor)
+    await actions.save({ collection: "posts", id: "gallery", data: { title: "Gallery", gallery: ["heroes/launch.jpg"] }, body: "", ifDigest: null }, editor)
+    await actions.save({ collection: "notes", id: "body", data: { title: "In the body" }, body: "![Launch](heroes/launch.jpg)\n", ifDigest: null }, editor)
+    const found = await actions.references({ pathnames: ["heroes/launch.jpg", "unused.png"] }, editor)
+    expect(found.references["unused.png"]).toEqual([])
+    expect(found.references["heroes/launch.jpg"]).toEqual(expect.arrayContaining([
+      { collection: "posts", id: "launch", title: "Launch", refs: ["published"] },
+      { collection: "posts", id: "gallery", title: "Gallery", refs: ["draft"] },
+      { collection: "notes", id: "body", title: "In the body", refs: ["draft"] },
+    ]))
+    expect(found.references["heroes/launch.jpg"]).toHaveLength(3)
+    // Only collections the user may read.
+    const scoped = await actions.references({ pathnames: ["heroes/launch.jpg"] }, writer)
+    expect(scoped.references["heroes/launch.jpg"]!.map(reference => reference.collection)).toEqual(["posts", "posts"])
+    await expect(failure(actions.references({ pathnames: Array.from({ length: 101 }, (_, index) => `${index}.png`) }, editor))).resolves.toMatchObject({ status: 400 })
+  })
+
+  it("gives media access from the widest collection access", async () => {
+    const { actions } = await setup()
+    await expect(actions.mediaAccess(editor)).resolves.toEqual({ read: true, write: true, manage: true })
+    await expect(actions.mediaAccess(writer)).resolves.toEqual({ read: true, write: true, manage: false })
+    await expect(actions.mediaAccess(reader)).resolves.toEqual({ read: true, write: false, manage: false })
+    await expect(actions.mediaAccess(anonymous)).resolves.toEqual({ read: false, write: false, manage: false })
+  })
+
   it("requires the defineContent() runtime as `content`", () => {
     expect(() => createContentConsoleActions({})).toThrow("must export the defineContent() runtime as `content`")
     expect(() => createContentConsoleActions({ content: { collection: () => undefined } })).toThrow(TypeError)
