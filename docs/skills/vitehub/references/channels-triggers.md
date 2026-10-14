@@ -1,6 +1,9 @@
 # Channels and Triggers
 
-Use this for GitHub, Gmail, Teams, Telegram, Discord, web chat, custom webhooks, message history, admission, concurrency, or delivery effects.
+Use this for Agent Channels and Triggers: GitHub, Gmail, Teams, Telegram,
+Discord, web chat, custom webhooks, message history, admission, concurrency,
+or Agent delivery effects. Outbound application message delivery uses the
+separate [`@vite-hub/channels`](primitives/channels.md) primitive.
 
 ## Select one current page
 
