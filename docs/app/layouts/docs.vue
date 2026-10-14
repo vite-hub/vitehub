@@ -67,12 +67,17 @@ const hasPanel = computed(
     position: sticky;
     top: var(--ui-header-height);
     display: flex;
+    flex: none;
     height: calc(100dvh - var(--ui-header-height));
     max-height: calc(100dvh - var(--ui-header-height));
     min-height: calc(100dvh - var(--ui-header-height));
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
+  }
+
+  .vh-docs-content {
+    flex: 1;
   }
 }
 </style>
