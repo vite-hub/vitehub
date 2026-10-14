@@ -36,6 +36,8 @@ export type {
   ContentFields,
   ContentFieldsInput,
   ContentFieldsOutput,
+  DocumentComponent,
+  DocumentComponentProp,
   DocumentsDefinition,
   DocumentsOptions,
 } from "./documents.ts"
