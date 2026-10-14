@@ -310,15 +310,20 @@ async function runAccessAuthorize(
         || typeof (headers as { [Symbol.iterator]?: unknown } | null)?.[Symbol.iterator] !== "function") {
         return createForbiddenResponse(context.request)
       }
+      let normalizedBody: ReadableStream<Uint8Array> | null = null
       if (body !== null) {
-        // Calling the native stream accessor rejects forged body operations.
-        const reader = (body as { getReader?: () => { read?: () => unknown, releaseLock?: () => void } }).getReader?.()
+        // Tee through the candidate stream so foreign streams remain usable while
+        // forged reader-shaped objects fail before reaching the host adapter.
+        const tee = (body as { tee?: () => unknown }).tee?.()
+        if (!Array.isArray(tee) || tee.length !== 2) return createForbiddenResponse(context.request)
+        const probe = tee[0] as { getReader?: () => { read?: () => unknown, releaseLock?: () => void } }
+        const reader = probe.getReader?.()
         if (!reader || typeof reader.read !== "function" || typeof reader.releaseLock !== "function") return createForbiddenResponse(context.request)
         const readResult = reader.read()
         if (!readResult || typeof (readResult as PromiseLike<unknown>).then !== "function") return createForbiddenResponse(context.request)
         reader.releaseLock()
+        normalizedBody = new Response(tee[1] as ConstructorParameters<typeof Response>[0]).body
       }
-      const normalizedBody = body === null ? null : new Response(body as ConstructorParameters<typeof Response>[0]).body
       return new Response(normalizedBody, {
         headers: new Headers(headers as ConstructorParameters<typeof Headers>[0]),
         status,
