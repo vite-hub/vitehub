@@ -145,6 +145,26 @@ Built-in Agent Drivers and Box runtimes are selected by literal or tagged values
 - [Generated files](https://vitehub.dev/docs/development/generated-files)
 - [Public import paths](https://vitehub.dev/docs/reference/import-paths)
 
+## Record Agent invocations in a Database
+
+Pass an explicit journal to an Agent Definition to record invocations when the Console is disabled:
+
+```ts
+import { defineAgent } from "vite-hub/agent"
+import { createDatabaseAgentInvocationStore } from "vite-hub/agent/invocations/database"
+import { defineAgentInvocations } from "vite-hub/agent/server"
+
+export default defineAgent({
+  invocations: defineAgentInvocations({
+    store: createDatabaseAgentInvocationStore({ database: "default" }),
+  }),
+})
+```
+
+The store uses a discovered ViteHub Database and creates its journal tables on first use. It supports local SQLite and hosted libSQL through Drizzle, plus native Cloudflare D1. D1 over HTTP is rejected by a read-only probe before schema creation or writes because its raw query results do not contain column names. The `database` option defaults to `default`.
+
+Retention defaults to 30 days and 10,000 terminal records. Set `maxAgeMs` or `maxRecords` on the store options to change each limit, or set either to `false` to disable it. The Console can inspect an Agent's explicit journal but does not own its retention settings.
+
 ## Invoke Agents from the Console
 
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/development/console#inspect-usage) for the identity, coverage, and pagination contract.

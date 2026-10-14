@@ -50,6 +50,8 @@ Stores can return `revision` from `stat()` to identify a stored file version. Th
 
 Workspace shell tools do not permit controlled `curl` by default. Pass `sourceRequests: true` to `createWorkspaceTools(workspace, { sourceRequests: true })` or `workspace.tools.inspect({ sourceRequests: true })` to allow requests to visible Source targets. The Agent `workspaceShell()` Capability explicitly enables these scoped requests.
 
+AI SDK tool cancellation is forwarded to the Shell provider and Workspace Session. This stops provider work and controlled Source requests when the model turn is cancelled.
+
 ### Runtime method options
 
 | Method | Options | Behavior |

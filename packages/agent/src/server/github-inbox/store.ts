@@ -813,9 +813,9 @@ export class PullRequestInbox {
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return await finish('irrelevant PR action')
       if (event === 'pull_request_review_thread' && (!['resolved', 'unresolved'].includes(payload.action ?? '') || !payload.thread?.node_id)) return await finish('irrelevant review thread action')
       const check = payload.check_run ?? payload.check_suite ?? payload.workflow_run
-      // Push payloads expose the updated commit as `after`; use it for
-      // head matching when a provider does not include a check object.
-      const sha = check?.head_sha ?? payload.sha ?? payload.after
+      // Match commit-scoped evidence to the current head. Pull request
+      // synchronize payloads also have `after`, but must advance that head.
+      const sha = check?.head_sha ?? (event === 'status' ? payload.sha : event === 'push' ? payload.after : undefined)
       const numbers = new Set<number>()
       const direct = payload.pull_request?.number ?? (payload.issue?.pull_request ? payload.issue.number : undefined)
       if (direct) numbers.add(direct)
@@ -1094,6 +1094,9 @@ export class PullRequestInbox {
         if (result.verifiedPushHeads && (result.progress?.kind !== 'verified' || result.progress.evidence !== `push:${pinnedHead}`)) throw new Error('Published ancestry requires a verified push receipt')
         const pushed = new Set([pinnedHead, ...result.verifiedPushHeads ?? []])
         const published = new Set([claim.snapshot.pr?.head?.sha, ...pushed])
+        // Generation changes must not discard a pinned wait: feedback and terminal
+        // CI stay dirty via handled below, and the host evaluates them against the
+        // pass's saved evidence. Only the publication/head fence rejects the wait.
         // Synchronize can lag several successful pushes. Accept only this pass's
         // verified publication chain, and fence a different source push even
         // while the PR snapshot still exposes its original head.
@@ -1238,10 +1241,11 @@ export class PullRequestInbox {
   async summary(): Promise<GitHubInboxSummary[]> {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
+    // `+parent.number` keeps SQLite on the refs index; ordering by the primary key scanned every PR value.
     const rows = await this.read(`SELECT p.summary, p.state, p.dirty_at, (SELECT parent.number FROM ${this.tables.pullRequests} parent
       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
         AND parent.state='open' AND parent.head_ref=p.base_ref
-        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY parent.number LIMIT 1) AS stack_parent
+        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])
     return rows.map(row => {
       const summary = { ...parseSummary(JSON.parse(stringValue(row.summary))), state: stringValue(row.state), dirtyAt: Number(row.dirty_at) }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, useId, watch } from "vue";
+import { motion, MotionConfig } from "motion-v";
 import { installOptions } from "./content";
 
 const commandTabs = [
@@ -17,9 +18,10 @@ const commandTabs = [
 type CommandTab = (typeof commandTabs)[number]["value"];
 type PackageManager = (typeof installOptions.packages)[number]["value"];
 
-const activeTab = ref<CommandTab>("skill");
+const activeTab = ref<CommandTab>("package");
 const activePackageManager = ref<PackageManager>("pnpm");
 const copied = ref(false);
+const indicatorId = `install-tab-${useId()}`;
 let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
 const selectedPackageManager = computed(
@@ -75,45 +77,37 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex w-full max-w-[38rem] flex-col gap-3">
-    <div class="flex min-h-10 flex-wrap items-start justify-between gap-3">
-      <div
-        class="relative inline-grid grid-cols-2 gap-1 rounded-full bg-muted/80 p-1 text-sm ring-1 ring-default"
-        role="group"
-        aria-label="Install ViteHub"
-      >
-        <span
-          class="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc((100%_-_0.75rem)/2)] rounded-full bg-default ring-1 ring-accented transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
-          :style="{
-            transform:
-              activeTab === 'package' ? 'translateX(calc(100% + 0.25rem))' : 'translateX(0)',
-          }"
-          aria-hidden="true"
-        />
-        <button
-          v-for="tab in commandTabs"
-          :key="tab.value"
-          type="button"
-          :aria-pressed="activeTab === tab.value"
-          class="relative z-10 inline-flex min-w-[7.75rem] items-center justify-center gap-1.5 rounded-full px-3 py-1.5 font-medium transition-[color,transform] duration-150 active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-          :class="activeTab === tab.value ? 'text-highlighted' : 'text-muted hover:text-default'"
-          @click="activeTab = tab.value"
-        >
-          <UIcon :name="tab.icon" class="size-3.5 shrink-0" aria-hidden="true" />
-          <span>{{ tab.label }}</span>
-        </button>
-      </div>
+  <div class="flex w-full flex-col border border-default bg-default">
+    <MotionConfig reduced-motion="user">
+      <div class="flex min-h-10 flex-wrap items-stretch justify-between border-b border-default">
+        <div class="flex items-stretch text-sm" role="group" aria-label="Install ViteHub">
+          <button
+            v-for="tab in commandTabs"
+            :key="tab.value"
+            type="button"
+            :aria-pressed="activeTab === tab.value"
+            class="relative inline-flex items-center gap-1.5 border-r border-default px-3 font-medium whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary sm:px-4"
+            :class="activeTab === tab.value ? 'text-highlighted' : 'text-muted hover:text-default'"
+            @click="activeTab = tab.value"
+          >
+            <UIcon :name="tab.icon" class="hidden size-3.5 shrink-0 sm:block" aria-hidden="true" />
+            <span>{{ tab.label }}</span>
+            <motion.span
+              v-if="activeTab === tab.value"
+              :layout-id="indicatorId"
+              :initial="false"
+              :transition="{ type: 'spring', stiffness: 450, damping: 36 }"
+              class="absolute inset-x-0 -bottom-px h-px bg-inverted"
+              aria-hidden="true"
+            />
+          </button>
+        </div>
 
-      <div
-        class="relative h-10 shrink-0"
-        :class="activeTab === 'package' ? 'w-[16.5rem]' : 'w-0'"
-        role="group"
-        aria-label="Package manager"
-        :aria-hidden="activeTab !== 'package'"
-      >
         <div
-          class="package-managers absolute top-0 right-0 flex items-center gap-1 rounded-full bg-muted/80 p-1 text-sm ring-1 ring-default"
+          class="package-managers flex items-stretch max-sm:w-full max-sm:justify-end"
           :class="activeTab === 'package' ? 'package-managers-visible' : 'package-managers-hidden'"
+          role="group"
+          aria-label="Package manager"
           :aria-hidden="activeTab !== 'package'"
         >
           <button
@@ -123,37 +117,25 @@ onBeforeUnmount(() => {
             :tabindex="activeTab === 'package' ? 0 : -1"
             :aria-pressed="activePackageManager === option.value"
             :aria-label="option.label"
-            class="relative inline-flex h-8 items-center justify-center gap-1.5 overflow-hidden rounded-full font-medium transition-[width,color,background-color,padding] duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
+            :title="option.label"
+            class="inline-flex w-9 items-center justify-center border-l sm:w-10 border-default transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
             :class="
               activePackageManager === option.value
-                ? 'w-[7.75rem] bg-default px-3 text-highlighted ring-1 ring-accented'
-                : 'w-10 px-0 text-muted grayscale hover:text-default'
+                ? 'bg-muted text-highlighted'
+                : 'text-muted grayscale hover:text-default'
             "
             @click="activePackageManager = option.value"
           >
-            <UIcon
-              :name="option.icon"
-              class="size-3.5 shrink-0"
-              aria-hidden="true"
-            />
-            <span
-              class="package-manager-label max-w-0 overflow-hidden whitespace-nowrap text-sm opacity-0"
-              :class="
-                activePackageManager === option.value ? 'max-w-16 opacity-100' : ''
-              "
-              aria-hidden="true"
-            >
-              {{ option.label }}
-            </span>
+            <UIcon :name="option.icon" class="size-3.5" aria-hidden="true" />
           </button>
         </div>
       </div>
-    </div>
+    </MotionConfig>
 
     <button
       type="button"
       :aria-label="copyLabel"
-      class="group inline-flex min-h-12 w-full items-center gap-2 rounded-full border border-default bg-default px-3 py-2.5 text-left transition-[border-color,background-color] duration-200 hover:border-accented hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+      class="group inline-flex min-h-12 w-full items-center gap-2 bg-muted/30 px-4 py-2.5 text-left transition-colors duration-200 hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
       @click="copyCommand"
     >
       <span class="font-mono text-xs text-dimmed select-none sm:text-sm" aria-hidden="true">$</span>
@@ -168,7 +150,7 @@ onBeforeUnmount(() => {
         </Transition>
       </span>
       <span
-        class="relative ml-1 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors group-hover:bg-muted group-hover:text-default"
+        class="relative ml-1 inline-flex size-8 shrink-0 items-center justify-center text-muted transition-colors group-hover:text-highlighted"
       >
         <Transition name="copy-icon" mode="out-in">
           <UIcon
@@ -189,29 +171,21 @@ onBeforeUnmount(() => {
 <style scoped>
 .package-managers {
   transition:
-    opacity 220ms cubic-bezier(0.23, 1, 0.32, 1),
-    transform 220ms cubic-bezier(0.23, 1, 0.32, 1),
-    visibility 0s linear 220ms;
+    opacity 200ms ease-out,
+    visibility 0s linear 200ms;
 }
 
 .package-managers-visible {
   visibility: visible;
   opacity: 1;
-  transform: translateY(0);
   transition-delay: 0s;
 }
 
 .package-managers-hidden {
+  display: none;
   visibility: hidden;
   pointer-events: none;
   opacity: 0;
-  transform: translateY(0.25rem);
-}
-
-.package-manager-label {
-  transition:
-    max-width 220ms cubic-bezier(0.23, 1, 0.32, 1),
-    opacity 220ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .command-swap-enter-active,
@@ -242,17 +216,6 @@ onBeforeUnmount(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .package-managers {
-    transform: none;
-    transition:
-      opacity 200ms cubic-bezier(0.23, 1, 0.32, 1),
-      visibility 0s linear 200ms;
-  }
-
-  .package-managers-visible {
-    transition-delay: 0s;
-  }
-
-  .package-manager-label {
     transition: none;
   }
 

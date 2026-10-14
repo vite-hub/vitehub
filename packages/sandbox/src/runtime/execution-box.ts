@@ -15,10 +15,10 @@ export interface SandboxExecutionBox {
     args?: readonly string[],
     options?: { cwd?: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, timeout?: number },
   ): Promise<{ code: number, ok: boolean, stderr: string, stdout: string }>
-  exists(path: string): Promise<boolean>
-  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
-  readFile(path: string): Promise<string>
-  writeFile(path: string, contents: string): Promise<void>
+  exists(path: string, options?: { signal?: AbortSignal }): Promise<boolean>
+  mkdir(path: string, options?: { recursive?: boolean, signal?: AbortSignal }): Promise<void>
+  readFile(path: string, options?: { signal?: AbortSignal }): Promise<string>
+  writeFile(path: string, contents: string, options?: { signal?: AbortSignal }): Promise<void>
 }
 
 export function createSandboxExecutionBox(
@@ -36,20 +36,20 @@ export function createSandboxExecutionBox(
     async exec(command, args, options) {
       return await session.exec(command, args, options)
     },
-    async exists(path) {
-      return await session.files.exists(path)
+    async exists(path, options) {
+      return await session.files.exists(path, options)
     },
     async mkdir(path, options) {
       await session.files.mkdir(path, options)
     },
-    async readFile(path) {
-      const contents = await session.files.read(path)
+    async readFile(path, options) {
+      const contents = await session.files.read(path, options)
       if (!contents)
         throw sandboxErrorDiagnostics.SANDBOX_R0066({ message: `[vitehub] Sandbox file does not exist: ${path}` })
       return new TextDecoder().decode(contents)
     },
-    async writeFile(path, contents) {
-      await session.files.write(path, new TextEncoder().encode(contents))
+    async writeFile(path, contents, options) {
+      await session.files.write(path, new TextEncoder().encode(contents), options)
     },
   }
 }

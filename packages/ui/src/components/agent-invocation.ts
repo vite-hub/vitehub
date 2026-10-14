@@ -26,6 +26,7 @@ import { AgentInvocationTimeline, invocationTimeline } from "./agent-invocation-
 export { invocationActivities } from "../internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "../internal/invocation-conversation.ts";
 import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
+import { payloadText } from "../internal/payload-text.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
 import { AgentToolList } from "./agent-tool-list.ts";
@@ -128,22 +129,6 @@ function renderFolderIcon() {
 type InspectTarget = "agent" | "workspace";
 type InspectHandler = (target: InspectTarget, path?: string) => void;
 
-function payloadText(value: unknown): string {
-  if (hasRuntimeType(value, "string")) return value;
-  const ancestors: object[] = [];
-  try {
-    return JSON.stringify(value, function (this: unknown, _key, item: unknown) {
-      if (hasRuntimeType(item, "bigint")) return `${item}n`;
-      if (!hasRuntimeType(item, "object") || item === null) return item;
-      while (ancestors.length && ancestors.at(-1) !== this) ancestors.pop();
-      if (ancestors.includes(item)) return "[Circular]";
-      ancestors.push(item);
-      return item;
-    }, 2) ?? String(value);
-  } catch (error) {
-    return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
-  }
-}
 
 function payloadPreview(value: unknown, text: string): string {
   const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
@@ -1130,6 +1115,16 @@ function inspectorChannels(channels: NonNullable<AgentInvocationConfiguration["c
   ]);
 }
 
+function isRecordedChannel(value: unknown): value is NonNullable<AgentInvocationConfiguration["channels"]>[number] {
+  if (value === null || !hasRuntimeType(value, "object") || Array.isArray(value)) return false;
+  // SAFETY: The guard above establishes a non-null, non-array object; its field values remain unknown until checked below.
+  const channel = value as Record<string, unknown>;
+  return Object.hasOwn(channel, "id")
+    && hasRuntimeType(channel.id, "string")
+    && Object.hasOwn(channel, "kind")
+    && hasRuntimeType(channel.kind, "string");
+}
+
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const model = configuration.driver?.model;
   const modelId = model?.id;
@@ -1204,7 +1199,16 @@ function renderConfiguration(
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
-  configuration = { ...configuration, tools, truncated: configuration.truncated || tools.length !== recordedTools.length };
+  const channelsCatalogMalformed = configuration.channels !== undefined && !Array.isArray(configuration.channels);
+  const recordedChannels = Array.isArray(configuration.channels) ? configuration.channels : [];
+  const channels = recordedChannels.filter(isRecordedChannel);
+  configuration = {
+    ...configuration,
+    channels,
+    tools,
+    truncated: configuration.truncated || tools.length !== recordedTools.length || channelsCatalogMalformed
+      || channels.length !== recordedChannels.length,
+  };
   const driver = driverLabel(configuration);
   const workspace = workspaceLabel(configuration);
   const setup = [
@@ -1249,7 +1253,7 @@ function renderConfiguration(
                 tools.length ? h(AgentToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)), onSelect: selectTool }) : null,
                 capability.metadata ? h("details", { class: "vh-invocation-inspector__settings" }, [
                   h("summary", "Configuration"),
-                  h("pre", JSON.stringify(capability.metadata, null, 2)),
+                  h("pre", payloadText(capability.metadata)),
                 ]) : null,
                 !tools.length && !capability.metadata ? h("p", "No tools or configuration recorded.") : null,
               ]);

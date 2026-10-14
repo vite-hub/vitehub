@@ -1152,6 +1152,9 @@ describe("Babysitter preset runtime", () => {
         "babysitter.result.normalized",
         expect.objectContaining({ code: "invalid-reviewed-head" }),
       );
+      expect(f.events.mock.calls.filter(([name, payload]) =>
+        name === "babysitter.result.normalized" && payload?.code === "invalid-wait",
+      )).toHaveLength(1);
       expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.headSha).toBe("b".repeat(40));
       expect(f.passes).toHaveLength(1);
       await f.reconcile();

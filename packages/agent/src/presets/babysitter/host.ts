@@ -218,9 +218,10 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
     async health() {
       const health = await host.health();
       const queue = await inbox.summary();
-      const guard = await admission.health();
-      const lastSkip = await inbox.meta("admission-skipped");
+      // Refresh prerequisites before admission so both health surfaces describe one sample.
       const prerequisites = await preflight();
+      const guard = await admission();
+      const lastSkip = await inbox.meta("admission-skipped");
       return { ...health, status: prerequisites.pause ? "degraded" as const : health.status, diagnostics: [...health.diagnostics, ...prerequisites.diagnostics], release: agent.version, framework: { buildRevision }, concurrency: agent.options.concurrency, repositories, queue: babysitterQueueHealth(queue), admission: {
         accepting: guard.accepting,
         hostOnly: guard.hostOnly,

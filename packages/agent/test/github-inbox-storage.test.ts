@@ -160,3 +160,26 @@ it('imports an older inbox file once and converts its waits and leases', async (
   expect((await inbox.claim(5)).map(claim => claim.snapshot.number)).toEqual([8, 9])
   await inbox.close()
 })
+
+it('finds stack parents in the summary through the refs index instead of every PR value', async () => {
+  const state = createLibsqlAgentState({ url: `file:${join(await directory(), 'state.db')}` })
+  const storage = state.extension('babysitter')
+  const statements: [string, unknown[]][] = []
+  const execute = storage.execute.bind(storage)
+  storage.execute = async (statement, args = []) => {
+    statements.push([statement, args])
+    return await execute(statement, args)
+  }
+  const inbox = new PullRequestInbox({ storage, repositories: [repository] })
+  await inbox.seed(repository, pr(1, { head: { sha: 'head-1', ref: 'fix-1', repo: { full_name: repository } } }))
+  await inbox.seed(repository, pr(2, { base: { sha: 'head-1', ref: 'fix-1' } }))
+  await inbox.seed(repository, pr(3))
+
+  const summary = await inbox.summary()
+  expect(summary.find(item => item.number === 2)).toMatchObject({ stackBlocked: true, stackParent: { number: 1 } })
+  const [statement, args] = statements.find(([sql]) => sql.includes('AS stack_parent'))!
+  // Ordering by the primary key made SQLite json_extract every PR value in the repository for each PR.
+  const plan = (await execute(`EXPLAIN QUERY PLAN ${statement}`, args)).map(row => String(row.detail)).join('\n')
+  expect(plan).toMatch(/SEARCH parent USING INDEX vitehub_agent_state_babysitter_pull_requests_refs/)
+  await state.disconnect()
+})

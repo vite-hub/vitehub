@@ -75,6 +75,21 @@ describe("Browser Definitions", () => {
     })
   })
 
+  it("rejects Browser Definition loaders that resolve to null", async () => {
+    browserRegistry.nullDefinition = async () => null
+
+    const name: string = "nullDefinition"
+    const response = await runBrowser(name)
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "BROWSER_RUNTIME_ERROR",
+        message: '[vitehub:browser] Browser Definition "nullDefinition" must default-export defineBrowser().',
+      },
+    })
+  })
+
   it("lets definitions use rendered content", async () => {
     const quickAction = vi.fn(async () => new Response(
       "<html><meta property=\"og:image\" content=\"https://example.com/card.png\"></html>",

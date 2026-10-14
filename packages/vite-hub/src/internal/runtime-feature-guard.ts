@@ -2,6 +2,8 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { findMatching, maskSourceLiterals } from "@vite-hub/internal/source-scanner"
+
 const configExtensions = ["js", "mjs", "cjs", "ts", "mts", "cts"]
 
 function stripCommentsAndStrings(source: string): string {
@@ -11,12 +13,7 @@ function stripCommentsAndStrings(source: string): string {
 }
 
 function matchingBrace(source: string, open: number): number {
-  let depth = 0
-  for (let index = open; index < source.length; index++) {
-    if (source[index] === "{") depth++
-    if (source[index] === "}" && --depth === 0) return index
-  }
-  return -1
+  return findMatching(source, open, "{", "}") ?? -1
 }
 
 function hasAgentOptOut(source: string): boolean {
@@ -47,17 +44,20 @@ function hasAgentOptOut(source: string): boolean {
 }
 
 function hasAgentOptOutInObject(body: string): boolean {
-  for (const match of body.matchAll(/\bagent\s*:\s*(false|\{)/gu)) {
+  // The object body can contain regular expressions. Mask all literals before
+  // counting braces so a `}` inside `/}/` cannot hide a later opt-out.
+  const syntax = maskSourceLiterals(body)
+  for (const match of syntax.matchAll(/\bagent\s*:\s*(false|\{)/gu)) {
     let depth = 0
-    for (const character of body.slice(0, match.index)) {
+    for (const character of syntax.slice(0, match.index)) {
       if (character === "{") depth++
       else if (character === "}") depth--
     }
     if (depth !== 0) continue
     if (match[1] === "false") return true
     const open = match.index! + match[0].lastIndexOf("{")
-    const end = matchingBrace(body, open)
-    if (end >= 0 && /\bcli\s*:\s*false\b/u.test(body.slice(open, end))) return true
+    const end = matchingBrace(syntax, open)
+    if (end >= 0 && /\bcli\s*:\s*false\b/u.test(syntax.slice(open, end))) return true
   }
   return false
 }
