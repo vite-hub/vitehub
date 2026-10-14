@@ -100,6 +100,10 @@ function isMissingBlobError(error: unknown) {
           // or fabricated value, so they cannot establish the candidate's Error brand.
           if (stack.get.call(Object.create(prototype)) !== undefined) return false
           if (stack.get.call(new Proxy(candidate, {})) !== undefined) return false
+          // A proxy around the native getter can special-case the candidate and
+          // return undefined for non-error receivers. Native Error stack accessors
+          // accept any genuine Error receiver, so probe an independent Error too.
+          if (typeof stack.get.call(new Error()) !== "string") return false
           return true
         })()
     if (!isError) return false
