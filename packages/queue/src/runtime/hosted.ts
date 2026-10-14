@@ -45,7 +45,10 @@ async function toRequest(event: {
   } catch {
     sameRealmRequest = false
   }
-  if (sameRealmRequest || isRequestLike(event.request)) {
+  if (sameRealmRequest) {
+    return event.request as Request
+  }
+  if (isRequestLike(event.request)) {
     return event.request
   }
 
