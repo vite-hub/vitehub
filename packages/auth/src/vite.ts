@@ -245,13 +245,20 @@ function createWebRequest(request: IncomingMessage): Request {
 async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
   target.statusCode = response.status
   target.statusMessage = response.statusText
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Older Headers implementations can omit getSetCookie; preserve their header forwarding behavior.
-  const setCookieHeaders = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : []
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Older Headers implementations can omit getSetCookie; only forward an unambiguous single fallback value.
+  const getSetCookie = response.headers.getSetCookie
+  const setCookieHeaders = typeof getSetCookie === "function" ? getSetCookie() : undefined
   response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
-    target.appendHeader(key, value)
+    if (key.toLowerCase() !== "set-cookie") {
+      target.appendHeader(key, value)
+      return
+    }
+    if (setCookieHeaders) return
+    // Headers.forEach may combine multiple Set-Cookie values with commas.
+    // Do not forward an ambiguous combined value as one cookie.
+    if (!value.includes(",")) target.appendHeader(key, value)
   })
-  for (const value of setCookieHeaders) {
+  for (const value of setCookieHeaders ?? []) {
     target.appendHeader("set-cookie", value)
   }
 
