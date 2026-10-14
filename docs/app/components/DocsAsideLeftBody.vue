@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
 import {
   docsManifest,
   getDocsPageByPath,

@@ -35,14 +35,15 @@ async function readStatus(): Promise<"accepting" | "drained" | "draining" | "fai
 }
 
 try {
-  let signaled = false
+  let signalAttempted = false
   while (isProcessRunning(pid)) {
     const status = await readStatus()
     if (status === "failed" || status === "invalid") throw runtimeErrorDiagnostics.RUNTIME_R0004({ message: `Process drain reported ${status}.` })
     if (status === "drained") process.exit(0)
-    if (status === "accepting" && !signaled) {
+    if (status === "accepting" && !signalAttempted) {
+      // A denied signal still leaves the status endpoint as the source of truth.
       signalProcess(pid)
-      signaled = true
+      signalAttempted = true
     }
     await new Promise(resolve => setTimeout(resolve, 1_000))
   }
