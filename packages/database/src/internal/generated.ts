@@ -47,13 +47,18 @@ function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
   ]
 }
 
-function renderGeneratedDrizzleConfig(config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
+function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
   const schemaFiles = databaseNames.map(name => config.generatedSchemaFilesByDatabase[name]!)
   const database = config.databases[databaseNames[0]!]!
+  const definition = config.definitions.find(item => item.name === database.name)!
   const out = databaseNames.length === 1 ? database.migrationsDir : ".vitehub/database/migrations"
+  // Read Drizzle options from the Definition so migrations and queries use the same casing.
   return [
+    `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
+    "",
     "export default {",
     "  dialect: \"sqlite\",",
+    "  casing: databaseDefinition.drizzle?.casing,",
     ...renderDbCredentials(database),
     `  schema: ${JSON.stringify(schemaFiles)},`,
     `  out: ${JSON.stringify(out)},`,
@@ -110,12 +115,12 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   }))
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
-  await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config), "utf8")
+  await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config), "utf8")
   await mkdir(dirname(generatedTypesFile), { recursive: true })
   await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config.definitions), "utf8")
   await Promise.all(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })
-    await writeFile(file, renderGeneratedDrizzleConfig(config, [name]), "utf8")
+    await writeFile(file, renderGeneratedDrizzleConfig(file, config, [name]), "utf8")
   }))
 }
