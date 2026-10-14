@@ -386,6 +386,15 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   return !Reflect.apply(locked.value, stream, [])
 }
 
+function authorizationHeaderMethods(headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
+  if (Object.prototype.hasOwnProperty.call(headers, "forEach")) return
+  const forEach = responsePropertyDescriptor(headers, "forEach")
+  const getSetCookie = responsePropertyDescriptor(headers, "getSetCookie")
+  if (!forEach || typeof forEach.value !== "function") return
+  if (getSetCookie && getSetCookie.value !== undefined && typeof getSetCookie.value !== "function") return
+  return { forEach: forEach.value as (...args: never[]) => unknown, getSetCookie: getSetCookie?.value as (...args: never[]) => unknown | undefined }
+}
+
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   // Use native operations from the stream's realm, never caller-supplied methods.
   const locked = streamIntrinsic(body, "locked")
@@ -495,10 +504,11 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (bodyUsed === true && body !== null) return
     if (!isSerializableAuthorizationBody(body)) return
-    const forEach = Reflect.get(headerCarrier, "forEach")
-    const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
+    const headerMethods = authorizationHeaderMethods(headerCarrier)
+    if (!headerMethods) return
+    const { forEach, getSetCookie } = headerMethods
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
-    const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
+    const cookies: unknown = getSetCookie ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
