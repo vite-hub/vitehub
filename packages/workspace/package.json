@@ -46,7 +46,8 @@
     },
     "./blob-database": {
       "types": "./dist/blob-database.d.ts",
-      "import": "./dist/blob-database.js"
+      "import": "./dist/blob-database.js",
+      "default": "./dist/blob-database.js"
     },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",

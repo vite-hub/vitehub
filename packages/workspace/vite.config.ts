@@ -69,12 +69,12 @@ export default defineConfig({
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [key, value];
             }
+            const types = value.replace(/\.js$/, ".d.ts");
+            // drizzle-kit loads Database schemas through require(), and Database Definitions and contributed
+            // tables import workspaceHistorySchema from this subpath.
             return [
               key,
-              {
-                types: value.replace(/\.js$/, ".d.ts"),
-                import: value,
-              },
+              key === "./blob-database" ? { types, import: value, default: value } : { types, import: value },
             ];
           }),
         );

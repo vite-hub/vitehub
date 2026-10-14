@@ -49,7 +49,7 @@ Public Workspace paths reserve `.git` at any depth and `.vitehub` at the root, r
 
 ### Blob + Database Store
 
-Use this Store for immutable folder versions on hosts supported by [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts). Include its schema in a Database Definition, then generate and apply migrations through the Database integration.
+Use this Store for immutable folder versions on hosts supported by [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts). Include its schema in a Database Definition, then generate and apply migrations through the Database integration. For Content collections, the [CMS preset](/docs/content/cms-preset) adds this Store and its schema for you.
 
 ```ts [server/databases/history/config.ts]
 import { defineDatabase } from '@vite-hub/database'

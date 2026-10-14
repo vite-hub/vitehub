@@ -48,10 +48,11 @@ Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted So
 
 ```ts
 import { defineContent, documents } from "@vite-hub/content"
+import cms from "@vite-hub/content/presets/cms"
 import { z } from "zod"
 
 export const content = defineContent({
-  workspace: "site",
+  extends: cms,
   collections: {
     posts: documents({
       path: "posts/**/*.md",
@@ -68,5 +69,7 @@ await posts.status("hello") // { state: "draft", draft: saved.digest, published:
 await content.publish({ collection: "posts", ids: ["hello"] })
 await content.revisions("posts", "hello")
 ```
+
+`extends: cms` stores the collections without wiring. At build time `hubContent()` from `@vite-hub/content/vite` (included in `vitehub()`) reads the preset from `server/content.ts`, contributes a `content` Workspace on the Blob + Database Store, and adds `workspaceHistorySchema` to the default or only Database. Pass `[cms, { database, blob, workspace }]` with string literals to choose others. Workspace, Database, and Blob must be enabled; the build fails with `CONTENT_B0002` and names the setting otherwise. Without the preset, pass `workspace` with the name of a Workspace you define.
 
 Every save commits to the `draft` history ref; `publish()` copies selected documents to `published`. `/api/content/**` and the collection Comark instances serve only `published`. Content registers a `write:validate` Workspace plugin, so every Workspace writer is validated on the collection paths. Saves of different documents retry over each other; `ifDigest` rejects a save when the same document changed. The runtime methods are trusted server API; surfaces such as the Console and Agent Capability check `content.can()` first.

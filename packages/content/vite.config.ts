@@ -5,10 +5,10 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["@vite-hub/runtime", /^@vite-hub\/runtime\//, "@vite-hub/source", "@vite-hub/workspace", "comark-content", /^comark-content\//, "yaml"],
+      neverBundle: [/^@vite-hub\/(?:database|runtime|source|workspace)(?:\/|$)/, "comark-content", /^comark-content\//, "vite", "yaml"],
       onlyBundle: false,
     },
-    entry: ["src/client.ts", "src/index.ts"],
+    entry: ["src/client.ts", "src/index.ts", "src/presets/cms.ts", "src/vite.ts"],
     exports: {
       customExports(exports) {
         return Object.fromEntries(Object.entries(exports).map(([key, value]) => {

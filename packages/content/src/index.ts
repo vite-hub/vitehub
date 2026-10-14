@@ -16,6 +16,7 @@ import type { H3Event } from "h3"
 import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
 import { isDocumentsDefinition } from "./documents.ts"
+import { resolveContentPreset } from "./presets.ts"
 import type {
   ContentCollection,
   ContentCollectionsRuntime,
@@ -27,9 +28,11 @@ import type {
 } from "./collections.ts"
 import type { ContentSourceInput } from "./content-source.ts"
 import type { ContentFields, DocumentsDefinition } from "./documents.ts"
+import type { ContentPresetSelection } from "./presets.ts"
 export { contentSource } from "./content-source.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { documents, optional } from "./documents.ts"
+export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
 export type {
   ContentField,
   ContentFieldIssue,
@@ -137,6 +140,11 @@ export type DefineContentOptions<
   source?: ContentSourceInput
   /** Named read-only Sources. Each name becomes a Content instance. */
   sources?: Record<string, ContentSourceInput>
+  /**
+   * Preset that fills Definition options, such as `cms` from `vite-hub/content/presets/cms`, or `[preset, options]`.
+   * The `cms` preset sets `workspace`, so do not pass both.
+   */
+  extends?: ContentPresetSelection
   /** Workspace that stores `collections`. It needs retained history, such as the Blob + Database Store. */
   workspace?: string
   /** Editable document collections. Each name becomes a Content instance that serves the `published` ref. */
@@ -178,7 +186,11 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
-  const { source, sources, workspace, collections, authorize, ...sharedOptions } = options
+  const { source, sources, workspace: definedWorkspace, collections, authorize, extends: extension, ...sharedOptions } = options
+  if (extension !== undefined && definedWorkspace !== undefined) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options, such as extends: [cms, { workspace }]." })
+  }
+  const workspace = extension === undefined ? definedWorkspace : resolveContentPreset(extension).workspace
   if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
@@ -189,7 +201,7 @@ export function defineContent<
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires workspace: the name of a Workspace with retained history." })
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/content/presets/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
   const instances = Object.entries(inputs).map(([name, input]) => {

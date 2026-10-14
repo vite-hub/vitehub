@@ -130,6 +130,7 @@
     "./console/server": "./dist/console/server.js",
     "./content": "./dist/content.js",
     "./content/client": "./dist/content/client.js",
+    "./content/presets/cms": "./dist/content/presets/cms.js",
     "./database": "./dist/database.js",
     "./database/drizzle": "./dist/database/drizzle.js",
     "./doctor": "./dist/doctor.js",

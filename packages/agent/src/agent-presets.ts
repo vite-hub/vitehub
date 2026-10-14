@@ -1,3 +1,7 @@
+import { assertKnownPresetOptions, isPresetOptionsRecord, readPresetSelection } from "@vite-hub/internal/presets"
+
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+
 import type { AgentDefinition } from "./types.ts"
 
 /** Partial option overrides. Arrays, callbacks, and method-bearing values must be complete. */
@@ -17,8 +21,6 @@ type AgentPresetOptionValue<T> = T extends (...args: never[]) => unknown ? T
 export type ConfiguredAgentDefinition<TOptions extends object, TDefinition = AgentDefinition, TConfigKey extends string = never> = Omit<TDefinition, "options"> & {
   readonly options: Readonly<TOptions>
 } & ([TConfigKey] extends [never] ? {} : { readonly configKey: TConfigKey })
-
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 
 /** Resolve a local name before the normal Agent layer composition. */
 export function resolveNamedAgentPresetOptions(input: unknown): unknown {
@@ -42,10 +44,6 @@ export type AgentPresetConfig<TDefinition> = TDefinition extends { configKey: in
   ? { [K in TKey]?: AgentPresetOptions<TOptions> }
   : {}
 
-function presetOptionsRecord(value: unknown): value is Record<string, unknown> {
-  return isRuntimeRecord(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
-}
-
 /** Normalize module-style selection before ordinary Agent layer composition. */
 export function resolveAgentPresetExtension(
   input: unknown,
@@ -55,21 +53,15 @@ export function resolveAgentPresetExtension(
   const selected = resolveNamedAgentPresetOptions(input)
   if (!isRuntimeRecord(selected) || !("extends" in selected)) return selected
   const { extends: extension, ...overrides } = selected
-  let parent: unknown = extension
-  let tupleOptions: Record<string, unknown> | undefined
-  if (Array.isArray(extension)) {
-    if (extension.length !== 2 || !presetOptionsRecord(extension[1])) {
-      throw new TypeError("[vitehub] Agent extends tuple requires [preset, options] with an options object.")
-    }
-    parent = extension[0]
-    tupleOptions = extension[1]
-  }
+  const selection = readPresetSelection(extension, "Agent")
+  const tupleOptions = selection.options
+  let parent = selection.preset
   if (hasRuntimeType(parent, "string")) parent = resolve(parent)
   const configKey: unknown = parent && hasRuntimeType(parent, "object") ? Reflect.get(parent, "configKey") : undefined
   let namedOptions: Record<string, unknown> | undefined
   if (hasRuntimeType(configKey, "string") && Object.hasOwn(overrides, configKey)) {
     const value = overrides[configKey]
-    if (value !== undefined && !presetOptionsRecord(value)) throw new TypeError(`[vitehub] Agent ${configKey} options must be an object.`)
+    if (value !== undefined && !isPresetOptionsRecord(value)) throw new TypeError(`[vitehub] Agent ${configKey} options must be an object.`)
     namedOptions = value
     delete overrides[configKey]
   }
@@ -79,9 +71,7 @@ export function resolveAgentPresetExtension(
   const supplied = tupleOptions ? mergeOptions(namedOptions ?? {}, tupleOptions) : namedOptions
   if (supplied) {
     const defaults: unknown = parent && hasRuntimeType(parent, "object") ? Reflect.get(parent, "options") : undefined
-    if (isRuntimeRecord(defaults)) for (const key of Object.keys(supplied)) {
-      if (!Object.hasOwn(defaults, key)) throw new TypeError(`[vitehub] Unknown Agent ${hasRuntimeType(configKey, "string") ? configKey : "preset"} option "${key}".`)
-    }
+    assertKnownPresetOptions(defaults, supplied, `Agent ${hasRuntimeType(configKey, "string") ? configKey : "preset"}`)
     overrides.options = supplied
   }
   return { ...overrides, extends: parent }
