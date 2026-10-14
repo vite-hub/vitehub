@@ -336,6 +336,22 @@ function hasResponsePrototype(value: unknown): boolean {
           return true
         }
       })
+      // Undici exposes private-brand helpers on its constructor. Calling one
+      // against the candidate proves that its private response slots belong to
+      // that implementation; source text and accessor shape alone are forgeable.
+      let hasPrivateBrand = true
+      const getResponseHeaders = typeof constructor === "function"
+        ? Object.getOwnPropertyDescriptor(constructor, "getResponseHeaders")?.value
+        : undefined
+      if (typeof getResponseHeaders === "function") {
+        try {
+          const brandedHeaders = Reflect.apply(getResponseHeaders, constructor, [candidate])
+          hasPrivateBrand = brandedHeaders === Reflect.get(candidate, "headers")
+        }
+        catch {
+          hasPrivateBrand = false
+        }
+      }
       const isNativeConstructor = typeof constructor === "function"
         && constructor.name === "Response"
         && constructor.prototype === owner
@@ -352,7 +368,7 @@ function hasResponsePrototype(value: unknown): boolean {
             && constructorSource.includes("static getResponseHeaders")
             && constructorSource.includes("static setResponseHeaders"))
           )
-      if (isNativeConstructor && accessorsAreBranded) return true
+      if (isNativeConstructor && accessorsAreBranded && hasPrivateBrand) return true
       prototype = Object.getPrototypeOf(prototype)
     }
   }
