@@ -15,8 +15,7 @@ const currentPath = computed(() => normalizeDocsPath(route.path));
 const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
 const pageGroups = computed(() => {
   if (!section.value) return [];
-  const groups = getDocsSidebarGroups(section.value);
-  return groups;
+  return getDocsSidebarGroups(section.value);
 });
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
