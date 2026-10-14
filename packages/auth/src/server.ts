@@ -308,24 +308,23 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   }
 }
 
-function hasResponsePrototype(value: unknown): boolean {
+// Use accessors from the trusted runtime, never getters supplied by the value.
+// Web IDL accessors recognize native Response internal slots across realms;
+// implementations with private fields also reject objects that only copy the shape.
+const authorizationResponseGetters = authorizationResponseProperties.map(key =>
+  Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+
+function hasResponseBrand(value: object): boolean {
   try {
-    let prototype: object | null = Object.getPrototypeOf(Object(value))
-    const seen = new Set<object>()
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
-      seen.add(prototype)
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      const owner = prototype
-      if (constructor?.name === "Response"
-        && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
-      prototype = Object.getPrototypeOf(prototype)
-    }
+    return authorizationResponseGetters.every(getter => {
+      if (!getter) return false
+      Reflect.apply(getter, value, [])
+      return true
+    })
   }
   catch {
     return false
   }
-  return false
 }
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
@@ -384,7 +383,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
   if (value === null || Object(value) !== value) return
   try {
     const candidate = Object(value)
-    if (!hasResponsePrototype(candidate)) return
+    if (!hasResponseBrand(candidate)) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
