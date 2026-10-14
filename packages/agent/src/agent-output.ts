@@ -695,17 +695,20 @@ export function toAgentStreamEvent(
   return undefined
 }
 
+const nativeErrorIsError = Reflect.get(Error, "isError")
+
 function crossRealmStreamError(error: unknown): { message: string; value: object } | undefined {
   if (error === null || typeof error !== "object") return
   try {
-    const nativeIsError: unknown = Reflect.get(Error, "isError")
+    const currentIsError: unknown = Reflect.get(Error, "isError")
+    const nativeIsError = hasRuntimeType(currentIsError, "function") ? currentIsError : nativeErrorIsError
     const branded = hasRuntimeType(nativeIsError, "function")
       ? nativeIsError(error) === true
-      : error instanceof Error || (
+      : ((error instanceof Error && isNativeErrorShape(error)) || (
         Reflect.getPrototypeOf(error) !== Error.prototype
         && !(Symbol.toStringTag in error)
         && Object.prototype.toString.call(error) === "[object Error]"
-      )
+      ))
     if (!branded) return
     return { message: String(Reflect.get(error, "message")), value: error }
   }
@@ -714,12 +717,24 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
   }
 }
 
+function isNativeErrorShape(error: object): boolean {
+  try {
+    const stack = Reflect.getOwnPropertyDescriptor(error, "stack")?.value
+    const message = Reflect.getOwnPropertyDescriptor(error, "message")?.value
+    return hasRuntimeType(stack, "string") && hasRuntimeType(message, "string")
+      && stack.includes("\n") && stack.includes("    at ")
+  }
+  catch {
+    return false
+  }
+}
+
 function safeStreamErrorString(error: unknown): string {
   try {
     const value = error || "Unknown error"
     const text = String(value)
     if (text === "Error" && hasRuntimeType(value, "object") && value !== null
-      && Object.prototype.toString.call(value) === "[object Object]") {
+      && Reflect.getPrototypeOf(value) === Error.prototype) {
       return "[object Object]"
     }
     return text
