@@ -133,7 +133,8 @@ describe("Blob reference schemas", () => {
   })
 
   it("emits JSON Schema with an x-vitehub-blob hint", () => {
-    expect(image()["~standard"].jsonSchema.input({ target: "draft-2020-12" })).toEqual({
+    const schema = image()["~standard"].jsonSchema.input({ target: "draft-2020-12" })
+    expect(schema).toMatchObject({
       type: "object",
       properties: {
         pathname: { type: "string", minLength: 1, description: "Pathname in the Blob Store." },
@@ -143,6 +144,18 @@ describe("Blob reference schemas", () => {
       required: ["pathname", "contentType"],
       "x-vitehub-blob": { kind: "image", store: "default", accept: ["image/*"] },
     })
+    const properties = (schema as { properties: { pathname: { pattern: string }, contentType: { pattern: string } } }).properties
+    const pathname = new RegExp(properties.pathname.pattern)
+    expect(pathname.test("posts/cover.png")).toBe(true)
+    expect(pathname.test("posts/../secrets.txt")).toBe(false)
+    expect(pathname.test("_VITEHUB")).toBe(false)
+    const contentType = new RegExp(properties.contentType.pattern)
+    expect(contentType.test("Image/SVG+XML; charset=utf-8")).toBe(true)
+    expect(contentType.test("application/pdf")).toBe(false)
+    const svg = file({ accept: "image/svg+xml" })
+    const svgPattern = (svg["~standard"].jsonSchema.input({ target: "draft-07" }) as { properties: { contentType: { pattern: string } } }).properties.contentType.pattern
+    expect(new RegExp(svgPattern).test("image/svg+xml; charset=utf-8")).toBe(true)
+    expect(new RegExp(svgPattern).test("image/svgxml")).toBe(false)
   })
 
   it("carries store, accept, and maxSize into the hint and output schema", () => {
