@@ -430,13 +430,13 @@ const menuItems = computed(() => [[
       class="m-4"
       color="error"
       variant="subtle"
-      icon="i-ph-cloud-slash-light"
+      icon="i-lucide-cloud-off"
       title="Could not open this document"
       :description="consoleErrorMessage(loadError)"
-      :actions="[{ label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: load }]"
+      :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: load }]"
     />
     <div v-else-if="loading" class="flex h-full items-center justify-center">
-      <UIcon name="i-ph-circle-notch-light" class="size-4 animate-spin text-muted" />
+      <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
     </div>
     <UEmpty
       v-else-if="missing"
@@ -552,7 +552,7 @@ const menuItems = computed(() => [[
           <p class="text-sm font-medium text-highlighted">{{ revisionLabel(preview.revision) }} {{ formatTime(preview.revision.createdAt) }}</p>
           <p class="text-xs text-muted">Compared with the saved draft.</p>
         </div>
-        <div v-if="previewLoading" class="flex justify-center py-8"><UIcon name="i-ph-circle-notch-light" class="size-4 animate-spin text-muted" /></div>
+        <div v-if="previewLoading" class="flex justify-center py-8"><UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" /></div>
         <p v-else-if="!preview.document" class="text-xs text-muted">The document does not exist in this revision.</p>
         <template v-else>
           <ConsoleDocumentDiff :before="preview.current?.text ?? null" :after="preview.document.text" :name="`${id}.md`" />

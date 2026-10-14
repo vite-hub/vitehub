@@ -65,8 +65,8 @@ defineProps<{
   background: transparent;
   box-shadow: none;
   color: var(--ui-text-dimmed);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
   min-width: 0;
   padding-inline: 0.0625rem;
   transition: color 150ms ease;

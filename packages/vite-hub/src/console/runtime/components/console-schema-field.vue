@@ -218,7 +218,7 @@ function updateChild(name: string, value: unknown): void {
       <UIcon :name="blob.kind === 'Image' ? 'i-lucide-image' : 'i-lucide-paperclip'" class="size-4 shrink-0 text-muted" />
       <div class="min-w-0 flex-1">
         <p class="truncate font-mono text-xs text-highlighted">{{ blob.pathname || `No ${blob.kind.toLowerCase()}` }}</p>
-        <p :id="`${inputId}-blob`" class="truncate text-[11px] text-muted">
+        <p :id="`${inputId}-blob`" class="truncate text-xs text-muted">
           <template v-if="blob.pathname">{{ [blob.contentType, blob.size === undefined ? '' : formatBytes(blob.size), `Blob store ${blob.store}`].filter(Boolean).join(" · ") }}</template>
           <template v-else>Blob store {{ blob.store }}. Choosing media from the Console is not available yet.</template>
         </p>

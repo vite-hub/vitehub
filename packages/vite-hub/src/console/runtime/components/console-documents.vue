@@ -105,7 +105,7 @@ watch(section, () => {
         <div v-if="!collapsed" class="vitehub-console__panel-title">
           <span class="min-w-0 flex-1 truncate">{{ details.label }}</span>
           <UTooltip text="Reload collections">
-            <UButton aria-label="Reload collections" color="neutral" icon="i-ph-arrows-clockwise-light" size="xs" variant="ghost" :loading="loading" @click="loadCollections" />
+            <UButton aria-label="Reload collections" color="neutral" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading" @click="loadCollections" />
           </UTooltip>
         </div>
       </template>
@@ -115,10 +115,10 @@ watch(section, () => {
           <UAlert
             color="error"
             variant="subtle"
-            icon="i-ph-cloud-slash-light"
+            icon="i-lucide-cloud-off"
             title="Could not load collections"
             :description="consoleErrorMessage(error)"
-            :actions="[{ label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadCollections }]"
+            :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadCollections }]"
           />
         </div>
         <div v-else-if="loading && !collections.length" class="grid gap-2 px-3">
@@ -188,7 +188,7 @@ watch(section, () => {
       <template v-else>
         <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :title="details.label" />
         <div class="flex min-h-0 flex-1 items-center justify-center">
-          <UIcon v-if="loading" name="i-ph-circle-notch-light" class="size-4 animate-spin text-muted" />
+          <UIcon v-if="loading" name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
           <UEmpty
             v-else
             :icon="details.icon"

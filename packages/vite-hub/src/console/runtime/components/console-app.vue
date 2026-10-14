@@ -245,7 +245,7 @@ const searchActions = computed<CommandPaletteItem[]>(() =>
   newChatTargetName.value
     ? [{
         description: `Start a session with ${newChatTargetName.value}`,
-        icon: "i-ph-note-pencil-light",
+        icon: "i-lucide-square-pen",
         label: "New chat",
         onSelect: () => void startNewChat(),
       }]
@@ -972,7 +972,7 @@ onBeforeUnmount(() => {
             <UButton
               aria-label="New chat"
               color="neutral"
-              icon="i-ph-note-pencil-light"
+              icon="i-lucide-square-pen"
               size="xs"
               square
               variant="ghost"
@@ -987,15 +987,15 @@ onBeforeUnmount(() => {
             <UButton
               aria-label="Filter sessions"
               :color="activeFilterCount ? 'primary' : 'neutral'"
-              icon="i-ph-funnel-light"
+              icon="i-lucide-funnel"
               size="xs"
               square
               :variant="activeFilterCount ? 'soft' : 'ghost'"
             />
             <template #content>
               <div class="flex items-center gap-2 border-b border-default px-3 py-2">
-                <UIcon name="i-ph-funnel-light" class="size-4 shrink-0 text-muted" />
-                <p class="min-w-0 flex-1 truncate text-[11px] font-medium uppercase tracking-[.08em] text-muted">
+                <UIcon name="i-lucide-funnel" class="size-4 shrink-0 text-muted" />
+                <p class="min-w-0 flex-1 truncate text-xs font-medium text-muted">
                   Filter sessions
                 </p>
                 <UBadge
@@ -1073,11 +1073,11 @@ onBeforeUnmount(() => {
           <UAlert
             color="error"
             variant="subtle"
-            icon="i-ph-cloud-slash-light"
+            icon="i-lucide-cloud-off"
             title="Could not load agents"
             :description="errorMessage(agentsError)"
             :actions="[
-              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadAgents },
+              { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadAgents },
             ]"
           />
         </div>
@@ -1144,7 +1144,7 @@ onBeforeUnmount(() => {
           <UAlert
             color="error"
             variant="subtle"
-            icon="i-ph-cloud-slash-light"
+            icon="i-lucide-cloud-off"
             title="Could not load sessions"
             :description="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
             :actions="
@@ -1152,7 +1152,7 @@ onBeforeUnmount(() => {
                 ? [
                     {
                       label: 'Try again',
-                      icon: 'i-ph-arrows-clockwise-light',
+                      icon: 'i-lucide-refresh-cw',
                       onClick: list.refresh,
                     },
                   ]
@@ -1223,7 +1223,7 @@ onBeforeUnmount(() => {
           <template #empty
             ><UEmpty
               class="px-4"
-              icon="i-ph-chat-dots-light"
+              icon="i-lucide-message-square-more"
               :title="activeFilterCount ? 'No matching sessions' : 'No sessions yet'"
               :description="activeFilterCount ? undefined : 'The first Agent Invocation will appear here.'"
               :actions="activeFilterCount ? [{ label: 'Clear filters', onClick: resetSessionFilters }] : undefined"
@@ -1345,11 +1345,11 @@ onBeforeUnmount(() => {
                   class="m-3 shrink-0"
                   color="error"
                   variant="subtle"
-                  icon="i-ph-cloud-slash-light"
+                  icon="i-lucide-cloud-off"
                   title="Could not refresh this session"
                   :description="errorMessage(detail.error.value)"
                   :actions="[
-                    { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                    { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
                   ]"
                 />
                 <ConsoleSessionLoading
@@ -1359,11 +1359,11 @@ onBeforeUnmount(() => {
                 <UEmpty
                   v-else-if="errorMessage(detail.error.value) && !invocationView"
                   class="min-h-0 flex-1"
-                  icon="i-ph-cloud-slash-light"
+                  icon="i-lucide-cloud-off"
                   title="Could not load this session"
                   :description="errorMessage(detail.error.value)"
                   :actions="[
-                    { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                    { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
                   ]"
                 />
                 <AgentInvocation
@@ -1454,11 +1454,11 @@ onBeforeUnmount(() => {
             <UEmpty
               v-else-if="errorMessage(detail.error.value) && !invocationView"
               class="min-h-0 flex-1"
-              icon="i-ph-cloud-slash-light"
+              icon="i-lucide-cloud-off"
               title="Could not load this session"
               :description="errorMessage(detail.error.value)"
               :actions="[
-                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
               ]"
             />
             <ConsoleSessionLoading
@@ -1471,11 +1471,11 @@ onBeforeUnmount(() => {
                 class="m-3 shrink-0"
                 color="error"
                 variant="subtle"
-                icon="i-ph-cloud-slash-light"
+                icon="i-lucide-cloud-off"
                 title="Could not refresh this session"
                 :description="errorMessage(detail.error.value)"
                 :actions="[
-                  { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
+                  { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
                 ]"
               />
               <AgentInvocation
@@ -1607,7 +1607,7 @@ button.vitehub-console__section-label:hover {
 
 .vitehub-console__section-count {
   color: var(--ui-text-dimmed);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   text-transform: none;
