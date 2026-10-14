@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createServer } from "node:http"
-import { Readable } from "node:stream"
 import { runInNewContext } from "node:vm"
 
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -738,7 +737,7 @@ describe("vercel provider", () => {
       new Request("https://queue.example.test/callback", { method: "POST", body: "payload" })
     `, { Request: ForeignRequest }) as Request
     expect(request.constructor).not.toBe(Request)
-    expect(Object.getPrototypeOf(request)).not.toBe(Request.prototype)
+    expect(Object.getPrototypeOf(request) === Request.prototype).toBe(false)
     expect(request).not.toBeInstanceOf(Request)
     if (state === "consumed") await request.text()
     const reader = state === "locked" ? request.body?.getReader() : undefined
@@ -774,19 +773,23 @@ describe("vercel provider", () => {
     setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
-    const h3Request = Object.assign(Readable.from(["payload"]), {
-      headers: new Headers(),
+    const h3Request = new Request("https://queue.example.test/callback", {
+      headers: { "content-type": "text/plain" },
       method: "POST",
-      url: "/callback",
-      text: async () => "payload",
+      body: "payload",
     })
     await expect(handleHostedVercelQueueCallback({
       method: "POST",
-      node: { req: h3Request },
+      req: h3Request,
       request,
     } as never, "welcome", definition)).resolves.toBe("handled")
     expect(captured).not.toBe(request)
     expect(captured).toBeInstanceOf(Request)
+    const normalized = captured as Request
+    expect(normalized.url).toBe(h3Request.url)
+    expect(normalized.method).toBe("POST")
+    expect(normalized.headers.get("content-type")).toBe("text/plain")
+    expect(await normalized.text()).toBe("payload")
   })
 
   it("requires a selected client factory for default manual servers", () => {

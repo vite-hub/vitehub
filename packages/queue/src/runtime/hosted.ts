@@ -29,8 +29,11 @@ function isRequestLike(value: unknown): value is Request {
   // Check the Fetch interface without cloning, locking, or consuming its body.
   // This is input normalization for host-provided values, not authentication.
   try {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the Fetch interface at the hosted adapter boundary; foreign implementations do not share host private slots.
     return "url" in value && typeof value.url === "string"
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the Fetch interface at the hosted adapter boundary.
       && "method" in value && typeof value.method === "string"
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the Fetch interface at the hosted adapter boundary.
       && "headers" in value && value.headers !== null && typeof value.headers === "object"
       && "get" in value.headers && typeof value.headers.get === "function"
       && "entries" in value.headers && typeof value.headers.entries === "function"
