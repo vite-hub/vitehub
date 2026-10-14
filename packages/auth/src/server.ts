@@ -290,11 +290,18 @@ function isResponseLike(value: unknown): value is Response {
     const response = value as Response
     // Use the response's own realm intrinsics so native responses from another
     // realm pass the brand checks without touching their body state.
-    const responsePrototype = Object.getPrototypeOf(response)
-    const body = Object.getOwnPropertyDescriptor(responsePrototype, "body")?.get
-    const statusGetter = Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
-    const statusTextGetter = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get
-    const headersGetter = Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
+    let responsePrototype: object | null = Object.getPrototypeOf(response)
+    let body: (() => unknown) | undefined
+    let statusGetter: (() => unknown) | undefined
+    let statusTextGetter: (() => unknown) | undefined
+    let headersGetter: (() => unknown) | undefined
+    while (responsePrototype) {
+      body ??= Object.getOwnPropertyDescriptor(responsePrototype, "body")?.get
+      statusGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
+      statusTextGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get
+      headersGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
+      responsePrototype = Object.getPrototypeOf(responsePrototype)
+    }
     if (!body || !statusGetter || !statusTextGetter || !headersGetter) return false
     body.call(response)
     const status = statusGetter.call(response)

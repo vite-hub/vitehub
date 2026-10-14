@@ -10,6 +10,10 @@ Use this page to add ViteHub to an existing Vite or Nuxt application. Install
 `vite-hub` when you build an application. It provides the Vite integration, the
 Nuxt module, the CLI, and every public feature import through one dependency.
 
+The first-success tutorials use a minimal Vite and H3 server, so they do not
+install Nitro. Use the Nitro setup below when you deploy through Nitro or a
+host preset that needs Nitro's server output.
+
 ## Prerequisites
 
 - Node.js 24.15 or newer.
