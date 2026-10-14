@@ -1,7 +1,7 @@
 import {
   decodeSandboxValue,
   DEFAULT_SANDBOX_TRANSFER_LIMITS,
-  encodeSandboxValue,
+  encodeSandboxValueStaged,
   type SandboxTransferLimits,
 } from './binary-sidecars'
 import { sandboxError } from '../sandbox/errors'
@@ -96,7 +96,7 @@ async function executeSandboxDefinitionOnce<TPayload>(
     throwIfAborted()
     let inputJson: string | undefined
     if (bundle.project) {
-      const encoded = await encodeSandboxValue(
+      const encoded = await encodeSandboxValueStaged(
         sandbox,
         { payload, context },
         files.inputAssetsDir,
@@ -112,7 +112,7 @@ async function executeSandboxDefinitionOnce<TPayload>(
       timeout: definitionOptions?.timeout,
     })
     if (!inputJson) {
-      const encoded = await encodeSandboxValue(
+      const encoded = await encodeSandboxValueStaged(
         sandbox,
         { payload, context },
         files.inputAssetsDir,

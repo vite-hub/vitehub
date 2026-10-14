@@ -83,7 +83,7 @@ function transferLimitError(label: string, limit: string, value: number, maximum
   })
 }
 
-export async function encodeSandboxValue(
+export async function encodeSandboxValueStaged(
   sandbox: SandboxExecutionBox,
   value: unknown,
   assetsDir: string,
@@ -183,6 +183,20 @@ export async function encodeSandboxValue(
       await Promise.all(state.pendingWrites.map(({ id, bytes }) => abortable(sandbox.files.write(`${assetsDir}/${id}`, bytes, { signal }))))
     },
   } satisfies EncodedSandboxValue
+}
+
+/** Encode a value and persist its binary sidecars immediately. */
+export async function encodeSandboxValue(
+  sandbox: SandboxExecutionBox,
+  value: unknown,
+  assetsDir: string,
+  label: string,
+  signal?: AbortSignal,
+  limits: SandboxTransferLimits = DEFAULT_SANDBOX_TRANSFER_LIMITS,
+) {
+  const encoded = await encodeSandboxValueStaged(sandbox, value, assetsDir, label, signal, limits)
+  await encoded.writeSidecars()
+  return encoded.value
 }
 
 export async function decodeSandboxValue(
