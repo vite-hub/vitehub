@@ -4146,7 +4146,7 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
     adapters: { [adapterName]: adapter },
     // Steering must reach the running provider instead of waiting in Chat SDK's queue.
     // With debounceMs, a burst of messages first starts one handler with the earlier messages as skipped context.
-    concurrency: concurrency === "steer" && isRuntimeNumber(debounceMs) && Number.isFinite(debounceMs) && debounceMs > 0
+    concurrency: concurrency === "steer" && isRuntimeNumber(debounceMs) && Number.isFinite(debounceMs) && debounceMs >= 0
       ? { debounceMs, strategy: "burst" }
       : concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
