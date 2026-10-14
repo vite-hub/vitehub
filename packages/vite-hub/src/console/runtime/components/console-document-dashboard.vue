@@ -15,6 +15,7 @@ import { publishConsoleDocumentChanges } from "../client/publish";
 import { useConsoleToast } from "../client/toast";
 import { resolveConsoleRouteName } from "../console-route";
 import { consoleSectionRouteName } from "../sections";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleStatus from "./console-status.vue";
 
@@ -137,10 +138,7 @@ async function publishAll(): Promise<void> {
 </script>
 
 <template>
-  <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-2' }" :toggle="{ 'aria-label': 'Open section navigation' }">
-    <template #title>
-      <span class="truncate text-sm font-semibold text-highlighted">{{ label }}</span>
-    </template>
+  <ConsolePageHeader :title="label">
     <template #right>
       <UPopover v-if="canPublishAny && publishable.length" v-model:open="publishOpen">
         <UButton size="sm" label="Publish" :loading="publishing" :aria-label="`Publish ${publishable.length} ${publishable.length === 1 ? 'change' : 'changes'}`">
@@ -161,7 +159,7 @@ async function publishAll(): Promise<void> {
         </template>
       </UPopover>
     </template>
-  </UDashboardNavbar>
+  </ConsolePageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
     <div class="mx-auto grid max-w-5xl gap-8 px-4 py-6 sm:px-6">
@@ -210,13 +208,14 @@ async function publishAll(): Promise<void> {
               <li v-for="entry in pending.slice(0, 12)" :key="`${entry.collection.name}/${entry.change.id}`">
                 <RouterLink
                   :to="entry.change.state === 'deleted' ? collectionRoute(entry.collection.name) : documentRoute(entry.collection.name, entry.change.id)"
-                  class="flex h-11 min-w-0 items-center gap-3 px-3 hover:bg-elevated/60 focus-visible:outline-2 focus-visible:-outline-offset-2"
+                  class="vitehub-dashboard-row"
                 >
-                  <ConsoleStatus class="w-20 shrink-0" :tone="consoleDocumentStateColor(entry.change.state)" :label="consoleDocumentStateLabel(entry.change.state)" />
-                  <span class="min-w-0 flex-1 truncate text-sm text-highlighted" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': entry.change.state === 'deleted' }">{{ entry.change.title }}</span>
-                  <span class="hidden shrink-0 text-xs text-dimmed sm:inline">{{ entry.collection.label }}</span>
-                  <span class="w-16 shrink-0 whitespace-nowrap text-right text-xs text-muted">
+                  <ConsoleStatus class="vitehub-dashboard-row__status" :tone="consoleDocumentStateColor(entry.change.state)" :label="consoleDocumentStateLabel(entry.change.state)" />
+                  <span class="vitehub-dashboard-row__title" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': entry.change.state === 'deleted' }">{{ entry.change.title }}</span>
+                  <span class="vitehub-dashboard-row__meta">{{ entry.collection.label }}</span>
+                  <span class="vitehub-dashboard-row__time">
                     <ConsoleRelativeTime v-if="entry.change.updatedAt" :value="entry.change.updatedAt" />
+                    <span v-else aria-hidden="true">—</span>
                   </span>
                 </RouterLink>
               </li>
@@ -233,13 +232,13 @@ async function publishAll(): Promise<void> {
               <li v-for="entry in scheduled.slice(0, 12)" :key="`${entry.collection.name}/${entry.item.id}`">
                 <RouterLink
                   :to="documentRoute(entry.collection.name, entry.item.id)"
-                  class="flex h-11 min-w-0 items-center gap-3 px-3 hover:bg-elevated/60 focus-visible:outline-2 focus-visible:-outline-offset-2"
+                  class="vitehub-dashboard-row"
                   :title="entry.item.schedule.failure"
                 >
-                  <ConsoleStatus class="w-20 shrink-0" :tone="consoleDocumentScheduleTone(entry.item.schedule)" :label="scheduleStatus[entry.item.schedule.status]" />
-                  <span class="min-w-0 flex-1 truncate text-sm text-highlighted">{{ entry.item.title }}</span>
-                  <span class="hidden shrink-0 text-xs text-dimmed sm:inline">{{ entry.collection.label }}</span>
-                  <time class="shrink-0 whitespace-nowrap text-right text-xs text-muted tabular-nums" :datetime="entry.item.schedule.at">{{ scheduleTime(entry.item.schedule.at) }}</time>
+                  <ConsoleStatus class="vitehub-dashboard-row__status" :tone="consoleDocumentScheduleTone(entry.item.schedule)" :label="scheduleStatus[entry.item.schedule.status]" />
+                  <span class="vitehub-dashboard-row__title">{{ entry.item.title }}</span>
+                  <span class="vitehub-dashboard-row__meta">{{ entry.collection.label }}</span>
+                  <time class="vitehub-dashboard-row__time" :datetime="entry.item.schedule.at">{{ scheduleTime(entry.item.schedule.at) }}</time>
                 </RouterLink>
               </li>
             </ul>
@@ -283,7 +282,7 @@ async function publishAll(): Promise<void> {
           <p v-else-if="!overview?.activity.length" class="text-xs text-muted">Saves and publishes show here.</p>
           <ol v-else class="grid gap-3">
             <li v-for="entry in overview.activity" :key="entry.id" class="grid gap-0.5">
-              <p class="min-w-0 text-[13px] text-muted">
+              <p class="line-clamp-2 min-w-0 text-[13px] text-muted">
                 <span class="font-medium text-highlighted">{{ entry.author ?? "Someone" }}</span>
                 {{ activityVerb(entry) }}
                 <template v-if="entry.documents.length === 1">
@@ -308,3 +307,70 @@ async function publishAll(): Promise<void> {
     </div>
   </div>
 </template>
+
+<style>
+/*
+ * A row of the dashboard lists: status, title, collection, and time on one 44px line on wide screens. On a phone the
+ * title takes the first line and the rest follows on a quiet second line, so titles are not cut to a few letters.
+ */
+.vitehub-dashboard-row {
+  align-items: center;
+  column-gap: 0.75rem;
+  display: grid;
+  grid-template-areas: "title title time" "status meta meta";
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 2.75rem;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  row-gap: 0.125rem;
+}
+
+.vitehub-dashboard-row:hover {
+  background: color-mix(in oklab, var(--ui-bg-elevated) 60%, transparent);
+}
+
+.vitehub-dashboard-row:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: -2px;
+}
+
+.vitehub-dashboard-row__status { grid-area: status; }
+
+.vitehub-dashboard-row__title {
+  color: var(--ui-text-highlighted);
+  font-size: 0.875rem;
+  grid-area: title;
+  line-height: 1.25rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vitehub-dashboard-row__meta {
+  color: var(--ui-text-dimmed);
+  font-size: 0.75rem;
+  grid-area: meta;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vitehub-dashboard-row__time {
+  color: var(--ui-text-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  grid-area: time;
+  text-align: end;
+  white-space: nowrap;
+}
+
+@media (min-width: 640px) {
+  .vitehub-dashboard-row {
+    grid-template-areas: "status title meta time";
+    grid-template-columns: 5rem minmax(0, 1fr) auto 6rem;
+    padding-block: 0;
+  }
+}
+</style>
