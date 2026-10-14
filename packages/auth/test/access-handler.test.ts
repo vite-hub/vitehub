@@ -109,9 +109,9 @@ describe("Auth access handlers", () => {
       get status() { return 409 }
       get statusText() { return "Conflict" }
       get headers() {
-        const headers = [["set-cookie", "policy=denied"], ["x-policy", "rejected"]]
-        headers.get = (name) => headers.find(([key]) => key === name.toLowerCase())?.[1] ?? null
-        headers.forEach = (callback) => headers.forEach(([value, key]) => callback(value, key, headers))
+        const headers = new Map([["set-cookie", "policy=denied"], ["x-policy", "rejected"]])
+        const get = headers.get.bind(headers)
+        headers.get = (name) => get(name.toLowerCase()) ?? null
         return headers
       }
       get body() { return { getReader() { return {} } } }
