@@ -42,8 +42,7 @@ try {
     if (status === "drained") process.exit(0)
     if (status === "accepting" && !signalAttempted) {
       // A denied signal still leaves the status endpoint as the source of truth.
-      signalProcess(pid)
-      signalAttempted = true
+      signalAttempted = signalProcess(pid) === "signaled"
     }
     await new Promise(resolve => setTimeout(resolve, 1_000))
   }
