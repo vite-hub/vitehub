@@ -460,7 +460,12 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
           const probeReader = Reflect.apply(descriptor.value, probeStream, []) as object
           if (!hasNativeAuthorizationReaderPrototype(probeReader)) return
           const probeRelease = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(probeReader), "releaseLock")?.value
-          if (typeof probeRelease === "function") Reflect.apply(probeRelease, probeReader, [])
+          if (typeof probeRelease !== "function") return
+          Reflect.apply(probeRelease, probeReader, [])
+          // A spoofed method can imitate the native source text while doing
+          // nothing. Verify the intrinsic operation actually releases the
+          // probe lock before allowing a source reader to be acquired.
+          if (probeStream.locked) return
           return descriptor.value
         }
         return
