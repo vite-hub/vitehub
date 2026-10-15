@@ -1,5 +1,5 @@
 import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
-import { existsSync } from "node:fs"
+import { existsSync, watch as watchFs, type FSWatcher } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -147,6 +147,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
       const contributionDirectories = new Set<string>()
+      const contributionWatchers = new Map<string, FSWatcher>()
       const require = createRequire(pathToFileURL(resolve(root, "package.json")))
       const definitionDirectories = new Set([
         ...(serverDirs ?? [resolve(root, "server")]).map(directory => resolve(directory, "databases")),
@@ -172,6 +173,21 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             }
           }
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles, ...contributionDirectories])]
+          // Nuxt's builder ignores node_modules, so also watch contribution packages directly.
+          for (const directory of contributionDirectories) {
+            if (contributionWatchers.has(directory)) continue
+            try {
+              contributionWatchers.set(directory, watchFs(directory, { recursive: true }, () => { void refreshLocalRuntime() }))
+            }
+            catch {
+              try {
+                contributionWatchers.set(directory, watchFs(directory, () => { void refreshLocalRuntime() }))
+              }
+              catch {
+                // The Nuxt watch list remains the fallback when native watching is unavailable.
+              }
+            }
+          }
         }
         const queued = localRuntimeRefresh.then(refresh, refresh)
         localRuntimeRefresh = queued
