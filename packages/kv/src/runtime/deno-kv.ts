@@ -91,10 +91,12 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       }
     },
     async dispose() {
-      if (!kvPromise) return
-      const kv = await kvPromise
-      kv.close?.()
-      kvPromise = undefined
+      cursorHistories.clear()
+      if (kvPromise) {
+        const kv = await kvPromise
+        kv.close?.()
+        kvPromise = undefined
+      }
     },
     async getItem(key) {
       const entry = await (await open()).get(toDenoKey(key))

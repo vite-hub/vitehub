@@ -32,6 +32,7 @@ const continuations = new Map<string, Continuation>()
 
 /** Keeps continuation history tied to an opaque, traversal-owned token. */
 export function createCursorHistory() {
+  const ownedContinuations = new Set<string>()
   function take(cursor: string): Continuation {
     const continuation = continuations.get(cursor)
     if (!continuation) {
@@ -42,22 +43,30 @@ export function createCursorHistory() {
       return { providerCursor: cursor, history: new Set([cursor]) }
     }
     continuations.delete(cursor)
+    ownedContinuations.delete(cursor)
     return continuation
   }
   function store(providerCursor: string, history: CursorHistory): string {
     const token = encodeContinuation(providerCursor, history)
     continuations.set(token, { providerCursor, history })
+    ownedContinuations.add(token)
     while (continuations.size > MAX_CURSOR_HISTORIES) {
       const oldest = continuations.keys().next().value as string | undefined
       if (oldest === undefined) break
       continuations.delete(oldest)
+      ownedContinuations.delete(oldest)
     }
     return token
   }
   function restore(cursor: string, continuation: Continuation): void {
     continuations.set(cursor, continuation)
+    ownedContinuations.add(cursor)
   }
-  return { take, store, restore }
+  function clear(): void {
+    for (const token of ownedContinuations) continuations.delete(token)
+    ownedContinuations.clear()
+  }
+  return { take, store, restore, clear }
 }
 
 /** Records a provider cursor, refusing to weaken repeat detection at the bound. */
