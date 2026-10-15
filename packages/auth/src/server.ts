@@ -1,7 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 import { Response as UndiciResponse } from "undici"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -322,6 +321,19 @@ function hasResponsePrototype(value: unknown): boolean {
       // and static methods can all be reproduced by user code.
       if ((constructor === Response || constructor === UndiciResponse)
         && prototype === constructor.prototype) return true
+      // Native Response implementations from another realm have different
+      // constructor identities. Their constructor and Web IDL accessors are
+      // still intrinsic native functions, which user-defined spoofs cannot
+      // reproduce through source text or prototype metadata alone.
+      if (typeof constructor === "function" && constructor.name === "Response"
+        && Function.prototype.toString.call(constructor).includes("[native code]")) {
+        const nativeAccessors = authorizationResponseProperties.every(key => {
+          const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+          return typeof descriptor?.get === "function"
+            && Function.prototype.toString.call(descriptor.get).includes("[native code]")
+        })
+        if (nativeAccessors && prototype === constructor.prototype) return true
+      }
       prototype = Object.getPrototypeOf(prototype)
     }
   }
@@ -445,7 +457,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }
   }
   catch {
-    return
+    return undefined
   }
 }
 
