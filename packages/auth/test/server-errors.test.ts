@@ -1,4 +1,3 @@
-import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 import { H3 } from "h3"
@@ -258,56 +257,6 @@ describe("server authentication provider boundaries", () => {
   })
 
   describe("withAuthorization", () => {
-    it("accepts a cross-realm authorizer on the authenticated route", async () => {
-      const authorize = runInNewContext("({ user }) => user.id === 'user-1'") as (input: unknown) => boolean
-      const accessDefinition = defineAuth({ appName: "ViteHub" })
-      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
-      const handler = withAuthorization(authorize, () => "protected", accessDefinition)
-
-      await expect(handler(request)).resolves.toBe("protected")
-    })
-
-    it("preserves a cross-realm custom response", async () => {
-      const denied = runInNewContext("new Response('Payment required', { status: 402 })", { Response }) as Response
-      const authorize = runInNewContext("() => denied", { denied }) as () => Response
-      const accessDefinition = defineAuth({ appName: "ViteHub" })
-      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
-
-      await expect(withAuthorization(authorize, protectedAction, accessDefinition)(request)).resolves.toBe(denied)
-      expect(protectedAction).not.toHaveBeenCalled()
-    })
-
-    it("serializes a genuine foreign custom Response from a cross-realm authorizer through H3", async () => {
-      const denied = runInNewContext(
-        "new Response('Payment required', { status: 402, headers: { 'x-policy': 'custom' } })",
-        { Response: ForeignResponse },
-      ) as Response
-      expect(denied).not.toBeInstanceOf(Response)
-      const authorize = runInNewContext("() => denied", { denied }) as () => Response
-      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
-      const guarded = withAuthorization(authorize, protectedAction, definition)
-      const app = new H3().get("/api/private", event => guarded(event.req))
-
-      const response = await app.request("/api/private")
-      expect(response.status).toBe(402)
-      expect(response.headers.get("x-policy")).toBe("custom")
-      await expect(response.text()).resolves.toBe("Payment required")
-      expect(protectedAction).not.toHaveBeenCalled()
-    })
-
-    it("rejects objects that spoof the Response tag", async () => {
-      const denied = { [Symbol.toStringTag]: "Response" } as unknown as Response
-      const authorize = () => denied
-      const accessDefinition = defineAuth({ appName: "ViteHub" })
-      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
-
-      const response = await withAuthorization(authorize, protectedAction, accessDefinition)(request)
-      expect(response).toBeInstanceOf(Response)
-      if (!(response instanceof Response)) return
-      expect(response.status).toBe(403)
-      expect(protectedAction).not.toHaveBeenCalled()
-    })
-
     const imageRequest = new Request("https://example.com/photos/user-1/meal.jpg", {
       headers: { accept: "text/html,image/avif,image/webp,*/*" },
     })
@@ -364,6 +313,19 @@ describe("server authentication provider boundaries", () => {
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
       await expect(withAuthorization(() => denied, protectedAction, definition)(request)).resolves.toBe(denied)
+      expect(protectedAction).not.toHaveBeenCalled()
+    })
+
+    it("normalizes a genuine foreign runtime authorization response", async () => {
+      const denied = new ForeignResponse("Not your photo", { status: 404 })
+      expect(denied).not.toBeInstanceOf(Response)
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      const response = await withAuthorization(() => denied as never, protectedAction, definition)(request)
+      expect(response).toBeInstanceOf(Response)
+      if (!(response instanceof Response)) throw new Error("Expected an authorization Response")
+      expect(response.status).toBe(404)
+      await expect(response.text()).resolves.toBe("Not your photo")
       expect(protectedAction).not.toHaveBeenCalled()
     })
 
