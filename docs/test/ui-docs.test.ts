@@ -179,6 +179,7 @@ describe("UI documentation", () => {
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).not.toContain(".vh-docs-aside");
     expect(layout).toContain("overflow: hidden;");
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");
   });

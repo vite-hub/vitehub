@@ -175,6 +175,20 @@ Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
 
+During development, read history from the CLI. The commands call the Nitro
+runtime of a running Vite + Nitro Development Server and never write:
+
+```sh
+vitehub workspace history content            # revisions on every ref, newest first
+vitehub workspace history content --ref draft
+vitehub workspace refs content                # each ref and its head revision
+vitehub workspace show content draft          # one revision and its files
+vitehub workspace show content draft posts/hello.md
+```
+
+Add `--json` for machine-readable output. A Store without retained history
+fails with `WORKSPACE_R0069`.
+
 ## JSON collections
 
 Query a generated JSON-object array without sending the complete index to the browser. The handler keeps filter, search, projection, sort, facet, and item lookup fields under server control, and every list response is capped by `maxLimit`.

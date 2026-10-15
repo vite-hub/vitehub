@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -281,8 +280,10 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-if (isResponseLike(result)) return result
-  if (result !== true) return createForbiddenResponse(context.request)
+  if (result === true) return
+  const response = normalizeAuthorizationResponse(result)
+  if (response) return response
+  return createForbiddenResponse(context.request)
 }
 
 function isResponseLike(value: unknown): value is Response {
@@ -293,6 +294,73 @@ function isResponseLike(value: unknown): value is Response {
   }
   catch {
     return false
+  }
+}
+
+function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
+  if (body === null) return true
+  if (Object(body) !== body) return false
+  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+  if (!locked || Reflect.apply(locked, body, [])) return false
+  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+}
+
+function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
+  // Use native operations on native stream state, never caller-supplied reader methods.
+  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
+  const reader = Reflect.apply(getReader, body, [])
+  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
+  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    Reflect.apply(releaseLock, reader, [])
+  }
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await Reflect.apply(read, reader, [])
+        if (result.done) {
+          release()
+          controller.close()
+        }
+        else controller.enqueue(result.value)
+      }
+      catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await Reflect.apply(cancel, reader, [reason])
+      }
+      finally {
+        release()
+      }
+    },
+  }, { highWaterMark: 0 })
+  return { stream, release }
+}
+
+function normalizeAuthorizationResponse(value: unknown): Response | undefined {
+  if (value === null || typeof value !== "object") return
+  if (value instanceof Response) return value
+  try {
+    const candidate = value as { status: number; statusText: string; headers: Headers; body: ReadableStream<Uint8Array> | null }
+    const status = candidate.status
+    const statusText = candidate.statusText
+    const headers = candidate.headers
+    const body = candidate.body
+    if (!Number.isInteger(status) || status < 0 || status > 599 || typeof statusText !== "string" || headers === null || typeof headers !== "object") return
+    const normalizedHeaders = new Headers()
+    headers.forEach((v, k) => normalizedHeaders.append(k, v))
+    return new Response(body, { status, statusText, headers: normalizedHeaders })
+  }
+  catch {
+    return
   }
 }
 
@@ -388,8 +456,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
-  if (authorize !== true && typeof authorize !== "function") {
+  if (authorize !== true && !(authorize instanceof Function)) {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {
