@@ -61,7 +61,10 @@ export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "
   for (const [index, cleanupPrefix] of cleanupPrefixes.entries()) {
     if (!remaining) break
     const quarantinePrefix = quarantinePrefixes[index]!
-    const [failure, result] = await storage.list({ prefix: cleanupPrefix, limit: remaining })
+    // Reserve an equal share for each prefix still to be visited. This keeps
+    // a continuously refilled current queue from starving legacy records.
+    const limit = Math.ceil(remaining / (cleanupPrefixes.length - index))
+    const [failure, result] = await storage.list({ prefix: cleanupPrefix, limit })
     if (failure) throw failure
     for (const marker of result.blobs) {
       if (!marker.pathname.startsWith(cleanupPrefix)) continue

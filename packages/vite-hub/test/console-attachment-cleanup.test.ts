@@ -112,6 +112,15 @@ it("shares the retry bound across current and legacy cleanup prefixes", async ()
   expect(current.length + legacy.length).toBe(100)
 })
 
+it("does not starve legacy cleanup when the current queue is full", async () => {
+  const { storage } = await fixture()
+  for (let i = 0; i < 100; i++) await storage.put(`${cleanupPrefix}${crypto.randomUUID()}`, "pending")
+  const legacy = `vitehub-console-attachment-cleanup/${crypto.randomUUID()}`
+  await storage.put(legacy, "pending")
+  await retryConsoleAttachmentCleanup(storage)
+  expect((await storage.list({ prefix: "vitehub-console-attachment-cleanup/" }))[1]!.blobs).toEqual([])
+})
+
 it("recovers the entire batch when rollback stops during its first deletion", async () => {
   const { base, storage } = await fixture()
   const abandoned = [path(), path(), path()]
