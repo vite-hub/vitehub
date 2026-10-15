@@ -321,9 +321,23 @@ function hasResponseBrand(value: object): boolean {
     // native Response objects created by compatible fetch implementations.
     if (authorizationResponseGetters.every(getter => getter && Reflect.apply(getter, value, []) !== undefined)) return true
 
-    // Do not invoke accessors supplied by the candidate. Their behavior is
-    // user-controlled and cannot prove that the object carries native state.
-    return false
+    // A compatible foreign fetch implementation has its own Response and
+    // Headers intrinsics. Use those intrinsics only as a narrow fallback:
+    // response-shaped objects backed by this realm's Headers remain rejected.
+    const responsePrototype = Object.getPrototypeOf(value)
+    const responseConstructor = responsePropertyDescriptor(responsePrototype, "constructor")?.value
+    if (typeof responseConstructor !== "function" || responseConstructor.name !== "Response") return false
+    const headersGetter = responsePropertyDescriptor(responsePrototype, "headers")?.get
+    if (typeof headersGetter !== "function") return false
+    const headers = Reflect.apply(headersGetter, value, [])
+    if (Object(headers) !== headers || headers instanceof Headers) return false
+    const headersPrototype = Object.getPrototypeOf(headers)
+    const headersConstructor = responsePropertyDescriptor(headersPrototype, "constructor")?.value
+    if (typeof headersConstructor !== "function" || headersConstructor === Headers) return false
+    return ["get", "forEach"].every(key => {
+      const method = responsePropertyDescriptor(headersPrototype, key)?.value
+      return typeof method === "function" && responsePropertyDescriptor(headers, key)?.value === method
+    })
   }
   catch {
     return false
@@ -452,6 +466,11 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    // A foreign implementation must carry its own native Headers methods.
+    // Accepting a foreign Response prototype paired with current-realm Headers
+    // would make a user-defined Response-shaped object indistinguishable from
+    // a genuine cross-runtime response.
+    if (!nativeProperties && nativeHeaderMethods) return
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
