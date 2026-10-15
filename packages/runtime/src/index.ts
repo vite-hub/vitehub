@@ -434,11 +434,182 @@ function isWebAssemblyModule(value: unknown): boolean {
   return hasRuntimeType(constructor, "function") && value instanceof constructor
 }
 
+// Exact native source signatures reject user functions, bound functions and proxies.
+// This boundary uses the host Function intrinsic rather than a payload-owned method.
+const intrinsicFunctionToString = Function.prototype.toString
+const nativeFunctionToString = (() => {
+  try {
+    // Built-in functions have no own `prototype` property. Keep this check
+    // independent of the formatter's reported source.
+    if (Object.prototype.hasOwnProperty.call(intrinsicFunctionToString, "prototype")) return false
+    // A replacement can selectively delegate calls while forging only the
+    // operation signatures below. Check immutable function metadata before
+    // accepting any formatter output; this rejects the usual forged callable
+    // even when its self-source and probe responses look native.
+    if (intrinsicFunctionToString.name !== "toString" || intrinsicFunctionToString.length !== 1) return false
+    if (intrinsicFunctionToString.call(intrinsicFunctionToString).replace(/\s+/g, " ") !== "function toString() { [native code] }") return false
+    // A replacement can forge native-looking source for selected functions. Probe
+    // the ordinary source and required TypeError behavior before trusting it.
+    function probe() { return 1 }
+    if (intrinsicFunctionToString.call(probe) !== "function probe() { return 1 }") return false
+    // Probe every operation name used below with user-defined functions. A
+    // formatter that only forges native signatures for buffer operations must
+    // still expose their ordinary source when presented with these lookalikes.
+    const namedProbes = [
+      function ArrayBuffer() {},
+      function SharedArrayBuffer() {},
+      function DataView() {},
+      function Memory() {},
+    ]
+    for (const namedProbe of namedProbes) {
+      if (intrinsicFunctionToString.call(namedProbe).includes("[native code]")) return false
+    }
+    const getterProbe = Object.getOwnPropertyDescriptor(
+      { get byteLength() { return 0 } },
+      "byteLength",
+    )?.get
+    if (!getterProbe || intrinsicFunctionToString.call(getterProbe).includes("[native code]")) return false
+    try {
+      intrinsicFunctionToString.call(null)
+      return false
+    }
+    catch {
+      return true
+    }
+  }
+  catch {
+    return false
+  }
+})()
+
+function isNativeBufferOperation(value: unknown, name: string): value is (...args: never[]) => unknown {
+  if (!nativeFunctionToString || !hasRuntimeType(value, "function")) return false
+  try {
+    return intrinsicFunctionToString.call(value).replace(/\s+/g, " ") === `function ${name}() { [native code] }`
+  }
+  catch {
+    return false
+  }
+}
+
+function captureSharedBufferByteLength(): (() => unknown) | undefined {
+  try {
+    let sample: unknown
+    const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
+    if (isNativeBufferOperation(constructor, "SharedArrayBuffer")) {
+      sample = Reflect.construct(constructor, [0])
+    }
+    else {
+      const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
+      if (!isRuntimeObject(namespace)) return
+      const memoryConstructor = Object.getOwnPropertyDescriptor(namespace, "Memory")?.value
+      if (!isNativeBufferOperation(memoryConstructor, "Memory")) return
+      const memory = Reflect.construct(memoryConstructor, [{ initial: 0, maximum: 1, shared: true }])
+      const memoryBuffer = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(memory), "buffer")?.get
+      if (!isNativeBufferOperation(memoryBuffer, "get buffer")) return
+      sample = memoryBuffer.call(memory)
+    }
+    if (!isRuntimeObject(sample)) return
+    const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sample), "byteLength")?.get
+    if (!isNativeBufferOperation(getter, "get byteLength")) return
+    if (getter.call(sample) !== 0) return
+    // A genuine buffer getter requires the receiver's internal slot. A forged
+    // getter that returns a number for arbitrary objects must not become the
+    // shared-memory brand used for trace privacy.
+    // Probe several unrelated non-buffer receivers. A forged receiver-aware
+    // getter must reject every ordinary object before it can be cached as the
+    // shared-memory brand.
+    const receiverProbes: object[] = [{}, Object.create(null)]
+    for (const receiver of receiverProbes) {
+      try {
+        getter.call(receiver)
+        return
+      }
+      catch {
+        // Expected for a non-buffer receiver.
+      }
+    }
+    return getter
+  }
+  catch {
+    return
+  }
+}
+
+function captureOrdinaryBufferOperations(): {
+  byteLength: () => unknown
+  dataView: (...args: never[]) => unknown
+} | undefined {
+  try {
+    const arrayBuffer = Object.getOwnPropertyDescriptor(globalThis, "ArrayBuffer")?.value
+    const dataView = Object.getOwnPropertyDescriptor(globalThis, "DataView")?.value
+    if (!isNativeBufferOperation(arrayBuffer, "ArrayBuffer") || !isNativeBufferOperation(dataView, "DataView")) return
+    const sample = Reflect.construct(arrayBuffer, [0])
+    const byteLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sample), "byteLength")?.get
+    if (!isNativeBufferOperation(byteLength, "get byteLength") || byteLength.call(sample) !== 0) return
+    Reflect.construct(dataView, [sample, 0, 0])
+    try {
+      Reflect.construct(dataView, [{}, 0, 0])
+      return
+    }
+    catch {
+      return { byteLength, dataView }
+    }
+  }
+  catch {
+    return
+  }
+}
+
+const sharedBufferByteLength = captureSharedBufferByteLength()
+const ordinaryBufferOperations = captureOrdinaryBufferOperations()
+
 function isSharedArrayBuffer(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
-  const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
-  if (hasRuntimeType(constructor, "function") && value instanceof constructor) return true
-  return Object.prototype.toString.call(value) === "[object SharedArrayBuffer]"
+  if (sharedBufferByteLength) {
+    try {
+      // When the native ordinary-buffer probes are available, prove the value
+      // has a genuine buffer internal slot before consulting the shared getter.
+      // This prevents a receiver-aware forged getter from branding arbitrary
+      // objects as shared memory.
+      if (ordinaryBufferOperations) {
+        Reflect.construct(ordinaryBufferOperations.dataView, [value, 0, 0])
+      }
+      return hasRuntimeType(sharedBufferByteLength.call(value), "number")
+    }
+    catch {
+      return false
+    }
+  }
+  // If native operation validation was tampered with before module load, fail closed.
+  // Treating unknown objects as shared keeps trace payloads private in that case.
+  if (!ordinaryBufferOperations) {
+    try {
+      const prototype = Object.getPrototypeOf(value)
+      if (prototype === Object.prototype) return false
+      const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)?.value
+      const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")?.get
+      return tag === "SharedArrayBuffer" && hasRuntimeType(byteLength, "function")
+    }
+    catch {
+      return true
+    }
+  }
+  try {
+    // The validated native DataView operation first proves a buffer internal slot.
+    // Only the validated native ArrayBuffer getter's rejection then proves shared memory.
+    Reflect.construct(ordinaryBufferOperations.dataView, [value, 0, 0])
+    try {
+      ordinaryBufferOperations.byteLength.call(value)
+      return false
+    }
+    catch {
+      return true
+    }
+  }
+  catch {
+    return false
+  }
 }
 
 function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): boolean {
