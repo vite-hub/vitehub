@@ -335,20 +335,49 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     // Use the stream's own realm methods. Native stream brand checks reject
     // applying this realm's methods to a foreign ReadableStream.
     const getReader = nativeStreamMethod(body, "getReader")
-    if (typeof getReader !== "function") return false
+    if (typeof getReader !== "function" || !hasNativeStreamBrand(body)) return false
     const reader: unknown = Reflect.apply(getReader, body, [])
     if (Object(reader) !== reader) return false
     const readerObject = reader as object
-    if (typeof Reflect.get(readerObject, "read") !== "function") return false
-    if (typeof Reflect.get(readerObject, "cancel") !== "function") return false
+    const read = Reflect.get(readerObject, "read")
+    const cancel = Reflect.get(readerObject, "cancel")
     const releaseLock = Reflect.get(readerObject, "releaseLock")
-    if (typeof releaseLock !== "function") return false
-    Reflect.apply(releaseLock, readerObject, [])
-    return true
+    if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") return false
+    try {
+      return true
+    }
+    finally {
+      Reflect.apply(releaseLock, readerObject, [])
+    }
   }
   catch {
     return false
   }
+}
+
+function hasNativeStreamBrand(body: object): boolean {
+  let current: object | null = body
+  const seen = new Set<object>()
+  try {
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) return false
+      seen.add(current)
+      const descriptor = Object.getOwnPropertyDescriptor(current, "locked")
+      const getter = descriptor?.get
+      if (typeof getter === "function") {
+        if (current === body) return false
+        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+        if (constructor?.name !== "ReadableStream") return false
+        const value = Reflect.apply(getter, body, [])
+        return typeof value === "boolean"
+      }
+      current = Object.getPrototypeOf(current)
+    }
+  }
+  catch {
+    return false
+  }
+  return false
 }
 
 function nativeStreamMethod<T extends keyof ReadableStream<Uint8Array>>(body: object, key: T): ReadableStream<Uint8Array>[T] | undefined {
@@ -373,15 +402,16 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   // native brand checks. Validation has already probed these capabilities.
   const getReader = nativeStreamMethod(body, "getReader") as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
-  const read = Reflect.get(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
-  const cancel = Reflect.get(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
-  const releaseLock = Reflect.get(reader, "releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
-  let released = false
-  const release = () => {
-    if (released) return
-    released = true
-    Reflect.apply(releaseLock, reader, [])
-  }
+  try {
+    const read = Reflect.get(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
+    const cancel = Reflect.get(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+    const releaseLock = Reflect.get(reader, "releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      Reflect.apply(releaseLock, reader, [])
+    }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
@@ -406,7 +436,17 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
       }
     },
   }, { highWaterMark: 0 })
-  return { stream, release }
+    return { stream, release }
+  }
+  catch (error) {
+    try {
+      Reflect.apply(Reflect.get(reader, "releaseLock"), reader, [])
+    }
+    catch {
+      // The original error is the useful failure at this boundary.
+    }
+    throw error
+  }
 }
 
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
