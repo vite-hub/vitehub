@@ -1,4 +1,5 @@
 import { withStdoutOnStderr } from "./cli.ts"
+import type { ViteHubCliStreams } from "./cli.ts"
 
 export interface ViteStageServer {
   close: () => Promise<void>
@@ -23,6 +24,8 @@ export interface ViteStageServerInput {
   env: NodeJS.ProcessEnv
   rootDir: string
   stage: string
+  /** Stream that receives config and stage-server logs. */
+  stderr?: ViteHubCliStreams["stderr"]
 }
 
 type QueueCarrier = typeof globalThis & { [viteStageQueueKey]?: Promise<void> }
@@ -56,7 +59,7 @@ async function runExclusive<TServer extends ViteStageServer, TResult>(
       mode: input.stage,
       root: input.rootDir,
       server: { hmr: false, middlewareMode: true },
-    }))
+    }), input.stderr)
     // Keep values that Vite set during startup, such as NODE_ENV.
     for (const [key, value] of [...Object.entries(vite.loadEnv(input.stage, server.config.envDir, "")), ...selectedEnvironment]) {
       process.env[key] = value
@@ -65,7 +68,7 @@ async function runExclusive<TServer extends ViteStageServer, TResult>(
   }
   finally {
     try {
-      await withStdoutOnStderr(async () => await server?.close())
+      await withStdoutOnStderr(async () => await server?.close(), input.stderr)
     }
     finally {
       replaceProcessEnv(previousEnvironment)
