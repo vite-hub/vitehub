@@ -276,8 +276,9 @@ async function sendWebResponse(response: Response, target: ServerResponse): Prom
   target.statusCode = response.status
   target.statusMessage = response.statusText
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Older Headers implementations can omit getSetCookie; only forward an unambiguous single fallback value.
-  const getSetCookie = response.headers.getSetCookie
-  const setCookieHeaders = typeof getSetCookie === "function" ? getSetCookie() : undefined
+  const setCookieHeaders = typeof response.headers.getSetCookie === "function"
+    ? response.headers.getSetCookie()
+    : undefined
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() !== "set-cookie") {
       target.appendHeader(key, value)
