@@ -331,12 +331,20 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (response.body === null) return new Response(null, { headers, status: response.status, statusText: response.statusText })
     if (typeof response.body.getReader !== "function") return
     const reader = response.body.getReader()
-    if (typeof reader.read !== "function") return
+    if (typeof reader.read !== "function") {
+      reader.releaseLock?.()
+      return
+    }
+    const abortReader = async (reason: unknown) => {
+      try { await reader.cancel?.(reason) }
+      catch {}
+      finally {
+        try { reader.releaseLock?.() }
+        catch {}
+      }
+    }
     const body = new ReadableStream<Uint8Array>({
-      cancel: async reason => {
-        try { await reader.cancel?.(reason) }
-        finally { reader.releaseLock?.() }
-      },
+      cancel: reason => abortReader(reason),
       pull: async controller => {
         try {
           const chunk = await reader.read()
@@ -346,7 +354,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
           }
           else controller.enqueue(chunk.value)
         }
-        catch (error) { controller.error(error) }
+        catch (error) {
+          await abortReader(error)
+          controller.error(error)
+        }
       },
     })
     return new Response(body, { headers, status: response.status, statusText: response.statusText })
