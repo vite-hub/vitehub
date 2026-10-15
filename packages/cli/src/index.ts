@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
-import { collectViteHubCliContribution } from "@vite-hub/internal/cli"
+import { collectViteHubCliContribution, withStdoutOnStderr } from "@vite-hub/internal/cli"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
@@ -210,13 +210,18 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   }
 
   const command = args[0] === "inspect" && args[1] === "provider-output" ? "build" : "serve"
-  const config = await (options.loadConfig || loadViteConfig)(cwd, command)
-  const nuxtConfig = config.vitehubConfigResolved
-    ? undefined
-    : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd, command)
-  const plugins = nuxtConfig?.plugins ?? config.plugins
-  const rootDir = resolve(nuxtConfig?.root || config.root || cwd)
-  const contribution = await collectViteHubCliContribution(plugins)
+  const { contribution, plugins, rootDir } = await withStdoutOnStderr(async () => {
+    const config = await (options.loadConfig || loadViteConfig)(cwd, command)
+    const nuxtConfig = config.vitehubConfigResolved
+      ? undefined
+      : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd, command)
+    const plugins = nuxtConfig?.plugins ?? config.plugins
+    return {
+      contribution: await collectViteHubCliContribution(plugins),
+      plugins,
+      rootDir: resolve(nuxtConfig?.root || config.root || cwd),
+    }
+  }, stderr)
   const namespaces = [
     ...contribution.namespaces.filter(namespace => namespace.name !== "inspect"),
     createInspectNamespace(plugins),

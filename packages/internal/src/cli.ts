@@ -61,6 +61,28 @@ export interface ViteHubCliContributingPlugin {
   vitehub?: ViteHubCliPluginMetadata
 }
 
+type StdoutWriteCallback = (error?: Error | null) => void
+
+/**
+ * Sends `process.stdout` writes to stderr while `run` loads project config.
+ * Vite, Nitro, Nuxt, and their plugins log info lines to stdout. Those lines must not mix with JSON or raw command output.
+ */
+export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteHubCliStreams["stderr"] = process.stderr): Promise<T> {
+  const write = process.stdout.write
+  process.stdout.write = (chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => {
+    stderr.write(chunk)
+    const done = typeof encoding === "function" ? encoding : callback
+    done?.()
+    return true
+  }
+  try {
+    return await run()
+  }
+  finally {
+    process.stdout.write = write
+  }
+}
+
 async function resolveContributor(value: ViteHubCliPluginMetadata["cli"]): Promise<ViteHubCliContributor | undefined> {
   return typeof value === "function" ? await value() : value
 }

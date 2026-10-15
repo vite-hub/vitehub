@@ -1,3 +1,5 @@
+import { withStdoutOnStderr } from "./cli.ts"
+
 export interface ViteStageServer {
   close: () => Promise<void>
   config: { envDir: string | false, root: string }
@@ -47,13 +49,14 @@ async function runExclusive<TServer extends ViteStageServer, TResult>(
   const selectedEnvironment = definedEntries(input.env)
   try {
     replaceProcessEnv(selectedEnvironment)
-    server = await vite.createServer({
+    // Nitro and other plugins log to stdout while the server loads its config, so keep command output clean.
+    server = await withStdoutOnStderr(async () => await vite.createServer({
       appType: "custom",
       logLevel: "silent",
       mode: input.stage,
       root: input.rootDir,
       server: { hmr: false, middlewareMode: true },
-    })
+    }))
     // Keep values that Vite set during startup, such as NODE_ENV.
     for (const [key, value] of [...Object.entries(vite.loadEnv(input.stage, server.config.envDir, "")), ...selectedEnvironment]) {
       process.env[key] = value
@@ -62,7 +65,7 @@ async function runExclusive<TServer extends ViteStageServer, TResult>(
   }
   finally {
     try {
-      await server?.close()
+      await withStdoutOnStderr(async () => await server?.close())
     }
     finally {
       replaceProcessEnv(previousEnvironment)

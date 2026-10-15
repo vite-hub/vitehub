@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { collectViteHubCliContribution } from "../src/cli.ts"
+import { collectViteHubCliContribution, withStdoutOnStderr } from "../src/cli.ts"
 
 import type { ProvisionStep } from "../src/provision.ts"
 
@@ -106,5 +106,20 @@ describe("CLI primitives", () => {
     ])
 
     expect(steps.map(item => item.id)).toEqual(["queue:cloudflare-queues", "blob:vercel-blob"])
+  })
+
+  it("sends stdout writes to stderr while project config loads", async () => {
+    const write = process.stdout.write
+    const stderr: Array<string | Uint8Array> = []
+    const callback = vi.fn()
+    await expect(withStdoutOnStderr(async () => {
+      process.stdout.write("ℹ Using index.html as renderer template.\n", callback)
+      process.stdout.write(Buffer.from("vite info\n"))
+      throw new Error("config failed")
+    }, { write: chunk => stderr.push(chunk) })).rejects.toThrow("config failed")
+
+    expect(stderr.map(String).join("")).toBe("ℹ Using index.html as renderer template.\nvite info\n")
+    expect(callback).toHaveBeenCalledOnce()
+    expect(process.stdout.write).toBe(write)
   })
 })
