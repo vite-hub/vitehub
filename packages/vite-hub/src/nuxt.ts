@@ -26,8 +26,8 @@ import { discoverConsoleBuildCatalog } from "./console/build.ts"
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
-import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
-import { consoleContributedSections, consoleDocumentEditorSectionIds, describeConsoleContributedSections, isConsoleContributedSectionId } from "./console/contributions.ts"
+import { consoleSectionRouteName, isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
+import { describeConsoleContributedSections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { consoleIcons } from "./console/icons.ts"
 import { addConsoleRpcHandler } from "./console/nitro.ts"
 import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor } from "./console/auth-build.ts"
@@ -46,8 +46,11 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
-/** A Nuxt page record. A redirect record has no file. */
-type NuxtPage = { file?: string, meta?: Record<string, unknown>, name: string, path: string, redirect?: string }
+type NuxtPage = { file: string, meta?: Record<string, unknown>, name: string, path: string }
+function hasDefaultAgentInvocations(agent: Parameters<typeof vitehub>[0]["agent"]): boolean {
+  return Boolean(agent && agent !== true && agent.invocations)
+}
+
 type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
   database?: boolean | Exclude<DatabaseNuxtIntegrationOptions, false>
   env?: false | EnvIntegrationOptions & EnvViteConfigOptions
@@ -312,6 +315,7 @@ async function installConsole(
     await Reflect.apply(uiModule, undefined, [{}, nuxt])
   }
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
+  installConsoleSections(projectRoot, sections, independentAuth)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   if (installInvocations && nuxt.options.dev && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot, undefined, observations, journal && "databaseUrl" in journal ? journal.databaseUrl : undefined, journal && "d1Binding" in journal ? { binding: journal.d1Binding, env: async () => {
     const workers = await import("cloudflare:workers")
@@ -323,19 +327,14 @@ async function installConsole(
     const rule = (routeRules[route] ??= {})
     rule.headers = { ...rule.headers, "x-robots-tag": "noindex, nofollow" }
   }
-  const documentEditorSections = (await Promise.all(consoleDocumentEditorSectionIds.map(async (section) => {
-    const entry = await consoleContributedSections.get(section)?.documents?.entry({ discoveryRoot, projectRoot, serverDirs })
-    return entry ? [section] : []
-  }))).flat()
-  installConsoleSections(projectRoot, [...sections, ...documentEditorSections], independentAuth)
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- @nuxt/icon declares this hook, while this structural seam keeps narrow nitro-only test hosts assignable.
   // SAFETY: @nuxt/icon calls this hook with the mutable Set of client bundle icon names.
   const hookIcons = nuxt.hook as unknown as ((name: "icon:clientBundleIcons", callback: (icons: Set<string>) => void) => void) | undefined
   // @nuxt/icon does not scan dependencies, so add the Console icons to its client bundle.
   hookIcons?.("icon:clientBundleIcons", (icons) => {
     for (const icon of consoleIcons) icons.add(icon)
-    for (const section of describeConsoleContributedSections([...sections, ...documentEditorSections])) {
-      for (const icon of [section.icon, ...section.pages?.map(page => page.icon) ?? []]) icons.add(icon.replace(/^i-(lucide|ph)-/, "$1:"))
+    for (const section of describeConsoleContributedSections(sections)) {
+      icons.add(section.icon.replace(/^i-(lucide|ph)-/, "$1:"))
     }
   })
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow nitro-only test hosts assignable.
@@ -399,26 +398,12 @@ async function installConsole(
             },
           ]
         : []),
-      ...describeConsoleContributedSections(sections).filter(details => details.view.kind !== "document-editor").map(details => ({
+      ...describeConsoleContributedSections(sections).map(details => ({
         file: join(consoleRuntimeRoot, "pages/section.vue"),
         meta: { consoleSection: details.id, consoleSectionDetails: details },
         name: consoleSectionRouteName(details.id),
         path: `/_vitehub/${details.id}`,
       })),
-      // A document editor has pages only when discovery found its application module, such as server/content.ts. Its
-      // routes match the Vite Console: the main view, its pages under `/-/`, and a redirect from the index page path.
-      ...describeConsoleContributedSections([...new Set([...sections, ...documentEditorSections])])
-        .filter(details => documentEditorSections.includes(details.id))
-        .flatMap(details => describeConsoleSectionRoutes(details).map((route): NuxtPage => {
-          if (route.redirect) return { name: route.name, path: `/_vitehub${route.path}`, redirect: `/_vitehub${route.redirect}` }
-          const meta = { consoleSection: details.id, consoleSectionDetails: details }
-          return {
-            file: join(consoleRuntimeRoot, "pages/documents.vue"),
-            meta: route.page ? { ...meta, consolePage: route.page } : meta,
-            name: route.name,
-            path: `/_vitehub${route.path}`,
-          }
-        })),
     ]
     for (const page of additions) {
       if (!pages.some((candidate) => candidate.path === page.path)) pages.push(page)
@@ -1378,7 +1363,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       consoleKVStores,
       resolvedConsoleFixture,
       resolveNuxtServerDirs(nuxt.options),
-      !nuxt.options.vitehubCliDiscovery,
+      // The app-wide `agent.invocations` journal exists only in the server runtime, so the host process installs none.
+      !nuxt.options.vitehubCliDiscovery && !hasDefaultAgentInvocations(options.agent),
       !nuxt.options.vitehubCliDiscovery,
       consoleInvokeEnabled && !resolvedConsoleFixture,
       options.console.observations,

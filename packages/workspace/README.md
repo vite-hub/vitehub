@@ -175,42 +175,59 @@ Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
 
-## JSON Collections
+During development, read history from the CLI. The commands call the Nitro
+runtime of a running Vite + Nitro Development Server and never write:
 
-Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.
+```sh
+vitehub workspace history content            # revisions on every ref, newest first
+vitehub workspace history content --ref draft
+vitehub workspace refs content                # each ref and its head revision
+vitehub workspace show content draft          # one revision and its files
+vitehub workspace show content draft posts/hello.md
+```
+
+Add `--json` for machine-readable output. A Store without retained history
+fails with `WORKSPACE_R0069`.
+
+## JSON collections
+
+Query a generated JSON-object array without sending the complete index to the browser. The handler keeps filter, search, projection, sort, facet, and item lookup fields under server control, and every list response is capped by `maxLimit`.
 
 ```ts
-// server/collections/articles.ts
-import { defineCollection } from "@vite-hub/source"
-import { workspaceFile } from "@vite-hub/workspace"
-import * as v from "valibot"
+// server/api/articles.get.ts
+import { defineWorkspaceCollectionHandler } from "@vite-hub/workspace/server"
 
-export const articles = defineCollection({
-  source: workspaceFile({
-    facets: ["category"],
-    filters: ["category", "authors.name"],
-    key: "slug",
-    maxLimit: 100,
-    path: "data/articles.json",
-    schema: v.object({ category: v.string(), slug: v.string(), title: v.string() }),
-    search: ["title", "summary"],
-    sort: { field: "title", direction: "asc" },
-    workspace: "content",
-  }),
-  transform: article => ({ category: article.category, slug: article.slug, title: article.title }),
+export default defineWorkspaceCollectionHandler({
+  facets: ["category"],
+  filters: ["category", "authors.name"],
+  item: { key: "slug" },
+  maxLimit: 100,
+  path: "data/articles.json",
+  searchFields: ["title", "summary"],
+  select: ["slug", "title", "category"],
+  sort: { field: "title", direction: "asc" },
+  workspace: "content",
 })
 ```
 
-ViteHub generates `GET /api/articles`, and `useCollection("articles")` from `@vite-hub/source/client` reads it with typed filters:
+Nuxt auto-imports the Vue composables when this module is installed. Plain Vue apps can import them directly from `@vite-hub/workspace/collections/client`.
+Default immediate requests start during browser setup so relative endpoints do not escape Nuxt's server request context. Inject `request` and call `refresh()` when an application needs SSR loading.
 
 ```ts
-const { items, total, facets, loadMore } = useCollection("articles", {
+const articles = useWorkspaceCollection("/api/articles", {
   limit: 25,
-  filter: computed(() => ({ category: selectedCategory.value, search: search.value })),
+  query: computed(() => ({
+    "filter.category": selectedCategory.value || undefined,
+    search: search.value || undefined,
+  })),
 })
+
+const article = useWorkspaceCollectionItem("/api/articles", selectedSlug)
 ```
 
-Use `?empty=<field>` to match records without a scalar value at a declared filter. The file's Workspace digest binds every cursor, so a write to the file makes older cursors stale (`409`). Use this for deliberately small generated indexes; use a database when the server cannot reasonably hold and query the full array in memory.
+Use `empty.<field>=true` to filter for records without scalar values at an allowed field.
+
+Collection queries parse the JSON array in the server runtime. Use this for deliberately small generated indexes; use a database when the server cannot reasonably hold and query the full source array in memory.
 
 ```ts
 // nitro.config.ts
