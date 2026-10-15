@@ -2608,9 +2608,6 @@ importers:
 
   packages/workspace:
     dependencies:
-      '@standard-schema/spec':
-        specifier: catalog:runtime
-        version: 1.1.0
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.11.0(rollup@4.64.0)

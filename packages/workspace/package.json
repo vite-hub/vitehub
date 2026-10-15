@@ -125,7 +125,6 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
-    "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
