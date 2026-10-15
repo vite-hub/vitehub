@@ -892,20 +892,28 @@ function isResponseLike(value: unknown): value is Response {
     // their prototype chain; require that non-callable surface before
     // accepting a failed reader probe as the already-locked case.
     let lockedAccessor: (() => unknown) | undefined
+    let streamReader: ((...args: never[]) => unknown) | undefined
     let streamPrototype: object | null = Object.getPrototypeOf(body) as object | null
     while (streamPrototype) {
-      const descriptor = Object.getOwnPropertyDescriptor(streamPrototype, "locked")
-      if (descriptor) {
-        if (hasRuntimeType(descriptor.get, "function")) {
-          lockedAccessor = () => descriptor.get!.call(body)
+      const lockedDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "locked")
+      if (lockedDescriptor) {
+        if (hasRuntimeType(lockedDescriptor.get, "function")) {
+          lockedAccessor = () => lockedDescriptor.get!.call(body)
+        }
+        const readerDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "getReader")
+        if (readerDescriptor && hasRuntimeType(readerDescriptor.value, "function")) {
+          streamReader = readerDescriptor.value as (...args: never[]) => unknown
         }
         break
       }
       streamPrototype = Object.getPrototypeOf(streamPrototype) as object | null
     }
-    if (!lockedAccessor) return false
+    if (!lockedAccessor || !streamReader) return false
     try {
-      const reader = ReadableStream.prototype.getReader.call(body as ReadableStream)
+      // Use the stream's own prototype operation so foreign-realm brands are
+      // accepted; the host realm's intrinsic rejects those streams.
+      const reader = streamReader.call(body)
+      if (!isRuntimeObject(reader) || !hasRuntimeType(reader.releaseLock, "function")) return false
       reader.releaseLock()
     }
     catch {
