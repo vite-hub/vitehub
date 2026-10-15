@@ -77,6 +77,21 @@ export function isUint8ArrayValue(value: unknown): value is Uint8Array {
   }
 }
 
+export function blobSize(value: Blob): number {
+  // SAFETY: The intrinsic Blob size getter returns a number for a branded Blob.
+  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")!.get!.call(value) as number
+}
+
+export function blobType(value: Blob): string {
+  // SAFETY: The intrinsic Blob type getter returns a string for a branded Blob.
+  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "type")!.get!.call(value) as string
+}
+
+export function blobArrayBuffer(value: Blob): Promise<ArrayBuffer> {
+  // SAFETY: The intrinsic Blob arrayBuffer method returns a Promise<ArrayBuffer> for a branded Blob.
+  return Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "arrayBuffer")!.value.call(value) as Promise<ArrayBuffer>
+}
+
 export interface AttachmentPart {
   data?: AttachmentData
   fetchData?: () => Promise<AttachmentData> | AttachmentData
