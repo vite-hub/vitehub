@@ -1,3 +1,4 @@
+import { isResponse } from "./internal/response.ts"
 import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
@@ -341,6 +342,17 @@ function modelVendorScope(provider: string): string {
   return provider.includes(".") ? provider.split(".", 1)[0]! : provider
 }
 
+function isDateValue(value: unknown): value is Date {
+  if (!isRecord(value)) return false
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
   if (!isRecord(result)) return
   const response = isRecord(result.response) ? result.response : undefined
@@ -351,7 +363,7 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   return {
     ...(finishReason !== undefined ? { finishReason } : {}),
     ...(id !== undefined ? { id } : {}),
-    ...((timestamp instanceof Date || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
+    ...((isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
   }
 }
 
@@ -810,7 +822,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield { type: "finish" }
     return
   }
-  if (value instanceof Response) {
+  if (isResponse(value)) {
     if (value.body) {
       for await (const text of value.body.pipeThrough(new TextDecoderStream())) {
         if (text) yield { text, type: "text-delta" }
