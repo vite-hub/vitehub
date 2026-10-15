@@ -301,7 +301,7 @@ async function runAccessAuthorize(
 ): Promise<Response | undefined> {
   const result = await authorize(context)
   if (result === true) return
-  const response = normalizeAuthorizationResponse(result)
+  const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   return createForbiddenResponse(context.request)
 }
@@ -349,30 +349,38 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
-function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
-  if (body === null) return true
-  if (Object(body) !== body) return false
+async function copyAuthorizationBody(body: unknown): Promise<Uint8Array | null | undefined> {
+  if (body === null) return null
+  if (Object(body) !== body) return
   try {
-    const stream = Object(body)
-    // ReadableStream accessors and methods are branded by their own realm. Resolve
-    // them from the stream prototype so independent Fetch implementations work too.
-    const prototype = Object.getPrototypeOf(stream)
-    const locked = responsePropertyDescriptor(stream, "locked")?.get
-    const getReader = responsePropertyDescriptor(stream, "getReader")?.value
-    const streamConstructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    const streamPrototype = streamConstructor && Object(streamConstructor).prototype
-    const nativeGetReader = streamPrototype && Object.getOwnPropertyDescriptor(streamPrototype, "getReader")?.value
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invoke the foreign stream's own locked getter to validate its brand and readable state.
-    if (typeof locked !== "function" || Reflect.apply(locked, stream, [])) return false
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the foreign stream's own reader method before accepting its body.
-    return typeof getReader === "function" && getReader === nativeGetReader
+    const clone = (globalThis as { structuredClone?: (value: unknown, options?: { transfer: object[] }) => unknown }).structuredClone
+    if (typeof clone !== "function") return
+    const transferred = clone(body, { transfer: [body as object] })
+    if (!(transferred instanceof ReadableStream)) return
+    const reader = transferred.getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    while (true) {
+      const result = await reader.read()
+      if (result.done) break
+      if (!(result.value instanceof Uint8Array)) return
+      chunks.push(result.value)
+      total += result.value.byteLength
+    }
+    const bytes = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return bytes
   }
   catch {
-    return false
+    return
   }
 }
 
-function normalizeAuthorizationResponse(value: unknown): Response | undefined {
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
   try {
     const candidate = Object(value)
@@ -409,7 +417,8 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
-    if (!isSerializableAuthorizationBody(body)) return
+    const normalizedBody = await copyAuthorizationBody(body)
+    if (normalizedBody === undefined) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
@@ -424,7 +433,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // Foreign and shadowed values require a serializable local snapshot.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
+      : new Response(normalizedBody, { status, statusText, headers: normalizedHeaders })
     // Foreign implementations and shadowed native values become stable local responses.
     return normalizedResponse
   }

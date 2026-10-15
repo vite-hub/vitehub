@@ -170,6 +170,7 @@ describe("UI documentation", () => {
     const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
     expect(desktopStyles).toMatch(/\.vh-docs-shell\s*>\s*\.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
     expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
+    expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");
   });
