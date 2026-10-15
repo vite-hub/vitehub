@@ -82,7 +82,7 @@ export default defineEventHandler(async (event) => {
 | `posts.list(options?)` | Lists documents without their body. Returns `{ items, nextCursor, total, facets? }`. Reads `published` unless `ref: 'draft'`. |
 | `posts.get(id, options?)` | Returns one document, or `null`. Reads `published` unless `ref: 'draft'`, or one history revision with `revision`. |
 | `posts.raw(id, options?)` | Returns the stored file as `{ collection, id, path, text, digest, revision }`, or `null`, without parsing or validating it. Takes the same `ref` or `revision` as `get()`. |
-| `posts.save(id, { data, body }, options?)` | Validates the fields and commits the file to `draft`. Returns the saved document. |
+| `posts.save(id, { data, body }, options?)` | Commits the file to `draft` and returns the saved document. Fields that fail validation are stored and returned as `issues`; see [Drafts in progress](/docs/content/configure#drafts-in-progress). |
 | `posts.remove(id, options?)` | Deletes the document from `draft`. It stays published until the next `publish()`. |
 | `posts.restore(id, revision, options?)` | Saves the document as it was in an earlier revision as the new draft. |
 | `posts.status(id?)` | Compares `draft` and `published` for one document, or for every document when you omit `id`. |
@@ -112,7 +112,7 @@ A singleton from [`singleton()`](/docs/content/configure#singletons-and-data-fil
 | --- | --- |
 | `settings.get(options?)` | Returns the document, or `null` before its first save on that ref. |
 | `settings.raw(options?)` | Returns the stored file without parsing or validating it, or `null`. |
-| `settings.save({ data, body? }, options?)` | Validates and commits the document to `draft`. The first save creates it. |
+| `settings.save({ data, body? }, options?)` | Commits the document to `draft`, with `issues` for fields that fail validation. The first save creates it. |
 | `settings.remove(options?)` | Deletes the document from `draft`. |
 | `settings.restore(revision, options?)` | Saves the document as it was in an earlier revision as the new draft. |
 | `settings.status()` | `{ collection, id, state, draft, published }`, or `null` when it exists on neither ref. |
@@ -153,7 +153,7 @@ const next = page.nextCursor
 
 Listing runs in memory over the documents of one revision, with the [`array()` Collection engine](/docs/source/server-api#collections-over-an-array). It needs no database index and works on every host. A cursor is bound to the revision and the query, so it fails as stale after a publish or with another filter.
 
-A document whose frontmatter no longer validates, for example after a field changed, is left out of `list()` with a warning. `get()` throws `CONTENT_INVALID` for it with each failing field. `raw()` still returns its text, so a tool can show it, diff it against another ref, and save a repaired version with its `digest` as `ifDigest`.
+A draft with field issues lists and reads with `issues`, and `data` holds its stored values. On `published`, a document whose frontmatter no longer validates, for example after a field changed, is left out of `list()` with a warning, and `get()` throws `CONTENT_INVALID` for it with each failing field. A file that cannot be parsed is left out on every ref. `raw()` still returns its text, so a tool can show it, diff it against another ref, and save a repaired version with its `digest` as `ifDigest`.
 
 ```ts
 const posts = content.collection('posts')
@@ -198,7 +198,7 @@ Saves of different documents never conflict. When another save moved the draft h
 | `changed` | Published, with unpublished draft changes. |
 | `deleted` | Removed from the draft, still published until the next `publish()`. |
 
-`status(id)` returns `{ collection, id, state, draft, published, schedule? }`, where `draft` and `published` are the document digests on each ref or `null`, and `schedule` is the document's [scheduled publish](/docs/content/scheduling#statuses), if any. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
+`status(id)` returns `{ collection, id, state, draft, published, issues?, schedule? }`, where `issues` counts the field issues of the draft, where `draft` and `published` are the document digests on each ref or `null`, and `schedule` is the document's [scheduled publish](/docs/content/scheduling#statuses), if any. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
 
 ### Publish
 

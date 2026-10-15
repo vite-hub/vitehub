@@ -9,6 +9,7 @@ import {
   consoleDocumentStateLabel,
   consoleErrorMessage,
   consoleFieldIssues,
+  consoleFixFieldsLabel,
   consoleInvalidDocument,
   consoleListQuery,
   consolePublishMismatches,
@@ -79,7 +80,10 @@ let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 const states = computed(() => page.value?.states ?? { changed: 0, deleted: 0, draft: 0, published: 0 });
 const total = computed(() => states.value.draft + states.value.changed + states.value.published);
-const pendingChanges = computed(() => page.value?.changes.length ?? 0);
+// Drafts with field issues stay out of Publish all: they would make the whole publish fail.
+const publishableChanges = computed(() => page.value?.changes.filter(change => !change.issues) ?? []);
+const blockedChanges = computed(() => (page.value?.changes.length ?? 0) - publishableChanges.value.length);
+const pendingChanges = computed(() => publishableChanges.value.length);
 // Geist tabs: a count of zero shows no badge.
 const stateTabs = computed(() => [
   { label: "All", value: "all", count: total.value },
@@ -209,7 +213,7 @@ function refreshAfterPublishProblem(): void {
  * Publishes exactly the drafts this list showed: every change, or the selected documents. Rows show Published at once
  * (deleted rows leave) and roll back if the request fails.
  */
-async function publish(expect: readonly ConsoleDocumentPublishExpectation[] = page.value?.changes ?? []): Promise<void> {
+async function publish(expect: readonly ConsoleDocumentPublishExpectation[] = publishableChanges.value): Promise<void> {
   if (publishing.value || !expect.length) return;
   const before = { items: items.value, page: page.value, selected: selected.value };
   const targets = new Set(expect.map(entry => entry.id));
@@ -320,10 +324,11 @@ onBeforeUnmount(() => {
             <p class="text-[13px] text-muted">
               Copy every draft change of {{ collection.label }} to the published site:
               {{ [states.draft && `${states.draft} new`, states.changed && `${states.changed} changed`, states.deleted && `${states.deleted} deleted`].filter(Boolean).join(", ") }}.
+              <template v-if="blockedChanges"> {{ blockedChanges === 1 ? "1 draft with field issues stays" : `${blockedChanges} drafts with field issues stay` }} unpublished.</template>
             </p>
             <div class="flex justify-end gap-2">
               <UButton variant="ghost" size="sm" label="Cancel" @click="publishOpen = false" />
-              <UButton size="sm" label="Publish all" :loading="publishing" @click="publish(page?.changes)" />
+              <UButton size="sm" label="Publish all" :loading="publishing" @click="publish(publishableChanges)" />
             </div>
           </div>
         </template>
@@ -489,12 +494,16 @@ onBeforeUnmount(() => {
             <!-- On a phone the state follows the title instead of taking a column. -->
             <span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 sm:hidden">
               <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" />
+              <ConsoleStatus v-if="item.issues" tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" />
               <ConsoleStatus v-if="item.schedule" :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" />
             </span>
           </td>
           <td class="hidden px-2 sm:table-cell">
             <span class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
               <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" class="text-[13px]" />
+              <UTooltip v-if="item.issues" :text="consoleFixFieldsLabel(item.issues)" :content="{ side: 'top' }">
+                <ConsoleStatus tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" class="text-[13px]" />
+              </UTooltip>
               <UTooltip v-if="item.schedule" :text="item.schedule.failure ?? `Publishes the reviewed draft at ${new Date(item.schedule.at).toLocaleString()}`" :content="{ side: 'top' }">
                 <ConsoleStatus :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" class="text-[13px]" />
               </UTooltip>

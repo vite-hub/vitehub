@@ -222,7 +222,28 @@ Saves that touch different documents never conflict: when another save moves the
 
 ### Validation for every writer
 
-Content registers a `vitehub.content` Workspace plugin with a `write:validate` hook for each collection path. Any writer that puts an invalid file there fails with `CONTENT_INVALID`: Workspace `fs` writes, Sessions, Agents, and history commits on any ref. `save()` also validates before it commits and reports each failing field.
+Content registers a `vitehub.content` Workspace plugin with a `write:validate` hook for each collection path. What it accepts depends on where the file goes:
+
+| Where | Accepted |
+| --- | --- |
+| The `draft` ref | Work in progress. Fields may fail validation. A file that cannot be read as an object of fields is refused: invalid YAML or JSON, a root that is not one object, or a body on a JSON or YAML document. |
+| `published`, any other ref, and Workspace `fs` writes | Only documents whose fields validate. |
+
+Every writer goes through the hook: Workspace `fs` writes, Sessions, Agents, and history commits. A refused write fails with `CONTENT_INVALID`.
+
+### Drafts in progress
+
+`save()` stores fields that fail validation in the draft and returns them as `issues`, so an editor can autosave half-finished work. The stored values come back in `data` as written. `status()` counts the issues, and `get({ ref: 'draft' })` and `list({ ref: 'draft' })` return them.
+
+```ts
+const draft = await posts.save('hello', { data: { title: '' } })
+draft.issues // [{ field: 'title', path: [], message: 'Add a title.' }]
+await content.publish({ collection: 'posts' }) // CONTENT_INVALID naming posts/hello
+```
+
+`publish()` and `schedule()` validate every document they would publish. One with issues fails the whole call with `CONTENT_INVALID`, and `details.documents` names each invalid document with its issues. Nothing is published.
+
+`save()` still throws `CONTENT_INVALID` for input that cannot become a file: `data` that is not a plain object, values that do not survive a JSON round trip, a body that is not a string, or a body on a JSON or YAML document.
 
 The hook is installed when `server/content.ts` loads. The generated Content route and any import of `content` load it. `publish()` validates again, so a file written before the hook was installed cannot reach `published` unless it is valid.
 

@@ -127,10 +127,24 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     await expect(actions.publish({ collection: "posts", expect: [{ id: "hello", digest: saved.digest }] }, editor)).resolves.toMatchObject({ documents: [{ collection: "posts", id: "hello", change: "add" }] })
   })
 
-  it("returns per-field issues for invalid fields", async () => {
+  it("saves drafts with invalid fields and refuses to publish them", async () => {
     const { actions } = await setup()
-    const invalid = await failure(actions.save({ ...hello, data: { title: "", date: "soon" } }, editor))
-    expect(invalid).toMatchObject({ status: 422, code: "CONTENT_INVALID", details: { issues: [expect.objectContaining({ field: "title" }), expect.objectContaining({ field: "date" })] } })
+    const draft = await actions.save({ ...hello, data: { title: "", date: "soon" } }, editor)
+    expect(draft).toMatchObject({ state: "draft", issues: [expect.objectContaining({ field: "title" }), expect.objectContaining({ field: "date" })] })
+    expect(await actions.get({ collection: "posts", id: "hello" }, editor)).toMatchObject({ issues: expect.arrayContaining([expect.objectContaining({ field: "title" })]) })
+    const page = await actions.list({ collection: "posts" }, editor)
+    expect(page.items[0]).toMatchObject({ id: "hello", issues: 2 })
+    expect((await actions.overview({}, editor)).collections[0]!.changes[0]).toMatchObject({ id: "hello", issues: 2 })
+    expect(await failure(actions.publish({ collection: "posts", expect: [{ id: "hello", digest: draft.digest }] }, editor))).toMatchObject({
+      status: 422,
+      code: "CONTENT_INVALID",
+      details: { id: "hello", issues: [expect.objectContaining({ field: "title" }), expect.objectContaining({ field: "date" })], documents: [expect.objectContaining({ id: "hello" })] },
+    })
+    expect(await failure(actions.schedule({ collection: "posts", at: new Date(Date.now() + 3_600_000).toISOString(), expect: [{ id: "hello", digest: draft.digest }] }, editor)))
+      .toMatchObject({ status: 422, code: "CONTENT_INVALID" })
+    const fixed = await actions.save({ ...hello, ifDigest: draft.digest }, editor)
+    expect(fixed.issues).toBeUndefined()
+    await expect(actions.publish({ collection: "posts", expect: [{ id: "hello", digest: fixed.digest }] }, editor)).resolves.toMatchObject({ documents: [{ id: "hello" }] })
   })
 
   it("returns a conflict when the document changed since it was read", async () => {
