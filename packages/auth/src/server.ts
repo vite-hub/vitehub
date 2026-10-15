@@ -359,10 +359,10 @@ function hasResponsePrototype(value: unknown): boolean {
         const descriptor = Object.getOwnPropertyDescriptor(value, key)
         return descriptor && "value" in descriptor
       })
-      // Local Response proxies retain the native prototype but fail the
-      // intrinsic getter probe because the proxy is not branded. The native
-      // instanceof check is the runtime authenticity signal for that case.
-      if (platformConstructor && !ownSnapshot && (value instanceof Response || platformGetters)) return true
+      // Require the platform accessors to authenticate the candidate. An
+      // `instanceof Response` fallback is unsafe because a proxy can intercept
+      // the later snapshot reads and forge response fields.
+      if (platformConstructor && !ownSnapshot && platformGetters) return true
       prototype = Object.getPrototypeOf(prototype)
     }
   }

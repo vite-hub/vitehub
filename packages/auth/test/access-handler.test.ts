@@ -104,7 +104,7 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
-  it("normalizes a local Response proxy with unstable ordinary reads", async () => {
+  it("rejects a local Response proxy with unstable ordinary reads", async () => {
     const source = new Response("Policy rejected", { status: 409 })
     let headerReads = 0
     const candidate = new Proxy(source, {
@@ -119,11 +119,8 @@ describe("Auth access handlers", () => {
 
     const response = await handler(new Request("https://app.example/"))
 
-    expect(response).not.toBe(candidate)
-    expect(response?.status).toBe(409)
-    expect(() => response?.headers.forEach(() => {})).not.toThrow()
-    await expect(response?.text()).resolves.toBe("Policy rejected")
-    expect(headerReads).toBe(1)
+    expect(response?.status).toBe(403)
+    expect(headerReads).toBe(0)
   })
 
   it("normalizes authorization responses from another runtime", async () => {
