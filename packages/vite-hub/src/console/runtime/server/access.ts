@@ -58,11 +58,13 @@ const checkedEvents = new WeakMap<object, ConsoleAccess>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local", "open"])
 const objectToString = Object.prototype.toString
+const invalidAuthorizationResponse = Symbol("invalid authorization response")
 
-async function authorizationResponse(value: unknown): Promise<Response | undefined> {
+async function authorizationResponse(value: unknown): Promise<Response | typeof invalidAuthorizationResponse | undefined> {
   if (value instanceof Response) return value
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates foreign Fetch fields before constructing a local Response.
   if (!value || typeof value !== "object") return undefined
+  if (objectToString.call(value) !== "[object Response]") return undefined
   try {
     // A foreign Response cannot be branded by this realm's constructor. Validate
     // its transferable fields and let Fetch construct the route's actual Response.
@@ -78,7 +80,7 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
       || !("headers" in value) || !value.headers || typeof value.headers !== "object"
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the iterable protocol check before Headers consumes it.
       || !(Symbol.iterator in value.headers) || typeof value.headers[Symbol.iterator] !== "function"
-      || !("body" in value)) return undefined
+      || !("body" in value)) return invalidAuthorizationResponse
     // SAFETY: Headers validates the foreign iterable and all its entries at this boundary.
     const headers = new Headers(value.headers as Headers)
     const init = { headers, status: value.status, statusText: value.statusText }
@@ -87,32 +89,32 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     // returned clone is validated below, so compatible own methods are allowed.
     const cloneMethod = Reflect.get(value, "clone")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
-    if (typeof cloneMethod !== "function") return undefined
+    if (typeof cloneMethod !== "function") return invalidAuthorizationResponse
     const clone = Reflect.apply(cloneMethod, value, [])
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the foreign clone result before inspecting its fields.
     if (!clone || typeof clone !== "object" || clone === value || Object.getPrototypeOf(clone) !== Object.getPrototypeOf(value)
       || objectToString.call(clone) !== "[object Response]"
-      || Object.prototype.hasOwnProperty.call(clone, Symbol.toStringTag)) return undefined
+      || Object.prototype.hasOwnProperty.call(clone, Symbol.toStringTag)) return invalidAuthorizationResponse
     // A callable clone spoof must also expose the transferable Response contract.
     if (!("status" in clone) || typeof clone.status !== "number"
       || !("statusText" in clone) || typeof clone.statusText !== "string"
       || !("headers" in clone) || !clone.headers || typeof clone.headers !== "object"
       || !(Symbol.iterator in clone.headers) || typeof clone.headers[Symbol.iterator] !== "function"
-      || !("body" in clone)) return undefined
+      || !("body" in clone)) return invalidAuthorizationResponse
     // Validate init before taking ownership of a foreign stream.
     const empty = new Response(null, init)
     if (value.body === null) return empty
-    if ([204, 205, 304].includes(value.status)) return undefined
+    if ([204, 205, 304].includes(value.status)) return invalidAuthorizationResponse
     // Calling the native stream method checks its internal brand across realms;
     // piping into a local stream also avoids realm-sensitive Fetch body checks.
     // Read the foreign body through its own implementation, then construct the
     // local response from bytes so independently implemented Fetch realms work.
-    if (!("arrayBuffer" in clone) || typeof clone.arrayBuffer !== "function") return undefined
+    if (!("arrayBuffer" in clone) || typeof clone.arrayBuffer !== "function") return invalidAuthorizationResponse
     const body = await Reflect.apply(clone.arrayBuffer, clone, [])
     return new Response(body as ArrayBuffer, init)
   }
   catch {
-    return undefined
+    return invalidAuthorizationResponse
   }
 }
 
@@ -198,7 +200,11 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
         : "[vitehub] Cloudflare Access Console Auth is not configured.")
     }
     const response = await policy.check(event)
-    if (response) return await authorizationResponse(response) ?? rejection(403, "Forbidden.")
+    if (response) {
+      const normalized = await authorizationResponse(response)
+      if (normalized === invalidAuthorizationResponse) return rejection(403, "Forbidden.")
+      return normalized ?? rejection(403, "Forbidden.")
+    }
     if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
   let sections: ConsoleAccess["sections"] = "all"
@@ -208,6 +214,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       ? authorizeResult
       : await policy.authorize(user ? { request, user } : { request })
     const response = await authorizationResponse(result)
+    if (response === invalidAuthorizationResponse) return rejection(403, "Forbidden.")
     if (response) return response
     if (result === false) return rejection(403, "Forbidden.")
     if (result !== true) {
