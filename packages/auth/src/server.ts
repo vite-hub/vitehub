@@ -71,8 +71,8 @@ function isRequestLike(value: AuthRequest): value is Request {
     if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false
     // Body methods alone are insufficient: structural host inputs can expose
     // them while lacking the Headers and AbortSignal APIs of a Web Request.
-    if (!value.headers || Object.prototype.toString.call(value.headers) !== "[object Headers]" || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
-    if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || typeof value.signal.aborted !== "boolean") return false
+    if (!value.headers || Object.prototype.toString.call(value.headers) !== "[object Headers]" || value.headers.constructor?.name !== "Headers" || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
+    if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || value.signal.constructor?.name !== "AbortSignal" || typeof value.signal.aborted !== "boolean") return false
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check request state without calling clone(), which would tee a streaming body.
     if (typeof Reflect.get(value, "bodyUsed") !== "boolean") return false
     return true
