@@ -68,7 +68,10 @@ function isRequestLike(value: AuthRequest): value is Request {
       let current: object | null = Object.getPrototypeOf(target)
       while (current) {
         const descriptor = Object.getOwnPropertyDescriptor(current, Symbol.toStringTag)
-        if (descriptor) return typeof descriptor.get === "function" && descriptor.get.call(target) === tag
+        if (descriptor) {
+          if (typeof descriptor.get === "function") return descriptor.get.call(target) === tag
+          return "value" in descriptor && descriptor.value === tag
+        }
         current = Object.getPrototypeOf(current)
       }
       return false
