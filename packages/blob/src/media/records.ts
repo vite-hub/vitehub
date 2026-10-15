@@ -397,6 +397,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
     if (!object) throw new MediaFailure("BLOB_NOT_FOUND", `Blob ${from} was not found in store ${store}.`)
     if (canonical(from) === canonical(to)) return await requireRecord(from)
     if (!overwrite && await driver.head(to)) throw new MediaFailure("BLOB_CONFLICT", `Blob ${to} already exists in store ${store}.`)
+    if (overwrite && await driver.head(to)) await removeMedia(to)
     const record = await requireRecord(from)
     const moved = await copyObject(from, to, object)
     let crops: Record<string, MediaCrop> | undefined
