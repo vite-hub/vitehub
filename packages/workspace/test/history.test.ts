@@ -179,6 +179,21 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     await expect(workspace.history.list({ path: "../docs" })).rejects.toMatchObject({ code: "WORKSPACE_PATH_INVALID" })
   })
 
+  it("treats LIKE metacharacters as literal path characters", async () => {
+    const { facade } = await setup(driver)
+    const workspace = facade()
+    const first = await workspace.history.commit({
+      ifHead: null,
+      files: { "foo%/file.txt": "one", "fooA/file.txt": "one", "foo_/file.txt": "one", "foox/file.txt": "one" },
+    })
+    const second = await workspace.history.commit({
+      ifHead: first.id,
+      files: { "foo%/file.txt": "one", "fooA/file.txt": "two", "foo_/file.txt": "two", "foox/file.txt": "two" },
+    })
+    expect((await workspace.history.list({ path: "foo%" })).revisions.map(revision => revision.id)).toEqual([first.id])
+    expect((await workspace.history.list({ path: "foo_" })).revisions.map(revision => revision.id)).toEqual([first.id])
+  })
+
   it("uploads each retained digest once, counts unique bytes, and keeps workspaces isolated", async () => {
     const { store, facade, uploads, blob, database } = await setup(driver)
     const workspace = facade()

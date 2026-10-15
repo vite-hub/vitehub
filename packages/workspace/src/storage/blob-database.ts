@@ -184,7 +184,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
         from json_each(${revisions.entries}) as current_file
         left join json_each(${previousEntries}) as previous_file
           on previous_file.key = current_file.key
-        where (current_file.key = ${path} or current_file.key like ${`${path}/%`})
+        where (current_file.key = ${path} or substr(current_file.key, 1, length(${path}) + 1) = ${path} || '/')
           and (
             previous_file.key is null
             or json_extract(current_file.value, '$.digest') is not json_extract(previous_file.value, '$.digest')
@@ -198,7 +198,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
         from json_each(${previousEntries}) as previous_file
         left join json_each(${revisions.entries}) as current_file
           on current_file.key = previous_file.key
-        where (previous_file.key = ${path} or previous_file.key like ${`${path}/%`})
+        where (previous_file.key = ${path} or substr(previous_file.key, 1, length(${path}) + 1) = ${path} || '/')
           and current_file.key is null
       )
     )`
