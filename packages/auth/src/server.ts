@@ -293,7 +293,7 @@ function isResponseLike(value: unknown): value is Response {
     let prototype: object | null = Object.getPrototypeOf(value)
     const accessors: Record<string, ((this: unknown) => unknown) | undefined> = {}
     for (let depth = 0; prototype && depth < 32; depth++) {
-      for (const key of ["status", "statusText", "headers"] as const) {
+      for (const key of ["status", "statusText", "headers", "body"] as const) {
         if (!(key in accessors)) {
           const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
           if (getter) accessors[key] = getter
@@ -305,9 +305,11 @@ function isResponseLike(value: unknown): value is Response {
     const status = accessors.status?.call(value)
     const statusText = accessors.statusText?.call(value)
     const headers = accessors.headers?.call(value)
+    const body = accessors.body?.call(value)
     return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599
       && typeof statusText === "string"
       && headers !== null && typeof headers === "object"
+      && (body === null || typeof body === "object")
   }
   catch {
     return false

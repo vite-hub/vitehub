@@ -127,6 +127,19 @@ describe("Auth access handlers", () => {
     expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
   })
 
+  it("rejects response-shaped objects without a genuine body slot", async () => {
+    const spoofedResponse = runInNewContext(`Object.create({
+      get status() { return 409 },
+      get statusText() { return "Conflict" },
+      get headers() { return new Headers() },
+    })`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoofedResponse as never }] },
+    }))
+
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
+  })
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))
