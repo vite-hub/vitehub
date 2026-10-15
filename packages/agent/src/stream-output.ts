@@ -50,24 +50,26 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   if (current) throw new Error("Response prototype chain is too deep")
 }
 
-function hasResponsePrototype(value: unknown): boolean {
+function responsePrototype(value: unknown): object | undefined {
   let prototype: object | null = Object.getPrototypeOf(Object(value))
   const seen = new Set<object>()
   for (let depth = 0; prototype && depth < responsePrototypeLimit; depth++) {
-    if (seen.has(prototype)) return false
+    if (seen.has(prototype)) return
     seen.add(prototype)
     const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    const owner = prototype
-    const clone = Object.getOwnPropertyDescriptor(owner, "clone")?.value
-    if (constructor?.name === "Response"
-      && responseSnapshotProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)
-      // A native Response prototype also exposes its complete body API. The
-      // clone method is selected from the same prototype so a class that only
-      // copies the stream-facing getters cannot cross this boundary.
-      && hasRuntimeType(clone, "function")) return true
+    const hasAccessors = responseSnapshotProperties.every(key => Object.getOwnPropertyDescriptor(prototype, key)?.get)
+    const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+    if (constructor?.name === "Response" && hasAccessors && hasRuntimeType(clone, "function")) return prototype
     prototype = Object.getPrototypeOf(prototype)
   }
-  return false
+}
+
+function hasResponsePrototype(value: unknown): boolean {
+  const branded = responsePrototype(value)
+  if (!branded) return false
+  // Do not allow an intermediate prototype to replace intrinsic accessors.
+  return responseSnapshotProperties.every(key => responsePropertyDescriptor(value, key)?.get
+    === Object.getOwnPropertyDescriptor(branded, key)?.get)
 }
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
@@ -189,19 +191,22 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     const body: unknown = Reflect.get(value, "body")
     if (!hasRuntimeType(status, "number") || !Number.isInteger(status) || status < 200 || status > 599) return
     if (!hasRuntimeType(statusText, "string") || !isRuntimeRecord(headers) || !isRuntimeRecord(body)) return
-    const snapshot = { status, statusText, headers, body }
-    const nativeProperties = isUIMessageStreamResponse(value) && responseSnapshotProperties.every(key => {
-      const getter = responsePropertyDescriptor(Response.prototype, key)?.get
-      return getter && responsePropertyDescriptor(value, key)?.get === getter
-        && Reflect.apply(getter, value, []) === snapshot[key]
-    })
+    const type: unknown = Reflect.get(value, "type")
+    if (!hasRuntimeType(type, "string")) return
+    const snapshot = { status, statusText, headers, body, type }
+    const branded = responsePrototype(value)
+    const markerGetter = headersDescriptor(headers, "get")?.value
+    if (!branded || !hasRuntimeType(markerGetter, "function")
+      || Reflect.apply(markerGetter, headers, ["x-vercel-ai-ui-message-stream"]) !== "v1") return
+    const nativeProperties = snapshot.type === type && hasResponsePrototype(value) && responseSnapshotProperties.every(key =>
+      responsePropertyDescriptor(value, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     const nativeHeaders = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headers, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
     const cookieDescriptor = responsePropertyDescriptor(headers, "getSetCookie")
     const nativeCookies = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeReader = responsePropertyDescriptor(body, "getReader")?.value === ReadableStream.prototype.getReader
-    if (nativeProperties && nativeHeaders && nativeCookies && nativeReader && isUIMessageStreamResponse(value)) return value
+    if (nativeProperties && nativeHeaders && nativeCookies && nativeReader) return value
     if (!isPortableUIMessageBody(body)) return
     const forEach = Reflect.get(headers, "forEach")
     if (!hasRuntimeType(forEach, "function")) return
