@@ -75,13 +75,34 @@ export async function readRealtimeYDoc(editor: RealtimeEditor, document: Y.Doc):
   return { body: await editor.toMarkdown(content), fields: readRealtimeFields(document) }
 }
 
+/** Whether `fromMarkdown(body)` gives back the body of `document`, where `body` is what `toMarkdown` wrote for it. */
+export async function realtimeCodecReadsBack(editor: RealtimeEditor, document: Y.Doc, body: string): Promise<boolean> {
+  const schema = realtimeEditorSchema(editor)
+  try {
+    const written = schema.nodeFromJSON(yXmlFragmentToProsemirrorJSON(document.getXmlFragment(realtimeDocumentLayout.body)))
+    return written.eq(schema.nodeFromJSON(await editor.fromMarkdown(body)))
+  }
+  catch {
+    return false
+  }
+}
+
+/** Adds the final newline that a codec dropped when the stored body ends with one. */
+export function keepRealtimeFinalNewline(body: string, finalNewline: boolean): string {
+  return finalNewline && !body.endsWith("\n") ? `${body}\n` : body
+}
+
+function sameBody(left: string, right: string): boolean {
+  return left === right || keepRealtimeFinalNewline(left, true) === keepRealtimeFinalNewline(right, true)
+}
+
 /**
  * Returns the Yjs update that turns `base` into `target` as a structural diff. Applying it to a
  * room that has moved on since `base` keeps concurrent edits instead of duplicating content.
  */
 export async function diffRealtimeYDoc(editor: RealtimeEditor, base: Y.Doc, target: RealtimeDocumentSnapshot): Promise<Uint8Array> {
   const current = await readRealtimeYDoc(editor, base)
-  const next = target.body === current.body ? undefined : await editor.fromMarkdown(target.body)
+  const next = sameBody(target.body, current.body) ? undefined : await editor.fromMarkdown(target.body)
   // A stored form without `fields` leaves the live fields untouched.
   const fieldsChanged = target.fields !== undefined && !realtimeJsonEqual(current.fields, target.fields)
   if (!next && !fieldsChanged) return new Uint8Array()

@@ -83,7 +83,7 @@ Object, so bindings come from its environment.
 
 The editor codec owns the schema and the Markdown conversion. The server
 builds the ProseMirror schema from `extensions()` and calls the codec; it never
-creates an editor view, so a codec must not depend on the DOM. Both functions
+creates an editor view, so a codec must not depend on the DOM. All functions
 may be async.
 
 ```ts [shared/editor.ts]
@@ -106,6 +106,44 @@ A lossless codec makes `toMarkdown(fromMarkdown(x)) === x` for documents your
 users write. Realtime only converts at seed and save time, so a lossy codec
 changes stored formatting on the first save, not on every keystroke.
 
+### Guard documents the codec cannot keep
+
+Most codecs normalize some Markdown and lose some. For example, a codec can
+drop an undeclared `::callout` wrapper or unwrap raw HTML. A room autosaves,
+so the first save after any edit would rewrite the stored document. Add
+`verify()` to tell Realtime what the codec does with a stored document:
+
+```ts [shared/editor.ts]
+export const pagesEditor = defineRealtimeEditor({
+  extensions: () => [/* ... */],
+  fromMarkdown,
+  toMarkdown,
+  async verify(markdown, { fields }) {
+    const lost = await findUnsupportedConstructs(markdown)
+    if (lost.length) return { writable: false, issues: lost.map(name => ({ message: `Unsupported: ${name}` })) }
+    return { writable: true, canonical: await toMarkdown(await fromMarkdown(markdown)) }
+  },
+})
+```
+
+| Result | Effect |
+| --- | --- |
+| `writable: false` | The whole room opens read-only, body and fields. `status.error` explains it and `status.issues` holds the `issues`. The room never saves; `save()` and `history.checkpoint()` answer `409` with `REALTIME_READ_ONLY`; a client update closes the connection with `4403`. |
+| `canonical` | The body the codec writes for the unchanged document. A save whose body equals it, with unchanged fields, writes nothing, so opening and editing back to the start does not rewrite `* item` as `- item`. |
+| `issues` | Shown in `status.issues` until the first save. |
+
+Realtime calls `verify(body, { fields })` each time it seeds a room from the
+stored document: when the room opens and after a re-seed. `refresh()` after a
+fix to the stored document re-seeds the room, so it can become writable.
+
+Realtime also guards every save, with or without `verify()`:
+
+- It parses the Markdown it is about to save. When `fromMarkdown(toMarkdown(doc))`
+  differs from the room body, it saves anyway and adds an entry to
+  `status.issues`.
+- When the stored body ends with a newline and the codec output does not,
+  Realtime adds the newline back.
+
 ## Structured documents
 
 Every room document has three root types, named in `realtimeDocumentLayout`:
@@ -114,14 +152,20 @@ Every room document has three root types, named in `realtimeDocumentLayout`:
 | --- | --- | --- |
 | `body` | `Y.XmlFragment` | Clients, through TipTap Collaboration. |
 | `fields` | `Y.Map` with one JSON value per field | Clients. Concurrent writes to the same field resolve last-write-wins; different fields never conflict. |
-| `status` | `Y.Map`: `digest`, `error`, `issues`, `savedAt`, `savedBy` | The server only. |
+| `status` | `Y.Map`: `digest`, `error`, `issues`, `savedAt`, `savedBy` | The server only. `error` also holds the read-only reason from `verify()`. |
 
 ```ts
 const realtime = useRealtimeTiptap('pages', 'about')
 
 realtime.fields.value?.set('title', 'About us')
 realtime.saveStatus.value // { digest, error, issues, savedAt, savedBy }
+realtime.readOnly.value // true when the server rejects edits from this connection
+realtime.readOnlyReason.value // 'access', 'document', or null
 ```
+
+`readOnlyReason` is `access` when `authorize` denied write, and `document`
+when `verify()` returned `writable: false`. Pass `editable: !readOnly` to the
+editor and show `saveStatus.error` for the `document` reason.
 
 `status` lives in the Yjs document so it arrives in order with the content it
 describes, survives a Durable Object restart, and is readable with plain Yjs.

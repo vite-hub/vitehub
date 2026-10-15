@@ -55,6 +55,11 @@ is not reclaimed.
 A failed save writes its message to the room `status` map, keeps the edits,
 and retries with backoff up to one minute.
 
+A save that would store the same document writes nothing: when the edits
+cancel out, or when the body equals the `canonical` form from the editor's
+`verify()`. A room that `verify()` marks read-only never saves. See
+[Guard documents the codec cannot keep](/docs/realtime/server-api#guard-documents-the-codec-cannot-keep).
+
 On Cloudflare, idle saves run while the Durable Object is in memory. If it is
 evicted with unsaved edits, the edits stay in SQLite and the room saves them
 when the next client wakes it.
