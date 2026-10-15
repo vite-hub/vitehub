@@ -305,8 +305,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 100 || response.status > 599) return
     if (typeof response.statusText !== "string") return
     const headers = new Headers()
-    const getSetCookie = (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie
-    const setCookieValues = typeof getSetCookie === "function" ? getSetCookie.call(response.headers) : []
+    const getSetCookie = (response.headers as Headers & { getSetCookie?: () => unknown }).getSetCookie
+    const rawSetCookieValues = typeof getSetCookie === "function" ? getSetCookie.call(response.headers) : []
+    if (!Array.isArray(rawSetCookieValues) || !rawSetCookieValues.every(value => typeof value === "string")) return
+    const setCookieValues = rawSetCookieValues
     response.headers.forEach((value, key) => headers.append(key, value))
     if (setCookieValues.length > 0) {
       headers.delete("set-cookie")

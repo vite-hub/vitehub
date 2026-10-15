@@ -156,6 +156,23 @@ describe("Auth access handlers", () => {
     expect(response!.headers.get("x-policy")).toBe("denied")
   })
 
+  it("rejects foreign responses with malformed cookie metadata", async () => {
+    const headers = new Headers({ "set-cookie": "sid=abc" })
+    Object.defineProperty(headers, "getSetCookie", { value: () => "sid=abc" })
+    const foreignResponse = {
+      status: 409,
+      statusText: "Conflict",
+      headers,
+      body: null,
+      [Symbol.toStringTag]: "Response",
+    }
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    expect((await handler(new Request("https://app.example/")))!.status).toBe(403)
+  })
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))
