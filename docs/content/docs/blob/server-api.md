@@ -311,7 +311,7 @@ interface BlobReference {
 }
 ```
 
-`image()` and `file()` from `@vite-hub/blob` return validators for that shape. A reference has no URL, because signed and served URLs expire or depend on routes. It has no alt text or dimensions either: read them from the [media record](/docs/blob/media#media-in-content) with `blob.media.get(reference)` when you render. Serve or sign the pathname when you read the record. A reference also has no store name. The schema's `store` option names the store.
+`image()` and `file()` from `@vite-hub/blob` return validators for that shape. [Content](/docs/content/configure#fields) re-exports the same functions from `vite-hub/content`, next to its other field helpers. A reference has no URL, because signed and served URLs expire or depend on routes. It has no alt text or dimensions either: read them from the [media record](/docs/blob/media#media-in-content) with `blob.media.get(reference)` when you render. Serve or sign the pathname when you read the record. A reference also has no store name. The schema's `store` option names the store.
 
 ```ts [server/api/profile/avatar.put.ts]
 import { image } from '@vite-hub/blob'
