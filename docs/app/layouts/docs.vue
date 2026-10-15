@@ -59,6 +59,7 @@ const hasPanel = computed(
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;
+    overflow-x: clip;
   }
 
   .vh-docs-shell > .vh-docs-desktop-nav {
