@@ -399,6 +399,32 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     await expect(failure(actions.references({ pathnames: Array.from({ length: 101 }, (_, index) => `${index}.png`) }, editor))).resolves.toMatchObject({ status: 400 })
   })
 
+  it("hides documents a per-document policy denies from the media references", async () => {
+    const workspace = await historyWorkspace()
+    const cover = { pathname: "heroes/launch.jpg" }
+    const fields = { title: z.string(), cover: z.object({ pathname: z.string() }).optional() }
+    // Readers may read every document but `secret`, which uses the file in a field, and `aside`, which uses it in the body.
+    const hidden = new Set(["secret", "aside"])
+    const content = defineContent({
+      workspace,
+      collections: { posts: documents({ path: "posts/*.md", fields }) },
+      authorize: ({ user, action, id }) => user?.role === "editor" || (user?.role === "reader" && action === "read" && !(id !== undefined && hidden.has(id))),
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const actions = createContentConsoleActions({ content })
+    await actions.save({ collection: "posts", id: "launch", data: { title: "Launch", cover }, body: "", ifDigest: null }, editor)
+    await actions.save({ collection: "posts", id: "secret", data: { title: "Secret plan", cover }, body: "", ifDigest: null }, editor)
+    await actions.save({ collection: "posts", id: "aside", data: { title: "Hidden aside" }, body: "![Launch](heroes/launch.jpg)\n", ifDigest: null }, editor)
+    await publishAll(actions, editor)
+
+    const all = await actions.references({ pathnames: ["heroes/launch.jpg"] }, editor)
+    expect(all.references["heroes/launch.jpg"]!.map(reference => reference.id).sort()).toEqual(["aside", "launch", "secret"])
+    const found = await actions.references({ pathnames: ["heroes/launch.jpg"] }, reader)
+    expect(found.references["heroes/launch.jpg"]).toEqual([{ collection: "posts", id: "launch", title: "Launch", refs: ["draft", "published"] }])
+    expect(JSON.stringify(found)).not.toMatch(/secret|aside/i)
+  })
+
   it("gives media access from the widest collection access", async () => {
     const { actions } = await setup()
     await expect(actions.mediaAccess(editor)).resolves.toEqual({ read: true, write: true, manage: true })
