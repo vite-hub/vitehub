@@ -381,13 +381,13 @@ function getNativeAuthorizationReaderMethods(reader: object) {
   }
 }
 
-function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  // Normalize through the platform Response so reader dispatch uses this realm's
-  // intrinsic methods and cannot invoke shadowed methods from the source object.
-  const normalized = new Response(body)
-  const normalizedBody = normalized.body
-  if (!normalizedBody) throw new TypeError("Invalid ReadableStream body")
-  const reader = normalizedBody.getReader()
+function bridgeAuthorizationBody(
+  body: ReadableStream<Uint8Array>,
+  getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>,
+) {
+  // Use the already validated intrinsic method so shadowed stream properties cannot
+  // dispatch caller-controlled code during authorization response normalization.
+  const reader = Reflect.apply(getReader, body, [])
   const methods = getNativeAuthorizationReaderMethods(reader)
   if (!methods) throw new TypeError("Invalid ReadableStreamDefaultReader")
   const { read, cancel, releaseLock } = methods
@@ -479,7 +479,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       : new Response(body, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
     if (typeof nativeBodyReader !== "function") return
-    const bridgedBody = bridgeAuthorizationBody(body)
+    const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
