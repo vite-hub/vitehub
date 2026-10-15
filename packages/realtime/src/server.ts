@@ -81,7 +81,10 @@ const workspaceChangeWindowMs = 1_000
 const syncUpdateIntervalMs = 50
 const durableUpdateCompactionInterval = 128
 const maxSaveRetryMs = 60_000
+const holdIntervalMs = 60_000
 const messageSync = 0
+/** Marks the request that `refreshRealtimeDocument()` sends to a Durable Object. The Worker strips it from client requests. */
+const internalRefreshHeader = "x-vitehub-realtime-refresh"
 
 export const realtimePersistenceDefaults = Object.freeze({ debounce: 2_000, maxWait: 10_000 })
 
@@ -189,7 +192,8 @@ function storedUpdate(value: unknown): Uint8Array | undefined {
 interface ResolvedRealtimeDefinition {
   adapter: RealtimeDocumentAdapter
   definition: RealtimeDefinition
-  editor: RealtimeEditor
+  /** The codec of one document: the definition's editor, or the one its editor function picks. */
+  editor: (context: RealtimeDocumentContext) => RealtimeEditor
   persistence: { debounce: number, maxWait: number } | false
 }
 
@@ -223,7 +227,9 @@ export function resolveRealtimeDefinition(definition: RealtimeDefinition): Resol
   if (persistence && persistence.maxWait < persistence.debounce) {
     throw realtimeErrorDiagnostics.REALTIME_R0015({ message: "Realtime persistence.maxWait must be at least persistence.debounce." })
   }
-  const resolved = { adapter, definition, editor: definition.editor ?? realtimeMarkdownEditor, persistence }
+  const configured = definition.editor ?? realtimeMarkdownEditor
+  const editor = configured instanceof Function ? configured : () => configured
+  const resolved = { adapter, definition, editor, persistence }
   resolvedDefinitions.set(definition, resolved)
   return resolved
 }
@@ -246,7 +252,16 @@ interface DocumentRoom extends RoomBase {
   destroyed: boolean
   digest: string | null
   dirty: boolean
+  /** The editor codec of this document. */
+  editor: RealtimeEditor
   editors: Map<string, RealtimeUser>
+  /** Whether `adapter.hold()` kept the room, so the last leave calls `adapter.release()`. */
+  held: boolean
+  /** The status error of the last failed `adapter.hold()`, cleared by the next one that succeeds. */
+  holdError?: string
+  holdTimer?: ReturnType<typeof setInterval>
+  /** Connected clients that may write. */
+  writers: Set<WebSocketPeer>
   epoch: string
   firstDirtyAt?: number
   guard: DocumentGuard
@@ -385,6 +400,61 @@ function errorMessage(error: unknown): string {
   return "The realtime document could not be saved."
 }
 
+/** Refreshes the open room of one document in this process. Resolves whether the room re-seeded. */
+type LocalRefresh = (definitionName: string, documentId: string) => Promise<boolean>
+
+const localRefreshKey: unique symbol = Symbol.for("vitehub.realtime.local-refresh")
+// SAFETY: This module owns the process slot shared by separately bundled handlers and callers.
+const refreshScope = globalThis as typeof globalThis & { [localRefreshKey]?: Set<LocalRefresh> }
+
+function localRefreshers(): Set<LocalRefresh> {
+  refreshScope[localRefreshKey] ??= new Set()
+  return refreshScope[localRefreshKey]
+}
+
+/** The `$DurableObject` namespace binding that holds Realtime rooms on Cloudflare. */
+export interface RealtimeDurableObjectNamespace {
+  get(id: unknown): { fetch(request: Request): Promise<Response> }
+  idFromName(name: string): unknown
+}
+
+export interface RealtimeRefreshOptions {
+  /** On Cloudflare, the `$DurableObject` binding. Without it, only rooms of this process refresh. */
+  durableObjects?: RealtimeDurableObjectNamespace
+}
+
+/**
+ * Tells the open room of a document that its stored copy changed outside the room, such as a save by an Agent or the
+ * CLI. A room without unsaved edits re-seeds at once and resets its clients. A room with unsaved edits finds the change
+ * at its next save, which also re-seeds it. A room that is not open loads the stored copy when it opens. Resolves
+ * whether a room re-seeded. It never throws: a failed refresh leaves the next save to find the change.
+ */
+export async function refreshRealtimeDocument(definition: string, documentId: string, options: RealtimeRefreshOptions = {}): Promise<boolean> {
+  let reseeded = false
+  for (const refresh of localRefreshers()) {
+    try {
+      if (await refresh(definition, documentId)) reseeded = true
+    }
+    catch {
+      // The next save of that room finds the change.
+    }
+  }
+  const binding = options.durableObjects
+  if (!binding) return reseeded
+  try {
+    const room = documentId.split("/").map(encodeURIComponent).join("/")
+    const response = await binding.get(binding.idFromName(realtimeRoomKey(definition, documentId))).fetch(new Request(
+      `https://vitehub.internal${routePrefix}${encodeURIComponent(definition)}/${room}?document=refresh`,
+      { method: "POST", headers: { [internalRefreshHeader]: "1" } },
+    ))
+    const result: unknown = response.ok ? await response.json() : undefined
+    return reseeded || (result instanceof Object && "reseeded" in result && result.reseeded === true)
+  }
+  catch {
+    return reseeded
+  }
+}
+
 export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandler {
   const inactiveMemoryRoomKeys = new Set<string>()
   const memoryRoomKeys = new Set<string>()
@@ -421,7 +491,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const key = workspaceEvents
       ? JSON.stringify([definitionName, { workspaceEvents: true }])
       : realtimeRoomKey(definitionName, documentId)
-    return await binding.get(binding.idFromName(key)).fetch(event.req)
+    let request = event.req
+    if (request.headers.has(internalRefreshHeader)) {
+      // Only refreshRealtimeDocument() may send it, straight to the Durable Object.
+      const headers = new Headers(request.headers)
+      headers.delete(internalRefreshHeader)
+      request = new Request(request, { headers })
+    }
+    return await binding.get(binding.idFromName(key)).fetch(request)
   }
 
   function resolveRealtimeRoomSql(event: { context: Record<string, unknown>, req: Request }): RealtimeRoomSql | undefined {
@@ -525,8 +602,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     listen(room, document)
   }
 
-  async function seedDocument(room: Pick<DocumentRoom, "resolved">, loaded: RealtimeLoadedDocument, guard: DocumentGuard): Promise<Y.Doc> {
-    const document = await createRealtimeYDoc(room.resolved.editor, loaded)
+  async function seedDocument(editor: RealtimeEditor, loaded: RealtimeLoadedDocument, guard: DocumentGuard): Promise<Y.Doc> {
+    const document = await createRealtimeYDoc(editor, loaded)
     writeRealtimeStatus(document, { digest: loaded.digest, ...guardStatus(guard), savedAt: null, savedBy: null }, serverOrigin)
     assertRealtimeRoomStateQuota(document)
     return document
@@ -536,8 +613,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const key = realtimeRoomKey(definitionName, documentId)
     return openRoom(key, sql, async () => {
       const context: RealtimeDocumentContext = { authority: sql ? "cloudflare" : "memory", definition: definitionName, documentId }
+      const editor = resolved.editor(context)
       const loaded = await resolved.adapter.load(context)
-      const guard = await verifyDocument(resolved.editor, loaded)
+      const guard = await verifyDocument(editor, loaded)
       if (sql) documentTables(sql)
       const stored = sql?.exec("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
       const storedDigest = text(stored?.digest) ?? null
@@ -572,7 +650,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         }
       }
       else {
-        document = await seedDocument({ resolved }, loaded, guard)
+        document = await seedDocument(editor, loaded, guard)
       }
       const room: DocumentRoom = {
         awareness: createAwareness(document),
@@ -583,9 +661,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         digest: loaded.digest,
         document,
         dirty,
+        editor,
         editors: new Map(),
         epoch: restores && storedEpoch ? storedEpoch : crypto.randomUUID(),
         guard,
+        held: false,
+        writers: new Set(),
         key,
         kind: "document",
         operations: 0,
@@ -635,6 +716,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (room.kind === "document") {
       if (room.idleTimer) clearTimeout(room.idleTimer)
       room.idleTimer = undefined
+      if (room.holdTimer) clearInterval(room.holdTimer)
+      room.holdTimer = undefined
       room.destroyed = true
     }
     room.awareness.destroy()
@@ -652,7 +735,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       inactiveMemoryRoomKeys.add(room.key)
       return
     }
-    if (room.operations > 0 || room.destroyed) return
+    if (room.operations > 0 || room.destroyed || room.held) return
     if (room.sql) {
       persistRoom(room)
       destroyRoom(room)
@@ -686,6 +769,56 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     scheduleSave(room)
   }
 
+  /** Identified users of the writable clients, once each, in the order they joined. */
+  function holdUsers(room: DocumentRoom): RealtimeUser[] {
+    const users = new Map<string, RealtimeUser>()
+    for (const peer of room.writers) {
+      const user = room.peerUsers.get(peer)
+      if (user && !users.has(user.id)) users.set(user.id, user)
+    }
+    return [...users.values()]
+  }
+
+  /** Calls `adapter.hold()` for a room with writable clients, such as to keep a lease, and repeats it every minute. */
+  function holdRoom(room: DocumentRoom): void {
+    const hold = room.resolved.adapter.hold
+    if (!hold || room.destroyed || room.guard.readOnly) return
+    if (room.writers.size === 0) {
+      if (room.held) releaseHold(room)
+      return
+    }
+    room.held = true
+    room.holdTimer ??= setInterval(() => holdRoom(room), holdIntervalMs)
+    enqueue(room, async () => {
+      if (room.writers.size === 0) return
+      try {
+        await hold.call(room.resolved.adapter, room.context, { users: holdUsers(room) })
+        if (room.holdError !== undefined && readRealtimeStatus(room.document).error === room.holdError) {
+          writeRealtimeStatus(room.document, { error: null }, serverOrigin)
+        }
+        room.holdError = undefined
+      }
+      catch (error) {
+        room.holdError = errorMessage(error)
+        writeRealtimeStatus(room.document, { error: room.holdError }, serverOrigin)
+      }
+    }).catch(() => {})
+  }
+
+  /** After the last writable client left: save what is left, then call `adapter.release()`. */
+  function releaseHold(room: DocumentRoom): void {
+    if (room.holdTimer) clearInterval(room.holdTimer)
+    room.holdTimer = undefined
+    if (room.dirty && room.resolved.persistence) enqueue(room, () => saveRoom(room, "leave", false)).catch(() => {})
+    enqueue(room, async () => {
+      if (room.writers.size > 0 || !room.held) return
+      room.held = false
+      await room.resolved.adapter.release?.(room.context)
+    }).catch(() => {
+      room.held = false
+    })
+  }
+
   function scheduleSave(room: DocumentRoom, delay?: number): void {
     const persistence = room.resolved.persistence
     if (!persistence || room.destroyed || room.guard.readOnly) return
@@ -701,11 +834,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
 
   async function reseedRoom(room: DocumentRoom, reason: RealtimeResetReason, loaded?: RealtimeLoadedDocument): Promise<void> {
     const source = loaded ?? await room.resolved.adapter.load(room.context)
-    const guard = await verifyDocument(room.resolved.editor, source)
-    const next = await seedDocument(room, source, guard)
+    const guard = await verifyDocument(room.editor, source)
+    const next = await seedDocument(room.editor, source, guard)
     const previous = { awareness: room.awareness, document: room.document }
     const peers = [...room.peers]
     room.peers.clear()
+    // The clients reconnect to the new seed and hold the room again; the hold timer releases it if nobody does.
+    room.writers.clear()
     room.epoch = crypto.randomUUID()
     room.digest = source.digest
     room.guard = guard
@@ -728,7 +863,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   }
 
   async function saveRoom(room: DocumentRoom, reason: RealtimeSaveOptions["reason"], force: boolean): Promise<RealtimeSaved | undefined> {
-    const { adapter, editor, persistence } = room.resolved
+    const { adapter, persistence } = room.resolved
+    const editor = room.editor
     if (room.guard.readOnly) {
       if (!force) return
       throw new HTTPError({ status: 409, message: readOnlyDocumentMessage, data: { code: realtimeReadOnlyCode } })
@@ -826,6 +962,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return { digest: room.digest, reseeded: true }
   }
 
+  /** Refreshes an open room without unsaved edits. A dirty room finds the outside change at its next save. */
+  async function refreshOpenRoom(definitionName: string, documentId: string): Promise<boolean> {
+    const pending = rooms.get(realtimeRoomKey(definitionName, documentId))
+    const room = pending ? await pending.catch(() => undefined) : undefined
+    if (!room || room.kind !== "document" || room.destroyed) return false
+    return await enqueue(room, async () => !room.dirty && (await refreshRoom(room)).reseeded)
+  }
+  localRefreshers().add(refreshOpenRoom)
+
   async function checkpointRoom(room: DocumentRoom, user: RealtimeUser | null): Promise<RealtimeCheckpoint> {
     const { adapter, definition } = room.resolved
     const configured = definition.history?.checkpoint
@@ -917,6 +1062,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         room.awareness = compactRealtimeAwareness(room.awareness)
       }
       peer.unsubscribe(room.channel)
+      if (room.kind === "document" && room.writers.delete(peer) && room.held) {
+        // The last writer leaving saves and releases; otherwise the hold names who is left.
+        if (room.writers.size === 0) releaseHold(room)
+        else holdRoom(room)
+        return
+      }
       if (room.kind === "document" && room.peers.size === 0 && room.dirty && room.resolved.persistence) {
         enqueue(room, () => saveRoom(room, "leave", false)).catch(() => {})
         return
@@ -955,6 +1106,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           peer.send(encodeRealtimeControl(reason
             ? { type: "session", access: "read", epoch: room.epoch, reason }
             : { type: "session", access: "write", epoch: room.epoch }))
+          if (!reason) {
+            room.writers.add(peer)
+            holdRoom(room)
+          }
         }
         peer.send(encodeSyncStep1(room.document))
         const clients = [...room.awareness.getStates().keys()]
@@ -1092,6 +1247,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   const handler = defineEventHandler(async (event) => {
     const forwarded = await forwardToCloudflareDurableObject(event)
     if (forwarded) return forwarded
+    // Inside the Durable Object, a refresh from refreshRealtimeDocument(). The Worker strips the header from client requests.
+    if (event.req.headers.has(internalRefreshHeader) && resolveRealtimeRoomSql(event)) {
+      const { definitionName, documentId } = parseRoomPath(event.req.url)
+      return { reseeded: await refreshOpenRoom(definitionName, documentId) }
+    }
     return event.req.headers.get("upgrade")?.toLowerCase() === "websocket"
       ? websocketHandler(event)
       : httpHandler(event)

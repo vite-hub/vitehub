@@ -13,6 +13,7 @@ export type {
   RealtimeEditor,
   RealtimeFieldValue,
   RealtimeHistoryOptions,
+  RealtimeHoldOptions,
   RealtimeIssue,
   RealtimeLoadedDocument,
   RealtimeModuleOptions,
