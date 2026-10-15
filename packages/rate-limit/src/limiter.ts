@@ -181,7 +181,7 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): { policy:
     enforcement: Reflect.get(capabilities, "enforcement"),
     rejectedAttempts: Reflect.get(capabilities, "rejectedAttempts"),
     scope: Reflect.get(capabilities, "scope"),
-    ...(windows === undefined ? {} : { windows: [...(windows as readonly number[])] }),
+    ...(windows === undefined ? {} : { windows }),
   } as RateLimitDriverCapabilities
   return {
     policy: {
