@@ -48,11 +48,14 @@ function toDenoExpireIn(ttl: unknown): { expireIn: number } | undefined {
 
 export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = { driver: "deno-kv" }): KVRuntimeDriver {
   let kvPromise: Promise<DenoKV> | undefined
+  let disposed = false
   // Keep history with the continuation cursor that carries it. Consuming the
   // entry before awaiting Deno lets concurrent traversals remain independent.
-  const cursorHistories = createCursorHistory("deno-kv")
+  const cursorNamespace = `deno-kv:${options.path ?? "default"}`
+  const cursorHistories = createCursorHistory(cursorNamespace)
 
   function open(): Promise<DenoKV> {
+    if (disposed) return Promise.reject(new Error("KV storage has been disposed."))
     if (kvPromise) return kvPromise
     const pending = (async () => {
       const openKv = getDenoRuntime()?.openKv
@@ -91,11 +94,18 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       }
     },
     async dispose() {
+      disposed = true
       cursorHistories.clear()
-      if (kvPromise) {
-        const kv = await kvPromise
-        kv.close?.()
-        kvPromise = undefined
+      try {
+        if (kvPromise) {
+          const kv = await kvPromise
+          kv.close?.()
+          kvPromise = undefined
+        }
+      }
+      finally {
+        // An in-flight listing can finish after the provider teardown.
+        cursorHistories.clear()
       }
     },
     async getItem(key) {
@@ -106,7 +116,8 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
-      const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: "deno-kv" }
+      if (disposed) throw new Error("KV storage has been disposed.")
+      const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: cursorNamespace }
       try {
         const cursors = continuation.history
         const iterator = (await open()).list({ prefix: [] }, { cursor: continuation.providerCursor, limit })
@@ -119,6 +130,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
           cursorHistories.complete(cursor)
           return { keys }
         }
+        if (disposed) throw new Error("KV storage has been disposed.")
         if (cursors.has(iterator.cursor)) {
           throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
         }
@@ -129,7 +141,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
         cursorHistories.complete(cursor)
         return { keys, cursor: nextCursor }
       } catch (error) {
-        if (cursor) cursorHistories.restore(cursor, continuation)
+        if (cursor && !disposed) cursorHistories.restore(cursor, continuation)
         throw error
       }
     },
