@@ -342,7 +342,6 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     let locked: (() => boolean) | undefined
     let getReader: (() => unknown) | undefined
     let lockedOwner: object | undefined
-    let getReaderOwner: object | undefined
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(prototype)) return false
       seen.add(prototype)
@@ -354,12 +353,11 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       }
       if (!getReader && typeof readerDescriptor?.value === "function") {
         getReader = readerDescriptor.value
-        getReaderOwner = prototype
       }
       if (locked && getReader) break
       prototype = Object.getPrototypeOf(prototype)
     }
-    if (!locked || !getReader || lockedOwner !== getReaderOwner || Reflect.apply(locked, candidate, [])) return false
+    if (!locked || !getReader || Reflect.apply(locked, candidate, [])) return false
     // Validate the reader against a fresh stream from the body's realm. This
     // avoids relying on function source text while rejecting unrelated native
     // methods (for example, Array.prototype.values) installed on the stream
