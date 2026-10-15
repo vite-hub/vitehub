@@ -86,6 +86,7 @@ async function listHistory(workspace: string, history: WorkspaceHistoryReader, r
       workspace,
       ref: request.ref,
       revisions: page.revisions.map(describeRevision),
+      cursor: page.cursor,
       more: Boolean(page.cursor),
     }
   }
