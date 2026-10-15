@@ -255,8 +255,9 @@ async function sendWebResponse(response: Response, target: ServerResponse): Prom
     }
     if (setCookieHeaders) return
     // Headers.forEach may combine multiple Set-Cookie values with commas.
-    // Do not forward an ambiguous combined value as one cookie.
-    if (!value.includes(",")) target.appendHeader(key, value)
+    // Split only at commas that start another cookie; Expires dates keep theirs.
+    const cookies = value.split(/,\s*(?=[^;,\s]+=)/)
+    for (const cookie of cookies) target.appendHeader(key, cookie)
   })
   for (const value of setCookieHeaders ?? []) {
     target.appendHeader("set-cookie", value)

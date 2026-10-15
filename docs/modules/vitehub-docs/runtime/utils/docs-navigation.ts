@@ -125,15 +125,8 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
   if (!primitiveCategories.has(section.category || "")) {
     return entries.map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
   }
-
   return entries
-    .sort((left, right) => {
-      const leftOrder = primitiveSidebarGroupOrder.indexOf(left.label);
-      const rightOrder = primitiveSidebarGroupOrder.indexOf(right.label);
-      const normalizedLeft = leftOrder === -1 ? primitiveSidebarGroupOrder.length : leftOrder;
-      const normalizedRight = rightOrder === -1 ? primitiveSidebarGroupOrder.length : rightOrder;
-      return normalizedLeft - normalizedRight || left.index - right.index;
-    })
+    .sort((left, right) => left.index - right.index)
     .map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
 }
 
