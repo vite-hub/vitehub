@@ -160,7 +160,7 @@ export default defineConfig({
     preset: 'node',
     agent: true,
     console: {
-      exposure: 'host-managed',
+      auth: false,
       authorize: './server/console-authorize.ts',
       databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
     },
@@ -168,7 +168,7 @@ export default defineConfig({
 })
 ```
 
-Create `server/console-authorize.ts` with your host session policy as shown in [host-managed Console access](/docs/development/console#protect-the-console-route). Every Console data route calls this function before it reads data.
+Create `server/console-authorize.ts` with your host session policy as shown in [Use another authentication library](/docs/development/console#use-another-authentication-library). Every Console data route calls this function before it reads data.
 
 The worker records and recovers Invocations under `<discovered-agent-name>-worker`, for example `babysitter-worker`. Each discovered Babysitter Agent has its own recovery scope. Other Agents can keep using the same journal without having their active Invocations failed. A standalone process host without an assigned journal keeps its private `dataDir/invocations.sqlite` file.
 

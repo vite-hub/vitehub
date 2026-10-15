@@ -52,9 +52,18 @@ describe("discoverDatabaseDefinitions", () => {
       handler: file,
       mode: "default",
       name: "default",
+      schemaSources: [{ handler: file, tableNames: ["notes"] }],
       source: "server-database-default",
       tableNames: ["notes"],
     }])
+  })
+
+  it("keeps an explicitly empty server directory list", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeDefinition(rootDir, "src/analytics.database.ts", "events")
+
+    expect(discoverDatabaseDefinitions(rootDir, { serverDirs: [] }).map(definition => definition.name)).toEqual(["analytics"])
   })
 
   it("discovers named server database definitions", async () => {
