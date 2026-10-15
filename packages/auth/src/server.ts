@@ -412,7 +412,8 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
   if (cookieEntry && cookieEntry.owner !== forEachEntry.owner) return
   const owner = forEachEntry.owner
   const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
-  if (owner === headers || typeof constructor !== "function" || constructor.name !== "Headers" || constructor.prototype !== owner) return
+  const tag = Object.getOwnPropertyDescriptor(owner, Symbol.toStringTag)?.value
+  if (owner === headers || typeof constructor !== "function" || constructor.name !== "Headers" || constructor.prototype !== owner || tag !== "Headers") return
   const forEach = forEachEntry.value
   const getSetCookie = cookieEntry?.value
   return { forEach: forEach as (...args: never[]) => unknown, getSetCookie: getSetCookie as (...args: never[]) => unknown | undefined }
