@@ -227,6 +227,49 @@ describe("Channel message handle", () => {
     }
   })
 
+  it.each([
+    { messageId: "msg-7", mode: "static", replies: true },
+    { messageId: "msg-7", mode: "buffered stream", replies: true },
+    { messageId: "msg-7#vitehub-retry", mode: "static", replies: false },
+    { messageId: undefined, mode: "static", replies: false },
+  ] as const)("replies to run.messageId=$messageId for a $mode reply when the adapter supports it", async ({ messageId, mode, replies }) => {
+    const postMessage = vi.fn(async () => ({ id: "sent", raw: {}, threadId: "thread-1" }))
+    const reply = vi.fn(async () => ({ id: "sent", raw: {}, threadId: "thread-1" }))
+    const agent = defineAgent({
+      channels: {
+        support: defineChannel("telegram", {
+          // SAFETY: The fixture implements the Chat SDK methods exercised by reply delivery.
+          adapter: { channelIdFromThreadId: () => "channel-1", postMessage, reply, stream: async () => null } as never,
+          messages: { delivery: "manual" },
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, messageId, origin: "telegram", runId: `native-reply-${mode}-${messageId}`, threadId: "thread-1" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish"(event) {
+          return event.reply(mode === "static" ? "from hook" : (async function* () { yield "from "; yield "hook" })())
+        },
+      },
+    })
+
+    await runAgentTrigger(agent, runtimeContext(), "support.message", {})
+    if (replies) {
+      expect(reply).toHaveBeenCalledExactlyOnceWith("thread-1", messageId, { markdown: "from hook" })
+      expect(postMessage).not.toHaveBeenCalled()
+    }
+    else {
+      expect(postMessage).toHaveBeenCalledExactlyOnceWith("thread-1", { markdown: "from hook" })
+      expect(reply).not.toHaveBeenCalled()
+    }
+  })
+
   it.each([false, true])("labels unresolved citations in Chat SDK delivery, streaming=%s", async (streaming) => {
     const delivered: string[] = []
     const text = "Verified answer. citeturn228505view0turn395856view0 See [PR #1188](https://github.com/acme/portal/pull/1188)."
