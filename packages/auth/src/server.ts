@@ -351,7 +351,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
         locked = lockedDescriptor.get
         lockedOwner = prototype
       }
-      if (!getReader && typeof readerDescriptor?.value === "function") {
+      // Resolve the reader from the same intrinsic prototype as the branded
+      // `locked` accessor. An intermediate prototype may shadow `getReader`;
+      // that override must not replace the stream implementation we bridge.
+      if (locked && !getReader && lockedOwner === prototype && typeof readerDescriptor?.value === "function") {
         getReader = readerDescriptor.value
       }
       if (locked && getReader) break
