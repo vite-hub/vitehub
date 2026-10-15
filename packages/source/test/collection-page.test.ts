@@ -183,6 +183,15 @@ describe("Collections", () => {
     expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize }).authorize).toBe(authorize)
   })
 
+  it("accepts loaders created in another realm", async () => {
+    const load = runInNewContext("async ({ limit }) => [{ id: limit }]") as (options: { limit: number }) => Promise<Array<{ id: number }>>
+    const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), defaultLimit: 3 })
+
+    await expect(collection.page({ query: {} })).resolves.toEqual({ items: [{ id: 4 }], nextCursor: null })
+    const fromSource = defineCollection({ source: { load, cursor: item => item.id, cursorSchema: v.number(), defaultLimit: 2 } })
+    await expect(fromSource.page({ query: {} })).resolves.toEqual({ items: [{ id: 3 }], nextCursor: null })
+  })
+
   it("rejects malformed cursors and invalid definition limits", async () => {
     const { collection } = mealsCollection()
     const query = await collection.parseQuery({})

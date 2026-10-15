@@ -124,12 +124,16 @@ describe("Content sessions", { timeout: 30_000 }, () => {
     const { content, elapse, posts } = await setup()
     const acquired = await content.sessions.acquire("posts", "hello", { session: tabA, user: ana })
     const holder = acquired.holder!
-    expect(Date.parse(holder.expiresAt) - Date.parse(acquired.now)).toBe(contentSessionTimeouts.lease)
+    // The claim sets the start and the end of the lease in one statement, so both use the same Database clock.
+    expect(Date.parse(holder.expiresAt) - Date.parse(holder.since!)).toBe(contentSessionTimeouts.lease)
     await elapse(200_000)
     const renewed = await content.sessions.report("posts", "hello", { session: tabA, user: ana, kind: "edit" })
     expect(renewed.editing).toBe(true)
     expect(renewed.holder!.since).toBe(holder.since)
-    expect(Date.parse(renewed.holder!.expiresAt) - Date.parse(renewed.now)).toBe(contentSessionTimeouts.lease)
+    // `now` is read in a later statement of the batch, so it can be a millisecond or two past the renewal.
+    const remaining = Date.parse(renewed.holder!.expiresAt) - Date.parse(renewed.now)
+    expect(remaining).toBeLessThanOrEqual(contentSessionTimeouts.lease)
+    expect(remaining).toBeGreaterThan(contentSessionTimeouts.lease - 1_000)
     await elapse(200_000)
     await posts.save("hello", { data: { title: "Hello" } }, { session: tabA })
     const [afterSave] = await content.sessions.list("posts")
