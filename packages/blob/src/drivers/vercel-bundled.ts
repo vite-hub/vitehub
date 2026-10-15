@@ -91,6 +91,7 @@ function isMissingBlobError(error: unknown) {
           // Compare with the accessor produced by the candidate's own native
           // Error constructor. This preserves foreign-realm errors while rejecting
           // proxies that only imitate the native getter's source and behavior.
+          // SAFETY: the preceding checks prove this is a native Error constructor whose prototype owns the candidate's stack accessor.
           const NativeError = nativeErrorConstructor as new () => object
           const nativeStackGetter = Object.getOwnPropertyDescriptor(new NativeError(), "stack")?.get
           if (typeof nativeStackGetter !== "function" || stack.get !== nativeStackGetter) return false
