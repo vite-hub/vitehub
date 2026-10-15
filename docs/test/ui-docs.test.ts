@@ -158,6 +158,19 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
+
+  it("keeps site catalogs in the rail header above the product sections", () => {
+    const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
+
+    expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
+    expect(rail).toContain("<template #header");
+    expect(rail).toContain('{ label: "Tutorials", to: "/tutorials"');
+    expect(rail).toContain('{ label: "Projects", to: "/projects"');
+    expect(rail).toContain('{ label: "Templates", to: "/templates"');
+    expect(rail).toContain("<template #default");
+  });
+
+
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
@@ -175,10 +188,10 @@ describe("UI documentation", () => {
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
-    const page = readFileSync(resolve(docsRoot, "content/docs/ui/built-for-vue.md"), "utf8");
+    const page = readFileSync(resolve(docsRoot, "content/docs/getting-started/built-for-vue.md"), "utf8");
 
     expect(page).not.toContain("navigation: false");
-    expect(page).toContain("navigation.title: Why Vue?");
-    expect(page).toContain("The server packages work independently of Vue.");
+    expect(page).toContain("navigation.title: Built for the Vue ecosystem");
+    expect(page).toContain("ViteHub is a server primitive library.");
   });
 });
