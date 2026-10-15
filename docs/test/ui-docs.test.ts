@@ -177,13 +177,8 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-<<<<<<< HEAD
-expect(layout).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow-x: clip;");
-=======
     expect(sidebarPanel).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: hidden;");
->>>>>>> e6a4cdf10b5cbeec696d3bbb0125a086e3237c0e
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");

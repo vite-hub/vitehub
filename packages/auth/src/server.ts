@@ -400,15 +400,12 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // cannot provide the internal Response brand required by these getters.
     const descriptors = Object.fromEntries(authorizationResponseProperties.map((key) => {
       const descriptor = responsePropertyDescriptor(candidate, key)
-      if (!isNativeFunction(descriptor?.get)) throw new Error("Malformed authorization response")
+      if (typeof descriptor?.get !== "function") throw new Error("Malformed authorization response")
       const owner = responsePropertyDescriptor(Object.getPrototypeOf(candidate), key)
       if (descriptor?.get !== owner?.get) throw new Error("Malformed authorization response")
-      try {
-        Reflect.apply(descriptor.get, Object.create(null), [])
+      const constructor = responsePropertyDescriptor(Object.getPrototypeOf(candidate), "constructor")?.value
+      if (isNativeFunction(descriptor.get) && !isNativeFunction(constructor)) {
         throw new Error("Malformed authorization response")
-      }
-      catch (error) {
-        if (!(error instanceof TypeError)) throw error
       }
       return [key, descriptor.get]
     })) as Record<(typeof authorizationResponseProperties)[number], () => unknown>
