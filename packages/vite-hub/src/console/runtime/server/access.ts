@@ -27,6 +27,10 @@ export interface ConsoleAccess {
   readonly sections?: readonly ConsoleSectionId[]
 }
 
+export type ConsoleRouteScope =
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined) }
+  | { anySection: true }
+
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
 export type ConsoleGuardedHandler<TEvent, TResult> = (event: TEvent, access: ConsoleAccess) => TResult | Promise<TResult>
 
@@ -38,6 +42,7 @@ const policyKey: unique symbol = Symbol.for("vitehub.console.access")
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
+const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local", "open"])
 
 function rejection(status: number, message: string): Response {
@@ -202,6 +207,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
   }
   else if (policy.mode === "host-managed" || policy.mode === "open") {
     if (!policy.authorize) {
+      if (policy.mode === "open") return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
       return rejection(500, "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize. Set it to a server file that default-exports defineConsoleAuthorize().")
     }
     if (policy.authorize) {
@@ -268,17 +274,31 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
-  _routeScope?: unknown,
+  routeScope?: ConsoleRouteScope,
 ): (event: TEvent) => Promise<TResult | Response> {
   if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
-  return async (event) => {
+  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  if (!("anySection" in routeScope && routeScope.anySection === true) && !("section" in routeScope && (typeof routeScope.section === "string" && routeScope.section.length > 0 || routeScope.section instanceof Function))) {
+    throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  }
+  const declared = Object.freeze({ ...routeScope }) as ConsoleRouteScope
+  const route = async (event: TEvent) => {
     const bound = checkedEvents.get(event)
-    if (bound && consoleAccessGrant.isValid(bound)) return handler(event, bound)
-    const access = await checkConsoleAccess(event)
+    const access = bound && consoleAccessGrant.isValid(bound) ? bound : await checkConsoleAccess(event)
     if (access instanceof Response || isResponseLike(access)) return access
+    if ("section" in declared) {
+      const section = declared.section instanceof Function ? declared.section(event) : declared.section
+      if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "Forbidden.")
+    }
     checkedEvents.set(event, access)
     return handler(event, access)
   }
+  routeScopes.set(route, declared)
+  return route
+}
+
+export function consoleRouteScope(route: unknown): ConsoleRouteScope | undefined {
+  return route instanceof Function ? routeScopes.get(route) : undefined
 }
 
 /**
