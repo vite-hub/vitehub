@@ -7,17 +7,32 @@ import { renderConfigValueExpression } from "../config-value.ts"
 
 import type { DiscoveredDatabaseDefinition, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
-function createTableExports(definition: DiscoveredDatabaseDefinition, definitionVariable: string) {
-  return definition.tableNames.map(tableName => `export const ${tableName} = ${definitionVariable}.schema[${JSON.stringify(tableName)}]`)
+/** Exports each table key from the source that wins it, so Drizzle Kit sees every table once. */
+function createTableExports(definition: DiscoveredDatabaseDefinition, sourceVariables: string[]) {
+  const winners = new Map<string, string>()
+  definition.schemaSources.forEach((source, index) => {
+    for (const tableName of source.tableNames) winners.set(tableName, sourceVariables[index]!)
+  })
+  return definition.tableNames.map(tableName => `export const ${tableName} = ${winners.get(tableName)}.schema[${JSON.stringify(tableName)}]`)
+}
+
+function schemaSourceVariables(definition: DiscoveredDatabaseDefinition, single: string, prefix: string) {
+  return definition.schemaSources.length === 1 ? [single] : definition.schemaSources.map((_, index) => `${prefix}${index}`)
+}
+
+function renderSchemaExpression(sourceVariables: string[]) {
+  return sourceVariables.length === 1
+    ? `${sourceVariables[0]}.schema`
+    : `{ ${sourceVariables.map(variable => `...${variable}.schema`).join(", ")} }`
 }
 
 function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition) {
-  const definitionVariable = "databaseDefinition"
+  const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
   return [
-    `import ${definitionVariable} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
+    ...definition.schemaSources.map((source, index) => `import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
     "",
-    ...createTableExports(definition, definitionVariable),
-    `export const schema = ${definitionVariable}.schema`,
+    ...createTableExports(definition, sourceVariables),
+    `export const schema = ${renderSchemaExpression(sourceVariables)}`,
     "export default schema",
     "",
   ].join("\n")
@@ -62,13 +77,20 @@ function renderGeneratedDrizzleConfig(config: ResolvedDBViteConfig, databaseName
   ].join("\n")
 }
 
+function renderSchemaType(variables: string[]) {
+  const [first, ...rest] = variables.map(variable => `typeof ${variable}.schema`)
+  return rest.reduce((merged, next) => `Omit<${merged}, keyof ${next}> & ${next}`, first!)
+}
+
 function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatabaseDefinition[]) {
-  const imports = definitions.map((definition, index) =>
-    `import type database_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`)
+  const variables = definitions.map((definition, index) => schemaSourceVariables(definition, `database_${index}`, `database_${index}_`))
+  const imports = definitions.flatMap((definition, index) => definition.schemaSources.map((source, sourceIndex) =>
+    `import type ${variables[index]![sourceIndex]} from ${JSON.stringify(createImportPath(file, source.handler))}`))
+  const schemaTypes = variables.map(renderSchemaType)
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
   const registryEntries = definitions.flatMap((definition, index) => [
     `    ${JSON.stringify(definition.name)}: {`,
-    `      schema: typeof database_${index}.schema`,
+    `      schema: ${schemaTypes[index]}`,
     "    },",
   ])
   const registryDeclarations = ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(moduleName => [
@@ -83,7 +105,7 @@ function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatab
   return [
     ...imports,
     "",
-    `type DefaultDatabaseSchema = typeof database_${schemaDefinitionIndex}.schema`,
+    `type DefaultDatabaseSchema = ${schemaTypes[schemaDefinitionIndex]}`,
     "",
     'declare module "#vitehub/database/schema" {',
     "  interface DatabaseSchema extends DefaultDatabaseSchema {}",
