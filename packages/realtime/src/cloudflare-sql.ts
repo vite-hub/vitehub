@@ -44,10 +44,6 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     // workerd's native getter does not. Reject these before the brand probe so
     // discovery never invokes a fabricated getter.
     if (Object.hasOwn(databaseSize, "prototype")) return false
-    // Workerd exposes the platform accessor with its stable getter name.
-    // A proxy-wrapped arrow or bound callback cannot reproduce that accessor
-    // identity and must not be used as a receiver brand check.
-    if (databaseSize.name !== "get databaseSize") return false
     // The platform getter is a native accessor. This prevents ordinary
     // JavaScript accessors from forging the receiver-sensitive brand probe.
     // Native accessors have a stable engine-generated source form. A broad
@@ -55,7 +51,7 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     // source merely contains "[native code]".
     // Keep the native marker check independent of optional engine whitespace
     // and accessor naming details while still requiring a native body.
-    const nativeGetterSource = /^function(?:\s+get\s+[^\s(]+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
+    const nativeGetterSource = /^function\s+get\s+[^\s(]+\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
 
     // The native getter must enforce workerd's internal SqlStorage brand.
