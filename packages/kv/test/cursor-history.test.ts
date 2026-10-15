@@ -40,3 +40,9 @@ it("rejects oversized raw and portable cursors before decoding", () => {
   expect(() => createCursorHistory().take(`vhc:${"x".repeat(8 * 1_024)}`)).toThrow("maximum size")
   expect(() => createCursorHistory().take(`vhc1:1:${"x".repeat(128 * 1_024)}`)).toThrow("maximum size")
 })
+
+it("keeps continuation size bounded for long cursor histories", () => {
+  const history = new Set(Array.from({ length: 1_024 }, (_, index) => `${index}-${"x".repeat(200)}`))
+  const cursor = createCursorHistory().store("provider", history)
+  expect(cursor.length).toBeLessThan(128 * 1_024)
+})

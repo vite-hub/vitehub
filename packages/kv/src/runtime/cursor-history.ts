@@ -20,7 +20,11 @@ function encodeContinuation(providerCursor: string, history: CursorHistory): str
   // A random nonce makes accidental provider-cursor collisions impractical.
   // The nonce is carried in the token so continuations remain portable.
   const nonce = globalThis.crypto.randomUUID()
-  const payload = encodeURIComponent(JSON.stringify({ format: "vitehub-continuation", providerCursor, history: [...history] }))
+  // Keep the token size independent of traversal length. The exact history is
+  // retained in the process-local registry for repeat detection; the token
+  // carries only bounded metadata for diagnostics and format validation.
+  const historyTag = continuationTag([...history].join("\u0000"))
+  const payload = encodeURIComponent(JSON.stringify({ format: "vitehub-continuation", providerCursor, historyCount: history.size, historyTag }))
   const token = `vhc1:${nonce}:${payload}:${continuationTag(payload)}`
   if (token.length > MAX_CONTINUATION_LENGTH) throw new Error("ViteHub continuation cursor exceeds the maximum size.")
   return token
