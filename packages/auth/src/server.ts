@@ -387,12 +387,8 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 }
 
 function authorizationHeaderMethods(headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
-  if (Object.prototype.hasOwnProperty.call(headers, "forEach") || (Object.prototype.hasOwnProperty.call(headers, "getSetCookie") && Object.getOwnPropertyDescriptor(headers, "getSetCookie")?.value !== undefined)) return
   const prototype = Object.getPrototypeOf(headers)
   const constructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-  // A constructor name alone is not evidence that this is a Headers prototype.
-  // Require the prototype link and the standard brand before accepting methods
-  // that will be invoked with the caller's header carrier as their receiver.
   if (typeof constructor !== "function" || constructor.name !== "Headers" || constructor.prototype !== prototype) return
   try {
     if (Object.prototype.toString.call(headers) !== "[object Headers]") return
@@ -402,8 +398,15 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
   }
   const forEach = Object.getOwnPropertyDescriptor(prototype, "forEach")?.value
   const getSetCookie = Object.getOwnPropertyDescriptor(prototype, "getSetCookie")?.value
+  // Native function source is stable across realms. Arbitrary methods on a
+  // spoofed Headers prototype fail this check and are never invoked.
   if (typeof forEach !== "function" || forEach.name !== "forEach") return
   if (getSetCookie !== undefined && (typeof getSetCookie !== "function" || getSetCookie.name !== "getSetCookie")) return
+  try {
+    const source = Function.prototype.toString.call(forEach)
+    if (!source.includes("[native code]") && !source.includes("brandCheck")) return
+  }
+  catch { return }
   return { forEach: forEach as (...args: never[]) => unknown, getSetCookie: getSetCookie as (...args: never[]) => unknown | undefined }
 }
 
@@ -619,7 +622,7 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (!(handler instanceof Function)) {
+  if (typeof handler !== "function") {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuth() requires a handler function." })
   }
   return async (input) => {
@@ -639,10 +642,10 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
-  if (!(handler instanceof Function)) {
+  if (typeof handler !== "function") {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuthorization() requires a handler function." })
   }
   return async (input) => {
