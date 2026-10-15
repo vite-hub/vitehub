@@ -52,10 +52,16 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
           continue
         }
         const slicedPrototype = Object.getPrototypeOf(sliced)
+        const constructor = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "constructor")?.value
         const slicedSlice = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "slice")?.value
         const stream = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "stream")?.value
         const sizeGetter = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "size")?.get
-        if (slicedSlice !== slice || !hasRuntimeType(stream, "function") || !hasRuntimeType(sizeGetter, "function")) {
+        if (
+          !hasRuntimeType(constructor, "function") || constructor.name !== "Blob" ||
+          !/^class Blob\b|\[native code\]/.test(Function.prototype.toString.call(constructor)) ||
+          constructor.prototype !== slicedPrototype ||
+          slicedSlice !== slice || !hasRuntimeType(stream, "function") || !hasRuntimeType(sizeGetter, "function")
+        ) {
           prototype = Object.getPrototypeOf(prototype)
           continue
         }
@@ -69,7 +75,12 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
         }
         const size = Reflect.apply(sizeGetter, sliced, [])
         const slicedType = Reflect.getOwnPropertyDescriptor(sliced, "type")
-        if (size !== 0 || !slicedType || !hasRuntimeType(slicedType.value, "string")) {
+        const typeGetter = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "type")?.get
+        if (
+          size !== 0 ||
+          (slicedType && !hasRuntimeType(slicedType.value, "string")) ||
+          (!slicedType && !hasRuntimeType(typeGetter, "function"))
+        ) {
           prototype = Object.getPrototypeOf(prototype)
           continue
         }
