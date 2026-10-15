@@ -79,12 +79,10 @@ function isResponseLike(value: unknown): value is Response {
       .every((key) => Object.prototype.hasOwnProperty.call(value, key))
     let hasBodyGetter = false
     let hasResponseTag = false
-    let responseBodyGetter: (() => unknown) | undefined
     for (let prototype = Object.getPrototypeOf(value); prototype; prototype = Object.getPrototypeOf(prototype)) {
       const body = Object.getOwnPropertyDescriptor(prototype, "body")
       if (body && typeof body.get === "function") {
         hasBodyGetter = true
-        responseBodyGetter = body.get
       }
       const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
       if (tag) {
@@ -113,37 +111,22 @@ function isResponseLike(value: unknown): value is Response {
         factorySurface = false
       }
     }
+    const hasFactoryMethods = typeof constructor === "function"
+      && ["json", "redirect", "error"].some((name) => typeof (constructor as Record<string, unknown>)[name] === "function")
     const foreignImplementation = hasResponseTag
       && hasBodyGetter
       && typeof constructor === "function"
       && constructor.name === "Response"
-      && typeof (constructor as { json?: unknown }).json === "function"
-      && typeof (constructor as { redirect?: unknown }).redirect === "function"
-      // All platform Response constructors expose the complete static factory surface.
-      // Requiring `error` as well closes the copied-prototype constructor spoof while
-      // retaining foreign implementations such as happy-dom.
-      && typeof (constructor as { error?: unknown }).error === "function"
-      // Native and foreign platform constructors expose non-enumerable static
-      // factories. Requiring the descriptor shape prevents an ordinary object
-      // from supplying an ad-hoc constructor with copied methods and slots.
-      && ["json", "redirect", "error"].every((name) => {
-        for (let owner = constructor; owner; owner = Object.getPrototypeOf(owner)) {
-          const descriptor = Object.getOwnPropertyDescriptor(owner, name)
-          if (descriptor) {
-            return descriptor.enumerable === false
-              && descriptor.writable === true
-              && descriptor.configurable === true
-              && typeof descriptor.value === "function"
-          }
-        }
-        return false
-      })
       && constructor.prototype === Object.getPrototypeOf(value)
-      && factorySurface
+      // DOM shims such as happy-dom do not expose the static factories required
+      // by the Fetch standard. When factories are present, verify that they
+      // produce values from this same prototype; otherwise require the complete
+      // own-slot shape exposed by those shims.
+      && (hasFactoryMethods ? factorySurface : ownSlots)
       // Node's Response stores its slots internally, while DOM shims commonly
       // expose them as own properties. Both forms are valid when the inspected
       // body getter accepts the value (or the shim exposes the complete shape).
-      && (ownSlots || /\[native code\]/.test(Function.prototype.toString.call(responseBodyGetter)))
+      && (ownSlots || nativeBrand)
     return typeof response.status === "number"
       && typeof response.statusText === "string"
       && (nativeBrand || foreignImplementation)
