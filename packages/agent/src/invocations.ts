@@ -576,11 +576,17 @@ function isErrorValue(value: unknown): value is Error {
   if (!value || !hasRuntimeType(value, "object")) return false
   try {
     if (isInstance(value, Error)) return true
-    const prototype = Object.getPrototypeOf(value)
-    if (!prototype || prototype === Object.prototype) return false
-    const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
-    const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
-    return typeof name === "string" && typeof message === "string"
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype && prototype !== Object.prototype) {
+      const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
+      const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
+      if (typeof name === "string" && typeof message === "string") {
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (hasRuntimeType(constructor, "function") && constructor.prototype === prototype && constructor.name === "Error") return true
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
   }
   catch {
     return false
@@ -591,8 +597,12 @@ function isAggregateErrorValue(value: unknown): value is AggregateError {
   if (!isErrorValue(value)) return false
   try {
     if (isInstance(value, AggregateError)) return true
-    const prototype = Object.getPrototypeOf(value)
-    return Object.getOwnPropertyDescriptor(prototype, "name")?.value === "AggregateError"
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype && prototype !== Object.prototype) {
+      if (Object.getOwnPropertyDescriptor(prototype, "name")?.value === "AggregateError") return true
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
   }
   catch {
     return false
@@ -925,14 +935,23 @@ function boundedObservationValue(
   }
   if (isErrorValue(value)) {
     budget.truncated = true
+    const read = (key: string): unknown => {
+      try { return (value as Record<string, unknown>)[key] }
+      catch { budget.truncated = true; return undefined }
+    }
     const details: Array<[string, unknown]> = [
-      ["name", value.name],
-      ["message", value.message],
+      ["name", read("name")],
+      ["message", read("message")],
     ]
-    if (isAggregateErrorValue(value)) details.push(["errors", value.errors])
-    if (Object.hasOwn(value, "cause")) details.push(["cause", value.cause])
-    for (const [key, child] of Object.entries(value)) {
-      if (key !== "cause" && key !== "errors") details.push([key, child])
+    if (isAggregateErrorValue(value)) details.push(["errors", read("errors")])
+    if (Object.hasOwn(value, "cause")) details.push(["cause", read("cause")])
+    try {
+      for (const [key, child] of Object.entries(value)) {
+        if (key !== "cause" && key !== "errors") details.push([key, child])
+      }
+    }
+    catch {
+      budget.truncated = true
     }
     const length = Math.min(details.length, collectionItems)
     if (length < details.length) budget.truncated = true
