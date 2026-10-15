@@ -101,10 +101,11 @@ function isMissingBlobError(error: unknown) {
           // the Error prototype. Bound and forged getters instead return their captured
           // or fabricated value, so they cannot establish the candidate's Error brand.
           if (stack.get.call(Object.create(prototype)) !== undefined) return false
-          if (stack.get.call(new Proxy(candidate, {})) !== undefined) return false
-          // A proxy around the native getter can special-case the candidate and
-          // return undefined for non-error receivers. Native Error stack accessors
-          // accept any genuine Error receiver, so probe an independent Error too.
+          // A proxy around the candidate itself does not expose the intrinsic
+          // Error state to the native stack accessor, so do not use that shape
+          // as a brand probe: genuine provider errors may be proxied by SDKs.
+          // The accessor identity check above rejects forged getter proxies.
+          // Probe an independent Error to reject receiver-sensitive accessors.
           if (typeof stack.get.call(new Error()) !== "string") return false
           return true
         })()
