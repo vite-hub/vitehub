@@ -88,7 +88,7 @@ catalogs:
       specifier: 4.1.4
       version: 4.1.4
     forges:
-      specifier: https://pkg.pr.new/danielroe/forges@43be2a6
+      specifier: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       version: 0.0.0
     proper-lockfile:
       specifier: 4.1.2
@@ -791,7 +791,7 @@ importers:
         version: 0.27.7
       forges:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@43be2a6
+        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -11949,8 +11949,8 @@ packages:
     resolution: {integrity: sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==}
     engines: {node: '>= 0.4'}
 
-  forges@https://pkg.pr.new/danielroe/forges@43be2a6:
-    resolution: {integrity: sha512-ahanYLa4/fWGU8CiV5Q6AaVfJQsa2nZxqG7UtrQEpr6tcXurZgiBzdOPQZCOFR1Y1PsjhtdwdEHjpF77NdAYLA==, tarball: https://pkg.pr.new/danielroe/forges@43be2a6}
+  forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b:
+    resolution: {integrity: sha512-J1Jz3lu/Oc1b/WXA9RCuyQ6MCp/LQvA+ztVqvAMIVwgmqsaFAFFbjOmULVow1krKt0Kw2U4rpxf7AHEIaMjRrg==, tarball: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b}
     version: 0.0.0
     engines: {node: '>=22.18'}
 
@@ -27953,7 +27953,7 @@ snapshots:
     dependencies:
       is-callable: 1.2.7
 
-  forges@https://pkg.pr.new/danielroe/forges@43be2a6: {}
+  forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b: {}
 
   form-data-encoder@4.1.0: {}
 
