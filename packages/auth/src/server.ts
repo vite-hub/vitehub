@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -287,15 +286,21 @@ async function runAccessAuthorize(
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
-  if (value instanceof Response) {
-    if (value.status < 200 || value.status > 599) return
-    if (typeof value.headers?.forEach !== "function") return
-    if (value.body !== null) {
-      if (value.body.locked) return
-      if (typeof value.body.getReader !== "function") return
+  try {
+    if (value instanceof Response) {
+      if (value.status < 200 || value.status > 599) return
+      if (typeof value.headers?.forEach !== "function") return
+      if (value.body !== null) {
+        if (value.body.locked) return
+        if (typeof value.body.getReader !== "function") return
+        const reader = value.body.getReader()
+        if (typeof reader.read !== "function" || typeof reader.releaseLock !== "function") return
+        reader.releaseLock()
+      }
+      return value
     }
-    return value
   }
+  catch { return undefined }
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return
     // SAFETY: Foreign responses are untrusted. Copy their data into a local
@@ -338,7 +343,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     return new Response(body, { headers, status: response.status, statusText: response.statusText })
   }
   catch {
-    return
+    return undefined
   }
 }
 
