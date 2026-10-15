@@ -401,6 +401,26 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
     return result.sort((left, right) => left.name.localeCompare(right.name))
   }
 
+  const refForCommit = async (id: string): Promise<string> => {
+    const cached = commitRefs.get(id)
+    if (cached) return cached
+    try {
+      const { value } = await requestGitHubJsonResponse<unknown>(
+        options.repository,
+        options.token,
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?commit_sha=${encodeURIComponent(id)}&per_page=100`,
+      )
+      const branches = parseBranches(value)
+      const ref = branches.find(branch => branch.name === options.branch)?.name || branches[0]?.name || options.branch
+      commitRefs.set(id, ref)
+      return ref
+    }
+    catch (error) {
+      if (isNoHistoryError(error)) return options.branch
+      throw error
+    }
+  }
+
   const open = async (id: string): Promise<WorkspaceRevisionView> => {
     if (!nonEmptyString(id)) throw workspaceError("[vitehub] Workspace revision id must be a non-empty string.")
     let commit: GitHubCommit
@@ -411,7 +431,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
       if (githubRequestStatus(error) === 404) throw workspaceError(`[vitehub] Workspace revision does not exist: ${id}.`)
       throw error
     }
-    const ref = commitRefs.get(commit.sha) || options.branch
+    const ref = await refForCommit(commit.sha)
     const entries = await readTree(commit)
     const byPath = new Map(entries.map(entry => [entry.path, entry]))
     const directories = new Map<string, WorkspaceEntry>()
