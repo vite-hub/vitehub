@@ -53,7 +53,7 @@ function publicRevision(row: RevisionRow): WorkspaceRevision {
 }
 
 class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
-  #namespace: Promise<string>
+  #namespace: Promise<string[]>
   #ready?: Promise<void>
   // The working tree follows the default ref and lives only in this instance.
   #draft?: Promise<{ store: WorkspaceStore, head: WorkspaceRevision | null }>
@@ -67,7 +67,14 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     // ViteHub owns every history object, so a custom prefix only nests below the owned root.
     const root = `${vitehubOwnedPrefix}workspace-history`
     const prefix = options.prefix === undefined ? root : `${root}/${options.prefix}`
-    this.#namespace = sha256(options.workspace).then(digest => `${prefix}/${digest}`)
+    // Prefer the owned namespace, but keep reading the namespace used before
+    // this change when its database identity already exists.
+    const legacyPrefix = options.prefix === undefined ? "vitehub/workspace-history" : options.prefix
+    this.#namespace = sha256(options.workspace).then(digest => {
+      const current = `${prefix}/${digest}`
+      const legacy = `${legacyPrefix}/${digest}`
+      return legacy === current ? [current] : [current, legacy]
+    })
   }
 
   [workspaceStoreTarget]() {
@@ -104,7 +111,9 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   }
 
   async #key() {
-    const workspace = await this.#namespace
+    const candidates = await this.#namespace
+    const existing = await this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(inArray(workspaces.workspace, candidates))
+    const workspace = candidates.find(candidate => existing.some(row => row.workspace === candidate)) ?? candidates[0]!
     this.#ready ??= this.options.database.insert(workspaces).values({ workspace }).onConflictDoNothing().then(() => {}, error => {
       this.#ready = undefined
       throw error
