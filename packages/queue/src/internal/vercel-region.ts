@@ -60,8 +60,12 @@ function isBrandedMethod(value: unknown, receiver: object, owner: object | undef
     // `instanceof` uses the candidate realm's constructor and therefore works
     // across realms while rejecting objects that merely advertise Web IDL tags.
     if (!(receiver instanceof constructor)) return false
+    // A valid header name keeps the probe on the native Web IDL path. Accept
+    // either a missing header or its string value so callers can legitimately
+    // provide this name themselves; the probe must not depend on a header
+    // being absent.
     const probe = value.call(receiver, "x-vitehub-brand-probe")
-    return probe === undefined || probe === null
+    return probe === null || typeof probe === "string"
   }
   catch {
     return false

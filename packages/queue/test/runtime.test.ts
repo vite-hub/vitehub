@@ -1117,6 +1117,16 @@ it("falls back to Vercel ID when a request has no queue-region header", () => {
   expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "iad1" })
 })
 
+it("reads regions when the branding probe header is present", () => {
+  const request = new Request("https://example.com", {
+    headers: {
+      "x-vitehub-brand-probe": "present",
+      "ce-vqsregion": "ams1",
+    },
+  })
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
+})
+
 it("reads headers through a deep Fetch prototype chain", () => {
   const request = new Request("https://example.com", {
     headers: { "ce-vqsregion": "ams1" },
