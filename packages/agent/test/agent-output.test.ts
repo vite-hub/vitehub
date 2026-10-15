@@ -1212,6 +1212,17 @@ describe("agent output helpers", () => {
       get statusText() { return "OK" },
       get headers() { return new Headers() },
       get body() { return body },
+      get type() { return "default" },
+      get url() { return "" },
+      get redirected() { return false },
+      get ok() { return true },
+      get bodyUsed() { return false },
+      clone() {},
+      blob() {},
+      arrayBuffer() {},
+      text() {},
+      formData() {},
+      json() {},
     })
     Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
     const events = []
@@ -1266,13 +1277,23 @@ describe("agent output helpers", () => {
     const body = new Response("spoofed").body
     const prototype = {
       [Symbol.toStringTag]: "Response",
-      constructor: Object.assign(function FakeResponse() {}, { prototype: undefined }),
+      constructor: Object.assign(function Response() {}, { prototype: undefined }),
       get status() { return 200 },
       get statusText() { return "OK" },
       get headers() { return new Headers() },
       get body() { return body },
     }
     prototype.constructor.prototype = prototype
+    Object.defineProperty(prototype.constructor, "prototype", {
+      value: prototype,
+      writable: false,
+      configurable: false,
+    })
+    Object.assign(prototype.constructor, {
+      error() {},
+      json() {},
+      redirect() {},
+    })
     const value = Object.create(prototype)
     const events = []
     for await (const event of streamAgentOutputToEvents(value)) events.push(event)

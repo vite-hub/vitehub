@@ -866,6 +866,19 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(constructorDescriptor.value.error, "function")
       || !hasRuntimeType(constructorDescriptor.value.json, "function")
       || !hasRuntimeType(constructorDescriptor.value.redirect, "function")) return false
+    // A copied tag, constructor link, and the three static factories are still
+    // insufficient to identify a Fetch Response. Require the rest of the
+    // standard prototype surface before accepting a caller-created shape.
+    const responsePrototypeAccessors = ["type", "url", "redirected", "ok", "bodyUsed"]
+    for (const key of responsePrototypeAccessors) {
+      const descriptor = Object.getOwnPropertyDescriptor(tagOwner, key)
+      if (!descriptor || !hasRuntimeType(descriptor.get, "function") || descriptor.set) return false
+    }
+    const responsePrototypeMethods = ["clone", "blob", "arrayBuffer", "text", "formData", "json"]
+    for (const key of responsePrototypeMethods) {
+      const descriptor = Object.getOwnPropertyDescriptor(tagOwner, key)
+      if (!descriptor || !hasRuntimeType(descriptor.value, "function")) return false
+    }
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     // The foreign implementation owns its getters. Require the full Response
     // accessor contract before accepting an output as a byte stream.
