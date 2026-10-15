@@ -113,9 +113,12 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   async #key() {
     const candidates = await this.#namespace
     this.#ready ??= this.options.database.transaction(async tx => {
+      // Claim the new identity before selecting a candidate. The unique key
+      // makes first use atomic for concurrent upgraded instances; an existing
+      // legacy row still wins because it is selected below.
+      await tx.insert(workspaces).values({ workspace: candidates[0]! }).onConflictDoNothing()
       const existing = await tx.select({ workspace: workspaces.workspace }).from(workspaces).where(inArray(workspaces.workspace, candidates))
-      const selected = candidates.find(candidate => existing.some(row => row.workspace === candidate)) ?? candidates[0]!
-      await tx.insert(workspaces).values({ workspace: selected }).onConflictDoNothing()
+      const selected = existing.some(row => row.workspace === candidates[1]) ? candidates[1]! : candidates[0]!
       return selected
     }).catch(error => {
       this.#ready = undefined
