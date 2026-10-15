@@ -118,7 +118,7 @@ function caseInsensitivePattern(value: string): string {
   }).join("")
 }
 
-const pathnamePattern = String.raw`^(?!/)(?!.*\\)(?!.*[\u0000-\u001F\u007F])(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\/$)(?!_[Vv][Ii][Tt][Ee][Hh][Uu][Bb](?:$|/[Dd][Ee][Rr][Ii][Vv][Ee][Dd](?:/|$))).+`
+const pathnamePattern = String.raw`^(?!/)(?!.*\\)(?!.*[\u0000-\u001F\u007F])(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\/$)(?!_[Vv][Ii][Tt][Ee][Hh][Uu][Bb](?:$|/[Dd][Ee][Rr][Ii][Vv][Ee][Dd](?:/|$))).+$`
 
 function contentTypeSchema(accept: string[] | undefined): Record<string, unknown> {
   const schema: Record<string, unknown> = {
