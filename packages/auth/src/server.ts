@@ -280,6 +280,9 @@ function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<{ response?: Response }> {
   const result = authorize(context)
+  const directResponse = normalizeAuthorizationResponse(result)
+  if (directResponse) return Promise.resolve({ response: directResponse })
+
   let thenable = false
   try {
     thenable = result !== null && (typeof result === "object" || typeof result === "function") && typeof Reflect.get(result, "then") === "function"
@@ -287,8 +290,6 @@ function runAccessAuthorize(
   catch {
     thenable = true
   }
-  const directResponse = thenable ? undefined : normalizeAuthorizationResponse(result)
-  if (directResponse) return Promise.resolve({ response: directResponse })
   if (!thenable) return Promise.resolve({ response: result !== true ? createForbiddenResponse(context.request) : undefined })
   return Promise.resolve(result).then(resolved => {
     const response = normalizeAuthorizationResponse(resolved)
@@ -409,6 +410,8 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const snapshot = { status, statusText, headers, body }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+    const ownThen = Object.getOwnPropertyDescriptor(candidate, "then")?.value
+    const hasCallableOwnThen = typeof ownThen === "function"
     let nativeProperties = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
@@ -425,7 +428,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    if (value instanceof Response && !hasCallableOwnThen && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")

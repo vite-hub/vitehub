@@ -104,6 +104,21 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+  it("returns a Response with an own then method without assimilating it", async () => {
+    const response = new Response("Policy rejected", { status: 409 })
+    const then = vi.fn(() => { throw new Error("Response must not be assimilated") })
+    Object.defineProperty(response, "then", { configurable: true, value: then })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+
+    const result = await handler(new Request("https://app.example/"))
+    expect(result).toBeInstanceOf(Response)
+    expect(result).not.toBe(response)
+    expect(result?.status).toBe(409)
+    expect(then).not.toHaveBeenCalled()
+  })
+
   it("normalizes compatible authorization responses from another realm", async () => {
     const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
     expect(foreignResponse).not.toBeInstanceOf(Response)
