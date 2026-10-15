@@ -121,13 +121,13 @@ describe("UI documentation", () => {
 
   it("uses the wide component layout without the desktop outline", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const styles = readFileSync(resolve(docsRoot, "app/assets/main.css"), "utf8");
+    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
 
     expect(page).toContain('path.startsWith("/docs/ui/")');
     expect(page).toContain('root: "lg:!grid-cols-1 lg:!gap-0"');
     expect(page).toContain('<DocsAsideRight v-if="!isUiPage"');
-    expect(styles).toContain(".docs-ui-page-shell");
-    expect(styles).toContain("max-width: 68rem");
+    expect(layout).toContain(".vh-docs-main");
+    expect(layout).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem)");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -162,9 +162,9 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).toContain("overflow: hidden;");
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
-    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
-    expect(layout).toContain("flex: 1;");
+    expect(layout).toContain(".vh-docs-aside");
+    expect(layout).toContain("display: flex;");
+    expect(layout).toContain("flex-direction: column;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
