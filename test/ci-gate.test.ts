@@ -55,6 +55,7 @@ describe("CI merge gate", () => {
     const commands = workflow.jobs["contracts-examples"]?.steps.flatMap(step => step.run ? [step.run] : [])
     expect(commands).toEqual([
       "vp run build",
+      "vp run package:metadata",
       "vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts",
       "vp run --ignore-depends-on examples:verify",
     ])

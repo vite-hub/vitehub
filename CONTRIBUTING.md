@@ -78,6 +78,7 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | --- | --- |
 | Source code | `corepack pnpm exec vp run lint` and the owner package's typecheck |
 | Root contracts or development tooling | `corepack pnpm exec vp test --config vitest.config.ts test/<file>.test.ts` after required builds |
+| Published package metadata | `corepack pnpm exec vp run package:metadata` after a build to pack every public package and run `publint --strict` |
 | Published imports or consumer integration | `corepack pnpm exec vp run test:consumer` |
 | Generated Cloudflare or Vercel output | `corepack pnpm exec vp run test:output:cloudflare` or `test:output:vercel` |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |

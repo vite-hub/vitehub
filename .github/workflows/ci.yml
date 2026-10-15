@@ -101,6 +101,9 @@ jobs:
       # that the repository contract tests would scan.
       - run: vp run build
 
+      - name: Validate packed package metadata
+        run: vp run package:metadata
+
       - name: Fast contracts
         if: ${{ github.event_name == 'pull_request' }}
         run: vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts
