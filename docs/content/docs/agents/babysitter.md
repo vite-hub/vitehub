@@ -37,6 +37,9 @@ export default defineAgent({
       repository: { allow: ['acme/app'] },
       author: { allow: ['octocat'] },
     },
+    lifecycle: {
+      labels: { require: ['agent:repair'], deny: ['agent:paused'] },
+    },
     merge: 'direct',
     concurrency: 2,
   },
@@ -49,6 +52,7 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. |
+| `lifecycle` | `{}` | Label lifecycle controls, such as `labels.require` and `labels.deny`, that gate eligible pull requests. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set the model and provider settings with the ordinary `driver` field. |
 | `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready }`. |
 | `reviewChecks` | `[]` | Check names, such as a review bot's check, that keep a PR waiting while they run. |
