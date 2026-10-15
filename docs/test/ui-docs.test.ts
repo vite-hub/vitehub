@@ -168,6 +168,9 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).toMatch(/\.vh-docs-shell\s*\{\s*display: flex;/);
+    expect(layout).toContain("overflow: hidden;");
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
+2cd03ecde0a8a18b415b46
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");
     const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");

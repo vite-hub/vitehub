@@ -249,5 +249,5 @@ async function consoleDatabaseHandler(event: ConsoleRequestEvent): Promise<Conso
   }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof consoleDatabaseHandler> = withConsoleAccess(consoleDatabaseHandler)
+const guardedHandler: ConsoleAccessRoute<typeof consoleDatabaseHandler> = withConsoleAccess(consoleDatabaseHandler, { section: "databases" })
 export default guardedHandler
