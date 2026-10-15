@@ -38,7 +38,7 @@ const config = {
     agent: true,
     auth: true,
     blob: true,
-    console: true,
+    console: { auth: false },
     database: true,
     kv: true,
     queue: true,

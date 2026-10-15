@@ -7,6 +7,7 @@ import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollectionEmpty } from "./collections.ts"
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
+import { workspaceDefinitionPlugins } from "./core/plugins.ts"
 import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 import { useWorkspace } from "./core/use.ts"
 import { withWorkspaceProgress } from "./session/progress.ts"
@@ -38,7 +39,7 @@ type ResponseHeaders = ConstructorParameters<typeof Headers>[0]
 function hasWorkspaceCommitRules(definition: WorkspaceDefinition): boolean {
   return [
     ...Object.values(definition.rules || {}),
-    ...(definition.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
+    ...workspaceDefinitionPlugins(definition).flatMap(plugin => Object.values(plugin.rules || {})),
   ].some(rule => rule.commit !== undefined)
 }
 
@@ -182,9 +183,9 @@ function resolveWorkspaceFilePath(path: string, root: string | undefined): strin
 
 function resolveContentType(path: string, mediaType: string | undefined, contentTypes: Record<string, string> | undefined): string {
   if (mediaType) return mediaType
-  if (contentTypes?.[path]) return contentTypes[path]
+  if (contentTypes && Object.hasOwn(contentTypes, path) && contentTypes[path]) return contentTypes[path]
   const extension = path.includes(".") ? `.${path.split(".").at(-1)}` : ""
-  if (extension && contentTypes?.[extension]) return contentTypes[extension]
+  if (extension && contentTypes && Object.hasOwn(contentTypes, extension) && contentTypes[extension]) return contentTypes[extension]
   return lookup(path) || "application/octet-stream"
 }
 
