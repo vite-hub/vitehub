@@ -2253,7 +2253,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             // attempt's lease identity separate so late cleanup cannot release a newer
             // attempt that reused the invocation claim id.
             const recoveryClaimId = createInvocationId()
-            const claimTask = Promise.resolve().then(() => store.claim(recordId, recoveryClaimId, CLAIM_LEASE_MS))
+            const claimTask = Promise.resolve().then(() => store.claim(recordId, recoveryClaimId, CLAIM_LEASE_MS, {
+              // Recovery runs after the original execution has timed out. It must
+              // take over an active lease so the terminal observation can be saved.
+              replaceExisting: true,
+            }))
             const claimed = await recoveryStore(() => claimTask)
             if (claimed === storeOperationTimedOut) {
               // The claim may still create a lease after the bounded wait. Release it when it settles.
