@@ -122,7 +122,7 @@ export function createEntrySource(
     `    } } }`,
     `  }`,
     `  const isBlob = typeof Blob !== 'undefined' && value instanceof Blob`,
-    `  if (isBlob && Object.getPrototypeOf(value) !== Blob.prototype) throw new TypeError('Sandbox result Blob subclasses are not supported.')`,
+    `  if (isBlob && Object.getPrototypeOf(value) !== Blob.prototype) throw new TypeError('Sandbox result must be JSON-serializable; Blob subclasses are not supported.')`,
     `  const blob = isBlob`,
     `  const buffer = Buffer.isBuffer(value)`,
     `  if (blob || isUint8Array(value)) {`,
