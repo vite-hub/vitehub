@@ -158,6 +158,34 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(schema).toMatch(/const (table_\d+) = schemaSource_2\.schema\["users"\]\nexport \{ \1 as users \}/)
   }, 60_000)
 
+  it("generates the tables of a layer that spreads an imported schema", async () => {
+    const app = await createLayeredApp()
+    const blogDir = dirname(app.layerDefinition("blog"))
+    await writeModule(join(blogDir, "tables.ts"), [
+      "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "export const posts = sqliteTable('posts', { id: integer('id').primaryKey(), title: text('title').notNull() })",
+      "export const comments = sqliteTable('comments', { id: integer('id').primaryKey(), postId: integer('post_id') })",
+    ])
+    await writeModule(app.layerDefinition("blog"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import * as tables from './tables.ts'",
+      "export default defineDatabase({ schema: { ...tables } })",
+    ])
+
+    // Source reading cannot list a spread, so only a loaded layer source adds its tables.
+    expect((await inspectDatabaseDefinitions({ projectRoot: app.appDir, rootDir: app.appDir, serverDirs: app.serverDirs }))[0]?.fields).toContainEqual({
+      label: "Tables",
+      value: "users, plus an imported or spread schema",
+    })
+
+    const { config, sql } = await generateMigration(app.appDir, app.serverDirs)
+
+    expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `comments`", "CREATE TABLE `posts`", "CREATE TABLE `users`"])
+    const schema = await readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")
+    expect(schema).toMatch(/const (table_\d+) = schemaSource_0\.schema\["comments"\]\nexport \{ \1 as comments \}/)
+    expect(schema).toMatch(/const (table_\d+) = schemaSource_1\.schema\["users"\]\nexport \{ \1 as users \}/)
+  }, 60_000)
+
   it("rejects application options that would drop a layer option", async () => {
     const app = await createLayeredApp()
     await writeModule(app.layerDefinition("blog"), [

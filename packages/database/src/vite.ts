@@ -346,12 +346,17 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
       await refreshRuntimeConfig()
 
-      const schemaModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_SCHEMA_ID)
-      const databasesModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DATABASES_ID)
-      const definitionDefaultsModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID)
-      if (schemaModule) context.server.moduleGraph.invalidateModule(schemaModule)
-      if (databasesModule) context.server.moduleGraph.invalidateModule(databasesModule)
-      if (definitionDefaultsModule) context.server.moduleGraph.invalidateModule(definitionDefaultsModule)
+      // Vite only soft-invalidates the importers of a changed file and keeps their old code.
+      // The refresh rewrites the generated schemas, so they must load again from disk.
+      for (const id of [
+        RESOLVED_DB_VIRTUAL_SCHEMA_ID,
+        RESOLVED_DB_VIRTUAL_DATABASES_ID,
+        RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID,
+        ...Object.values(runtimeConfig?.generatedSchemaFilesByDatabase ?? {}),
+      ]) {
+        const module = context.server.moduleGraph.getModuleById(id)
+        if (module) context.server.moduleGraph.invalidateModule(module)
+      }
     },
     async buildEnd(error) {
       if (error) {
