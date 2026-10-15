@@ -153,7 +153,12 @@ describe("Auth access handlers", () => {
   })
 
   it.each([["local", Response], ["foreign", ForeignResponse]] as const)("rejects unbranded objects with a Response prototype from the %s runtime", async (_runtime, ResponseConstructor) => {
-    const spoof = Object.create(ResponseConstructor.prototype) as never
+    const spoof = Object.create(ResponseConstructor.prototype, {
+      status: { value: 302 },
+      statusText: { value: "Found" },
+      headers: { value: new Headers({ location: "https://attacker.example" }) },
+      body: { value: null },
+    }) as never
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => spoof }] },
     }))

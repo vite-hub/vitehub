@@ -344,6 +344,9 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
   try {
     const candidate = Object(value)
     if (!hasResponsePrototype(candidate)) return
+    // Native response fields live on the trusted prototype. Own data properties
+    // can shadow them on an Object.create(...) spoof, so reject that shape.
+    if (authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
