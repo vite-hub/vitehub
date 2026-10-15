@@ -171,16 +171,16 @@ describe("UI documentation", () => {
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
+    const sidebarPanel = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    // The expandable rail must be able to cover the page; only the page panel clips.
-    expect(layout).not.toContain("overflow: hidden;");
-    const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
-    expect(sidebars).toContain("overflow: hidden;");
+    expect(sidebarPanel).toContain("overflow: hidden;");
+    expect(layout).toContain("overflow: hidden;");
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");
   });
