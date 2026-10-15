@@ -45,8 +45,8 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
       ...(options.console.auth instanceof Object && "provider" in options.console.auth && options.console.auth.provider === "github" ? { auth: {
         ...options.console.auth,
         databasePath: options.console.auth.databasePath ?? join(root, "console-auth.sqlite"),
-      } } : {}),
-    } } : {}),
+      } } : undefined),
+    } } : undefined),
     ...(options.workspace ? { workspace: {
       ...(options.workspace === true ? {} : options.workspace),
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
