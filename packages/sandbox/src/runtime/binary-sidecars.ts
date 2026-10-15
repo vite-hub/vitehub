@@ -107,6 +107,8 @@ export async function encodeSandboxValueStaged(
     if (depth > limits.maxDepth)
       throw transferLimitError(label, 'maxDepth', depth, limits.maxDepth)
     const blob = typeof Blob !== 'undefined' && entry instanceof Blob
+    if (blob && Object.getPrototypeOf(entry) !== Blob.prototype)
+      throw serializationError(`Sandbox ${label} Blob subclasses are not supported.`, { label })
     const buffer = typeof Buffer !== 'undefined' && Buffer.isBuffer(entry)
     if (blob || isUint8Array(entry)) {
       throwIfAborted()

@@ -403,6 +403,20 @@ describe("output transfer limits", () => {
     await expect(execution.readOutputFile(0)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("rejects Blob subclasses before reading overrideable data", async () => {
+    const execution = await executePackageEntry(
+      `export default () => {
+        class LargeBlob extends Blob {
+          get size() { return 0 }
+          arrayBuffer() { throw new Error("Blob subclass was read") }
+        }
+        return new LargeBlob(["oversized"])
+      }`,
+    )
+    expect(execution.code).toBe(1)
+    expect(execution.output.error?.message).toContain("Blob subclasses are not supported")
+  })
+
   it.each([true, false])("checks UTF-8 output bytes before writing success (accepted: %s)", async (accepted) => {
     const result = "é".repeat(2048)
     const bytes = Buffer.byteLength(JSON.stringify({ ok: true, result }))
