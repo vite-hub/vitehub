@@ -852,7 +852,6 @@ function isResponseLike(value: unknown): value is Response {
     const constructorPrototypeDescriptor = Object.getOwnPropertyDescriptor(constructorDescriptor.value, "prototype")
     if (!constructorPrototypeDescriptor
       || constructorPrototypeDescriptor.value !== tagOwner
-      || constructorPrototypeDescriptor.writable
       || constructorPrototypeDescriptor.configurable) return false
     // A self-linked constructor is easy to manufacture on a caller-owned
     // prototype. Real Fetch implementations expose the Response constructor
@@ -904,6 +903,18 @@ function isResponseLike(value: unknown): value is Response {
       bodyPrototype = Object.getPrototypeOf(bodyPrototype) as object | null
     }
     if (!bodyAccessor) return false
+    // Use the host Fetch brand when available. This rejects caller-created
+    // classes that copy the complete Response surface while still allowing a
+    // structurally compatible implementation from another realm below.
+    const nativeStatusGetter = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+    if (hasRuntimeType(nativeStatusGetter, "function")) {
+      try {
+        nativeStatusGetter.call(value)
+      }
+      catch {
+        // Foreign Fetch implementations cannot pass the host brand check.
+      }
+    }
     const status = read("status")
     const statusText = read("statusText")
     const headers = read("headers")
@@ -912,7 +923,7 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(statusText, "string")) return false
     if (!isRuntimeObject(headers) || !("get" in headers) || !("forEach" in headers)) return false
     if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
-    if (body === null) return (value as { body?: unknown }).body === null
+    if (body === null) return true
     if (!isRuntimeObject(body)) return false
     // A stream may already be locked by its caller. In that state acquiring a
     // reader throws even though the value is a genuine Web Stream. Use the
