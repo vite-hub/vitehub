@@ -14,7 +14,7 @@ icon: i-lucide-sliders-horizontal
 | --- | --- | --- |
 | `source` | Content Source input | One read-only Source. Cannot be combined with `sources`. |
 | `sources` | `Record<string, ContentSourceInput>` | Named read-only Sources. Each name becomes a Content instance. |
-| `collections` | `Record<string, documents(...)>` | Editable Markdown collections. Each name becomes a Content instance that serves published documents. See [Document collections](#document-collections). |
+| `collections` | `Record<string, documents(...) \| singleton(...)>` | Editable collections and singletons, in Markdown, JSON, or YAML. Each name becomes a Content instance that serves published documents. See [Document collections](#document-collections) and [Singletons and data files](#singletons-and-data-files). |
 | `workspace` | `string` | The Workspace that stores `collections`. Required with `collections`. It needs retained history. |
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
 | `plugins` | Comark Content plugins | Applied to each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` plugins when you need them. |
@@ -38,7 +38,7 @@ Use `contentSource(input, { prefix, schema })` to set Comark options for one Sou
 
 ## Document collections
 
-Use a collection when people or Agents edit the content at runtime. Sources stay read-only. A collection stores Markdown files in a Workspace, validates their frontmatter, keeps every save as a draft revision, and serves only what you publish.
+Use a collection when people or Agents edit the content at runtime. Sources stay read-only. A collection stores files in a Workspace, validates their fields, keeps every save as a draft revision, and serves only what you publish. Files are Markdown with frontmatter, or JSON or YAML data; see [Singletons and data files](#singletons-and-data-files).
 
 ### Store the collection
 
@@ -93,7 +93,7 @@ export const content = defineContent({
 
 | `documents()` option | Type | Description |
 | --- | --- | --- |
-| `path` | `string` | Workspace glob for the collection's Markdown files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md`. The folder before the first wildcard is the collection folder. |
+| `path` | `string` | Workspace glob for the collection's files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md` or `authors/*.json`. The folder before the first wildcard is the collection folder, and the extension sets the [format](#data-files). |
 | `fields` | `Record<string, StandardSchema>` | One validator per frontmatter field. |
 | `search` | `string[]` | Fields that `list({ search })` matches. Defaults to every string field plus the body. |
 | `components` | `Record<string, DocumentComponent>` | Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json', default? }`. Content stores the Markdown as written and does not check component use. |
@@ -106,8 +106,73 @@ A document id is the file path below the collection folder, without the extensio
 
 - **Typed data.** `data` takes each field's output type, so `date` is a `Date`. `save()` takes each field's input type.
 - **Optional fields.** A field is optional when its validator accepts a missing value, as with `.optional()` or `.default()`. Wrap a validator that has no `.optional()` in `optional()` from `vite-hub/content`.
-- **Stored values.** Saved frontmatter is YAML. Values go through a JSON round trip before validation, so a `Date` is stored as an ISO string. Use validators that accept the stored form, such as `z.coerce.date()` instead of `z.date()`.
+- **Stored values.** Saved frontmatter is YAML. Values go through a JSON round trip before validation, so a `Date` is stored as an ISO string. Use validators that accept the stored form, such as `z.coerce.date()` instead of `z.date()`. Nested objects and lists are stored as YAML blocks, one value per line, so a diff shows the value that changed.
 - **Other keys.** Frontmatter keys without a field stay in the file and are left out of `data`.
+
+### Singletons and data files
+
+Some content is one document, not a list: site settings, a home page, a footer. Define it with `singleton()` and a file path. It lives in `collections` next to your collections, with the same drafts, publishing, history, validation, and access.
+
+```ts [server/content.ts]
+import { image } from 'vite-hub/blob'
+import { defineContent, documents, optional, singleton } from 'vite-hub/content'
+import { z } from 'zod'
+
+export const content = defineContent({
+  workspace: 'site',
+  collections: {
+    settings: singleton({
+      path: 'settings.json',
+      fields: {
+        title: z.string().min(1),
+        description: z.string().max(160).optional(),
+        socialImage: optional(image()),
+        social: z.array(z.url()).default([]),
+      },
+    }),
+    authors: documents({
+      path: 'authors/*.yaml',
+      fields: { name: z.string(), bio: z.string().optional() },
+    }),
+    posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
+  },
+})
+```
+
+ViteHub does not own a settings schema. The fields above are an example: define the ones your site reads.
+
+| `singleton()` option | Type | Description |
+| --- | --- | --- |
+| `path` | `string` | Workspace path of one file, such as `settings.json`, `config/site.yaml`, or `pages/home.md`. No wildcards. The extension sets the [format](#data-files). |
+| `fields` | `Record<string, StandardSchema>` | One validator per field, as in `documents()`. |
+
+The document id is the file name without the extension, so `settings.json` is `settings`. You rarely need it: every method of a singleton works without an id.
+
+```ts
+const settings = content.collection('settings')
+
+await settings.get()                       // published settings, or null before the first publish
+const draft = await settings.save({ data: { title: 'ViteHub' } })
+await content.publish({ expect: [{ collection: 'settings', digest: draft.digest }] })
+await settings.status()                    // { state: 'published', ... }
+```
+
+`content.collection('settings')` has `kind: 'singleton'` and `id`; a collection has `kind: 'documents'`. Code that handles any collection, such as a tool, may pass the id like it does for a collection. Any other id throws `CONTENT_R0008`. See [Singletons](/docs/content/server-api#singletons) for every method.
+
+#### Data files
+
+The file extension sets the format of a collection or singleton:
+
+| Extension | Format | Stored as | Body |
+| --- | --- | --- | --- |
+| `.json` | `json` | One JSON object, indented by two spaces. | None. |
+| `.yaml`, `.yml` | `yaml` | One YAML mapping, in block style. | None. |
+| Any other, such as `.md` | `markdown` | YAML frontmatter above a Markdown body. | `body`. |
+
+A JSON or YAML document is its fields only. `body` is always empty, and `save()` rejects a non-empty one with `CONTENT_INVALID`. A file whose root is not one object, such as a JSON array, fails validation for every writer. Each save renders the whole file from the field values, in field definition order, so the same values always produce the same bytes, and each nested value is its own line.
+
+`/api/content` serves published data files like Markdown documents, at a path that follows the Workspace path: `settings.json` is `/api/content/get/settings`, and `authors/ada.yaml` is `/api/content/get/authors/ada`. Content installs Comark's JSON and YAML parsers for those collections.
+
 ### JSON Schema
 
 `content.collection('posts').schema` is the frontmatter JSON Schema, built from each field's [Standard JSON Schema](https://standardschema.dev). The Console editor builds its form from it, and the Content Agent Capability builds its tool input from it. Comark gets the same schema narrowed to its subset.

@@ -233,6 +233,7 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-settings.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-list.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-editor.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-diff.vue", to: "dist/console/runtime/components" },

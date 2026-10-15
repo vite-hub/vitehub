@@ -1,6 +1,8 @@
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
+import json from "comark-content/plugins/json"
+import yaml from "comark-content/plugins/yaml"
 import { defineEventHandler } from "h3"
 
 import type {
@@ -16,8 +18,9 @@ import type {
 import type { H3Event } from "h3"
 import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
-import { isDocumentsDefinition } from "./documents.ts"
+import { isContentCollectionDefinition } from "./documents.ts"
 import type {
+  AnyContentCollection,
   ContentCollection,
   ContentCollectionsRuntime,
   ContentHistorySource,
@@ -25,24 +28,30 @@ import type {
   ContentPublishResult,
   ContentRevisionsOptions,
   ContentRevisionsResult,
+  ContentSingleton,
 } from "./collections.ts"
 import type { ContentSourceInput } from "./content-source.ts"
-import type { ContentFields, DocumentsDefinition } from "./documents.ts"
+import type { ContentCollectionDefinition, SingletonDefinition, DocumentsDefinition } from "./documents.ts"
 export { contentSource } from "./content-source.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
-export { documents, optional } from "./documents.ts"
+export { documents, optional, singleton } from "./documents.ts"
 export type {
+  ContentCollectionDefinition,
   ContentField,
   ContentFieldIssue,
   ContentFields,
   ContentFieldsInput,
   ContentFieldsOutput,
+  ContentFormat,
   DocumentComponent,
   DocumentComponentProp,
+  SingletonDefinition,
+  SingletonOptions,
   DocumentsDefinition,
   DocumentsOptions,
 } from "./documents.ts"
 export type {
+  AnyContentCollection,
   ContentCollection,
   ContentDocument,
   ContentDocumentState,
@@ -61,6 +70,7 @@ export type {
   ContentRevisionsOptions,
   ContentRevisionsResult,
   ContentSaveInput,
+  ContentSingleton,
   ContentWriteOptions,
 } from "./collections.ts"
 
@@ -145,9 +155,13 @@ export type ContentCanContext<TCollection extends string = string> =
 export type ContentAuthorize<TCollection extends string = string> =
   (context: ContentAuthorizeContext<TCollection>) => boolean | Promise<boolean>
 
-type ContentCollections = Record<string, DocumentsDefinition<any>>
+type ContentCollections = Record<string, ContentCollectionDefinition<any>>
 type CollectionName<TCollections> = Extract<keyof TCollections, string>
-type FieldsOf<TDefinition> = TDefinition extends DocumentsDefinition<infer TFields> ? TFields : ContentFields
+/** The runtime of one `collections` entry: a collection for `documents()`, a singleton for `singleton()`. */
+type CollectionOf<TDefinition> =
+  TDefinition extends SingletonDefinition<infer TFields> ? ContentSingleton<TFields>
+    : TDefinition extends DocumentsDefinition<infer TFields> ? ContentCollection<TFields>
+      : AnyContentCollection
 
 export type DefineContentOptions<
   TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = ReadonlyArray<ContentPlugin<any, any>>,
@@ -160,7 +174,10 @@ export type DefineContentOptions<
   sources?: Record<string, ContentSourceInput>
   /** Workspace that stores `collections`. It needs retained history, such as the Blob + Database Store. */
   workspace?: string
-  /** Editable document collections. Each name becomes a Content instance that serves the `published` ref. */
+  /**
+   * Editable collections, `documents()`, and singletons, `singleton()`. Each name becomes a Content instance that
+   * serves the `published` ref.
+   */
   collections?: TCollections
   /** Policy for Content surfaces. Without it, `content.can()` denies every action. */
   authorize?: ContentAuthorize<CollectionName<TCollections>>
@@ -168,14 +185,19 @@ export type DefineContentOptions<
 
 /** Document operations added by `collections`. */
 export interface ContentDocumentsRuntime<TCollections extends ContentCollections = ContentCollections> {
-  /** Every document collection in definition order, with its `name`, `path`, `fields`, and `schema`. Empty without `collections`. */
-  collections(): ContentCollection[]
-  /** Open one collection to list, read, save, remove, restore, and compare documents. */
-  collection<TName extends CollectionName<TCollections>>(name: TName): ContentCollection<FieldsOf<TCollections[TName]>>
+  /**
+   * Every collection and singleton in definition order, with its `name`, `kind`, `format`, `path`, `fields`, and
+   * `schema`. Narrow an entry with `kind`. Empty without `collections`.
+   */
+  collections(): AnyContentCollection[]
+  /** Open one collection or singleton to list, read, save, remove, restore, and compare documents. */
+  collection<TName extends CollectionName<TCollections>>(name: TName): CollectionOf<TCollections[TName]>
   /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
   publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
   /** Revisions that saved, removed, restored, or published one document, newest first. */
   revisions(collection: CollectionName<TCollections>, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /** Revisions of a singleton defined with `singleton()`. */
+  revisions(collection: CollectionName<TCollections>, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /**
    * Revisions that changed documents of any collection on one ref, newest first: saves, removes, and restores on
    * `draft` (default), publishes on `published`. `metadata.content.documents` names the documents of each.
@@ -212,8 +234,8 @@ export function defineContent<
   }
   const collectionEntries = Object.entries(collections ?? {})
   for (const [name, definition] of collectionEntries) {
-    if (!isDocumentsDefinition(definition)) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents().` })
+    if (!isContentCollectionDefinition(definition)) {
+      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents() or singleton().` })
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
@@ -225,16 +247,19 @@ export function defineContent<
     return createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" })
   })
   const documentsRuntime: ContentCollectionsRuntime | undefined = collectionEntries.length
-    // SAFETY: Each definition was checked with isDocumentsDefinition() above.
+    // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
     ? createContentCollections({ workspace: workspace!, collections: Object.fromEntries(collectionEntries) })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
-  for (const [name] of collectionEntries) {
+  for (const [name, definition] of collectionEntries) {
     if (Object.hasOwn(inputs, name)) {
       throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} has the same name as a Content source.` })
     }
     const historySource = documentsRuntime!.comarkSource(name)
-    const instance = createContentInstance(name, historySource, { ...sharedOptions, basePath: "/api/content" })
+    // Comark parses Markdown by default. JSON and YAML collections get their parser first, so a configured plugin still wins.
+    const format = definition.format === "json" ? json() : definition.format === "yaml" ? yaml() : undefined
+    const plugins = format ? [format, ...sharedOptions.plugins ?? []] : sharedOptions.plugins
+    const instance = createContentInstance(name, historySource, { ...sharedOptions, plugins, basePath: "/api/content" })
     instances.push(instance)
     collectionInstances.push({ instance, source: historySource })
   }
@@ -291,12 +316,13 @@ export function defineContent<
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
   const documentsApi = {
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
-    collection: (name: string) => requireDocuments().collection(name),
+    collection: (name: string): unknown => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
-    revisions: (collectionOrOptions?: string | ContentRevisionsOptions, id?: string, revisionOptions?: ContentRevisionsOptions) =>
-      hasRuntimeType(collectionOrOptions, "string")
-        ? requireDocuments().revisions(collectionOrOptions, String(id), revisionOptions)
-        : requireDocuments().history(collectionOrOptions),
+    revisions: (collectionOrOptions?: string | ContentRevisionsOptions, id?: string | ContentRevisionsOptions, revisionOptions?: ContentRevisionsOptions) => {
+      if (!hasRuntimeType(collectionOrOptions, "string")) return requireDocuments().history(collectionOrOptions)
+      // Without a string id, the second argument is the options of a singleton.
+      return hasRuntimeType(id, "string") ? requireDocuments().revisions(collectionOrOptions, id, revisionOptions) : requireDocuments().revisions(collectionOrOptions, undefined, id)
+    },
     async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
       if (context === null || Object(context) !== context || !contentActions.has(context.action)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() requires { user?, actor?, collection, action: 'read' | 'write' | 'publish', id? }." })

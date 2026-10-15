@@ -11,6 +11,7 @@ import { consoleSectionPageRouteName, consoleSectionPageSegment, consoleSectionR
 import ConsoleDocumentDashboard from "./console-document-dashboard.vue";
 import ConsoleDocumentEditor from "./console-document-editor.vue";
 import ConsoleDocumentList from "./console-document-list.vue";
+import ConsoleDocumentSettings from "./console-document-settings.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMediaLibrary from "./console-media-library.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -25,6 +26,8 @@ import type { ConsoleContributedSection, ConsoleDocumentCollection, ConsoleSecti
  * - `/<section>`: the index page, such as the dashboard, or the first collection when the section has none.
  * - `/<section>/-/<page>`: another page, such as Media.
  * - `/<section>/<collection>/<document id>`: a collection and a document; `?new` opens an empty document.
+ * - `/<section>/<singleton>`: the editor of a singleton, such as site settings, without a list. Singletons are listed on
+ *   the Settings page instead of among the collections.
  */
 const props = defineProps<{
   agentsBase: string;
@@ -61,7 +64,14 @@ function param(value: unknown): string | undefined {
   return String(value) === value && value ? value : undefined;
 }
 
-const pages = computed<readonly ConsoleSectionPage[]>(() => props.details.pages ?? []);
+// Singletons, such as site settings, live on the Settings page; the sidebar lists the other collections.
+const listCollections = computed(() => collections.value.filter(entry => entry.kind !== "singleton"));
+const singletons = computed(() => collections.value.filter(entry => entry.kind === "singleton"));
+// The Settings page shows once the section has a singleton the user may read.
+const pages = computed<readonly ConsoleSectionPage[]>(() => (props.details.pages ?? []).filter(page => page.view.kind !== "document-settings" || singletons.value.length));
+const settingsPage = computed(() => pages.value.find(page => page.view.kind === "document-settings"));
+// A section with only singletons has no Collections heading.
+const showCollections = computed(() => loading.value || Boolean(error.value) || listCollections.value.length > 0 || !singletons.value.length);
 const indexPage = computed(() => pages.value.find(page => page.index));
 const collectionName = computed(() => param(route.params.collection));
 const documentId = computed(() => param(route.params.document));
@@ -71,14 +81,14 @@ const collection = computed(() => collections.value.find(entry => entry.name ===
 const unknownPage = computed(() => (collectionName.value === consoleSectionPageSegment ? documentId.value ?? "" : undefined));
 const page = computed<ConsoleSectionPage | undefined>(() => {
   const id = route.meta.consolePage;
-  if (String(id) === id) return pages.value.find(entry => entry.id === id);
+  if (String(id) === id) return (props.details.pages ?? []).find(entry => entry.id === id);
   return collectionName.value ? undefined : indexPage.value;
 });
 const counts = computed(() => new Map((overview.value?.collections ?? []).map(entry => [entry.name, entry.states])));
 // Each collection gets the first letter of its label, or two letters when another collection starts with the same one.
 const marks = computed(() => {
-  const initials = collections.value.map(entry => entry.label.trim().slice(0, 1).toUpperCase());
-  return new Map(collections.value.map((entry, index) => {
+  const initials = listCollections.value.map(entry => entry.label.trim().slice(0, 1).toUpperCase());
+  return new Map(listCollections.value.map((entry, index) => {
     const shared = initials.filter(initial => initial === initials[index]).length > 1;
     return [entry.name, shared ? `${initials[index]}${entry.label.trim().slice(1, 2).toLowerCase()}` : initials[index]!];
   }));
@@ -113,6 +123,8 @@ function pendingLabel(states: Record<ConsoleDocumentState, number> | undefined):
   const parts = [states.draft && `${states.draft} ${states.draft === 1 ? "draft" : "drafts"}`, states.changed && `${states.changed} changed`, states.deleted && `${states.deleted} deleted`].filter(Boolean);
   return parts.length ? parts.join(", ") : undefined;
 }
+/** The document the editor opens: the route id, or the one document of a singleton. */
+const editorDocumentId = computed(() => (collection.value?.kind === "singleton" ? collection.value.document : documentId.value));
 
 async function loadCollections(): Promise<void> {
   loading.value = true;
@@ -222,8 +234,8 @@ watch(changes, () => void loadOverview());
             </RouterLink>
           </UTooltip>
 
-          <p v-if="!collapsed && pages.length" class="vitehub-console__section-heading">Collections</p>
-          <div v-else-if="pages.length" class="vitehub-console__section-rule" aria-hidden="true" />
+          <p v-if="!collapsed && pages.length && showCollections" class="vitehub-console__section-heading">Collections</p>
+          <div v-else-if="pages.length && showCollections" class="vitehub-console__section-rule" aria-hidden="true" />
           <div v-if="!collapsed && error" class="px-1 pb-2">
             <UAlert
               color="error"
@@ -237,9 +249,9 @@ watch(changes, () => void loadOverview());
           <template v-else-if="loading && !collections.length">
             <USkeleton v-for="index in 3" :key="index" class="my-0.5 h-8 rounded-md" />
           </template>
-          <template v-else-if="collections.length">
+          <template v-else-if="listCollections.length">
             <UTooltip
-              v-for="entry in collections"
+              v-for="entry in listCollections"
               :key="entry.name"
               :text="collapsed ? [entry.label, pendingLabel(counts.get(entry.name))].filter(Boolean).join(' · ') : pendingLabel(counts.get(entry.name)) ?? ''"
               :content="{ side: 'right' }"
@@ -272,7 +284,7 @@ watch(changes, () => void loadOverview());
               </RouterLink>
             </UTooltip>
           </template>
-          <p v-else-if="!collapsed" class="px-2 py-1.5 text-xs text-muted">
+          <p v-else-if="!collapsed && !singletons.length" class="px-2 py-1.5 text-xs text-muted">
             No collections you can read.
           </p>
 
@@ -283,7 +295,7 @@ watch(changes, () => void loadOverview());
               <RouterLink
                 :to="pageRoute(entry)"
                 class="vitehub-console__section-link"
-                :aria-current="page?.id === entry.id ? 'page' : undefined"
+                :aria-current="page?.id === entry.id || (!page && entry.view.kind === 'document-settings' && collection?.kind === 'singleton') ? 'page' : undefined"
                 :aria-label="collapsed ? entry.label : undefined"
                 @click="sidebarOpen = false"
               >
@@ -318,6 +330,16 @@ watch(changes, () => void loadOverview());
         @changed="changes++"
         @reload="reload"
       />
+      <ConsoleDocumentSettings
+        v-else-if="page?.view.kind === 'document-settings'"
+        :error="error"
+        :label="page.label"
+        :loading="loading"
+        :overview="overview"
+        :section="section"
+        :singletons="singletons"
+        @reload="reload"
+      />
       <ConsoleMediaLibrary
         v-else-if="page?.view.kind === 'media-library'"
         :blob-allowed="allowedSections.includes('blob')"
@@ -334,12 +356,13 @@ watch(changes, () => void loadOverview());
           :actions="[{ label: `Open ${indexPage?.label ?? details.label}`, color: 'neutral', variant: 'outline', to: indexPage ? pageRoute(indexPage) : { name: mainRouteName() } }]"
         />
       </template>
-      <template v-else-if="collection && (documentId || creating)">
+      <template v-else-if="collection && (editorDocumentId || creating)">
         <ConsoleDocumentEditor
-          :key="`${collection.name}/${documentId ?? '~new'}`"
+          :key="`${collection.name}/${editorDocumentId ?? '~new'}`"
           :client="client"
           :collection="collection"
-          :document-id="documentId"
+          :document-id="editorDocumentId"
+          :parent="collection.kind === 'singleton' && settingsPage ? { label: settingsPage.label, to: pageRoute(settingsPage) } : undefined"
           :changes="changes"
           @changed="changes++"
         />

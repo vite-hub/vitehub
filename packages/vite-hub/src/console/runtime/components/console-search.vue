@@ -68,6 +68,7 @@ interface ConsoleDocumentSearchItem {
 /** Extra words that find an item, such as `images` for Media (cmdk keyword aliases). */
 const pageKeywords: Readonly<Record<string, readonly string[]>> = {
   "document-dashboard": ["home", "overview", "stats", "activity"],
+  "document-settings": ["settings", "site", "config", "configuration", "preferences", "singleton"],
   "media-library": ["images", "files", "uploads", "assets", "library"],
 }
 
@@ -259,7 +260,7 @@ async function publishAll(): Promise<void> {
 }
 
 const contentActions = computed<CommandPaletteItem[]>(() => [
-  ...documentSections.value.flatMap(section => section.collections.filter(collection => collection.access.write).map((collection): CommandPaletteItem => {
+  ...documentSections.value.flatMap(section => section.collections.filter(collection => collection.access.write && collection.kind !== "singleton").map((collection): CommandPaletteItem => {
     const noun = consoleSingularLabel(collection.label)
     return {
       icon: "i-lucide-plus",
@@ -334,7 +335,8 @@ function documentSectionItems(section: ConsoleSectionId): CommandPaletteItem[] {
   const details = installedNavigation.value?.contributions[section]
   if (!details) return []
   return [
-    ...(details.pages ?? []).map(page => ({
+    // The Settings page shows once the section has a singleton.
+    ...(details.pages ?? []).filter(page => page.view.kind !== "document-settings" || entry?.collections.some(collection => collection.kind === "singleton")).map(page => ({
       icon: page.icon,
       keywords: [...pageKeywords[page.view.kind] ?? []],
       label: page.label,
@@ -344,10 +346,10 @@ function documentSectionItems(section: ConsoleSectionId): CommandPaletteItem[] {
         : { name: resolveConsoleRouteName(route.name, consoleSectionPageRouteName(section, page.id)), query: {} }, event),
     })),
     ...(entry?.collections ?? []).map(collection => ({
-      icon: "i-lucide-files",
-      keywords: ["collection", "documents", collection.name],
+      icon: collection.kind === "singleton" ? "i-lucide-settings-2" : "i-lucide-files",
+      keywords: collection.kind === "singleton" ? ["settings", "edit", collection.name, collection.path] : ["collection", "documents", collection.name],
       label: collection.label,
-      suffix: `${details.label} collection`,
+      suffix: collection.kind === "singleton" ? `${details.label} settings` : `${details.label} collection`,
       onSelect: (event: Event) => void openLocation({
         name: resolveConsoleRouteName(route.name, consoleSectionRouteName(section)),
         params: { collection: collection.name, document: [] },

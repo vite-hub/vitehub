@@ -68,7 +68,26 @@ await posts.status("hello") // { collection: "posts", id: "hello", state: "draft
 await posts.raw("hello", { ref: "draft" }) // the stored file, even if it no longer validates
 await content.publish({ expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
 await content.revisions("posts", "hello")
-content.collections() // [posts], each with name, path, fields, and schema
+content.collections() // [posts], each with name, kind, format, path, fields, and schema
+```
+
+`singleton({ path, fields })` defines one document at a fixed path, such as site settings. Its methods take no id, and `publish({ expect })` entries for it may omit `id`. The extension sets the format of a document or collection: `.json` stores an indented JSON object, `.yaml`/`.yml` a block-style YAML mapping, and anything else Markdown with YAML frontmatter. JSON and YAML documents have no body.
+
+```ts
+import { defineContent, documents, singleton } from "@vite-hub/content"
+
+export const content = defineContent({
+  workspace: "site",
+  collections: {
+    settings: singleton({ path: "settings.json", fields: { title: z.string(), social: z.array(z.url()).default([]) } }),
+    authors: documents({ path: "authors/*.yaml", fields: { name: z.string() } }),
+  },
+})
+
+const settings = content.collection("settings") // kind: "singleton", id: "settings"
+const draft = await settings.save({ data: { title: "ViteHub" } })
+await content.publish({ expect: [{ collection: "settings", digest: draft.digest }] })
+await settings.get() // the published settings, also at /api/content/get/settings
 ```
 
 Every save commits to the `draft` history ref; `publish()` copies selected documents to `published`. `/api/content/**` and the collection Comark instances serve only `published`. Content registers a `write:validate` Workspace plugin, so every Workspace writer is validated on the collection paths. Saves of different documents retry over each other; `ifDigest` rejects a save when the same document changed. `publish({ expect })` publishes exactly the reviewed draft digests and throws `WORKSPACE_CONFLICT` when one changed, so confirm and approve flows use it. Listed documents carry `updatedAt`, when each last changed on the ref read. The runtime methods are trusted server API; surfaces such as the Console and Agent Capability check `content.can({ user, actor })` first, where `user` is the Auth user and `actor` is the Agent Actor, if any. Zod date fields project to `date-time` strings in `schema`; wrap Valibot fields in `toStandardJsonSchema()`, and Content warns once for each field whose JSON Schema is empty.

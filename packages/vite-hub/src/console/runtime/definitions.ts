@@ -50,6 +50,12 @@ export interface ConsoleDocumentCollection {
   titleField?: string
   /** Comark components that bodies may use, for the body editor's insert menu. */
   components?: readonly ConsoleDocumentComponent[]
+  /** `singleton` for one document at a fixed path, which the editor opens without a list. */
+  kind?: "documents" | "singleton"
+  /** The id of the one document when `kind` is `singleton`. */
+  document?: string
+  /** `json` and `yaml` documents have fields only, without a Markdown body. */
+  format?: "markdown" | "json" | "yaml"
 }
 
 /** A Comark component that document bodies may use. It mirrors `ViteHubConsoleDocumentComponent`. */
@@ -86,7 +92,7 @@ function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponen
 }
 
 /** A view that the Console renders for a section page. It mirrors `ViteHubConsoleSectionPageView`. */
-export type ConsoleSectionPageView = { kind: "document-dashboard" } | { kind: "media-library" }
+export type ConsoleSectionPageView = { kind: "document-dashboard" } | { kind: "document-settings" } | { kind: "media-library" }
 
 /**
  * A page next to the main view of a section. It mirrors `ViteHubConsoleSectionPage` after the host dropped the pages
@@ -162,7 +168,7 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
   return { columns, kind: "record-table", notice: view.notice }
 }
 
-const pageViewKinds: ReadonlySet<unknown> = new Set<ConsoleSectionPageView["kind"]>(["document-dashboard", "media-library"])
+const pageViewKinds: ReadonlySet<unknown> = new Set<ConsoleSectionPageView["kind"]>(["document-dashboard", "document-settings", "media-library"])
 const pageIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
 /** Reads section pages from untrusted JSON. Pages with an unknown view, a repeated id, or a second index are dropped. */
@@ -243,6 +249,13 @@ export function parseConsoleDocumentCollections(value: unknown): ConsoleDocument
     if (text(collection.titleField)) parsed.titleField = collection.titleField
     const components = parseConsoleDocumentComponents(collection.components)
     if (components.length) parsed.components = components
+    if (collection.format === "markdown" || collection.format === "json" || collection.format === "yaml") parsed.format = collection.format
+    // A singleton needs its id. Without one, the editor lists the collection as before.
+    if (collection.kind === "singleton" && text(collection.document)) {
+      parsed.kind = "singleton"
+      parsed.document = collection.document
+    }
+    else if (collection.kind === "documents") parsed.kind = "documents"
     return [parsed]
   })
 }
