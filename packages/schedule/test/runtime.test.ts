@@ -611,13 +611,32 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
-  it("reports malformed scheduledAt values without reading a throwing Date tag", async () => {
-    const scheduledAt = Object.defineProperty({}, Symbol.toStringTag, { get: () => { throw new Error("unexpected tag read") } })
+  it.each([
+    { get [Symbol.toStringTag]() { throw new TypeError("hostile date tag") } },
+    new Proxy({}, { get() { throw new TypeError("hostile date proxy") } }),
+  ])("rejects hostile scheduledAt objects through the Schedule diagnostic", async (scheduledAt) => {
+    const handler = vi.fn()
     await expect(executeStaticSchedule({
-      cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "malformed-date-tag",
-      // @ts-expect-error Exercise malformed values arriving at the runtime boundary.
-      scheduledAt,
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler },
+      name: "report",
+      scheduledAt: scheduledAt as never,
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("accepts genuine Dates without consulting a caller-defined tag", async () => {
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const readTag = vi.fn(() => { throw new TypeError("hostile date tag") })
+    Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: readTag })
+    const run = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "report",
+      scheduledAt,
+    })
+    expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+    expect(readTag).not.toHaveBeenCalled()
   })
 
   it("rejects invalid Date values from another JavaScript realm", async () => {
