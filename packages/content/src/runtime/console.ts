@@ -731,15 +731,17 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       return await attempt(async () => {
         const found = new Map<string, Map<string, ViteHubConsoleDocumentReference>>(pathnames.map(pathname => [pathname, new Map()]))
         await Promise.all(collections.map(async (collection) => {
+          // The references of this collection by pathname and id. Only the documents the user may read reach `found`.
+          const local = new Map<string, Map<string, ViteHubConsoleDocumentReference>>(pathnames.map(pathname => [pathname, new Map()]))
           for (const ref of ["draft", "published"] as const) {
             const add = (pathname: string, item: Pick<ContentDocumentSummary, "data" | "id">) => {
-              const documents = found.get(pathname)!
-              const reference = documents.get(`${collection.name}\u0000${item.id}`)
+              const documents = local.get(pathname)!
+              const reference = documents.get(item.id)
               if (reference) {
                 if (!reference.refs.includes(ref)) reference.refs.push(ref)
                 return
               }
-              documents.set(`${collection.name}\u0000${item.id}`, { collection: collection.name, id: item.id, title: titleOf(collection, item.data, item.id), refs: [ref] })
+              documents.set(item.id, { collection: collection.name, id: item.id, title: titleOf(collection, item.data, item.id), refs: [ref] })
             }
             // Field values: walk every document once for all pathnames. The collection index is cached per revision.
             let cursor: string | undefined
@@ -757,6 +759,12 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
             for (const pathname of pathnames) {
               const page = await collection.list({ ref, search: pathname, limit: referencePageSize })
               for (const item of page.items) add(pathname, item)
+            }
+          }
+          const ids = await readableIds(context, collection, [...local.values()].flatMap(documents => [...documents.keys()]))
+          for (const [pathname, documents] of local) {
+            for (const [id, reference] of documents) {
+              if (ids.has(id)) found.get(pathname)!.set(`${collection.name}\u0000${id}`, reference)
             }
           }
         }))
