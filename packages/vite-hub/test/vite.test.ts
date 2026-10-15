@@ -275,9 +275,9 @@ describe("vitehub", () => {
   })
 
   it("installs the console and adds the Agent runtime bridge only when Agents are active", () => {
-    expect(pluginNames(vitehub({ console: true, preset: "node" }))).toContain("vite-hub/console")
-    expect(pluginNames(vitehub({ console: true, preset: "node" }))).not.toContain("vite-hub/console-invocation-root")
-    expect(pluginNames(vitehub({ agent: true, console: true, preset: "node" }))).toEqual(
+    expect(pluginNames(vitehub({ console: { auth: false }, preset: "node" }))).toContain("vite-hub/console")
+    expect(pluginNames(vitehub({ console: { auth: false }, preset: "node" }))).not.toContain("vite-hub/console-invocation-root")
+    expect(pluginNames(vitehub({ agent: true, console: { auth: false }, preset: "node" }))).toEqual(
       expect.arrayContaining(["vite-hub/console", "vite-hub/console-invocation-root"]),
     )
   })
@@ -286,7 +286,7 @@ describe("vitehub", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-agent-workflow-"))
     try {
       const plugin = dependencyPluginByName(
-        vitehub({ agent: true, console: true, preset: "node" }),
+        vitehub({ agent: true, console: { auth: false }, preset: "node" }),
         "vite-hub/console",
       )
       const config: Record<string, unknown> = { root }
@@ -315,7 +315,7 @@ describe("vitehub", () => {
         throw new Error("unresolved Workflow discovery")
       })
       const plugin = dependencyPluginByName(
-        vitehub({ console: true, preset: "node", workflow: true }),
+        vitehub({ console: { auth: false }, preset: "node", workflow: true }),
         "vite-hub/console",
       )
       const config: Record<string, unknown> = { root }
@@ -350,7 +350,7 @@ describe("vitehub", () => {
 
   it("allows a host-managed Console on Cloudflare", async () => {
     const plugin = dependencyPluginByName(
-      vitehub({ agent: true, console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "cloudflare" }),
+      vitehub({ agent: true, console: { auth: false, authorize: hostManagedAuthorize }, preset: "cloudflare" }),
       "vite-hub/console",
     )
 
@@ -364,7 +364,7 @@ describe("vitehub", () => {
       for (const [name, kv] of [["omitted", undefined], ["disabled", false]] as const) {
         const inactiveRoot = join(root, name)
         const inactive = dependencyPluginByName(
-          vitehub({ console: true, kv, preset: "node" }),
+          vitehub({ console: { auth: false }, kv, preset: "node" }),
           "vite-hub/console",
         )
         const inactiveConfig: Record<string, unknown> = { root: inactiveRoot }
@@ -379,7 +379,7 @@ describe("vitehub", () => {
       }
 
       const named = dependencyPluginByName(
-        vitehub({ console: true, kv: true, preset: "node" }),
+        vitehub({ console: { auth: false }, kv: true, preset: "node" }),
         "vite-hub/console",
       )
       const namedConfig: Record<string, unknown> = { root }
@@ -399,7 +399,7 @@ describe("vitehub", () => {
 
       const disabledRoot = join(root, "disabled")
       const disabled = dependencyPluginByName(
-        vitehub({ console: true, kv: true, preset: "node" }),
+        vitehub({ console: { auth: false }, kv: true, preset: "node" }),
         "vite-hub/console",
       )
       const config: Record<string, unknown> = { root: disabledRoot }
@@ -422,7 +422,7 @@ describe("vitehub", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-stores-"))
     try {
       const plugin = dependencyPluginByName(
-        vitehub({ blob: true, console: true, preset: "node" }),
+        vitehub({ blob: true, console: { auth: false }, preset: "node" }),
         "vite-hub/console",
       )
       const config: Record<string, unknown> = { root }
@@ -441,7 +441,7 @@ describe("vitehub", () => {
 
   it("keeps an application KV route beside the Console Devframe", async () => {
     const plugin = dependencyPluginByName(
-      vitehub({ console: true, kv: true, preset: "node" }),
+      vitehub({ console: { auth: false }, kv: true, preset: "node" }),
       "vite-hub/console",
     )
 
@@ -472,7 +472,7 @@ describe("vitehub", () => {
           ],
         },
       })
-      const plugin = dependencyPluginByName(vitehub({ agent: true, auth: true, console: { access: "auth" }, preset: "node" }), "vite-hub/console")
+      const plugin = dependencyPluginByName(vitehub({ agent: true, auth: true, console: { auth: "app" }, preset: "node" }), "vite-hub/console")
       const config: Record<string, unknown> = { root }
 
       await callHook(plugin.config, [config, { command: "build", mode: "production" }])
@@ -495,7 +495,6 @@ describe("vitehub", () => {
   it("installs the server Auth bridge for independent Console Auth without Primary Auth", () => {
     const plugins = vitehub({
       console: {
-        access: "auth",
         auth: {
           provider: "github",
           allowedEmails: ["maintainer@example.com"],
@@ -513,7 +512,7 @@ describe("vitehub", () => {
       access: { routes: [{ authorize: true, route: "/_vitehub/**" }] },
     })
     const plugin = dependencyPluginByName(
-      vitehub({ agent: true, auth: true, console: { access: "auth" }, preset: "node" }),
+      vitehub({ agent: true, auth: true, console: { auth: "app" }, preset: "node" }),
       "vite-hub/console",
     )
 
@@ -523,7 +522,7 @@ describe("vitehub", () => {
 
   it("rejects Auth-backed production Console when top-level Auth is disabled", async () => {
     const plugin = dependencyPluginByName(
-      vitehub({ auth: true, console: { access: "auth" }, preset: "node" }),
+      vitehub({ auth: true, console: { auth: "app" }, preset: "node" }),
       "vite-hub/console",
     )
 
@@ -537,7 +536,7 @@ describe("vitehub", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const implicit = dependencyPluginByName(
-        vitehub({ agent: true, console: { exposure: "host-managed", authorize: hostManagedAuthorize }, preset: "netlify" }),
+        vitehub({ agent: true, console: { auth: false, authorize: hostManagedAuthorize }, preset: "netlify" }),
         "vite-hub/console",
       )
       const implicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
@@ -554,7 +553,7 @@ describe("vitehub", () => {
       const explicit = dependencyPluginByName(
         vitehub({
           agent: true,
-          console: { exposure: "host-managed", authorize: hostManagedAuthorize },
+          console: { auth: false, authorize: hostManagedAuthorize },
           preset: "netlify",
           workflow: { provider: "vercel" },
         }),
@@ -729,7 +728,7 @@ describe("vitehub", () => {
       implicitlyEnabled: true,
       includeUserAppEntry: false,
     }))
-    vitehub({ agent: true, console: true, preset: "node" })
+    vitehub({ agent: true, console: { auth: false }, preset: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       runtimeCapabilityImports: expect.objectContaining({ console: "vite-hub/console/server" }),
     }))
@@ -738,7 +737,7 @@ describe("vitehub", () => {
       importBase: "vite-hub/_internal/workspace",
     })
 
-    vitehub({ agent: true, console: true, preset: "node" })
+    vitehub({ agent: true, console: { auth: false }, preset: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       runtimeCapabilityImports: expect.objectContaining({ console: "vite-hub/console/server" }),
     }))
