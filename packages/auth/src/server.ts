@@ -464,7 +464,7 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = Object(route) === route ? route.authorize : undefined
+      const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }
