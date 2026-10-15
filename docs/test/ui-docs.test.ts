@@ -180,6 +180,7 @@ describe("UI documentation", () => {
     // The panel contains its scrolling content; the layout must let the expanded rail overlap it.
     const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
     expect(sidebars).toContain("overflow: hidden;");
+    expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");
   });
