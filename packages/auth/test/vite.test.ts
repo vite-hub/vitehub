@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer, mergeConfig, resolveConfig } from "vite"
 
+import * as authServer from "../src/server.ts"
 import { defineAuth } from "../src/index.ts"
 import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth, shouldPassThroughAuthResponse } from "../src/vite.ts"
 
@@ -339,6 +340,42 @@ describe("hubAuth", () => {
       "export default createAuthAccessHandler([])",
       "",
     ].join("\n"))
+  })
+
+  it("serves portable native responses without getSetCookie through the mounted Auth route", async () => {
+    const root = await createWorkspaceTempProject()
+    await writeAuth(root)
+    await writeFile(join(root, "index.html"), "<div>ok</div>")
+    const authResponse = new Response("Portable policy response", {
+      status: 409,
+      headers: { "x-policy": "portable", "set-cookie": "policy=denied; Path=/" },
+    })
+    Object.defineProperty(authResponse.headers, "getSetCookie", { value: undefined })
+    // SAFETY: The mounted route needs only this Better Auth handler for the response serialization regression.
+    const handler = vi.spyOn(authServer, "getAuthForDefinition").mockReturnValue({
+      handler: async () => authResponse,
+    } as never)
+    const server = await createServer({
+      configFile: false,
+      plugins: [hubAuth()],
+      root,
+      server: { host: "127.0.0.1", port: 0 },
+    })
+    try {
+      await server.listen()
+      const address = server.httpServer?.address()
+      if (!address || typeof address === "string") throw new Error("Expected local Auth server address")
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/auth/get-session`)
+      expect(response.status).toBe(409)
+      expect(response.headers.get("x-policy")).toBe("portable")
+      expect(response.headers.getSetCookie()).toEqual(["policy=denied; Path=/"])
+      await expect(response.text()).resolves.toBe("Portable policy response")
+      expect(handler).toHaveBeenCalledOnce()
+    }
+    finally {
+      handler.mockRestore()
+      await server.close()
+    }
   })
 
   it("shares dev route sessions with the authenticated Agent helper in SSR modules", async () => {
