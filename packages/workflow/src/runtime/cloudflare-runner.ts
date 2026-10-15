@@ -28,8 +28,6 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
   try {
     const retryable = Reflect.get(error, "isRetryable")
     if (retryable !== false) return false
-    if (error instanceof Error) return true
-
     const nativeIsError: unknown = Reflect.get(Error, "isError")
     if (hasRuntimeType(nativeIsError, "function")) {
       return (nativeIsError as (value: unknown) => unknown)(error) === true
