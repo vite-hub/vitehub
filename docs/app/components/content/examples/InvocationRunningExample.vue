@@ -3,6 +3,9 @@ import type { AgentInvocationView } from "@vite-hub/ui";
 import { onMounted, reactive } from "vue";
 
 const now = useState("ui-running-clock", () => Date.now());
+onMounted(() => {
+  now.value = Date.now();
+});
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 const invocation = reactive<AgentInvocationView>({
@@ -72,6 +75,7 @@ onMounted(() => {
   const refreshedAt = Date.now();
   refreshDates(invocation, refreshedAt - now.value);
   now.value = refreshedAt;
+});
 });
 </script>
 
