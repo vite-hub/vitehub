@@ -6,6 +6,22 @@ navigation.group: Configure
 
 The Babysitter preset repairs selected pull requests. It addresses review feedback from people and bots, fixes failing checks, and pushes the repair. Then it waits for check and review results without another model pass. It can also merge ready pull requests.
 
+## Enable the Agent integration
+
+Use the [Agent setup](/docs/agents/get-started) to install ViteHub and configure Nitro. Enable the Agent integration with the Node host preset:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', agent: true }), nitro() as never],
+})
+```
+
+The host needs Git, Corepack for dependency installation, and the selected provider CLI with its authentication. See [Agent Drivers](/docs/agents/agent-drivers) for provider setup. Configure GitHub and persistent SQL Agent State below before starting production work.
+
 ## Add the Agent
 
 Select the preset in a discovered Agent. The repository filter is required: the Babysitter looks for open pull requests only in these repositories.
@@ -47,6 +63,20 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `capacity` | Process defaults | Host admission `memory`, `cpu`, and `fallbackConcurrency` settings. |
 
 Use the Agent's top-level [`budget`](/docs/agents/capabilities/budget) option for a per-pass token or USD policy. Babysitter `admission` remains a host and time-window gate over retained journal usage. The two policies compose: admission can delay a new pass, while an invocation budget reports or enforces the usage of the pass that runs.
+
+## Control work with labels
+
+Create the configured labels in your repositories. With the example above, add `agent:repair` when opening a pull request, or add it later to start work. Add `agent:paused` to pause it, and remove that label to resume while `agent:repair` remains present.
+
+| Pull request labels | Eligible for work |
+| --- | --- |
+| `agent:repair` present, `agent:paused` absent | Yes |
+| `agent:repair` absent | No |
+| `agent:paused` present | No |
+
+`lifecycle.labels.require` needs at least one listed label. An empty or omitted list adds no requirement. `lifecycle.labels.deny` excludes a pull request with any listed label. The preset applies these rules to discovery and to `opened`, `labeled`, and `unlabeled` webhook events. Removing a required label or adding a denied label also cancels an active claim.
+
+Configure label controls in `lifecycle.labels` or selection rules in `filter.labels`. Defining both throws a configuration error. Labels control eligibility; they do not report progress, authorize a merge, or bypass check and review gates.
 
 ## Limit model passes
 
