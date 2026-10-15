@@ -138,6 +138,7 @@ describe("Auth access handlers", () => {
     await expect(response?.text()).resolves.toBe("Policy rejected")
   })
 
+
   it("rejects consumed foreign authorization responses", async () => {
     const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
     await foreignResponse.text()
@@ -297,6 +298,7 @@ describe("Auth access handlers", () => {
     }
   })
 
+
   it.each([false, true])("checks foreign body state when bodyUsed is shadowed (consumed: %s)", async (consumed) => {
     const source = new ForeignResponse("Policy rejected", { status: 409 })
     if (consumed) await source.text()
@@ -353,6 +355,7 @@ describe("Auth access handlers", () => {
       statusText: { get: () => "Conflict" },
       headers: { get: headers },
       body: { get: body },
+
       bodyUsed: { get: () => false },
     })
     const candidate = Object.create(prototype)

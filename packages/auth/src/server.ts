@@ -286,6 +286,7 @@ async function runAccessAuthorize(
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
+
 const authorizationResponseProperties = ["status", "statusText", "headers", "body", "bodyUsed"] as const
 
 const authorizationResponsePrototypeLimit = 32
@@ -332,6 +333,7 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
+
   // Read the stream's own intrinsic accessors so bodies from another runtime
   // or realm are accepted without applying this realm's brand checks.
   const locked = responsePropertyDescriptor(body, "locked")?.get
@@ -350,6 +352,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
+
     const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
@@ -358,6 +361,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     if (headers === null || Object(headers) !== headers) return
 
     const headerCarrier = Object(headers)
+
     const snapshot = { status, statusText, headers, body, bodyUsed }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
@@ -378,6 +382,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+
     if (bodyUsed !== false) return
     // An own bodyUsed property can hide the foreign response's disturbed state.
     // Read its prototype getter without cloning (which tees and locks the body).
@@ -509,7 +514,8 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {
