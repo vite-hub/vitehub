@@ -22,7 +22,7 @@ describe("durable Response representation", () => {
   })
 
   it("does not execute spoofed or overridden stream methods", async () => {
-    const spoof = { slice: () => undefined, stream: () => { throw new Error("spoof") }, type: "text/plain" }
+    const spoof = { slice: () => spoof, stream: () => { throw new Error("spoof") }, type: "text/plain" }
     expect(await toResponse(spoof).json()).toEqual({ type: "text/plain" })
 
     const blob = new (new Window()).Blob(["test"], { type: "text/plain" })
