@@ -1486,6 +1486,7 @@ describe("workspace changes", () => {
       .toEqual({ operation: "move", from: "docs/old.md", to: "docs/new.md" })
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "../secret" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: ".vitehub/config" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: ".ViteHub/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
     for (const path of ["docs/git~1/config", "vitehu~1/config", "docs/.git./config", "docs/.git /config", ".vitehub./config", ".vitehub /config", ".VITEHUB/config", "docs/.git::$INDEX_ALLOCATION/config", "docs/.git. /config", "docs//file", "C:/outside/file", "C:outside", "docs/.. ", "docs/.git "]) {
