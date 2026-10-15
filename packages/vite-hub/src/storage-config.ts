@@ -39,10 +39,10 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
       agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
     } : {}),
-    ...(options.console && options.console !== true ? { console: {
+    ...(options.console ? { console: {
       ...options.console,
       databaseUrl: options.console.databaseUrl ?? file("console.sqlite"),
-      ...(options.console.access === "auth" && options.console.auth && "provider" in options.console.auth && options.console.auth.provider === "github" ? { auth: {
+      ...(options.console.auth instanceof Object && "provider" in options.console.auth && options.console.auth.provider === "github" ? { auth: {
         ...options.console.auth,
         databasePath: options.console.auth.databasePath ?? join(root, "console-auth.sqlite"),
       } } : {}),
@@ -87,6 +87,6 @@ export function resolveConsoleJournal(databaseUrl: string | undefined, d1Binding
 /** Resolve the journal path without changing the development-only Console shorthand. */
 export function consoleDatabaseUrl(options: ViteHubOptions): string | undefined {
   if (!options.console) return undefined
-  return (options.console === true ? undefined : options.console.databaseUrl)
+  return options.console.databaseUrl
     ?? (options.dataDir ? pathToFileURL(resolve(options.dataDir, "console.sqlite")).href : undefined)
 }

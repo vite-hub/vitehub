@@ -317,28 +317,15 @@ const authorizationResponseGetters = authorizationResponseProperties.map(key =>
 
 function hasResponseBrand(value: object): boolean {
   try {
-    if (authorizationResponseGetters.every(getter => {
+    return authorizationResponseGetters.every(getter => {
       if (!getter) return false
       Reflect.apply(getter, value, [])
       return true
-    })) return true
-    let prototype: object | null = Object.getPrototypeOf(value)
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      if (typeof constructor === "function" && constructor.name === "Response" && /\[native code\]/.test(Function.prototype.toString.call(constructor))) {
-        const getters = authorizationResponseProperties.map(key => Object.getOwnPropertyDescriptor(prototype, key)?.get)
-        if (getters.every(getter => typeof getter === "function")) {
-          getters.forEach(getter => Reflect.apply(getter, value, []))
-          return true
-        }
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
+    })
   }
   catch {
     return false
   }
-  return false
 }
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
