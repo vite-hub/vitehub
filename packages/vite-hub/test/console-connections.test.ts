@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { Plugin } from "vite"
 
-import { consoleSessionActor } from "../src/console/auth.ts"
+import { readConsoleSessionUser } from "../src/console/auth.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor } from "../src/console/auth-build.ts"
 import {
   canSendConnectionKey,
@@ -156,43 +156,34 @@ describe("Connections management client", () => {
   })
 })
 
-describe("Connections actor", () => {
-  it("returns the signed-in user as user:<id>", async () => {
+describe("Console session user", () => {
+  it("reads the signed-in user with every user field", async () => {
     const getSession = vi.fn().mockResolvedValue({ session: { id: "s1" }, user: { email: "ada@example.com", id: "u1" } })
     const request = new Request("http://localhost/_vitehub/connections", { headers: { cookie: "vitehub_console.session_token=t" } })
 
-    await expect(consoleSessionActor({ api: { getSession } }, request)).resolves.toBe("user:u1")
+    await expect(readConsoleSessionUser({ api: { getSession } }, request)).resolves.toEqual({ email: "ada@example.com", id: "u1" })
     expect(getSession).toHaveBeenCalledWith({ headers: request.headers })
   })
 
   it("returns undefined without a session and propagates lookup errors", async () => {
     const request = new Request("http://localhost/_vitehub/connections")
-    await expect(consoleSessionActor({ api: { getSession: async () => null } }, request)).resolves.toBeUndefined()
-    await expect(consoleSessionActor({ api: { getSession: async () => ({ user: { id: "" } }) } }, request)).resolves.toBeUndefined()
-    await expect(consoleSessionActor({ api: { getSession: async () => { throw new Error("database down") } } }, request)).rejects.toThrow("database down")
+    await expect(readConsoleSessionUser({ api: { getSession: async () => null } }, request)).resolves.toBeUndefined()
+    await expect(readConsoleSessionUser({ api: { getSession: async () => ({ user: { id: "" } }) } }, request)).resolves.toBeUndefined()
+    await expect(readConsoleSessionUser({ api: { getSession: async () => { throw new Error("database down") } } }, request)).rejects.toThrow("database down")
   })
 
-  it("writes an actor module for each Console access mode", async () => {
+  it("writes one actor module that checks the installed Console access policy", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-actor-"))
     try {
       // The Connections handler calls the policy with the Request first and the server event second.
-      // Every module checks the installed Console access policy before it names the manager.
-      const consoleAuth = await readFile(await writeConsoleConnectionsActor(root, "console-auth"), "utf8")
-      expect(consoleAuth).toContain('import { createAuthForRequest } from "#vitehub/auth/server"')
-      expect(consoleAuth).toContain('import { definition } from "./auth-definition.mjs"')
-      expect(consoleAuth).toContain("viteHubConsoleConnectionsActor(request, event)")
-      expect(consoleAuth).toContain("consoleConnectionsActor(event, () => consoleSessionActor(createAuthForRequest(definition, request, undefined, event), request))")
-
-      const appAuth = await readFile(await writeConsoleConnectionsActor(root, "app-auth"), "utf8")
-      expect(appAuth).toContain("viteHubConsoleConnectionsActor(request, event)")
-      expect(appAuth).toContain("consoleConnectionsActor(event, () => consoleSessionActor(getAuthForRequest(request, undefined, event), request))")
-
-      const file = await writeConsoleConnectionsActor(root, "none")
+      // The access policy reads the signed-in user, so one module serves every Console access mode.
+      const file = await writeConsoleConnectionsActor(root)
       expect(file).toBe(join(root, ".vitehub/nitro/console/connections-actor.mjs"))
-      const none = await readFile(file, "utf8")
-      expect(none).toContain('import { consoleConnectionsActor } from "vite-hub/console/sections"')
-      expect(none).toContain("return consoleConnectionsActor(event)")
-      expect(none).not.toContain("user:local")
+      const actor = await readFile(file, "utf8")
+      expect(actor).toContain('import { consoleConnectionsActor } from "vite-hub/console/sections"')
+      expect(actor).toContain("viteHubConsoleConnectionsActor(_request, event)")
+      expect(actor).toContain("return consoleConnectionsActor(event)")
+      expect(actor).not.toContain("user:open")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -207,7 +198,7 @@ describe("Connections actor", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-sections-"))
     try {
       const plugin = consoleVitePlugin({
-        console: command === "serve" ? { access: "auth" } : { exposure: "host-managed", authorize: hostManagedAuthorize },
+        console: command === "serve" ? { auth: false } : { auth: false, authorize: hostManagedAuthorize },
         connections,
         sections: ["env", "connections"],
       })
@@ -224,8 +215,8 @@ describe("Connections actor", () => {
   })
 
   it.each([
-    { console: true, handler: 'import actor from "#vitehub/console/connections-actor"' },
-    { console: false, handler: 'actor: "development"' },
+    { console: { auth: false } as const, handler: 'import actor from "#vitehub/console/connections-actor"' },
+    { console: false as const, handler: 'actor: "development"' },
   ])("checks development Connections routes with the Console actor module (console: $console)", async ({ console, handler }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-dev-"))
     try {
@@ -249,7 +240,7 @@ describe("Connections actor", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-alias-"))
     try {
       const configure = async (sections: ConsoleSectionId[]) => {
-        const plugin = consoleVitePlugin({ console: true, sections })
+        const plugin = consoleVitePlugin({ console: { auth: false }, sections })
         const config: { root: string, nitro?: { alias?: Record<string, string> } } = { root }
         const hook = plugin.config
         if (!hook) throw new TypeError("Expected Console config hook.")
