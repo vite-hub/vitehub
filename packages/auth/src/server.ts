@@ -434,6 +434,36 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       freshReaderPrototype = Object.getPrototypeOf(freshReaderPrototype)
     }
     if (read !== freshRead || cancel !== freshCancel || releaseLock !== freshReleaseLock) return false
+    // Validate the reader returned by the candidate body separately. A
+    // shadowed getReader can return a reader-shaped object that only appears
+    // valid because the probe above used that same override.
+    const candidateReader = Reflect.apply(getReader, candidate, [])
+    if (!Reflect.apply(locked, candidate, [])) return false
+    if (Object(candidateReader) !== candidateReader) return false
+    const candidateReaderObject = Object(candidateReader)
+    if (Object.prototype.hasOwnProperty.call(candidateReaderObject, "read")
+      || Object.prototype.hasOwnProperty.call(candidateReaderObject, "cancel")
+      || Object.prototype.hasOwnProperty.call(candidateReaderObject, "releaseLock")) return false
+    let candidateReaderPrototype: object | null = Object.getPrototypeOf(candidateReaderObject)
+    let candidateRead: ((...args: []) => unknown) | undefined
+    let candidateCancel: ((...args: [unknown?]) => unknown) | undefined
+    let candidateReleaseLock: (() => void) | undefined
+    const candidateReaderPrototypes = new Set<object>()
+    for (let depth = 0; candidateReaderPrototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (candidateReaderPrototypes.has(candidateReaderPrototype)) return false
+      candidateReaderPrototypes.add(candidateReaderPrototype)
+      const readDescriptor = Object.getOwnPropertyDescriptor(candidateReaderPrototype, "read")
+      const cancelDescriptor = Object.getOwnPropertyDescriptor(candidateReaderPrototype, "cancel")
+      const releaseDescriptor = Object.getOwnPropertyDescriptor(candidateReaderPrototype, "releaseLock")
+      if (!candidateRead && typeof readDescriptor?.value === "function") candidateRead = readDescriptor.value
+      if (!candidateCancel && typeof cancelDescriptor?.value === "function") candidateCancel = cancelDescriptor.value
+      if (!candidateReleaseLock && typeof releaseDescriptor?.value === "function") candidateReleaseLock = releaseDescriptor.value
+      if (candidateRead && candidateCancel && candidateReleaseLock) break
+      candidateReaderPrototype = Object.getPrototypeOf(candidateReaderPrototype)
+    }
+    if (candidateRead !== freshRead || candidateCancel !== freshCancel || candidateReleaseLock !== freshReleaseLock) return false
+    Reflect.apply(candidateReleaseLock, candidateReaderObject, [])
+    if (Reflect.apply(locked, candidate, [])) return false
     Reflect.apply(closed, readerObject, [])
     Reflect.apply(releaseLock, readerObject, [])
     // Releasing the reader must unlock the same fresh stream. An override can
