@@ -2,7 +2,7 @@ import type { ConnectionApproval, ConnectionInspection } from "@vite-hub/connect
 import type { EnvActivity } from "@vite-hub/env/bridge"
 import * as v from "valibot"
 import { envActorSchema } from "./env-management"
-import { consoleResponseError } from "./request"
+import { ConsoleNetworkError, consoleResponseError } from "./request"
 
 /** An approval as the Console shows it. The Console never reads call inputs. */
 export type ConsoleConnectionApproval = Omit<ConnectionApproval, "input">
@@ -61,7 +61,15 @@ export function canSendConnectionKey(location: { hostname: string, protocol: str
 
 /** Run one action on the Connections management API and validate the response. */
 export async function requestConnectionsManagement<T extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>>(endpoint: string, action: string, schema: T, input: Record<string, unknown> = {}, init: Pick<RequestInit, "redirect"> = {}): Promise<v.InferOutput<T>> {
-  const response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, action }), ...init })
+  const body = JSON.stringify({ ...input, action })
+  let response: Response
+  try {
+    response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body, ...init })
+  }
+  catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error
+    throw new ConsoleNetworkError(error)
+  }
   // A host 404 without a JSON body means that the management route is not mounted.
   if (!response.ok) throw await consoleResponseError(response, response.status === 404 ? { code: "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE" } : {})
   return v.parse(schema, await response.json())
