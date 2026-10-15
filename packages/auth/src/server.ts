@@ -33,6 +33,16 @@ declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
 
 type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
 
+function isCallable(value: unknown): value is (...args: never[]) => unknown {
+  try {
+    Reflect.apply(Function.prototype.toString, value, [])
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
   return Boolean(options && Object.keys(options).length > 0)
 }
@@ -572,7 +582,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && typeof authorize !== "function") {
+  if (authorize !== true && !isCallable(authorize)) {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {
