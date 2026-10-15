@@ -433,7 +433,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   function ownValue(value: unknown, key: PropertyKey): unknown {
     const carrier = Object(value)
     if (carrier !== value || !Object.hasOwn(carrier, key)) return undefined
-    return Reflect.get(carrier, key)
+    const descriptor = Object.getOwnPropertyDescriptor(carrier, key)
+    // Do not execute an accessor while enforcing the own-property boundary.
+    // Runtime context carriers must provide a concrete data value here.
+    return descriptor && "value" in descriptor ? descriptor.value : undefined
   }
 
   async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
