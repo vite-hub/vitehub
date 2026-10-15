@@ -136,5 +136,5 @@ If a Driver reports no usage, ViteHub cannot compare token or cost limits. The i
 | `usd` | `number \| string` | No cost limit | Compares provider-reported or estimated cost in US dollars. Decimal strings preserve exact limits. |
 | `capacity` | `AgentDriverCapacityOptions` | Driver setting | Configures process-local admission for the top-level Agent option. It is not a usage limit, and `budget({ capacity })` on the reusable Capability does not configure Driver admission. |
 | `mode` | `'observe' \| 'enforce'` | `'observe'` | Reports exceedance or rejects the terminal Invocation after usage is available. |
-| `pricing` | `AgentUsagePricing \| false` | Models.dev pricing | Resolves missing cost, or disables estimation. Provider-reported cost remains available when set to `false`. |
+| `pricing` | `AgentUsagePricing \| false` | Models.dev pricing when `usd` is set; disabled for token-only budgets | Resolves missing cost, or disables estimation. Provider-reported cost remains available when set to `false`. |
 | `id` | `string` | `'budget'` | Changes the Capability id when using the reusable Capability form. |

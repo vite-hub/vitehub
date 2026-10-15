@@ -72,6 +72,9 @@ function decimalExceeds(actual: string, limit: number | string): boolean {
 }
 
 function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetTokenLimits, usd?: number | string } {
+  if (options.capacity !== undefined) {
+    throw new TypeError("[vitehub] budget capability does not support capacity; configure it on defineAgent({ budget }).")
+  }
   const tokens = normalizeTokens(options.tokens)
   let usd: number | string | undefined
   if (options.usd !== undefined) {
