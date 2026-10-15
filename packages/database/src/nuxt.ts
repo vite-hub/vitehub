@@ -1,6 +1,7 @@
 import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
+import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
-import { dirname, resolve, sep } from "node:path"
+import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -164,7 +165,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               const { module } = contribution.definition
               const file = isAbsolute(module) ? resolve(module) : require.resolve(module)
               collectWatchedModuleFiles(file, require, contributionFiles)
-              contributionDirectories.add(dirname(file))
+              collectModuleWatchDirectories(file, contributionDirectories)
             }
             catch {
               // The runtime loader reports unresolved contributions; there is no file to watch yet.
@@ -265,6 +266,17 @@ function collectWatchedModuleFiles(file: string, require: NodeRequire, files: Se
   files.add(file)
   const loaded = require.cache?.[file]
   for (const child of loaded?.children ?? []) collectWatchedModuleFiles(child.filename, require, files, seen)
+}
+
+function collectModuleWatchDirectories(file: string, directories: Set<string>) {
+  let current = dirname(file)
+  while (true) {
+    directories.add(current)
+    if (existsSync(join(current, "package.json"))) return
+    const parent = dirname(current)
+    if (parent === current) return
+    current = parent
+  }
 }
 
 const nuxtModule: DatabaseNuxtModule = hubDb()
