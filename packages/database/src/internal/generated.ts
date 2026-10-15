@@ -5,37 +5,51 @@ import { dirname, join, relative } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
 import { describeDatabaseContribution } from "../contributions.ts"
-import { loadContributedDatabaseSchema, loadDatabaseSchema } from "./schema-tables.ts"
+import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDatabaseSchema } from "./schema-tables.ts"
 
-import type { DatabaseTableNameOptions } from "./schema-tables.ts"
+import type { DatabaseTableNameOptions, LoadedDatabaseSchema } from "./schema-tables.ts"
 import type { DiscoveredDatabaseDefinition, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
-/** Exports each table key from the source that wins it, so Drizzle Kit sees every table once. */
-function createTableExports(definition: DiscoveredDatabaseDefinition, sourceVariables: string[]) {
-  const winners = new Map<string, string>()
-  definition.schemaSources.forEach((source, index) => {
-    for (const tableName of source.tableNames) winners.set(tableName, sourceVariables[index]!)
-  })
-  return definition.tableNames.map(tableName => `export const ${tableName} = ${winners.get(tableName)}.schema[${JSON.stringify(tableName)}]`)
-}
-
+/** A loaded schema and the generated expression that provides it. */
 function schemaSourceVariables(definition: DiscoveredDatabaseDefinition, single: string, prefix: string) {
   return definition.schemaSources.length === 1 ? [single] : definition.schemaSources.map((_, index) => `${prefix}${index}`)
 }
 
-function renderSchemaExpression(sourceVariables: string[]) {
-  return sourceVariables.length === 1
-    ? `${sourceVariables[0]}.schema`
-    : `{ ${sourceVariables.map(variable => `...${variable}.schema`).join(", ")} }`
+interface SchemaPart {
+  expression: string
+  owner: string
+  schema: LoadedDatabaseSchema
 }
 
-function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition) {
-  const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
+/** Exports each table key from the source that wins it, so Drizzle Kit sees every table once. */
+function createTableExports(parts: readonly SchemaPart[]) {
+  const winners = new Map<string, string>()
+  for (const part of parts) {
+    for (const tableName of part.schema.tableNames) winners.set(tableName, part.expression)
+  }
+  return [...winners].map(([tableName, expression]) => `export const ${tableName} = ${expression}.schema[${JSON.stringify(tableName)}]`)
+}
+
+function renderSchemaExpression(parts: readonly SchemaPart[]) {
+  return parts.length === 1
+    ? `${parts[0]!.expression}.schema`
+    : `{ ${parts.map(part => `...${part.expression}.schema`).join(", ")} }`
+}
+
+function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, parts: readonly SchemaPart[], contributions: ReadonlyArray<{ module: string, export?: string }>) {
+  const imports = [
+    `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
+    ...contributions.map((contribution, index) => {
+      const variable = parts[index + 1]!.expression
+      const source = JSON.stringify(createImportPath(file, contribution.module))
+      return contribution.export ? `import { ${contribution.export} as ${variable} } from ${source}` : `import ${variable} from ${source}`
+    }),
+  ]
   return [
-    ...definition.schemaSources.map((source, index) => `import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
+    ...imports,
     "",
-    ...createTableExports(definition, sourceVariables),
-    `export const schema = ${renderSchemaExpression(sourceVariables)}`,
+    ...createTableExports(parts),
+    `export const schema = ${renderSchemaExpression(parts)}`,
     "export default schema",
     "",
   ].join("\n")
@@ -50,14 +64,14 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
     ...contributions.map(contribution => loadContributedDatabaseSchema(contribution, file, options)),
   ])
   const parts: SchemaPart[] = [
-    { expression: "databaseDefinition.schema", owner: `Database Definition "${definition.handler}"`, schema: schema! },
+    { expression: "databaseDefinition", owner: `Database Definition "${definition.handler}"`, schema: schema! },
     ...contributions.map((contribution, index) => ({
       expression: `contributedSchema_${index}`,
       owner: `contributed tables ${describeDatabaseContribution(contribution)}`,
       schema: contributed[index]!,
     })),
   ]
-  assertDistinctTables(definition.name, parts)
+  assertDistinctLoadedSchemas(definition.name, parts)
   await writeFile(file, renderGeneratedDrizzleSchema(file, definition, parts, contributions), "utf8")
 }
 
@@ -168,7 +182,7 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
   await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config), "utf8")
   await mkdir(dirname(generatedTypesFile), { recursive: true })
-  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config), "utf8")
+  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config.definitions), "utf8")
   await Promise.all(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })
