@@ -26,7 +26,7 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   const blob = options.blob === true ? { driver: "fs" as const } : options.blob
   const agent = options.agent === true ? {} : options.agent
   const state = agent && agent.providers?.state
-  return {
+  const result = {
     ...options,
     ...(cache ? { cache } : {}),
     dataDir: root,
@@ -39,19 +39,25 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
       agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
     } : {}),
-    ...(options.console ? { console: {
-      ...options.console,
-      databaseUrl: options.console.databaseUrl ?? file("console.sqlite"),
-      ...(options.console.auth instanceof Object && "provider" in options.console.auth && options.console.auth.provider === "github" ? { auth: {
-        ...options.console.auth,
-        databasePath: options.console.auth.databasePath ?? join(root, "console-auth.sqlite"),
-      } } : {}),
-    } } : {}),
     ...(options.workspace ? { workspace: {
       ...(options.workspace === true ? {} : options.workspace),
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
     } } : {}),
   }
+  if (options.console) {
+    const consoleConfig = {
+      ...options.console,
+      databaseUrl: options.console.databaseUrl ?? file("console.sqlite"),
+    }
+    if (options.console.auth instanceof Object && "provider" in options.console.auth && options.console.auth.provider === "github") {
+      consoleConfig.auth = {
+        ...options.console.auth,
+        databasePath: options.console.auth.databasePath ?? join(root, "console-auth.sqlite"),
+      }
+    }
+    result.console = consoleConfig
+  }
+  return result
 }
 
 /** Where the Console stores Agent invocations when no Agent Definition configures a journal. */
