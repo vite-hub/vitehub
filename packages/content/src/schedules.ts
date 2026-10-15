@@ -313,6 +313,9 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     for (const key of ["collection", "id", "status"] as const) {
       if (options[key] !== undefined && String(options[key]) !== options[key]) throw invalid(`schedules({ ${key} }) must be a string.`)
     }
+    if (options.id !== undefined && options.collection === undefined) {
+      throw invalid("schedules({ id }) requires collection.")
+    }
     const now = Date.now()
     return [...(await read()).entries.values()]
       .map(({ stored }) => withStatus(stored, now))
