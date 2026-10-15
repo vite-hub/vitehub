@@ -308,6 +308,8 @@ export interface WorkspaceSnapshot {
 
 export interface WorkspaceRevision {
   id: string
+  /** The history ref this revision was committed to. */
+  ref: string
   parentId: string | null
   createdAt: string
   message?: string
@@ -316,16 +318,55 @@ export interface WorkspaceRevision {
   bytes: number
 }
 
-export interface WorkspaceHistoryCommitOptions {
-  /** The expected published head. Use null for the first revision. */
+export interface WorkspaceHistoryRefOptions {
+  /** Named history line inside the Workspace. Defaults to `main`. */
+  ref?: string
+}
+
+/** File content with optional stored attributes. Plain content infers the media type from the path. */
+export interface WorkspaceHistoryFileInput {
+  content: WorkspaceContent
+  mediaType?: string
+  metadata?: Record<string, unknown>
+}
+
+export type WorkspaceHistoryFile = WorkspaceContent | WorkspaceHistoryFileInput
+
+export interface WorkspaceHistoryChanges {
+  /** Files to add or replace on top of the ref head. */
+  put?: Record<string, WorkspaceHistoryFile>
+  /** Files to remove from the ref head. Each path must exist in the head. */
+  delete?: string[]
+}
+
+export interface WorkspaceHistoryCommitBase extends WorkspaceHistoryRefOptions {
+  /** The expected head of `ref`. Use null for the first revision on the ref. */
   ifHead: string | null
-  /** The complete desired file set. Omitted paths are deleted. */
-  files: Record<string, WorkspaceContent>
   message?: string
   metadata?: Record<string, unknown>
 }
 
-export interface WorkspaceHistoryListOptions {
+export interface WorkspaceHistoryFilesCommitOptions extends WorkspaceHistoryCommitBase {
+  /** The complete desired file set. Omitted paths are deleted. */
+  files: Record<string, WorkspaceHistoryFile>
+  changes?: never
+}
+
+export interface WorkspaceHistoryChangesCommitOptions extends WorkspaceHistoryCommitBase {
+  /** A patch applied to the ref head. Unlisted paths keep their content. */
+  changes: WorkspaceHistoryChanges
+  files?: never
+}
+
+export type WorkspaceHistoryCommitOptions = WorkspaceHistoryFilesCommitOptions | WorkspaceHistoryChangesCommitOptions
+
+/** Store commits receive normalized files after rules, validators, hooks, and Source grants pass. */
+export type WorkspaceStoreHistoryCommitOptions = WorkspaceHistoryCommitBase & (
+  | { files: Record<string, WorkspaceFile>, changes?: never }
+  | { changes: { put?: Record<string, WorkspaceFile>, delete?: string[] }, files?: never }
+)
+
+export interface WorkspaceHistoryListOptions extends WorkspaceHistoryRefOptions {
   cursor?: string
   limit?: number
 }
@@ -333,6 +374,11 @@ export interface WorkspaceHistoryListOptions {
 export interface WorkspaceHistoryListResult {
   revisions: WorkspaceRevision[]
   cursor?: string
+}
+
+export interface WorkspaceHistoryRef {
+  name: string
+  head: WorkspaceRevision
 }
 
 export interface WorkspaceRevisionView {
@@ -344,10 +390,12 @@ export interface WorkspaceRevisionView {
 }
 
 export interface WorkspaceHistoryReader {
-  head(): Promise<WorkspaceRevision | null>
+  head(options?: WorkspaceHistoryRefOptions): Promise<WorkspaceRevision | null>
   list(options?: WorkspaceHistoryListOptions): Promise<WorkspaceHistoryListResult>
+  /** Refs that have at least one revision, sorted by name. */
+  refs(): Promise<WorkspaceHistoryRef[]>
   open(id: string): Promise<WorkspaceRevisionView>
-  /** Unique uncompressed file bytes retained across published revisions. */
+  /** Unique uncompressed file bytes retained across committed revisions on every ref. */
   usage(): Promise<{ bytes: number, objects: number }>
 }
 
@@ -356,7 +404,7 @@ export interface WorkspaceRetainedHistory extends WorkspaceHistoryReader {
 }
 
 export interface WorkspaceStoreHistory extends WorkspaceHistoryReader {
-  commit(options: Omit<WorkspaceHistoryCommitOptions, "files"> & { files: Record<string, WorkspaceFile> }): Promise<WorkspaceRevision>
+  commit(options: WorkspaceStoreHistoryCommitOptions): Promise<WorkspaceRevision>
 }
 
 export interface WorkspaceDiffEntry {
