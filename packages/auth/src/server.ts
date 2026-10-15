@@ -344,29 +344,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | false | undefined {
   if (body === null || typeof body !== "object") return
   try {
-    // An own reader (or a reader supplied by an intermediate prototype) is
-    // caller-controlled. Resolve the first descriptor without invoking it,
-    // and accept only a native ReadableStream prototype method. The
-    // constructor-name check is realm-independent, unlike comparing against
-    // this realm's ReadableStream.prototype.
-    if (Object.prototype.hasOwnProperty.call(body, "getReader")) return
-    let prototype: object | null = Object.getPrototypeOf(body)
-    const seen = new Set<object>()
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
-      seen.add(prototype)
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
-      if (descriptor) {
-        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        const locked = Object.getOwnPropertyDescriptor(prototype, "locked")?.get
-        if (typeof descriptor.value === "function" && typeof locked === "function" && constructor?.name === "ReadableStream") {
-          // The getter performs the source-realm ReadableStream brand check.
-          Reflect.apply(locked, body, [])
-          return descriptor.value
-        }
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
+    // The platform constructor performs the intrinsic ReadableStream brand check,
+    // including for streams created in another realm.
+    new Response(body as ReadableStream)
+    return ReadableStream.prototype.getReader
   }
   catch {
     return false
@@ -396,9 +377,13 @@ function getNativeAuthorizationReaderMethods(reader: object) {
   }
 }
 
-function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>) {
-  // Invoke the source stream's native operations so separate realms retain their brand.
-  const reader = Reflect.apply(getReader, body, [])
+function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
+  // Normalize through the platform Response so reader dispatch uses this realm's
+  // intrinsic methods and cannot invoke shadowed methods from the source object.
+  const normalized = new Response(body)
+  const normalizedBody = normalized.body
+  if (!normalizedBody) throw new TypeError("Invalid ReadableStream body")
+  const reader = normalizedBody.getReader()
   const methods = getNativeAuthorizationReaderMethods(reader)
   if (!methods) throw new TypeError("Invalid ReadableStreamDefaultReader")
   const { read, cancel, releaseLock } = methods
@@ -490,7 +475,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       : new Response(body, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
     if (typeof nativeBodyReader !== "function") return
-    const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
+    const bridgedBody = bridgeAuthorizationBody(body)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
