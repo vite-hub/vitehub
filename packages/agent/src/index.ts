@@ -3437,8 +3437,9 @@ function deliveryReminderTranscript<TRuntimeConfig extends AgentRuntimeConfig, C
 }
 
 function deliveryReminderUsageAttributes(result: unknown): Record<string, number> {
-  const usage = toAgentRunResult(result).usageRecord
-  if (!usage) return {}
+  const usageRecord = toAgentRunResult(result).usageRecord
+  if (!usageRecord) return {}
+  const usage = usageRecord.usage
   const attributes: Record<string, number> = {}
   for (const [key, value] of Object.entries(usage)) {
     if (typeof value === "number") attributes[`channel.delivery.reminder.previous.usage.${key}`] = value
