@@ -1928,6 +1928,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let claimId = createInvocationId()
       let claimConfirmed = false
       let claimUncertain = false
+      let claimConflict = false
       let claimHandedOff = false
       let claimAttempt = 0
       let claimRenewals = Promise.resolve()
@@ -2102,6 +2103,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           claimId = attemptId
           claimConfirmed = true
           claimUncertain = false
+          claimConflict = false
+        }
+        else if (claim === false) {
+          // A confirmed ownership loss remains a conflict even if a later
+          // renewal is unavailable. Do not let uncertainty reopen dispatch.
+          claimConflict = true
         }
         claimUnavailable = claim !== true && claim !== false
         ownsRecord = claim === true
@@ -2587,7 +2594,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         },
         startsUnconfirmed() {
           // Only a store answer stops a best-effort run: another owner holds the claim, or a cancellation request was read.
-          const conflict = !ownsRecord && !claimUnavailable
+          const conflict = claimConflict || (!ownsRecord && !claimUnavailable)
           if (strict || conflict || cancellation.signal.aborted) return false
           warnUnconfirmed("running state")
           return true
