@@ -7147,10 +7147,12 @@ async function executeAgentInvocationWithCapacityLease<
         // preserved result can still expose the original async iterable, so
         // settlement cannot be inferred from its shape at this point.
         let firstReminder = true
-        while (firstReminder || isSettledAgentResult(nextResult)) {
+        let reminderResultSettled = false
+        while (firstReminder || reminderResultSettled || isSettledAgentResult(nextResult)) {
           const reminder = provider.next(invocation.context)
           if (!reminder) break
           firstReminder = false
+          reminderResultSettled = false
           invocation.input.abortSignal?.throwIfAborted()
           const previousText = finalTextFromAgentOutput(nextResult)?.trim() || undefined
           reminderTranscript = deliveryReminderTranscript(invocation, reminderTranscript, previousText, reminder.instruction)
@@ -7177,6 +7179,10 @@ async function executeAgentInvocationWithCapacityLease<
             reminderContext.messages = reminderTranscript
             reminderContext.prompt = undefined
             nextResult = await adapter!.generate(reminderContext as never)
+          }
+          if (isAsyncIterable(nextResult)) {
+            for await (const _chunk of nextResult) { /* drain reminder output before the next turn */ }
+            reminderResultSettled = true
           }
         }
       }
