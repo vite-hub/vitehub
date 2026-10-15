@@ -126,6 +126,7 @@ function headerValue(headers: WorkspaceDevHeaders, name: string): string | undef
   // inherited getter.
   const isCrossRealmHeaders = hasRuntimeType(constructor, "function")
     && Reflect.get(constructor, "name") === "Headers"
+    && Reflect.get(constructor, "prototype") === prototype
   if (isCrossRealmHeaders) {
     const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
     const crossRealmGet = Reflect.get(headers, "get")
