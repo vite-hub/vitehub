@@ -439,6 +439,9 @@ function isWebAssemblyModule(value: unknown): boolean {
 const intrinsicFunctionToString = Function.prototype.toString
 const nativeFunctionToString = (() => {
   try {
+    // Built-in functions have no own `prototype` property. Keep this check
+    // independent of the formatter's reported source.
+    if (Object.prototype.hasOwnProperty.call(intrinsicFunctionToString, "prototype")) return false
     // A replacement can selectively delegate calls while forging only the
     // operation signatures below. Check immutable function metadata before
     // accepting any formatter output; this rejects the usual forged callable
