@@ -220,8 +220,11 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
       access = checked
       checkedEvents.set(event, access)
     }
-    const section = "section" in declared ? (declared.section instanceof Function ? declared.section(event) : declared.section) : undefined
-    if (section !== undefined && !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
+    if ("section" in declared) {
+      const section = declared.section instanceof Function ? declared.section(event) : declared.section
+      // A dynamic scope that cannot resolve to a section is not an unrestricted route.
+      if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
+    }
     return handler(event, access)
   }
   routeScopes.set(route, declared)

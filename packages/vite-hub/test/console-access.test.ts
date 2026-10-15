@@ -193,6 +193,16 @@ describe("Console access policies", () => {
 })
 
 describe("Console access grants", () => {
+  it("rejects a dynamic route when its section cannot be resolved", async () => {
+    installConsoleAccess({ mode: "open" })
+    const handler = vi.fn(() => "secret")
+    const route = withConsoleAccess(handler, { section: () => undefined })
+    const result = await route(event())
+    expect(result).toBeInstanceOf(Response)
+    await expect(rejection(result)).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", status: 403 })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it("rejects a forged access for an internal Console event", () => {
     const forged: ConsoleAccess = Object.freeze({ mode: "local" })
     expect(() => bindConsoleAccess(forged, event())).toThrow("not created by the access check")
