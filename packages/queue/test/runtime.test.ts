@@ -1122,7 +1122,7 @@ it("reads headers through a deep Fetch prototype chain", () => {
     headers: { "ce-vqsregion": "ams1" },
   })
   let prototype = Object.getPrototypeOf(request)
-  for (let index = 0; index < 40; index++) {
+  for (let index = 0; index < 300; index++) {
     const layer = Object.create(prototype)
     prototype = layer
   }

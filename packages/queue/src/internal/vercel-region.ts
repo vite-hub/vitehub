@@ -83,8 +83,8 @@ function getRequestHeaders(value: unknown) {
 function getPrototypeDescriptor(value: object, property: PropertyKey): (PropertyDescriptor & { owner: object }) | undefined {
   let prototype: object | null = value
   const visited = new WeakSet<object>()
-  // Keep a finite guard for hostile prototype traps while allowing deeply subclassed Fetch objects.
-  for (let depth = 0; prototype && depth < 256; depth++) {
+  // Stop on repeated prototypes so hostile cycles terminate without rejecting deep valid chains.
+  while (prototype) {
     if (visited.has(prototype)) return undefined
     visited.add(prototype)
     const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
