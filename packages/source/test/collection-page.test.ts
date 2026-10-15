@@ -176,6 +176,13 @@ describe("Collections", () => {
       .toThrow("Collection authorize must be true or a function.")
   })
 
+  it("accepts authorize callbacks created in another realm", () => {
+    const authorize = runInNewContext("({ user }) => user.id === 'u1'") as (input: unknown) => boolean
+    const options = { cursor: (item: { id: number }) => item.id, cursorSchema: v.number() }
+
+    expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize }).authorize).toBe(authorize)
+  })
+
   it("rejects malformed cursors and invalid definition limits", async () => {
     const { collection } = mealsCollection()
     const query = await collection.parseQuery({})
@@ -283,7 +290,10 @@ describe("Collections", () => {
 
     const invalid = defineCollection(async () => ({ items: [], nextCursor: null, total: -1 }), { pagination: "provider" })
     await expect(invalid.page({ query: {} })).rejects.toThrow("total must be a non-negative integer")
+    // @ts-expect-error -- a facet value must be a string. The runtime check must reject an untyped loader too.
     const invalidFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ value: 1, count: 1 }] } }), { pagination: "provider" })
     await expect(invalidFacets.page({ query: {} })).rejects.toThrow("facets must map fields")
+    const negativeFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ value: "a", count: -1 }] } }), { pagination: "provider" })
+    await expect(negativeFacets.page({ query: {} })).rejects.toThrow("facets must map fields")
   })
 })

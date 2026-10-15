@@ -994,6 +994,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         documents.push({ collection: collection.name, id, change: publishedDigest === undefined ? "add" : "update" })
       }
       if (!documents.length) return { revision: null, documents: [] }
+      const latestDraftHead = await retained.head({ ref: "draft" })
+      if ((latestDraftHead?.id ?? null) !== (draftHead?.id ?? null)) {
+        if (!expectations && attempt < maxCommitAttempts) continue
+        throw contentConflict("[vitehub] The draft Content changed before publish().", {
+          ref: "draft", expected: draftHead?.id ?? null, actual: latestDraftHead?.id ?? null,
+        })
+      }
       try {
         const revision = await retained.commit({
           ref: "published",
