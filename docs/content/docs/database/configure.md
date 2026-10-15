@@ -110,7 +110,7 @@ ViteHub finds duplicate table keys when `schema` is an object literal. Query the
 | `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
 | `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
 | `cloudflare.migrationsTable` | `string` | No | D1 migrations table. |
-| `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. Values: `snake_case`, `camelCase`. |
+| `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. Values: `snake_case`, `camelCase`. Applies to queries and to migrations from `vitehub db generate`. |
 
 A Definition inherits the integration resource when it omits both `cloudflare.databaseId` and `cloudflare.databaseName`. Setting either selects its own resource, so it inherits no integration database ID, name, or preview ID. Other D1 settings still inherit their defaults. HTTP proxy URLs and tokens inherit by field. Both must be available after inheritance for HTTP access to work.
 

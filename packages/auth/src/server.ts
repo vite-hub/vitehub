@@ -349,17 +349,17 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- The carrier must retain its native response methods across realms.
 async function copyAuthorizationBody(response: object, body: unknown): Promise<Uint8Array | null | undefined> {
   if (body === null) return null
   if (Object(body) !== body) return
   try {
-    // Calling the candidate response's native method preserves foreign stream brands
-    // while rejecting lookalike bodies that cannot be consumed by that implementation.
     const arrayBuffer = responseMethod(response, "arrayBuffer")
     if (!arrayBuffer) return
     const result = await Reflect.apply(arrayBuffer, response, [])
-    if (!(result instanceof ArrayBuffer)) return
-    return new Uint8Array(result)
+    if (Object.prototype.toString.call(result) !== "[object ArrayBuffer]") return
+    // SAFETY: the brand tag check above accepts ArrayBuffer values across realms.
+    return new Uint8Array(result as ArrayBuffer)
   }
   catch {
     return
@@ -416,11 +416,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }])
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
-    // Foreign and shadowed values require a serializable local snapshot.
+    // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
       : new Response(normalizedBody, { status, statusText, headers: normalizedHeaders })
-    // Foreign implementations and shadowed native values become stable local responses.
     return normalizedResponse
   }
   catch {
@@ -520,8 +519,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
-  if (authorize !== true && typeof authorize !== "function") {
+  if (authorize !== true && !(authorize instanceof Function)) {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {
