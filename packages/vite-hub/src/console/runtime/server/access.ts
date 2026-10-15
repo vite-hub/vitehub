@@ -64,8 +64,8 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
   if (value instanceof Response) return value
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates foreign Fetch fields before constructing a local Response.
   if (!value || typeof value !== "object") return undefined
-  if (objectToString.call(value) !== "[object Response]") return undefined
   try {
+    if (objectToString.call(value) !== "[object Response]") return undefined
     // A foreign Response cannot be branded by this realm's constructor. Validate
     // its transferable fields and let Fetch construct the route's actual Response.
     if (objectToString.call(value) !== "[object Response]"
@@ -87,12 +87,19 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
     // Use the candidate implementation's clone algorithm so a Response from
     // another Fetch implementation can pass its own internal-slot check. The
     // returned clone is validated below, so compatible own methods are allowed.
+    const prototype = Object.getPrototypeOf(value)
+    const prototypeClone = prototype && Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+    const prototypeTag = prototype && Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
+    // Genuine Fetch implementations expose both the clone algorithm and Response tag on their prototype.
+    // Requiring those own prototype slots rejects plain objects whose custom prototype only imitates them.
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
+    if (typeof prototypeClone !== "function" || !prototypeTag) return invalidAuthorizationResponse
     const cloneMethod = Reflect.get(value, "clone")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (typeof cloneMethod !== "function") return invalidAuthorizationResponse
     const clone = Reflect.apply(cloneMethod, value, [])
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the foreign clone result before inspecting its fields.
-    if (!clone || typeof clone !== "object" || clone === value || Object.getPrototypeOf(clone) !== Object.getPrototypeOf(value)
+    if (!clone || typeof clone !== "object" || clone === value || Object.getPrototypeOf(clone) !== prototype
       || objectToString.call(clone) !== "[object Response]"
       || Object.prototype.hasOwnProperty.call(clone, Symbol.toStringTag)) return invalidAuthorizationResponse
     // A callable clone spoof must also expose the transferable Response contract.
