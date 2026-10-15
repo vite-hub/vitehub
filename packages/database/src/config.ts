@@ -691,7 +691,9 @@ export function resolveDBViteConfig(
   for (const definition of definitions) {
     const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
     if (definitionCloudflare.resource === "opaque" && definitionCloudflare.ownsOpaqueResource === true) continue
-    const binding = databases[definition.name]?.cloudflare?.binding
+    const effectiveCloudflare = databases[definition.name]?.cloudflare
+    if (effectiveCloudflare?.http) continue
+    const binding = effectiveCloudflare?.binding
       ?? (definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
     if (!binding) continue
     const previousName = cloudflareBindings.get(binding)
