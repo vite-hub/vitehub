@@ -2242,6 +2242,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         })
         observationWrite = settled
       }
+      let recoveryClaimSettled: Promise<void> | undefined
       const persistLateObservation = async (observation: TraceEventLogEntry): Promise<void> => {
         const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
         let persisted = false
@@ -2249,6 +2250,18 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           await write(async () => {
             if (boundToTerminalRecord || Date.now() >= deadline || !await ensureCreated(Math.min(storeTimeoutMs, Math.max(0, deadline - Date.now())))) return
             const recoveryStore = <T>(operation: () => MaybePromise<T>) => boundedStore(operation, Math.min(storeTimeoutMs, Math.max(0, deadline - Date.now())))
+            // A timed-out claim continues in the store. Wait for its settlement and
+            // cleanup before issuing another replacement claim, otherwise the late
+            // operation could overwrite a newer recovery lease.
+            if (recoveryClaimSettled) {
+              const remaining = Math.max(0, deadline - Date.now())
+              if (remaining <= 0) return
+              await Promise.race([
+                recoveryClaimSettled,
+                new Promise<void>(resolve => setTimeout(resolve, remaining)),
+              ])
+              if (Date.now() >= deadline) return
+            }
             // Recovery attempts can overlap after a bounded wait times out. Keep each
             // attempt's lease identity separate so late cleanup cannot release a newer
             // attempt that reused the invocation claim id.
@@ -2261,7 +2274,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             const claimed = await recoveryStore(() => claimTask)
             if (claimed === storeOperationTimedOut) {
               // The claim may still create a lease after the bounded wait. Release it when it settles.
-              void claimTask.then(owned => owned ? store.release(recordId, recoveryClaimId) : undefined, () => undefined).catch(() => {})
+              recoveryClaimSettled = claimTask
+                .then(owned => owned ? store.release(recordId, recoveryClaimId) : undefined, () => undefined)
+                .then(() => {}, () => {})
               return
             }
             if (claimed !== true) return
