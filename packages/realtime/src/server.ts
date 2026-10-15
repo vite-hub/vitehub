@@ -475,6 +475,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         prototype = Object.getPrototypeOf(prototype)
       }
       if (!sqlDescriptor) return undefined
+      if (!("value" in sqlDescriptor)) {
+        const getter = sqlDescriptor.get
+        if (typeof getter !== "function") return undefined
+        // Workerd exposes storage.sql as a native lazy accessor. Do not
+        // invoke arbitrary inherited getters from polluted prototypes.
+        const nativeGetterSource = /^function\s+get\s+[^\s(]+\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
+        if (!nativeGetterSource.test(Function.prototype.toString.call(getter))) return undefined
+      }
       const sql = Reflect.get(carrier, "sql")
       return hasCloudflareSqlExec(sql) ? sql : undefined
     }
