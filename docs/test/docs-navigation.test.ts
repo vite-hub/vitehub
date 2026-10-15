@@ -51,7 +51,7 @@ describe("docs product navigation", () => {
   });
 
   it("orders every Server Primitive section by the product page template", () => {
-    const template = ["Overview", "Tutorial", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
+    const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
 
     for (const sectionId of serverPrimitiveSections) {
       const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
@@ -116,7 +116,7 @@ describe("docs product navigation", () => {
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
+    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null, null, "Build", null]);
   });
 
   it("lists each topic once inside a section", () => {
