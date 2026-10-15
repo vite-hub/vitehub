@@ -46,7 +46,7 @@ Authenticate requests at their trusted entry point, then authorize the specific 
 
 Validate HTTP bodies, webhook payloads, and stored job inputs at runtime. TypeScript types and generated Definition registries check callers during development; they cannot validate JSON received over the network or records written by an earlier release. Verify webhook signatures before supplying trusted caller metadata. Derive tenant, user, and session identity from the authenticated request rather than accepting an unrestricted client value.
 
-The [Console](/docs/development/console) can expose stored KV values, prompts, model output, and tool activity. Keep it disabled when it is not needed. A production Console requires an explicit access contract. With `exposure: 'host-managed'`, set `authorize` to a server file that default-exports `defineConsoleAuthorize()`. Every Console data route calls it before it reads data. Without it, the build fails.
+The [Console](/docs/development/console) can expose stored KV values, prompts, model output, and tool activity. Keep it disabled when it is not needed. Every Console must choose its access with `console.auth`. `auth: false` has no sign-in, and a production build and server log a warning for it. Use `auth: 'app'`, Console Auth, or add `authorize`, a server file that default-exports `defineConsoleAuthorize()`. Every Console data route calls it before it reads data.
 
 Give model tools only the operations and resource scopes they need. Keep provider credentials in [Server Env](/docs/env). Inspect logs and retained invocation content with representative data before enabling content capture; application-supplied tool output can contain secrets even when provider credentials are redacted.
 
