@@ -757,15 +757,77 @@ function maskJsxElement(source: string, start: number, end: number, output: stri
   }
 }
 
-function isMethodDeclarationName(source: string, index: number, closeParen: number) {
-  const previous = previousNonWhitespace(source, index)
-  return source[skipWhitespaceAndComments(source, closeParen + 1)] === "{"
-    && previous !== "("
-    && previous !== "="
-    && previous !== ","
-    && previous !== ":"
+interface TypeMemberContext {
+  masked: string
+  enclosingBraces: Int32Array
+  boundaries: Int32Array
+  closeParens: Int32Array
+  parents: Map<number, number>
+  heads: Map<number, string>
 }
 
+function createTypeMemberContext(source: string, controlFlowRegexes: ControlFlowRegexCache): TypeMemberContext {
+  const masked = maskSourceLiteralsWithContext(source, controlFlowRegexes)
+  const enclosingBraces = new Int32Array(masked.length)
+  const boundaries = new Int32Array(masked.length)
+  const closeParens = new Int32Array(masked.length)
+  const parents = new Map<number, number>()
+  const heads = new Map<number, string>()
+  const stack: number[] = []
+  let boundary = -1
+  let closeParen = -1
+  for (let index = 0; index < masked.length; index++) {
+    const parent = stack.at(-1) ?? -1
+    enclosingBraces[index] = parent
+    boundaries[index] = boundary
+    closeParens[index] = closeParen
+    const char = masked[index]
+    if (char === "{") {
+      parents.set(index, parent)
+      heads.set(index, masked.slice(boundary + 1, index))
+      stack.push(index)
+    }
+    else if (char === "}") stack.pop()
+    if (char === "{" || char === "}" || char === ";") boundary = index
+    if (char === ")") closeParen = index
+  }
+  return { masked, enclosingBraces, boundaries, closeParens, parents, heads }
+}
+
+function isTypeMemberDeclaration(context: TypeMemberContext, index: number) {
+  const { masked, enclosingBraces, boundaries, closeParens, parents, heads } = context
+  const openBrace = enclosingBraces[index] ?? -1
+  if (openBrace < 0) return false
+  const isTypeBrace = (brace: number, nested: boolean): boolean => {
+    const head = heads.get(brace) ?? ""
+    const declarationPrefix = masked.slice(0, brace)
+    const isInterfaceHead = /^\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?interface\b[\s\S]*$/s.test(head)
+      || /(?:^|[;\n])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?interface\b[\s\S]*\}\s*>?\s*$/s.test(declarationPrefix)
+    if (isInterfaceHead) return true
+    const isClassHead = /^\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?class\b[\s\S]*$/s.test(head)
+      || /(?:^|[;\n])\s*(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?class\b[\s\S]*\}\s*>?\s*$/s.test(declarationPrefix)
+    if (isClassHead) {
+      // Only the suffix after the last member delimiter can introduce a signature.
+      const prefixStart = Math.max(brace + 1, (boundaries[index] ?? -1) + 1, closeParens[index] ?? -1)
+      return /(?:^|\)(?:[^\S\r\n\u2028\u2029]*:[^;{}=\r\n\u2028\u2029]*)?[^\S\r\n\u2028\u2029]*[\r\n\u2028\u2029])\s*(?:(?:public|private|protected|static|abstract|declare|override|readonly|async|get|set|accessor)\s+)*$/.test(masked.slice(prefixStart, index))
+    }
+    if (/^\s*(?:export\s+(?:default\s+)?)?type\b[\s\S]*=\s*$/s.test(head) || /(?:^|[;\n])\s*(?:export\s+(?:default\s+)?)?type\b[\s\S]*=\s*$/s.test(declarationPrefix)) return true
+    if (/^\s*(?:export\s+)?declare\s+(?:namespace|module)\b[^{}]*$/s.test(head)) return true
+    if (!head.trimEnd().endsWith(":")) return false
+    if (nested) return true
+    return /\b(?:const|let|var)\s+[^;{}:]+:\s*$/s.test(head) || /\)\s*:\s*$/s.test(head)
+  }
+  const enclosingBrace = parents.get(openBrace) ?? -1
+  return isTypeBrace(openBrace, enclosingBrace >= 0 && isTypeBrace(enclosingBrace, false))
+}
+
+function isMethodDeclarationName(source: string, index: number, closeParen: number, context: TypeMemberContext) {
+  const previous = previousNonWhitespace(source, index)
+  if (previous === "(" || previous === "=" || previous === "," || previous === ":") return false
+  const next = source[skipWhitespaceAndComments(source, closeParen + 1)]
+  if (next === "{") return true
+  return isTypeMemberDeclaration(context, index)
+}
 function isMemberAccessName(source: string, index: number) {
   return previousNonWhitespace(source, index) === "."
 }
@@ -1055,6 +1117,7 @@ function splitTopLevelWithContext(source: string, separator: string, controlFlow
 
 function findIdentifierCallsWithContext(source: string, name: string, controlFlowRegexes: ControlFlowRegexCache): IdentifierCall[] {
   const calls: IdentifierCall[] = []
+  let typeMembers: TypeMemberContext | undefined
   let previousSignificant = ""
   for (let index = 0; index < source.length; index++) {
     const char = source[index]
@@ -1113,7 +1176,7 @@ function findIdentifierCallsWithContext(source: string, name: string, controlFlo
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }
-    if (isMethodDeclarationName(source, index, closeParen)) {
+    if (isMethodDeclarationName(source, index, closeParen, typeMembers ??= createTypeMemberContext(source, controlFlowRegexes))) {
       previousSignificant = trackSignificant(previousSignificant, char)
       continue
     }
