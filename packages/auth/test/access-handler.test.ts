@@ -110,7 +110,12 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).not.toBe(foreignResponse)
+    expect(response?.status).toBe(409)
+    expect(response?.statusText).toBe(foreignResponse.statusText)
+    expect(response?.headers.get("content-type")).toBe(foreignResponse.headers.get("content-type"))
+    expect(await response?.text()).toBe("")
   })
 
   it("rejects authorization responses with consumed bodies", async () => {
