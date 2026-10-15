@@ -110,6 +110,15 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(await posts.status("bad")).toBeNull()
   })
 
+  it("rejects a null body instead of treating it as empty", async () => {
+    const { posts } = await setup()
+    // @ts-expect-error body must be a string
+    await expect(posts.save("null-body", { data: { title: "Null", date: "2026-01-01" }, body: null })).rejects.toMatchObject({
+      code: "CONTENT_INVALID",
+      details: { issues: [expect.objectContaining({ path: ["body"] })] },
+    })
+  })
+
   it("validates every Workspace writer through the plugin hook", async () => {
     const { posts, workspace } = await setup()
     const facade = useWorkspace(workspace as never, { mode: "write" })

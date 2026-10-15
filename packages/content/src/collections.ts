@@ -772,8 +772,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     async function save(id: string, input: ContentSaveInput, writeOptions: ContentWriteOptions = {}): Promise<IndexedDocument> {
       const path = pathFor(id)
       if (input === null || Object(input) !== input) throw contentInvalid(name, id, path, [{ message: "save() requires { data, body }.", path: [] }])
-      const body = input.body ?? ""
-      if (String(body) !== body) throw contentInvalid(name, id, path, [{ message: "body must be a Markdown string.", path: ["body"] }])
+      const body = input.body === undefined ? "" : input.body
+      if (typeof body !== "string") throw contentInvalid(name, id, path, [{ message: "body must be a Markdown string.", path: ["body"] }])
       let frontmatter: Record<string, unknown>
       try {
         frontmatter = normalizeFrontmatter(input.data)
