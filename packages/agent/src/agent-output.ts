@@ -747,10 +747,12 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
           // Without a native brand check, require the Error's intrinsic stack
           // slot for tagged cross-realm values. A tag alone is user-controllable.
           if (!hasToStringTag) {
-            if (Object.getPrototypeOf(error) !== Error.prototype) {
-              return hasIntrinsicStack() && Object.prototype.toString.call(error) === "[object Error]"
-            }
-            return hasIntrinsicStack()
+            const prototype = Object.getPrototypeOf(error)
+            // A same-realm prototype is forgeable with Object.create(Error.prototype).
+            // Without structuredClone or a native brand API there is no
+            // non-forgeable evidence that distinguishes that shape from an Error.
+            if (prototype === Error.prototype) return false
+            return hasIntrinsicStack() && Object.prototype.toString.call(error) === "[object Error]"
           }
           const prototype = Reflect.getPrototypeOf(error)
           // Same-realm Errors use Error.prototype even when decorated with a
