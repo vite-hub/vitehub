@@ -81,7 +81,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
-    console: true,
+    console: { auth: false },
     env: { providers: { credentials: './server/env/credentials.ts' } },
   })],
   env: {

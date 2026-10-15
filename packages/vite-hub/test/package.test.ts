@@ -780,7 +780,7 @@ describe("framework package contract", () => {
       const plugin = framework
         .vitehub({
           agent: true,
-          console: { exposure: "host-managed", authorize: hostManagedAuthorize },
+          console: { auth: false, authorize: hostManagedAuthorize },
           kv: true,
           preset: "node",
           queue: true,
