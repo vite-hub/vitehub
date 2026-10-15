@@ -12,6 +12,8 @@ export const docsCategoryOrder = [
   "Platform",
 ] as const;
 
+const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
+
 export type DocsCategory = (typeof docsCategoryOrder)[number];
 
 export type DocsCatalogGroup = {
