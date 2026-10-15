@@ -2283,6 +2283,41 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("does not treat a prototype-shaped object as an Error", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "spoofed-error",
+      observations: [],
+      status: "running",
+      traceId: "spoofed-error-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const prototype = { name: "Error", message: "spoofed" } as { name: string; message: string; constructor?: Function }
+    function constructor() {}
+    Object.defineProperty(constructor, "name", { value: "Error" })
+    Object.defineProperty(constructor, "prototype", { value: prototype })
+    prototype.constructor = constructor
+    const error = Object.create(prototype)
+    error.detail = "value"
+
+    await store.update("spoofed-error", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("spoofed-error"))?.observations[0]?.payload).toEqual({
+      value: { error: "[unsupported Object]" },
+      visibility: "public",
+    })
+  })
+
   it("serializes public Blob, File, and boxed primitive payload values before persistence", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("remaining-structured-public-payload"))

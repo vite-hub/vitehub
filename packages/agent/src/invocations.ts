@@ -74,6 +74,7 @@ const CANCELLATION_VERIFICATION_TIMEOUT_MS = 5_000
 const CANCELLATION_VERIFICATION_INTERVAL_MS = 100
 const STORE_OPERATION_TIMEOUT_MS = 1_000
 const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
+const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -575,7 +576,15 @@ function isArrayBufferView(value: unknown): value is ArrayBufferView {
 function isErrorValue(value: unknown): value is Error {
   if (!value || !hasRuntimeType(value, "object")) return false
   try {
+    // V8's intrinsic stack accessor performs the Error internal-slot check and
+    // works for Error instances created in another realm. Keep the structural
+    // fallback below for runtimes without that accessor.
+    if (errorStackGetter) {
+      const stack = errorStackGetter.call(value)
+      if (hasRuntimeType(stack, "string")) return true
+    }
     if (isInstance(value, Error)) return true
+    if (errorStackGetter) return false
     let prototype = Object.getPrototypeOf(value)
     while (prototype && prototype !== Object.prototype) {
       const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
