@@ -377,6 +377,35 @@ function isSerializableAuthorizationBody(
   }
 }
 
+function hasNativeAuthorizationReaderPrototype(reader: object): boolean {
+  try {
+    const methods = ["read", "cancel", "releaseLock"] as const
+    let prototype: object | null = Object.getPrototypeOf(reader)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (constructor?.name !== "ReadableStreamDefaultReader") {
+        prototype = Object.getPrototypeOf(prototype)
+        continue
+      }
+      for (const key of methods) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+        if (!descriptor || !isNativeReaderMethod(descriptor.value, key)) return false
+        let parent = Object.getPrototypeOf(prototype)
+        for (let parentDepth = 0; parent && parentDepth < authorizationResponsePrototypeLimit; parentDepth++) {
+          if (Object.getOwnPropertyDescriptor(parent, key)) return false
+          parent = Object.getPrototypeOf(parent)
+        }
+      }
+      return true
+    }
+  }
+  catch { /* malformed reader prototypes fail closed */ }
+  return false
+}
+
 
 function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined {
   if (body === null || typeof body !== "object") return
@@ -414,7 +443,17 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
           parent = Object.getPrototypeOf(parent)
         }
         if (typeof descriptor.value === "function"
-          && constructor?.name === "ReadableStream") return descriptor.value
+          && constructor?.name === "ReadableStream") {
+          // Probe the source runtime's reader prototype before acquiring the
+          // caller's body lock. This lets malformed foreign readers fail
+          // closed without relying on a host-realm releaseLock operation.
+          const probeStream = Reflect.construct(constructor, [{}])
+          const probeReader = Reflect.apply(descriptor.value, probeStream, [])
+          if (!hasNativeAuthorizationReaderPrototype(probeReader)) return
+          const probeRelease = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(probeReader), "releaseLock")?.value
+          if (typeof probeRelease === "function") Reflect.apply(probeRelease, probeReader, [])
+          return descriptor.value
+        }
         return
       }
       prototype = Object.getPrototypeOf(prototype)

@@ -501,6 +501,26 @@ describe("Auth access handlers", () => {
     }
   })
 
+  it("rejects a replaced foreign reader releaseLock before acquiring the source lock", async () => {
+    const source = new ForeignResponse("Policy rejected", { status: 409 }).body!
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const reader = source.getReader()
+    const prototype = Object.getPrototypeOf(reader)
+    reader.releaseLock()
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")!
+    try {
+      Object.defineProperty(prototype, "releaseLock", { ...descriptor, value: vi.fn() })
+      const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+        access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+      }))
+      await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+      expect(source.locked).toBe(false)
+    }
+    finally {
+      Object.defineProperty(prototype, "releaseLock", descriptor)
+    }
+  })
+
   it("rejects an own body reader override without invoking it", async () => {
     const foreign = new ForeignResponse("Policy rejected", { status: 409 })
     const getReader = vi.fn(() => { throw new Error("must not call own reader") })
