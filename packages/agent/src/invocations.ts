@@ -580,11 +580,15 @@ function isErrorValue(value: unknown): value is Error {
     // works for Error instances created in another realm. Keep the structural
     // fallback below for runtimes without that accessor.
     if (errorStackGetter) {
-      const stack = errorStackGetter.call(value)
-      if (hasRuntimeType(stack, "string")) return true
+      try {
+        const stack = errorStackGetter.call(value)
+        if (hasRuntimeType(stack, "string")) return true
+      }
+      catch {
+        return false
+      }
     }
     if (isInstance(value, Error)) return true
-    if (errorStackGetter) return false
     let prototype = Object.getPrototypeOf(value)
     while (prototype && prototype !== Object.prototype) {
       const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
