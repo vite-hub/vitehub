@@ -513,12 +513,18 @@ function captureSharedBufferByteLength(): (() => unknown) | undefined {
     // A genuine buffer getter requires the receiver's internal slot. A forged
     // getter that returns a number for arbitrary objects must not become the
     // shared-memory brand used for trace privacy.
-    try {
-      getter.call({})
-      return
-    }
-    catch {
-      // Expected for a non-buffer receiver.
+    // Probe several unrelated non-buffer receivers. A forged receiver-aware
+    // getter must reject every ordinary object before it can be cached as the
+    // shared-memory brand.
+    const receiverProbes: object[] = [{}, Object.create(null)]
+    for (const receiver of receiverProbes) {
+      try {
+        getter.call(receiver)
+        return
+      }
+      catch {
+        // Expected for a non-buffer receiver.
+      }
     }
     return getter
   }
