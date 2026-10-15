@@ -120,13 +120,13 @@ export function assertSandboxDefinitionOptions(local: SandboxDefinitionOptions) 
   if (transfer === undefined) return
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary rejects primitive options before validating the allowed keys and integer limits below.
   if (typeof transfer !== 'object' || transfer === null || Array.isArray(transfer))
-    throw sandboxErrorDiagnostics.SANDBOX_R0071({ message: '[vitehub] Sandbox transfer must be an object.' })
+    throw sandboxErrorDiagnostics.SANDBOX_R0077({ message: '[vitehub] Sandbox transfer must be an object.' })
   const invalidTransferKeys = Object.keys(transfer).filter(key => !transferLimitKeys.has(key))
   if (invalidTransferKeys.length > 0)
-    throw sandboxErrorDiagnostics.SANDBOX_R0071({ message: `[vitehub] Sandbox transfer does not support: ${invalidTransferKeys.join(', ')}` })
+    throw sandboxErrorDiagnostics.SANDBOX_R0077({ message: `[vitehub] Sandbox transfer does not support: ${invalidTransferKeys.join(', ')}` })
   for (const [key, value] of Object.entries(transfer)) {
     if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0 || value > maxTransferLimit))
-      throw sandboxErrorDiagnostics.SANDBOX_R0071({ message: `[vitehub] Sandbox transfer.${key} must be a positive safe integer no greater than ${maxTransferLimit}.` })
+      throw sandboxErrorDiagnostics.SANDBOX_R0077({ message: `[vitehub] Sandbox transfer.${key} must be a positive safe integer no greater than ${maxTransferLimit}.` })
   }
 }
 

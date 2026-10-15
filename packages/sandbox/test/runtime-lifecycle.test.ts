@@ -173,7 +173,7 @@ describe("Sandbox runtime lifecycle", () => {
     const result = await runSandboxRuntime("example")
 
     expect(result.ok).toBe(false)
-    expect(await result.json()).toMatchObject({ error: { code: "SANDBOX_R0071" } })
+    expect(await result.json()).toMatchObject({ error: { code: "SANDBOX_R0077" } })
     expect(runtimeMocks.resolveSandboxBox).not.toHaveBeenCalled()
   })
 

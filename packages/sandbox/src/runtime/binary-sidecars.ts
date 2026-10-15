@@ -31,6 +31,9 @@ const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeO
 const blobSizeGetter = typeof Blob !== 'undefined'
   ? Object.getOwnPropertyDescriptor(Blob.prototype, 'size')?.get
   : undefined
+const blobArrayBufferMethod = typeof Blob !== 'undefined'
+  ? Object.getOwnPropertyDescriptor(Blob.prototype, 'arrayBuffer')?.value
+  : undefined
 
 function isUint8Array(value: unknown): value is Uint8Array {
   return ArrayBuffer.isView(value) && typedArrayTagGetter?.call(value) === 'Uint8Array'
@@ -112,6 +115,8 @@ export async function encodeSandboxValueStaged(
     const blob = typeof Blob !== 'undefined' && entry instanceof Blob
     if (blob && Object.getPrototypeOf(entry) !== Blob.prototype)
       throw serializationError(`Sandbox ${label} Blob subclasses are not supported.`, { label })
+    if (blob && Object.prototype.hasOwnProperty.call(entry, 'arrayBuffer'))
+      throw serializationError(`Sandbox ${label} Blob arrayBuffer overrides are not supported.`, { label })
     const buffer = typeof Buffer !== 'undefined' && Buffer.isBuffer(entry)
     if (blob || isUint8Array(entry)) {
       throwIfAborted()
@@ -128,7 +133,7 @@ export async function encodeSandboxValueStaged(
         throw transferLimitError(label, 'maxSidecarBytes', state.sidecarBytes + byteLength, limits.maxSidecarBytes)
       state.sidecarBytes += byteLength
       const bytes = blob
-        ? new Uint8Array(await (entry as Blob).arrayBuffer())
+        ? new Uint8Array(await Reflect.apply(blobArrayBufferMethod!, entry as Blob, []))
         : entry as Uint8Array
       throwIfAborted()
       // A Blob can override `arrayBuffer()` even when its intrinsic size was
