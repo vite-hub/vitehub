@@ -55,10 +55,8 @@ const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-wa
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
-
 // Reads the signed-in user of an access that did not need it during the check. Keyed by the checked access.
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
- a4cf10ff5fbd8d8e2652aee52d78f537f8491520
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "open"])
 
@@ -141,7 +139,6 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   }
   const fields: { mode: ConsoleAccessMode, sections: ConsoleAccess["sections"], user?: ConsoleUser } = { mode: policy.mode, sections }
   if (user) fields.user = user
-
   const access: ConsoleAccess = consoleAccessGrant.issue(policy.mode, fields)
   const readUser = policy.mode !== "open" && !user ? policy.user : undefined
   if (readUser) {
@@ -159,7 +156,6 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
 export async function readConsoleAccessUser(access: ConsoleAccess): Promise<ConsoleUser | undefined> {
   if (!consoleAccessGrant.isValid(access)) return undefined
   return access.user ?? await deferredUsers.get(access)?.()
- a4cf10ff5fbd8d8e2652aee52d78f537f8491520
 }
 
 /**

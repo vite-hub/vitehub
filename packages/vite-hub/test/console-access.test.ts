@@ -104,18 +104,14 @@ describe("Console data route contract", () => {
 
   it("declares the Console section of every RPC operation", () => {
     for (const method of Object.values(consoleRpcMethods)) {
-
       const input = method === consoleRpcMethods.definitions || method === consoleRpcMethods.documents ? { query: { section: "workflows" } } : {}
- a4cf10ff5fbd8d8e2652aee52d78f537f8491520
       expect(consoleRpcOperationSection(method, input), method).not.toBeUndefined()
     }
     expect(consoleRpcOperationSection(consoleRpcMethods.sections)).toBe(false)
     expect(consoleRpcOperationSection(consoleRpcMethods.definitions, { query: { section: "workflows" } })).toBe("workflows")
-
     // Document actions belong to the section in the request, such as Content.
     expect(consoleRpcOperationSection(consoleRpcMethods.documents, { query: { section: "content" } })).toBe("content")
     expect(consoleRpcOperationSection(consoleRpcMethods.documents)).toBeUndefined()
- a4cf10ff5fbd8d8e2652aee52d78f537f8491520
   })
 
   it("guards the Schedule run RPC operation", async () => {

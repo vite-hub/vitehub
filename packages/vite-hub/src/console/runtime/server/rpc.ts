@@ -156,7 +156,6 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
   [consoleRpcMethods.blob]: { section: "blob", run: (input, context) => consoleBlobHandler(requestEvent("blob", input, context)) },
   [consoleRpcMethods.database]: { section: "databases", run: (input, context) => consoleDatabaseHandler(requestEvent("database", input, context)) },
   [consoleRpcMethods.definitions]: { section: querySection, run: (input, context) => consoleDefinitionsHandler(requestEvent("definitions", input, context)) },
-
   [consoleRpcMethods.documents]: {
     section: querySection,
     async run(input, context) {
@@ -180,7 +179,6 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
       return await response.json()
     },
   },
- a4cf10ff5fbd8d8e2652aee52d78f537f8491520
   [consoleRpcMethods.scheduleRun]: { section: "schedules", run: (input, context) => consoleScheduleRunHandler(requestEvent("schedule-run", input, context)) },
   [consoleRpcMethods.sections]: { section: false, run: (input, context) => consoleSectionsHandler(requestEvent("sections", input, context)) },
   [consoleRpcMethods.status]: { section: "agents", run: (input, context) => consoleStatusHandler(requestEvent("status", input, context)) },
