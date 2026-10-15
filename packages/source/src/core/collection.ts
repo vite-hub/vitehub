@@ -411,7 +411,7 @@ export function defineCollection<
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
   },
 ): Collection<TItem, TQuery, object> {
-  const [load, definition] = input instanceof Function
+  const [load, definition] = typeof input === "function"
     ? [input, options] as const
     : sourceDefinition(input)
   if (!definition) {
