@@ -301,8 +301,19 @@ function isResponseLike(value: unknown): value is Response {
     const statusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")!.get!
     const headers = Object.getOwnPropertyDescriptor(responsePrototype, "headers")!.get!
     const body = Object.getOwnPropertyDescriptor(responsePrototype, "body")!.get!
-    // Own fields can shadow the native accessors and break host serialization.
+    // Own fields or prototype overrides can shadow native accessors and break host serialization.
     if (hasResponseShadow(value)) return false
+    let prototype: object | null = value
+    let depth = 0
+    while (prototype && prototype !== responsePrototype && depth++ < 8) {
+      const descriptors = Object.getOwnPropertyDescriptors(prototype)
+      for (const [key, nativeGetter] of [["status", status], ["statusText", statusText], ["headers", headers], ["body", body]] as const) {
+        const getter = descriptors[key]?.get
+        if (getter && getter !== nativeGetter) return false
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (prototype !== responsePrototype) return false
     status.call(value)
     statusText.call(value)
     const responseHeaders = headers.call(value)
