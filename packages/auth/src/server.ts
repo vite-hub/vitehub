@@ -445,6 +445,27 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
   let read: ReadableStreamDefaultReader<Uint8Array>["read"]
   let cancel: ReadableStreamDefaultReader<Uint8Array>["cancel"]
   let releaseLock: ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+  // Capture the source realm's release operation before validating the other
+  // methods. The host intrinsic cannot release a reader branded by a foreign
+  // runtime, so cleanup must use that reader's own native method.
+  let sourceReleaseLock: ((this: object) => unknown) | undefined
+  try {
+    let prototype: object | null = Object.getPrototypeOf(reader)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) break
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
+      if (descriptor) {
+        if (typeof descriptor.value === "function" && isNativeReaderMethod(descriptor.value, "releaseLock")) {
+          sourceReleaseLock = descriptor.value as (this: object) => unknown
+        }
+        break
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  catch { /* validation below reports malformed readers */ }
   try {
     read = nativeReaderMethod("read") as ReadableStreamDefaultReader<Uint8Array>["read"]
     cancel = nativeReaderMethod("cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
@@ -453,7 +474,10 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
   catch (error) {
     // Validation happens after getReader acquires the source lock. Always try
     // the captured intrinsic so malformed readers cannot leave that lock held.
-    try { Reflect.apply(nativeReaderMethods.releaseLock as (...args: unknown[]) => unknown, reader, []) }
+    try {
+      const release = sourceReleaseLock ?? nativeReaderMethods.releaseLock as (...args: unknown[]) => unknown
+      Reflect.apply(release, reader, [])
+    }
     catch { /* preserve the original validation failure */ }
     throw error
   }
