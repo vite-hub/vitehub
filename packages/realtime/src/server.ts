@@ -1038,7 +1038,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const state = action === "refresh" ? undefined : await readRealtimeRequestState(event.req)
     if (state && !state.byteLength) throw new HTTPError({ status: 400, message: "Realtime document state is required." })
     const room = await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
-    if (action === "refresh") return await enqueue(room, () => refreshRoom(room))
+    if (action === "refresh") return await enqueue(room, async () => room.dirty ? { digest: room.digest, reseeded: false } : refreshRoom(room))
     return await enqueue(room, async () => {
       if (!containsRealtimeState(room.document, state!)) {
         throw new HTTPError({

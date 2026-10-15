@@ -400,6 +400,17 @@ describe("re-seeding", () => {
     const changed = await server.post("page", "refresh")
     await expect(changed.json()).resolves.toEqual({ digest: expect.stringMatching(/^external-/), reseeded: true })
     expect(client.controls.at(-1)).toMatchObject({ type: "reset", reason: "source-changed" })
+
+    const dirty = await server.connect("page")
+    await settle()
+    await pace()
+    appendParagraph(dirty.doc, "Unsaved")
+    memory.write("page", "Outside")
+    const deferred = await server.post("page", "refresh")
+    await expect(deferred.json()).resolves.toEqual({ digest: expect.any(String), reseeded: false })
+    expect(dirty.closed).toBeUndefined()
+    expect(paragraphs(dirty.doc)).toContain("Unsaved")
+    dirty.close()
   })
 })
 
