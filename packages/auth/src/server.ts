@@ -288,11 +288,23 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    // Calling Web IDL accessors performs the Response internal-slot brand check,
-    // while still accepting genuine Responses created in another realm.
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
-    const statusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get?.call(value)
-    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
+    // Resolve Web IDL accessors from the value's own realm. Their internal-slot
+    // checks accept genuine foreign Responses while rejecting tag-spoofed objects.
+    let prototype: object | null = Object.getPrototypeOf(value)
+    const accessors: Record<string, ((this: unknown) => unknown) | undefined> = {}
+    for (let depth = 0; prototype && depth < 32; depth++) {
+      for (const key of ["status", "statusText", "headers"] as const) {
+        if (!(key in accessors)) {
+          const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
+          if (getter) accessors[key] = getter
+        }
+      }
+      if (accessors.status && accessors.statusText && accessors.headers) break
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    const status = accessors.status?.call(value)
+    const statusText = accessors.statusText?.call(value)
+    const headers = accessors.headers?.call(value)
     return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599
       && typeof statusText === "string"
       && headers !== null && typeof headers === "object"
