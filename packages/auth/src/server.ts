@@ -356,9 +356,10 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown): value is (.
   if (value === localIntrinsic) return true
   try {
     const source = Function.prototype.toString.call(value)
-    if (typeof localIntrinsic === "function") {
-      return source === Function.prototype.toString.call(localIntrinsic)
-    }
+    // Native implementations from another realm are valid even when their
+    // implementation-defined source text differs from the local intrinsic.
+    // The surrounding prototype and descriptor checks establish the brand;
+    // source text is only used to reject ordinary caller-defined functions.
     return /\[native code\]/.test(source)
   }
   catch {
