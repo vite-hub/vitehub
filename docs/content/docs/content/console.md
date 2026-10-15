@@ -73,7 +73,7 @@ When a field does not validate, the draft still saves, so nothing you type is lo
 
 ## Editing together
 
-The Console shows who else has a document open and gives one tab at a time the [edit lease](/docs/content/editing-together). It needs `contentSessionsSchema` in the Database of the Workspace history.
+The Console shows who else has a document open and gives one tab at a time the [edit lease](/docs/content/editing-together). It needs `contentSessionsSchema` in the Database of the Workspace history. With Realtime enabled, Markdown documents open in a [live session](/docs/content/editing-together#live-editing) instead: everyone edits at once, with carets and field focus, and the lease below applies only where live editing is unavailable.
 
 - **Avatars.** The editor header shows up to three people, then `+N`. Hover one for `Ana · Editing` or `Ana · Viewing`. List rows show one small avatar, such as `Ana is editing`, and the dashboard lists documents under **Open now**.
 - **First edit.** Opening a document does not lock it. The first keystroke claims the lease, and the edit stays on screen while the claim answers. Saving starts once this tab holds it.

@@ -69,7 +69,7 @@ when the next client wakes it.
 | Boundary | Limit |
 | --- | --- |
 | WebSocket message | 1 MiB |
-| Document updates per client | One per 50 ms; faster clients are disconnected |
+| Document updates per client | Bursts of 40, refilled at 20 per second; a client that keeps sending faster is disconnected |
 | Document state per room | 8 MiB |
 | Awareness state per room | 8 MiB |
 | Awareness clients per peer | 1,024 |
