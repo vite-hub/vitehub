@@ -177,12 +177,12 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): { policy:
     }
   }
   const windows = Reflect.get(capabilities, "windows")
-  const inspectedCapabilities = {
+  const inspectedCapabilities: RateLimitDriverCapabilities = {
     enforcement: Reflect.get(capabilities, "enforcement"),
     rejectedAttempts: Reflect.get(capabilities, "rejectedAttempts"),
     scope: Reflect.get(capabilities, "scope"),
-    ...(windows === undefined ? {} : { windows }),
-  } as RateLimitDriverCapabilities
+  }
+  if (windows !== undefined) inspectedCapabilities.windows = windows
   return {
     policy: {
       driver,
