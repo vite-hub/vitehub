@@ -217,3 +217,57 @@ export function table(input: unknown): CursorCollectionSource<TableShape["$infer
     querySchema: querySchema as StandardSchemaV1<CollectionRequestQuery, CollectionRequestQuery>,
   }
 }
+
+type AnyCollectionSource = CollectionSource<any, any, any, any, any>
+type SourceItem<TSource extends AnyCollectionSource> =
+  TSource extends CollectionSource<infer TItem, any, any, any, any> ? TItem : never
+type SourceQuery<TSource extends AnyCollectionSource> =
+  TSource extends CollectionSource<any, infer TQuery, any, any, any> ? TQuery : never
+type SourceQueryInput<TSource extends AnyCollectionSource> =
+  TSource extends CollectionSource<any, any, any, any, infer TQueryInput> ? TQueryInput : never
+
+interface DefineSourceCollection {
+  <TSource extends AnyCollectionSource, TTransform extends (item: NoInfer<SourceItem<TSource>>) => unknown>(options: {
+    authorize?: AccessAuthorizeOption
+    route?: false
+    source: TSource
+    transform: TTransform
+  }): Collection<Awaited<ReturnType<TTransform>>, SourceQuery<TSource>, SourceQueryInput<TSource>>
+  <TSource extends AnyCollectionSource>(options: {
+    authorize?: AccessAuthorizeOption
+    route?: false
+    source: TSource
+    transform?: undefined
+  }): Collection<SourceItem<TSource>, SourceQuery<TSource>, SourceQueryInput<TSource>>
+}
+
+const defineCollectionImplementation = (
+  input:
+    | Parameters<typeof defineCoreCollection>[0]
+    | { authorize?: AccessAuthorizeOption; route?: false; source: AnyCollectionSource; transform?: (item: any) => unknown },
+  options?: Parameters<typeof defineCoreCollection>[1],
+) => {
+  const core: unknown = defineCoreCollection
+  // SAFETY: This adapter forwards one of the public defineCollection overload argument sets.
+  const callCore = core as (...args: unknown[]) => unknown
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection loaders may come from another JavaScript realm, so callable dispatch cannot use instanceof Function.
+  if (typeof input === "function") return callCore(input, options)
+  const { authorize, route, source, transform } = input
+  const definition = {
+    authorize,
+    route,
+    get: source.get,
+    pagination: source.pagination,
+    defaultLimit: source.defaultLimit,
+    maxLimit: source.maxLimit,
+    querySchema: source.querySchema,
+    transform,
+    ...(source.pagination === "provider"
+      ? {}
+      : { cursor: source.cursor, cursorSchema: source.cursorSchema }),
+  }
+  return callCore(source.load, definition)
+}
+
+// SAFETY: The implementation dispatches the core loader and Source object overloads above.
+export const defineCollection = defineCollectionImplementation as typeof defineCoreCollection & DefineSourceCollection

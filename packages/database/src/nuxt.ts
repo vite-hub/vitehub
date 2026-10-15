@@ -3,7 +3,7 @@ import { dirname, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
+import { resolveNuxtServerDirs, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -22,8 +22,7 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
-import type { CollectedDatabaseContributions } from "./contributions.ts"
-import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions } from "./types.ts"
+import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions, NuxtDatabaseViteOptions } from "./types.ts"
 import type { Plugin } from "vite"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -60,7 +59,7 @@ type NuxtLike = {
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
   }
   options: Record<string, unknown> & {
-    alias?: Record<string, string>
+    _layers?: NuxtServerDirOptions["_layers"]
     buildDir?: string
     dev?: boolean
     modules?: unknown[]
@@ -106,7 +105,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     })
     const serverDirs = resolvedOptions.projectRoot
       ? [resolve(root, "server")]
-      : nuxtOptions.serverDir ? [nuxtOptions.serverDir] : undefined
+      : resolveNuxtServerDirs(nuxtOptions)
     const databaseConfig = resolvedOptions.driver === "d1"
       ? resolveDBViteConfig(resolvedOptions, root, { provisionRoot, serverDirs })
       : undefined
@@ -129,12 +128,12 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           databaseId: withConfigValueFallback(resolvedOptions.databaseId, d1.d1Database.database_id),
         }
       : effectiveOptions
-    const viteOptions = resolveDatabaseViteOptions({ ...runtimeOptions, projectRoot: root })
+    const viteOptions = resolveDatabaseViteOptions({ ...runtimeOptions, projectRoot: root }, serverDirs)
     if (viteOptions) {
       const configuredDatabase = isRecord(viteConfig.database) ? viteConfig.database : undefined
       viteConfig.database = { ...configuredDatabase, ...viteOptions }
     }
-    installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root })
+    installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root }, serverDirs)
 
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
@@ -150,10 +149,10 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       const refreshLocalRuntime = () => {
         const refresh = async () => {
           if (!localNitroConfig) return
-          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
-          for (const definition of runtime?.definitions ?? []) {
-            definitionFiles.add(definition.handler)
-            definitionDirectories.add(dirname(definition.handler))
+          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1)
+          for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
+            definitionFiles.add(source.handler)
+            definitionDirectories.add(dirname(source.handler))
           }
           for (const contribution of contributions.tables) {
             if (isAbsolute(contribution.module)) contributionFiles.add(contribution.module)
@@ -275,40 +274,24 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
-  // Nitro dev keeps running when a Definition needs Nuxt auto-imports to load; collisions are then checked on literal keys.
-  const tableNameOptions = {
-    alias: isRecord(config.alias)
-      ? Object.fromEntries(Object.entries(config.alias).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
-      : undefined,
-    onFallback: (message: string) => console.warn(message),
-  }
-  for (const definition of runtime.definitions) {
-    const parts = [{ schema: await loadDatabaseSchema(definition.handler, tableNameOptions), owner: `Database Definition ${definition.handler}` }]
-    for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
-      parts.push({ schema: await loadContributedDatabaseSchema(contribution, file, tableNameOptions), owner: `contributed tables ${contribution.module}` })
-    }
-    assertDistinctLoadedSchemas(definition.name, parts)
-  }
-
-  // Contributed tables join the Definition schema, as they do in the generated Drizzle schema.
-  const contributedSchemas = runtime.definitions.map((definition, index) =>
-    (runtime.tableContributionsByDatabase[definition.name] ?? []).map((contribution, contributionIndex) => ({
-      contribution,
-      variable: `contributedSchema_${index}_${contributionIndex}`,
-    })))
+  const merged = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1
   const imports = runtime.definitions.flatMap((definition, index) => [
     `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
-    ...contributedSchemas[index]!.map(({ contribution, variable }) => renderContributionImport(file, contribution, variable)),
+    ...merged(definition)
+      ? definition.schemaSources.map((source, sourceIndex) =>
+          `import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`)
+      : [],
   ])
-  const schemas = runtime.definitions.flatMap((_, index) => contributedSchemas[index]!.length
-    ? [`const schema_${index} = { ...definition_${index}.schema, ${contributedSchemas[index]!.map(({ variable }) => `...${variable}`).join(", ")} }`]
+  // Nuxt layers can add tables to one database, so the runtime uses the merged schema.
+  const schemas = runtime.definitions.flatMap((definition, index) => merged(definition)
+    ? [`const schema_${index} = { ${definition.schemaSources.map((_, sourceIndex) => `...schemaSource_${index}_${sourceIndex}.schema`).join(", ")} }`]
     : [])
-  const entries = runtime.definitions.map((_, index) => [
-    `  [${JSON.stringify(runtime.definitions[index]!.name)}]: {`,
-    contributedSchemas[index]!.length
+  const entries = runtime.definitions.map((definition, index) => [
+    `  [${JSON.stringify(definition.name)}]: {`,
+    merged(definition)
       ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
       : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
-    `    schema: ${contributedSchemas[index]!.length ? `schema_${index}` : `definition_${index}.schema`},`,
+    `    schema: ${merged(definition) ? `schema_${index}` : `definition_${index}.schema`},`,
     "  },",
   ].join("\n"))
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
@@ -361,10 +344,13 @@ function resolveDatabaseNuxtOptions(
   } as ResolvedDatabaseNuxtIntegrationOptions
 }
 
-function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions): DBModulePublicOptions | undefined {
-  const viteOptions: Exclude<DBModulePublicOptions, false> & { nuxtHostResource?: true } = { nuxtHostResource: true }
+function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]): DBModulePublicOptions | undefined {
+  const viteOptions: Exclude<DBModulePublicOptions, false> & NuxtDatabaseViteOptions = { nuxtHostResource: true }
   if (options.projectRoot) {
     viteOptions.projectRoot = options.projectRoot
+  }
+  if (serverDirs) {
+    viteOptions.nuxtServerDirs = serverDirs
   }
   if ("cli" in options) {
     viteOptions.cli = options.cli
@@ -420,10 +406,10 @@ function resolveDatabaseNuxtD1Options(
   }
 }
 
-function installVitePlugin(viteConfig: Record<string, unknown>, options: ResolvedDatabaseNuxtIntegrationOptions) {
+function installVitePlugin(viteConfig: Record<string, unknown>, options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]) {
   const plugins = Array.isArray(viteConfig.plugins) ? viteConfig.plugins : []
   if (!plugins.some(plugin => isRecord(plugin) && plugin.name === "@vite-hub/database/vite")) {
-    viteConfig.plugins = [hubDbVite(resolveDatabaseViteOptions(options)), ...plugins] satisfies Plugin[]
+    viteConfig.plugins = [hubDbVite(resolveDatabaseViteOptions(options, serverDirs)), ...plugins] satisfies Plugin[]
   }
 }
 

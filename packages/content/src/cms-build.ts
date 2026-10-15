@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 
@@ -91,10 +91,36 @@ export function cmsRequirementError(file: string, projectRoot: string, message: 
  * literal options. Returns undefined when the file does not import the preset.
  */
 export function readCmsPresetUsage(source: string, file: string, projectRoot: string, parseAst: ParseAst): CmsPresetUsage | undefined {
-  if (!cmsPresetModules.some(module => source.includes(module))) return
+  return readCmsPresetUsageInternal(source, file, projectRoot, parseAst, new Set())
+}
+
+function readCmsPresetUsageInternal(source: string, file: string, projectRoot: string, parseAst: ParseAst, seen: Set<string>): CmsPresetUsage | undefined {
+  const resolvedFile = resolve(file)
+  if (seen.has(resolvedFile)) return
+  seen.add(resolvedFile)
   const lang = /\.[cm]?tsx$/.test(file) ? "tsx" : /\.[cm]?jsx$/.test(file) ? "jsx" : /\.[cm]?ts$/.test(file) ? "ts" : "js"
   const program = parseAst(source, { lang })
   if (!isNode(program)) return
+  // Content discovery accepts relative re-exports. Follow one statically resolvable
+  // target so CMS selection is read from the module that defines `content`.
+  for (const statement of Array.isArray(program.body) ? program.body : []) {
+    if (!isNode(statement) || statement.type !== "ExportNamedDeclaration" || !isNode(statement.source)) continue
+    const exported = Array.isArray(statement.specifiers) && statement.specifiers.some((specifier) => {
+      if (!isNode(specifier) || specifier.type !== "ExportSpecifier" || !isNode(specifier.exported)) return false
+      const name = specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value
+      return name === "content"
+    })
+    const specifier = statement.source.value
+    if (!exported || typeof specifier !== "string" || !specifier.startsWith(".")) continue
+    const base = resolve(file, "..", specifier)
+    const candidates = [base, ...[".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"].map(ext => `${base}${ext}`), ...["index.ts", "index.tsx", "index.js", "index.jsx", "index.mts", "index.cts", "index.mjs", "index.cjs"].map(name => join(base, name))]
+    const target = candidates.find(candidate => existsSync(candidate))
+    if (target) {
+      const usage = readCmsPresetUsageInternal(readFileSync(target, "utf8"), target, projectRoot, parseAst, seen)
+      if (usage) return usage
+    }
+  }
+  if (!cmsPresetModules.some(module => source.includes(module))) return
   const bindings = new Set<string>()
   const namespaces = new Set<string>()
   for (const statement of Array.isArray(program.body) ? program.body : []) {

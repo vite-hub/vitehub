@@ -64,95 +64,35 @@ export default defineDatabase({
 })
 ```
 
-`schema` does not have to be an object literal. You can pass an imported schema object, a namespace import such as `import * as schema from './schema'`, or a spread that combines several schemas. Each time ViteHub writes generated artifacts, it loads the Definition and exports every Drizzle table and view in the evaluated schema, so `vitehub db generate` writes migrations for all of them. A schema key cannot be `schema` or `default`, because the generated schema module already uses those export names.
+## Tables from Nuxt layers
 
-ViteHub loads the Definition with your Vite or Nuxt string aliases. If the Definition still cannot load, for example because it imports a module that only a Vite plugin provides, `vite dev` and builds print a warning and fall back to the keys of a literal `schema: { ... }` object. `vitehub db generate` fails in that case, so a migration never silently omits a table.
+In a Nuxt application, ViteHub also discovers Database Definitions in the server
+directory of each layer. Definitions with the same name join one database. The
+database has the tables of all of them, and `vitehub db generate` writes one set
+of migrations for it.
 
-## Contribute tables from a package
-
-A package can add Drizzle tables to an application's Database from its own Vite plugin, so the application does not edit its Definition. Add `vitehub.databases` to the plugin object. Each entry names a module and an export that hold an object of tables:
-
-```ts [my-package/vite.ts]
-import type { Plugin } from 'vite'
-import type { DatabaseContributingPlugin } from '@vite-hub/database/vite'
-
-export function myPackage(): Plugin & DatabaseContributingPlugin {
-  return {
-    name: 'my-package/vite',
-    vitehub: {
-      databases: () => [{ module: 'my-package/schema', export: 'historySchema' }],
-    },
-  }
-}
-```
-
-```ts [my-package/schema.ts]
+```ts [layers/blog/server/databases/config.ts]
+import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-export const historySchema = {
-  historyRefs: sqliteTable('history_refs', { workspace: text('workspace').primaryKey(), head: text('head') }),
-  historyRevisions: sqliteTable('history_revisions', { id: integer('id').primaryKey() }),
-}
-```
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `database` | `string` | Database that receives the tables. Omit it to target the default or only Database. |
-| `module` | `string` | Absolute file path, or a package specifier that the application can import. Relative paths are rejected. |
-| `export` | `string` | Export that holds the object of tables. Defaults to `default`. |
-
-`vitehub.databases` accepts an array or a factory. The factory receives `{ rootDir, serverDirs }`, the roots that Database Definitions are discovered from, and can be async. It runs once per discovery pass and must return the same result each time.
-
-Contributed tables join the target Database everywhere the Definition schema goes:
-
-- The generated Drizzle schema exports each contributed table, so `vitehub db generate` writes their migrations.
-- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, Nitro, and provider output.
-- `vitehub inspect definitions` and the Console Database section list them in a `Contributed tables` field with the contributing plugin.
-
-The Definition object that you import from its file keeps only its own `schema`. Read contributed tables from `useDatabase(name).schema` or import them from their package.
-
-A contribution without `database` targets the Database named `default`, or the only Database when there is one. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` applies the same rule, so a package can pick the same Database for its own runtime code. The Console uses it to choose its D1 journal.
-
-### Contribute a Database
-
-When the application has no Database a package can use, the package can add a whole Database Definition. Write the Definition module, for example under `.vitehub/`, and return `{ name, definition, reason? }` from `vitehub.databases`, next to its tables:
-
-```ts [my-package/vite.ts]
-import { discoverDatabaseDefinitions } from '@vite-hub/database/config'
-
-// In the plugin object:
-vitehub: {
-  databases: async ({ rootDir }) => {
-    const names = discoverDatabaseDefinitions(rootDir).map(definition => definition.name)
-    if (names.length) return [{ module: 'my-package/schema', export: 'historySchema' }]
-    const definition = await writeDefinition(rootDir) // export default defineDatabase({ schema: {} })
-    return [
-      { name: 'default', definition, reason: 'my-package stores its history here because the app has no Database.' },
-      { database: 'default', module: 'my-package/schema', export: 'historySchema' },
-    ]
+export default defineDatabase({
+  schema: {
+    posts: sqliteTable('posts', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+    }),
   },
-},
+})
 ```
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `name` | `string` | Database name. The application must not define a Database with this name. |
-| `definition` | `string` | Absolute path of a module whose default export is `defineDatabase({ schema })` with the same `name`. |
-| `reason` | `string` | Why the package adds the Database. `vitehub inspect` shows it. |
+These rules apply:
 
-A contributed Database works like one in `server/databases/`: `vitehub db generate` and `db migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection lists its `Contributed by`, `Reason`, and `Migrations` fields. Its migrations go where an application Definition with the same name keeps them, `server/databases/migrations/` for `default` and `server/databases/<name>/migrations/` otherwise, so adding that Definition later keeps the migration history. The [Content CMS preset](/docs/content/cms-preset) uses this to add the `default` Database.
+- `connection`, `cloudflare`, and `drizzle` come from one Definition. When the application Definition sets one of them, it replaces all layer options, so it must also set each option that a layer sets. The application and each layer that sets options must then pass an object literal to `defineDatabase()`, so that ViteHub can read their options. Otherwise one layer can set them. Two layers that set them fail discovery until the application sets them.
+- An application table replaces a layer table with the same key. Use this to add columns to a layer table. Two layers that declare the same table key fail discovery.
+- Migrations go to the application, in `server/databases/migrations` or `server/databases/<name>/migrations`, also when only layers define the database.
+- A project still uses either one Default Database or Named Databases. A layer with a Default Database and another layer with Named Databases fail discovery.
 
-### Contribution errors
-
-| Code | Cause |
-| --- | --- |
-| `DATABASE_B0010` | A contributed table uses the key or SQL table name of an application table or another contribution. If the Definition already lists the contributed tables, remove them from its schema. |
-| `DATABASE_B0011` | The target Database does not exist, the app has no Database, or `database` is omitted while several Named Databases exist and none is named `default`. The message lists the Database names to choose from. |
-| `DATABASE_B0012` | The contribution is not `{ database?, module, export? }` or `{ name, definition, reason? }`, its `module` is relative, its `definition` is not an absolute path to an existing file, or its export is missing or is not an object of tables. |
-| `DATABASE_B0013` | Two plugins contribute different Definitions with one Database name, or the application already defines the contributed Database. |
-| `DATABASE_B0007` | The contributed module cannot load. `vitehub db generate` fails. `vite dev` and builds print a warning and keep the tables in the runtime schema, without drizzle-kit exports. |
-
-`collectDatabaseContributions(plugins, context)` from `@vite-hub/database/vite` returns the validated `{ definitions, tables }`, and `resolveDatabaseContributionTargets(names, tables)` returns the target of each table contribution, for other build steps.
+ViteHub finds duplicate table keys when `schema` is an object literal. Query the merged database with `useDatabase()` or the `db` server auto-import. A layer that queries its own `defineDatabase()` object directly sees only its own tables.
 
 ## Database Definition options
 
