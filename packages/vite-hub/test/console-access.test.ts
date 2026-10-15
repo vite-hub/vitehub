@@ -125,7 +125,7 @@ describe("Console access policies", () => {
     const handler = runInNewContext("(_event, access) => access.mode") as (_event: ConsoleRequestEvent, access: ConsoleAccess) => string
 
     installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
-    await expect(withConsoleAccess(handler)(event({ "x-role": "admin" }))).resolves.toBe("open")
+    await expect(withConsoleAccess(handler, { anySection: true })(event({ "x-role": "admin" }))).resolves.toBe("open")
   })
 
   it("accepts section results created in another runtime realm", async () => {
@@ -141,7 +141,7 @@ describe("Console access policies", () => {
     const authorize = runInNewContext("() => new Response('Sign in elsewhere.', { status: 401 })", { Response }) as unknown as ConsoleAuthorize
 
     installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
-    const result = await withConsoleAccess(() => "unreachable")(event())
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
 
     expect(result).toMatchObject({ status: 401 })
     await expect((result as Response).text()).resolves.toBe("Sign in elsewhere.")
