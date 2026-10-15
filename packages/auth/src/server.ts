@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -328,8 +327,13 @@ function hasResponsePrototype(value: unknown): boolean {
       seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       const owner = prototype
+      const constructorPrototype = typeof constructor === "function" ? constructor.prototype : undefined
       if (constructor?.name === "Response"
-        && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
+        && constructorPrototype === owner
+        && authorizationResponseProperties.every(key => {
+          const getter = Object.getOwnPropertyDescriptor(owner, key)?.get
+          return typeof getter === "function" && getter === Object.getOwnPropertyDescriptor(constructorPrototype, key)?.get
+        })) return true
       prototype = Object.getPrototypeOf(prototype)
     }
   }
@@ -397,6 +401,15 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const descriptors = Object.fromEntries(authorizationResponseProperties.map((key) => {
       const descriptor = responsePropertyDescriptor(candidate, key)
       if (!isNativeFunction(descriptor?.get)) throw new Error("Malformed authorization response")
+      const owner = responsePropertyDescriptor(Object.getPrototypeOf(candidate), key)
+      if (descriptor?.get !== owner?.get) throw new Error("Malformed authorization response")
+      try {
+        Reflect.apply(descriptor.get, Object.create(null), [])
+        throw new Error("Malformed authorization response")
+      }
+      catch (error) {
+        if (!(error instanceof TypeError)) throw error
+      }
       return [key, descriptor.get]
     })) as Record<(typeof authorizationResponseProperties)[number], () => unknown>
     const status: unknown = Reflect.apply(descriptors.status, candidate, [])
@@ -459,7 +472,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }
   }
   catch {
-    return
+    return undefined
   }
 }
 

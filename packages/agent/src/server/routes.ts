@@ -4145,11 +4145,15 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
   const identity: ChatConfig["identity"] =
     options?.identity ?? (options?.transcripts ? ({ author }) => (author.isBot === true ? null : `${adapterName}:${author.userId}`) : undefined)
   const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial" | "steer">(options, "concurrency")
+  const debounceMs = chatSdkOption<number>(options, "debounceMs")
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   return objectWithoutUndefined({
     adapters: { [adapterName]: adapter },
     // Steering must reach the running provider instead of waiting in Chat SDK's queue.
-    concurrency: concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
+    // With debounceMs, a burst of messages first starts one handler with the earlier messages as skipped context.
+    concurrency: concurrency === "steer" && isRuntimeNumber(debounceMs) && Number.isFinite(debounceMs) && debounceMs >= 0
+      ? { debounceMs, strategy: "burst" }
+      : concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
     identity,
@@ -4513,7 +4517,7 @@ async function chatTriggerMessages(
     includeReplyAttachmentInput: true,
     rejectOversizedTextAttachments: true,
   })
-  const queued = options?.concurrency === "queue"
+  const queued = options?.concurrency === "queue" || options?.concurrency === "steer"
     ? await Promise.all((messageContext?.skipped ?? []).map(item => chatSdkMessageToUiMessage(item, undefined, {
         includeReplyAttachmentInput: true,
         rejectOversizedTextAttachments: true,
