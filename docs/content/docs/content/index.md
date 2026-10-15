@@ -76,6 +76,10 @@ icon: i-lucide-file-text
   Collections validate frontmatter fields, save drafts to Workspace history, and serve only what you publish.
   :::
 
+  :::product-feature-item{title="URLs, head tags, and a sitemap from your documents" icon="i-lucide-search-check" to="/docs/content/seo"}
+  `seo()` fields, `contentHead()` for any framework, and generated `/sitemap.xml` and `/robots.txt`.
+  :::
+
   :::product-feature-item{title="Documents, navigation, and search from server code" icon="i-lucide-code-2" to="/docs/content/server-api"}
   `content.get()`, `content.navigation()`, and `content.search()` run in server code.
   :::

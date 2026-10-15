@@ -9,7 +9,7 @@ export default defineHandler(async () => {
     content.collection("posts").list({ sort: { field: "date", direction: "desc" } }),
   ])
   const title = settings?.data.title ?? "Content playground"
-  const list = items.map(post => `<li><strong>${escape(post.data.title)}</strong> <small>${post.data.date.toISOString().slice(0, 10)}</small></li>`).join("")
+  const list = items.map(post => `<li><a href="${escape(post.url ?? "#")}"><strong>${escape(post.data.title)}</strong></a> <small>${post.data.date.toISOString().slice(0, 10)}</small></li>`).join("")
   return new Response(`<!doctype html><meta charset="utf-8"><title>${escape(title)}</title>
 <body style="font: 15px/1.6 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem">
 <h1>${escape(title)}</h1>${settings?.data.description ? `<p>${escape(settings.data.description)}</p>` : ""}

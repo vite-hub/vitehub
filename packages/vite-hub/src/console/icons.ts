@@ -66,6 +66,7 @@ export const consoleIcons: readonly string[] = [
   "lucide:github",
   "lucide:grip-vertical",
   "lucide:hash",
+  "lucide:heading",
   "lucide:heading-1",
   "lucide:heading-2",
   "lucide:heading-3",
