@@ -99,6 +99,9 @@ function configureCloudflareRealtime(nitro: NitroConfig): void {
   nitro.cloudflare = cloudflare
 }
 
+/** Packages that share the Yjs runtime on the server. They must load as one module graph. */
+const realtimeServerYjsPackages = ["yjs", "y-protocols", "lib0", "@tiptap/y-tiptap", /^y-protocols\//, /^lib0\//]
+
 function moduleSpecifier(from: string, to: string): string {
   const value = relative(dirname(from), to).replaceAll("\\", "/")
   return value.startsWith(".") ? value : `./${value}`
@@ -165,6 +168,19 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       config.resolve = {
         ...config.resolve,
         dedupe: [...new Set([...(config.resolve?.dedupe || []), "yjs"])],
+      }
+      // The server must load one Yjs. In development Vite inlines `yjs` for Realtime when the app cannot resolve it,
+      // while the Yjs packages that Realtime imports load it natively: two copies break Yjs constructor checks and
+      // drop every client edit. Inline the Yjs family together in the Nitro environment.
+      const environments = { ...(config as { environments?: Record<string, Record<string, unknown>> }).environments }
+      const nitroEnvironment = { ...environments.nitro }
+      const nitroResolve = { ...nitroEnvironment.resolve as Record<string, unknown> }
+      const noExternal = nitroResolve.noExternal
+      if (noExternal !== true) {
+        nitroResolve.noExternal = [...(Array.isArray(noExternal) ? noExternal : noExternal ? [noExternal] : []), ...realtimeServerYjsPackages]
+        nitroEnvironment.resolve = nitroResolve
+        environments.nitro = nitroEnvironment
+        ;(config as { environments?: Record<string, Record<string, unknown>> }).environments = environments
       }
       config.define = {
         __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(config.base)),

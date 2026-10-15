@@ -62,6 +62,18 @@ describe("hubRealtime", () => {
     })
   })
 
+  it("loads the Yjs packages as one module graph in the Nitro environment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
+    const { hubRealtime } = await import("../src/vite.ts")
+    const config = { root, environments: { nitro: { resolve: { noExternal: [/^nitro/] } } } } as Record<string, unknown>
+    const hook = hubRealtime({ authority: "memory" }).config as unknown as (config: Record<string, unknown>) => Promise<void>
+    await hook(config)
+    expect(config).toMatchObject({ environments: { nitro: { resolve: { noExternal: expect.arrayContaining([/^nitro/, "yjs", "y-protocols", "lib0", "@tiptap/y-tiptap"]) } } } })
+  })
+
   it("requires an explicit authority for non-Cloudflare production", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
