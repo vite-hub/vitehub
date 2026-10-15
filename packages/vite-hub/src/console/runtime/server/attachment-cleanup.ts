@@ -57,12 +57,15 @@ export async function rollbackConsoleAttachments(storage: Pick<BlobStorage, "put
 
 /** Drain a bounded page before accepting another upload, including after restart. */
 export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "list" | "del" | "get" | "put">): Promise<void> {
+  let remaining = 100
   for (const [index, cleanupPrefix] of cleanupPrefixes.entries()) {
+    if (!remaining) break
     const quarantinePrefix = quarantinePrefixes[index]!
-    const [failure, result] = await storage.list({ prefix: cleanupPrefix, limit: 100 })
+    const [failure, result] = await storage.list({ prefix: cleanupPrefix, limit: remaining })
     if (failure) throw failure
     for (const marker of result.blobs) {
       if (!marker.pathname.startsWith(cleanupPrefix)) continue
+      remaining--
       let ids: string[] | undefined
       try { ids = await cleanupIds(storage, marker.pathname, cleanupPrefix) }
       catch (error) {

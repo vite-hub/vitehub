@@ -100,6 +100,18 @@ it("bounds each pass and ignores malformed cleanup identifiers", async () => {
   expect((await storage.list())[1]?.blobs.map(blob => blob.pathname)).toEqual([malformed])
 })
 
+it("shares the retry bound across current and legacy cleanup prefixes", async () => {
+  const { storage } = await fixture()
+  for (let i = 0; i < 100; i++) {
+    await storage.put(`${cleanupPrefix}${crypto.randomUUID()}`, "pending")
+    await storage.put(`vitehub-console-attachment-cleanup/${crypto.randomUUID()}`, "pending")
+  }
+  await retryConsoleAttachmentCleanup(storage)
+  const current = (await storage.list({ prefix: cleanupPrefix }))[1]!.blobs
+  const legacy = (await storage.list({ prefix: "vitehub-console-attachment-cleanup/" }))[1]!.blobs
+  expect(current.length + legacy.length).toBe(100)
+})
+
 it("recovers the entire batch when rollback stops during its first deletion", async () => {
   const { base, storage } = await fixture()
   const abandoned = [path(), path(), path()]
