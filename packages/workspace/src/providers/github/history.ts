@@ -224,7 +224,7 @@ function mediaType(path: string): string {
   return lookup(path) || "application/octet-stream"
 }
 
-function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistoryEntry[], url?: string): WorkspaceRevision {
+function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistoryEntry[], url?: string, suppliedMetadata?: Record<string, unknown>): WorkspaceRevision {
   const author = commit.author
   const committer = commit.committer
   const authorName = author?.name || committer?.name
@@ -237,9 +237,10 @@ function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistor
         ...(authorLogin ? { authorLogin } : {}),
       }
     : {}
-  const metadata = Object.keys(authorMetadata).length || commit.htmlUrl || url
+  const metadata = Object.keys(authorMetadata).length || commit.htmlUrl || url || suppliedMetadata
     ? {
         ...authorMetadata,
+        ...suppliedMetadata,
         ...(commit.htmlUrl || url ? { url: commit.htmlUrl || url } : {}),
       }
     : undefined
@@ -313,11 +314,11 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
     return entries
   }
 
-  const revision = async (ref: string, id: string): Promise<WorkspaceRevision> => {
+  const revision = async (ref: string, id: string, suppliedMetadata?: Record<string, unknown>): Promise<WorkspaceRevision> => {
     const commit = await readCommit(id)
     const entries = await readTree(commit)
     commitRefs.set(commit.sha, ref)
-    return publicRevision(commit, ref, entries, `https://github.com/${options.repository}/commit/${commit.sha}`)
+    return publicRevision(commit, ref, entries, `https://github.com/${options.repository}/commit/${commit.sha}`, suppliedMetadata)
   }
 
   const readBranches = async (): Promise<{ branches: GitHubBranch[], headers: Headers }> => {
@@ -555,7 +556,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
       repository: options.repository,
       token: options.token,
     })
-    return await revision(ref, result.commitSha)
+    return await revision(ref, result.commitSha, commitOptions.metadata)
   }
 
   return {
