@@ -115,7 +115,9 @@ describe("docs product navigation", () => {
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
+    const kvGroups = getDocsSidebarGroups(kv!);
+    expect(kvGroups.some(group => group.label === "Build" && group.pages.length > 1)).toBe(true);
+    expect(kvGroups.some(group => group.label === null)).toBe(true);
   });
 
   it("lists each topic once inside a section", () => {
