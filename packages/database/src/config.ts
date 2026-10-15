@@ -313,6 +313,7 @@ function createDatabaseDefinition(source: string, file: string, name: string, mo
     mode,
     name,
     source,
+    tableNames: readStaticDatabaseSchema(file).tableNames,
   }
 }
 

@@ -35,6 +35,7 @@ import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoo
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
+import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
@@ -839,7 +840,8 @@ function doctorPlugin(): Plugin {
  * The ViteHub plugin list. When `server/content.ts` selects the Content `cms` preset and `database`, `blob`, or
  * `workspace` is unset, ViteHub turns that feature on. See `withCmsPresetPlugins()`.
  */
-export function vitehub(options: ViteHubOptions): PluginOption[] {
+/** Builds the ViteHub plugin list for one resolved feature configuration. */
+function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   options = withDataDir({ ...options, console: resolveConsoleOptions(options.console) })
   const plan = resolveDeploymentPlan(options.preset)
@@ -1157,6 +1159,10 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }))
   // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.
   return plugins as PluginOption[]
+}
+
+export function vitehub(options: ViteHubOptions): PluginOption[] {
+  return withCmsPresetPlugins(options, resolved => createViteHubPlugins(resolved))
 }
 
 declare module "vite" {
