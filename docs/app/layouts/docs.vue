@@ -78,7 +78,7 @@ const hasPanel = computed(
   }
 
   .vh-docs-content {
-    flex: 1 1 auto;
+    flex: 1;
   }
 }
 </style>
