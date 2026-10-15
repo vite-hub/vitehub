@@ -3,11 +3,14 @@ import { computed, onBeforeUnmount, onMounted } from "vue";
 import type { AgentInvocationView } from "@vite-hub/ui";
 
 const now = useState("ui-running-clock", () => Date.now());
+onMounted(() => {
+  now.value = Date.now();
+});
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 let clock: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
-  now.value = Date.now()
+  now.value = Date.now();
   clock = setInterval(() => { now.value = Date.now(); }, 1_000);
 });
 onBeforeUnmount(() => {
@@ -15,7 +18,6 @@ onBeforeUnmount(() => {
 });
 
 const invocation = computed<AgentInvocationView>(() => ({
-
   agentName: "interface-engineer",
   createdAt: time(844),
   id: "ainv_console_navigation",
