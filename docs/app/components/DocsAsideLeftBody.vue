@@ -21,9 +21,13 @@ const pageGroups = computed(() => {
   const groups = getDocsSidebarGroups(section.value);
   const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
   if (section.value.id !== "ui" || !perspective) return groups;
-  return groups.map((group) =>
-    group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
-  );
+  return groups.map((group) => {
+    if (
+      group.label !== "Start" ||
+      group.pages.some((page) => page.path === perspective.path)
+    ) return group;
+    return { ...group, pages: [...group.pages, perspective] };
+  });
 });
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
