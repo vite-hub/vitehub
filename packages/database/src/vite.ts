@@ -287,7 +287,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       providerOutput = useProviderOutputCatalog(config)
       contributions = resolvedOptions() === false
         ? { definitions: [], tables: [] }
-        : await collectDatabaseContributions(config.plugins, { rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
+        : await collectDatabaseContributions(config.plugins, { rootDir: databaseRoot(), serverDirs: databaseServerDirs(), plugins: config.plugins })
       const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
       contributionFiles = new Set(contributions.tables.flatMap(contribution => {
         try {

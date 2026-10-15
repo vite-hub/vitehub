@@ -45,6 +45,8 @@ export interface DatabaseContributionContext {
   rootDir: string
   /** Server directories that Database Definitions are discovered from, for example Nuxt's `serverDir`. */
   serverDirs?: string[]
+  /** Vite plugins participating in this discovery pass. */
+  plugins?: readonly unknown[]
 }
 
 export type DatabaseContributionFactory = (context: DatabaseContributionContext) =>

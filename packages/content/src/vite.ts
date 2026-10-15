@@ -16,6 +16,7 @@ import {
   usesCmsPresetSync,
 } from "./cms-build.ts"
 
+import { collectDatabaseContributions } from "@vite-hub/database/vite"
 import type { DatabaseContributionContext, DatabaseContributionEntry, DatabaseContributionFactory } from "@vite-hub/database/vite"
 import type { WorkspaceContributionContext, WorkspaceContributionFactory } from "@vite-hub/workspace/vite"
 import type { Plugin, ResolvedConfig } from "vite"
@@ -114,7 +115,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
 
-  async function resolveCmsPreset(input: { projectRoot: string, serverDirs?: string[], databaseRoot?: string }): Promise<CmsPresetPlan | undefined> {
+  async function resolveCmsPreset(input: { projectRoot: string, serverDirs?: string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined> {
     const root = resolve(input.projectRoot)
     const file = await discoverContentDefinition({ projectRoot: root, serverDirs: input.serverDirs })
     if (!file) return
@@ -123,7 +124,10 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     // Loaded only for the preset, so importing the Vite config does not load Database dependencies such as Drizzle.
     const { discoverDatabaseDefinitions, resolveDefaultDatabase } = await import("@vite-hub/database/config")
     const databaseRoot = resolve(input.databaseRoot ?? root)
-    const names = discoverDatabaseDefinitions(databaseRoot, { serverDirs: absoluteDirs(root, input.serverDirs) }).map(definition => definition.name)
+    const names = [
+      ...discoverDatabaseDefinitions(databaseRoot, { serverDirs: absoluteDirs(root, input.serverDirs) }).map(definition => definition.name),
+      ...(input.contributedDefinitions ?? []).map(definition => definition.name),
+    ]
     return resolveCmsPresetPlan(usage, { names, resolveDefault: resolveDefaultDatabase }, root)
   }
 
@@ -143,7 +147,9 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       },
       async databases(context: DatabaseContributionContext) {
         const root = projectRoot ?? context.rootDir
-        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs })
+        const otherPlugins = context.plugins?.filter(plugin => Reflect.get(plugin, "name") !== CONTENT_VITE_PLUGIN_NAME)
+        const contributed = await collectDatabaseContributions(otherPlugins, context)
+        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs, contributedDefinitions: contributed.definitions })
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []

@@ -174,7 +174,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       }
       hook("nitro:config", async (config) => {
         // Vite plugins in the Nuxt config can contribute tables and Definitions, as they do through `hubDb()` in a Vite app.
-        contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, { rootDir: root, serverDirs })
+        contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, { rootDir: root, serverDirs, plugins: nuxtOptions.vite?.plugins })
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         if (!nuxtOptions.dev && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
           if (d1.unresolved.reason === "missing-database-name") {
