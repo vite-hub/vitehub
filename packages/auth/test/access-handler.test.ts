@@ -424,6 +424,23 @@ describe("Auth access handlers", () => {
     expect(source.locked).toBe(false)
   })
 
+  it("rejects non-byte chunks from a foreign response body", async () => {
+    const source = new ReadableStream({
+      start(controller) {
+        controller.enqueue("invalid")
+        controller.close()
+      },
+    }, { highWaterMark: 0 })
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+
+    await expect(response?.body?.getReader().read()).rejects.toThrow("Invalid authorization response chunk")
+    expect(source.locked).toBe(false)
+  })
+
   it("forwards source errors and releases the native reader", async () => {
     const error = new Error("source failed")
     const source = new ReadableStream<Uint8Array>({ pull() { throw error } }, { highWaterMark: 0 })

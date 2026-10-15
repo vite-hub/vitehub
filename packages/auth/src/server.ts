@@ -346,6 +346,20 @@ const authorizationReaderCancel = authorizationReaderPrototype
 const authorizationReaderReleaseLock = authorizationReaderPrototype
   ? Object.getOwnPropertyDescriptor(authorizationReaderPrototype, "releaseLock")?.value
   : undefined
+const authorizationUint8ArraySubarray = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "subarray")?.value
+
+function isAuthorizationByteChunk(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value) || typeof authorizationUint8ArraySubarray !== "function") return false
+  try {
+    // The native typed-array operation performs a brand check that also accepts
+    // Uint8Arrays created by another realm, while rejecting strings and other views.
+    Reflect.apply(authorizationUint8ArraySubarray, value, [0, 0])
+    return true
+  }
+  catch {
+    return false
+  }
+}
 
 function getAuthorizationStreamOperations(body: unknown): AuthorizationStreamOperations | undefined {
   if (body === null) return
@@ -400,7 +414,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
           release()
           controller.close()
         }
-        else if (result.value === undefined) throw new TypeError("Invalid authorization response chunk")
+        else if (!isAuthorizationByteChunk(result.value)) throw new TypeError("Invalid authorization response chunk")
         else controller.enqueue(result.value)
       }
       catch (error) {
