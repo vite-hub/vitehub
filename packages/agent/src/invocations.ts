@@ -2242,7 +2242,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           await write(async () => {
             if (boundToTerminalRecord || Date.now() >= deadline || !await ensureCreated(Math.min(storeTimeoutMs, Math.max(0, deadline - Date.now())))) return
             const recoveryStore = <T>(operation: () => MaybePromise<T>) => boundedStore(operation, Math.min(storeTimeoutMs, Math.max(0, deadline - Date.now())))
-            const claimed = await recoveryStore(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, { replaceExisting: true }))
+            const claimTask = Promise.resolve().then(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, { replaceExisting: true }))
+            const claimed = await recoveryStore(() => claimTask)
+            if (claimed === storeOperationTimedOut) {
+              // The claim may still create a lease after the bounded wait. Release it when it settles.
+              void claimTask.then(owned => owned ? store.release(recordId, claimId) : undefined, () => undefined).catch(() => {})
+              return
+            }
             if (claimed !== true) return
             try {
               const timestamp = normalizedTimestamp(observation.timestamp)
