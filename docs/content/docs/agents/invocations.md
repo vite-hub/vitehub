@@ -231,7 +231,62 @@ Pass the OTLP base endpoint; ViteHub appends `/v1/logs` and `/v1/traces`. With `
 
 Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. See [`otlp()`](/docs/agents/capabilities/otlp) for batching, deduplication, privacy, and Capability-contribution details.
 
-To persist a queryable invocation journal, attach Agent Invocations to the Agent Definition. Storage durability and recovery guarantees still depend on the selected store and host lifecycle. The SQLite adapter accepts a local SQLite or remote libSQL URL:
+### Store invocation history
+
+To keep a queryable invocation journal, set `invocations` on the Agent Definition. History is opt-in. An Agent without a journal records no Invocations, unless the [Console](/docs/development/console) supplies its own journal.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations: 'database',
+})
+```
+
+| Value | Journal |
+| --- | --- |
+| `'database'` | The app's [ViteHub Database](/docs/database). It uses the `default` Database. |
+| `'memory'` | Memory of the server process. Records do not survive a restart, and replicas do not share them. |
+| `false` | No journal. This value also turns off the app-wide journal for this Agent. |
+| `{ store: 'database' \| 'memory', ...options }` | A built-in store with journal options. |
+| `{ store }` or `defineAgentInvocations({ store })` | A custom `AgentInvocationStore`. |
+
+The object form accepts every `defineAgentInvocations()` option except `store`. Set `database` to select another Database name. `database` is valid only with `store: 'database'`:
+
+```ts [server/agents/support.ts]
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations: { store: 'database', database: 'journal', content: 'content' },
+})
+```
+
+ViteHub creates one journal for each Agent Definition, not one for each request. The Database store connects to the Database on its first operation. Storage durability and recovery guarantees depend on the selected store and the host lifecycle.
+
+### Use one journal for every Agent
+
+Set `agent.invocations` in the ViteHub options to give every Agent Definition the same journal:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    database: { driver: 'd1' },
+    agent: { invocations: 'database' },
+  })],
+})
+```
+
+In Nuxt, set the same value in the `vitehub` key of `nuxt.config.ts`. The app-wide journal applies to Agent Definitions from `vite-hub/agent` that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
+
+`agent.invocations` accepts `'database'`, `'memory'`, `false`, and the object form without the `redact` and `redactError` functions. Set those functions on the Agent Definition. `'database'` requires `database` in the ViteHub options. The app-wide journal requires Nitro-hosted Agents; Netlify and Deno Agent output fail the build. When the Console is enabled, it shows the app-wide journal.
+
+### Use a custom store
+
+Pass a store to `defineAgentInvocations()` when the built-in names do not fit. The SQLite adapter accepts a local SQLite or remote libSQL URL:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -272,7 +327,7 @@ The SQLite adapter keeps at most 10,000 terminal records from the last 30 days b
 
 ### Store invocations in a ViteHub Database
 
-Use the Database adapter when the application already enables a ViteHub Database and the Agent should own its journal instead of using the Console fallback:
+`invocations: 'database'` uses the Database adapter with its defaults. Use the adapter directly to set store options, such as retention:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -504,7 +559,7 @@ Cancellation before Driver dispatch stops startup without a `notEnforcedBy` warn
 
 Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, RPC endpoint, plugin, and assets do not exist when `console` is omitted or set to `false`.
 
-The Console guide covers Vite and Nuxt setup, fallback storage, production limits, usage records, and route authorization. An explicit `defineAgent({ invocations })` store remains authoritative when the Console is enabled.
+The Console guide covers Vite and Nuxt setup, fallback storage, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
 
 ## Control child work
 
