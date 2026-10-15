@@ -48,6 +48,10 @@ function isRequest(value: unknown): value is Request {
     while ((prototype = Object.getPrototypeOf(prototype)) !== null) {
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       if (typeof constructor !== "function" || constructor.name !== "Request" || constructor.prototype !== prototype) continue
+      // The Fetch Request prototype carries its own Web IDL string tag. Requiring
+      // that descriptor keeps copied methods on a caller-created prototype from
+      // being mistaken for the host's branded prototype.
+      if (Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)?.value !== "Request") continue
       const get = (key: string) => Object.getOwnPropertyDescriptor(prototype, key)?.get
       const headersGetter = get("headers")
       const urlGetter = get("url")

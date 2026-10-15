@@ -94,7 +94,7 @@ describe("H3 Runtime Context", () => {
       headers: { get: () => new Headers() },
       url: { get: () => "https://example.test" },
       method: { get: () => "GET" },
-      bodyUsed: { get: () => false },
+      bodyUsed: { get: () => true },
       signal: { get: () => new AbortController().signal },
       clone: { value: requestPrototype.clone },
       arrayBuffer: { value: requestPrototype.arrayBuffer },
