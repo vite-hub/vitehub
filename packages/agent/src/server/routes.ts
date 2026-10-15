@@ -7144,6 +7144,7 @@ async function channelHistoryAttachment(
       try {
         const blob = data
         const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal)
+        // SAFETY: blobArrayBuffer always resolves to an ArrayBuffer; the bounded wrapper preserves that result.
         data = new Uint8Array(buffer as ArrayBuffer)
       } catch {
         data = undefined
@@ -7161,6 +7162,7 @@ async function channelHistoryAttachment(
       try {
         const blob = data
         const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal)
+        // SAFETY: blobArrayBuffer always resolves to an ArrayBuffer; the bounded wrapper preserves that result.
         data = new Uint8Array(buffer as ArrayBuffer)
       } catch { data = undefined }
     } else data = undefined
