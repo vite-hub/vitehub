@@ -308,6 +308,10 @@ function isResponseLike(value: unknown): value is Response {
       }
       if (!bodyGetter || typeof (value as { clone?: unknown }).clone !== "function") return false
       bodyGetter.call(value)
+      // Native Response#clone always creates a distinct response. Requiring
+      // that invariant rejects caller-controlled response-shaped objects whose
+      // clone method merely returns the object itself.
+      if ((value as { clone: () => unknown }).clone() === value) return false
       return true
     }
     catch {
