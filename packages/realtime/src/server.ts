@@ -194,7 +194,10 @@ function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName
         catch {
           return false
         }
-        if (!/^class\s/.test(source)) return false
+        // Cloudflare's host-provided namespace uses native prototype methods,
+        // while user-created object prototypes do not. Keep supporting
+        // JavaScript class doubles for tests and local adapters.
+        if (!/^class\s/.test(source) && !/\[native code\]/.test(source)) return false
       }
       if ("value" in descriptor) return typeof descriptor.value === "function"
       try {
