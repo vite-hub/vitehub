@@ -1855,6 +1855,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations storeTimeoutMs must be an integer between 1 and 60000." })
   }
   const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => boundedStoreOperation(operation, timeoutMs)
+  const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
+    const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+    if (result === storeOperationTimedOut) {
+      throw new Error(`[vitehub] Agent Invocation store operation timed out after ${storeTimeoutMs} ms.`)
+    }
+    return result as T
+  }
   const redact = (observation: TraceEventLogEntry): TraceEventLogEntry | undefined => {
     if (!options.redact) return observation
     try {
@@ -2246,7 +2253,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             // attempt's lease identity separate so late cleanup cannot release a newer
             // attempt that reused the invocation claim id.
             const recoveryClaimId = createInvocationId()
-            const claimTask = Promise.resolve().then(() => store.claim(recordId, recoveryClaimId, CLAIM_LEASE_MS, { replaceExisting: true }))
+            const claimTask = Promise.resolve().then(() => store.claim(recordId, recoveryClaimId, CLAIM_LEASE_MS))
             const claimed = await recoveryStore(() => claimTask)
             if (claimed === storeOperationTimedOut) {
               // The claim may still create a lease after the bounded wait. Release it when it settles.
@@ -2605,7 +2612,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (appendOptions.id.length > MAX_METADATA_STRING_LENGTH) {
         throw agentDiagnostics.AGENT_R0901({ message: "[vitehub] Appended observation IDs must be at most 512 characters." })
       }
-      const existing = await store.get(id)
+      const existing = await publicStore(() => store.get(id))
       if (!existing) return undefined
       const limits = observationLimits(existing.observationLimits)
       const metadataContentValues = captureMetadataContentValues(event, metadataContent)
@@ -2619,8 +2626,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         attributes: { ...observation.attributes, [AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]: appendOptions.id },
       }, limits)
       const { sequence: _sequence, ...appendObservation } = prepared
-      const updated = await store.update(id, { appendObservation, timestamp: prepared.timestamp })
-      const persisted = updated || await store.get(id)
+      const updated = await publicStore(() => store.update(id, { appendObservation, timestamp: prepared.timestamp }))
+      const persisted = updated || await publicStore(() => store.get(id))
       if (persisted && !persisted.observations.some(entry => observationIdentity(entry) === appendOptions.id)) {
         throw agentDiagnostics.AGENT_R0902({ message: "[vitehub] Invocation store did not persist appended observation." })
       }
@@ -2631,7 +2638,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (!store.delete) {
         throw agentDiagnostics.AGENT_R0932({ message: "[vitehub] This Agent Invocation store does not support deletion. Implement store.delete() or use a ViteHub store." })
       }
-      return await store.delete(id)
+      return await publicStore(() => store.delete!(id))
     },
     async prune(pruneOptions = {}) {
       if (!store.prune) {
@@ -2645,10 +2652,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (cutoff && Number.isNaN(cutoff.getTime())) {
         throw agentDiagnostics.AGENT_R0929({ message: "[vitehub] Agent Invocation prune olderThanMs must produce a cutoff within JavaScript's Date range." })
       }
-      return await store.prune({
+      return await publicStore(() => store.prune!({
         ...(dryRun ? { dryRun: true } : {}),
         ...(cutoff === undefined ? {} : { updatedBefore: cutoff.toISOString() }),
-      })
+      }))
     },
     async cancel(id) {
       assertInvocationId(id)
@@ -2727,31 +2734,32 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async get(id, options) {
       assertInvocationId(id)
-      const record = await store.get(id, options)
+      const record = await publicStore(() => store.get(id, options))
       if (!record || !options?.observationNames) return record
       return { ...record, observations: record.observations.filter(entry => options.observationNames!.includes(entry.name)) }
     },
     async getByRunId(runId, agentName) {
-      return await store.get(await agentInvocationId(runId, agentName))
+      const id = await agentInvocationId(runId, agentName)
+      return await publicStore(() => store.get(id))
     },
     async getSummary(id) {
       assertInvocationId(id)
-      return await store.getSummary(id)
+      return await publicStore(() => store.getSummary(id))
     },
     async list(options = {}) {
       const normalized = normalizeAgentInvocationListOptions(options)
-      return await store.list(normalized)
+      return await publicStore(() => store.list(normalized))
     },
     async listAgentNames() {
       if (store.listAgentNames) {
-        return [...new Set((await store.listAgentNames()).map(name => name.trim()).filter(Boolean))]
+        return [...new Set((await publicStore(() => store.listAgentNames!())).map(name => name.trim()).filter(Boolean))]
           .sort()
       }
       const names = new Set<string>()
       let cursor: string | undefined
       const seenCursors = new Set<string>()
       do {
-        const page = await store.list({ cursor, limit: MAX_LIST_LIMIT })
+        const page = await publicStore(() => store.list({ cursor, limit: MAX_LIST_LIMIT }))
         if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
@@ -2764,7 +2772,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     async listTriggeredBy(agentName) {
       const selectedAgent = agentName?.trim()
       if (store.listTriggeredBy) {
-        return [...new Set((await store.listTriggeredBy(selectedAgent))
+        return [...new Set((await publicStore(() => store.listTriggeredBy!(selectedAgent)))
           .map(triggeredBy => triggeredBy.trim())
           .filter(Boolean))]
           .sort()
@@ -2773,7 +2781,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let cursor: string | undefined
       const seenCursors = new Set<string>()
       do {
-        const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
+        const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
         if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
         if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
@@ -2787,7 +2795,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     async listCapabilityIds(agentName) {
       const selectedAgent = agentName?.trim()
       if (store.listCapabilityIds) {
-        return [...new Set((await store.listCapabilityIds(selectedAgent))
+        return [...new Set((await publicStore(() => store.listCapabilityIds!(selectedAgent)))
           .map(capabilityId => capabilityId.trim())
           .filter(Boolean))]
           .sort()
@@ -2796,10 +2804,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let cursor: string | undefined
       const seenCursors = new Set<string>()
       do {
-        const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
+        const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
         if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
         if (page.cursor) seenCursors.add(page.cursor)
-        const records = await Promise.all(page.invocations.map(invocation => store.get(invocation.id)))
+        const records = await Promise.all(page.invocations.map(invocation => publicStore(() => store.get(invocation.id))))
         for (const record of records) {
           if (record) invocationCapabilityIds(record).forEach(capabilityId => capabilityIds.add(capabilityId))
         }
