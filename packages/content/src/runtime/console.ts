@@ -121,7 +121,13 @@ function translate(error: unknown): never {
   if (code === "CONTENT_INVALID" && isRecord(details)) {
     // `publish()` names the draft that no longer validates, so the editor can point at that document.
     const id = String(details.id) === details.id ? details.id : undefined
-    throw failure(422, "CONTENT_INVALID", id ? `${id} has invalid fields.` : "Some fields are invalid.", id ? { id, issues: json(details.issues ?? []) } : { issues: json(details.issues ?? []) })
+    const documents = Array.isArray(details.documents)
+      ? details.documents.flatMap((entry: unknown) => isRecord(entry) && String(entry.id) === entry.id ? [{ id: entry.id, issues: json(entry.issues ?? []) }] : [])
+      : undefined
+    const message = documents && documents.length > 1 ? `${documents.length} documents have invalid fields.` : id ? `${id} has invalid fields.` : "Some fields are invalid."
+    const result: Record<string, unknown> = id ? { id, issues: json(details.issues ?? []) } : { issues: json(details.issues ?? []) }
+    if (documents) result.documents = documents
+    throw failure(422, "CONTENT_INVALID", message, result)
   }
   if (code === "WORKSPACE_CONFLICT") {
     const conflict = isRecord(details) ? details : {}
@@ -327,6 +333,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       updatedAt: document.updatedAt,
     }
     if (document.url !== undefined) result.url = document.url
+    if (document.issues?.length) result.issues = json(document.issues)
     const status = await collection.status(document.id)
     if (status) result.state = status.state
     if (status?.schedule) result.schedule = scheduleView(status.schedule)
@@ -403,7 +410,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         for (const status of authorizedStatuses) {
           states[status.state]++
           if (status.schedule) scheduled++
-          if (status.state !== "published") changes.push({ id: status.id, state: status.state, digest: status.draft })
+          if (status.state !== "published") changes.push({ id: status.id, state: status.state, digest: status.draft, ...(status.issues ? { issues: status.issues } : {}) })
         }
         const filter: NonNullable<ContentListOptions["filter"]> = {}
         for (const [field, value] of Object.entries(isRecord(input.filter) ? input.filter : {})) {
@@ -442,6 +449,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
               updatedAt: item.updatedAt,
             }
             if (status?.schedule) summary.schedule = scheduleView(status.schedule)
+            if (status?.issues) summary.issues = status.issues
             return summary
           }),
           nextCursor: page.nextCursor,
@@ -703,7 +711,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           for (const [id, summary] of found) titles.set(`${collection.name}\u0000${id}`, titleOf(collection, summary, id))
           const changes: ViteHubConsoleDocumentPendingChange[] = pending.map((status) => {
             const summary = found.get(status.id)
-            return {
+            const change: ViteHubConsoleDocumentPendingChange = {
               id: status.id,
               // SAFETY: `pending` leaves out published documents.
               state: status.state as ViteHubConsoleDocumentPendingChange["state"],
@@ -711,6 +719,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
               title: titleOf(collection, summary, status.id),
               updatedAt: status.state === "deleted" ? null : summary?.updatedAt ?? null,
             }
+            if (status.issues) change.issues = status.issues
+            return change
           })
           changes.sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "") || left.id.localeCompare(right.id))
           const scheduled: ViteHubConsoleDocumentScheduledChange[] = withSchedule

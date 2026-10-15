@@ -96,28 +96,70 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(await posts.status("hello")).toEqual({ collection: "posts", id: "hello", state: "draft", draft: saved.digest, published: null })
   })
 
-  it("reports every invalid field with a readable CONTENT_INVALID error", async () => {
-    const { posts } = await setup()
+  it("stores a draft with invalid fields and returns its issues", async () => {
+    const { content, posts } = await setup()
     // @ts-expect-error title must be a string
-    const error = await rejection(posts.save("bad", { data: { title: 1, date: "not a date" } }))
+    const draft = await posts.save("bad", { data: { title: 1, date: "not a date" } })
+    expect(draft).toMatchObject({ id: "bad", data: { title: 1, date: "not a date" }, issues: [expect.objectContaining({ field: "title" }), expect.objectContaining({ field: "date" })] })
+    expect(await posts.status("bad")).toMatchObject({ state: "draft", issues: 2 })
+    // The draft reads and lists with its issues; published reads stay strict.
+    expect(await posts.get("bad", { ref: "draft" })).toMatchObject({ issues: [expect.objectContaining({ field: "title" }), expect.objectContaining({ field: "date" })] })
+    expect((await posts.list({ ref: "draft" })).items).toEqual([expect.objectContaining({ id: "bad", issues: expect.any(Array) })])
+    const error = await rejection(content.publish({ expect: [{ collection: "posts", id: "bad", digest: draft.digest }] }))
     expect(error).toMatchObject({
       code: "CONTENT_INVALID",
-      details: { collection: "posts", id: "bad", path: "posts/bad.md", issues: [expect.objectContaining({ field: "title" }), expect.objectContaining({ field: "date" })] },
+      details: { collection: "posts", id: "bad", path: "posts/bad.md", issues: [expect.objectContaining({ field: "title" }), expect.objectContaining({ field: "date" })], documents: [expect.objectContaining({ id: "bad" })] },
     })
-    expect(error.message).toContain("- title:")
-    expect(error.message).toContain("- date:")
+    expect(error.message).toContain("- posts/bad: title:")
+    expect(error.message).toContain("- posts/bad: date:")
+    expect(await posts.get("bad")).toBeNull()
+    // Fixing the fields clears the issues and lets it publish.
+    const fixed = await posts.save("bad", hello, { ifDigest: draft.digest })
+    expect(fixed.issues).toBeUndefined()
+    expect((await posts.status("bad"))?.issues).toBeUndefined()
+    await content.publish({ expect: [{ collection: "posts", id: "bad", digest: fixed.digest }] })
+    expect(await posts.get("bad")).toMatchObject({ data: { title: "Hello" } })
+  })
+
+  it("names every invalid document when publish() refuses", async () => {
+    const { content, posts } = await setup()
+    // @ts-expect-error title must be a string
+    const first = await posts.save("one", { data: { title: 1, date: "2026-01-01" } })
+    const second = await posts.save("two", { data: { title: "Two", date: "nope" } })
+    const valid = await posts.save("three", hello)
+    const error = await rejection(content.publish({ collection: "posts" }))
+    expect(error).toMatchObject({ code: "CONTENT_INVALID", details: { documents: [expect.objectContaining({ id: "one" }), expect.objectContaining({ id: "two" })] } })
+    expect(error.message).toContain("2 Content documents have invalid fields")
+    expect(await posts.get("three")).toBeNull()
+    await expect(content.publish({ expect: [{ collection: "posts", id: "three", digest: valid.digest }] })).resolves.toMatchObject({ documents: [{ id: "three" }] })
+    expect([first.issues?.length, second.issues?.length]).toEqual([1, 1])
+  })
+
+  it("still rejects what cannot be stored as fields", async () => {
+    const { posts } = await setup()
+    await expect(rejection(posts.save("bad", null as never))).resolves.toMatchObject({ code: "CONTENT_INVALID" })
+    await expect(rejection(posts.save("bad", { data: [] as never }))).resolves.toMatchObject({ code: "CONTENT_INVALID" })
+    await expect(rejection(posts.save("bad", { data: { title: "x", date: "2026-01-01", n: 1n } as never }))).resolves.toMatchObject({ code: "CONTENT_INVALID" })
+    await expect(rejection(posts.save("bad", { data: { title: "x" }, body: 1 as never }))).resolves.toMatchObject({ code: "CONTENT_INVALID" })
     expect(await posts.status("bad")).toBeNull()
   })
 
   it("validates every Workspace writer through the plugin hook", async () => {
     const { posts, workspace } = await setup()
     const facade = useWorkspace(workspace as never, { mode: "write" })
+    // Writers outside the draft get full field validation, published included.
     await expect(facade.fs.writeFile("posts/agent.md" as never, "---\ntitle: 3\n---\nBody")).rejects.toMatchObject({ code: "CONTENT_INVALID" })
-    await expect(facade.history.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/raw.md": "---\ndate: nope\n---\n" } } }))
+    await expect(facade.history.commit({ ref: "published", ifHead: null, changes: { put: { "posts/raw.md": "---\ndate: nope\n---\n" } } }))
       .rejects.toMatchObject({ code: "CONTENT_INVALID", details: { id: "raw" } })
+    // The draft takes fields in progress, but not a file without an object of fields.
+    await facade.history.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/raw.md": "---\ndate: nope\n---\n" } } })
+    expect(await posts.get("raw", { ref: "draft" })).toMatchObject({ issues: expect.any(Array) })
+    const head = await facade.history.head({ ref: "draft" })
+    await expect(facade.history.commit({ ref: "draft", ifHead: head!.id, changes: { put: { "posts/list.md": "---\n- a\n- b\n---\n" } } }))
+      .rejects.toMatchObject({ code: "CONTENT_INVALID", details: { id: "list" } })
     // Paths outside the collection and valid documents pass.
     await facade.fs.writeFile("notes/free.md" as never, "anything")
-    await facade.history.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/raw.md": "---\ntitle: Raw\ndate: 2026-01-01\n---\nBody" } } })
+    await facade.history.commit({ ref: "draft", ifHead: head!.id, changes: { put: { "posts/raw.md": "---\ntitle: Raw\ndate: 2026-01-01\n---\nBody" } } })
     expect(await posts.get("raw", { ref: "draft" })).toMatchObject({ data: { title: "Raw", tags: [] }, body: "Body" })
   })
 
@@ -521,7 +563,7 @@ describe("document collections", { timeout: 30_000 }, () => {
     const summary = await posts.save("summary", { data: { title: "Sum", date: "2026-01-01", summary: "Short" } })
     expect(summary.data.summary).toBe("Short")
     // @ts-expect-error summary must be a string
-    await expect(posts.save("bad", { data: { title: "Bad", date: "2026-01-01", summary: 4 } })).rejects.toMatchObject({ code: "CONTENT_INVALID" })
+    await expect(posts.save("bad", { data: { title: "Bad", date: "2026-01-01", summary: 4 } })).resolves.toMatchObject({ issues: [expect.objectContaining({ field: "summary" })] })
   })
 
   it("rejects ids outside the collection", async () => {

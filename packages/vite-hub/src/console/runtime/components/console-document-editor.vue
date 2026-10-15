@@ -13,6 +13,7 @@ import {
   consoleDocumentStateLabel,
   consoleErrorMessage,
   consoleFieldIssues,
+  consoleFixFieldsLabel,
   consoleLeaseHolder,
   consoleListQueryFor,
   consolePublishMismatches,
@@ -281,6 +282,21 @@ function accept(document: ConsoleDocument): void {
   state.value = document.state;
   schedule.value = document.schedule;
   draft.value = { body: document.body, data: clone(document.data) };
+  showSavedIssues(document);
+}
+
+/**
+ * A draft saved in progress comes back with its field issues. They show inline like any other issue, autosave keeps
+ * going, and Publish waits until they are fixed.
+ */
+function showSavedIssues(document: ConsoleDocument): void {
+  if (!document.issues?.length) {
+    fieldErrors.value = {};
+    return;
+  }
+  fieldErrors.value = groupConsoleFieldIssues(humanizeConsoleFieldIssues(fields.value, document.issues));
+  errorSnapshot = Object.fromEntries(Object.entries(document.data).map(([name, value]) => [name, stableConsoleJSON(value ?? null)]));
+  errorBody = document.body;
 }
 
 async function load(): Promise<void> {
@@ -362,7 +378,6 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
       session: consoleTabSession,
     });
     refusedEdits.value = 0;
-    fieldErrors.value = {};
     conflict.value = undefined;
     conflictOpen.value = false;
     // Keep edits made while the save was running.
@@ -371,6 +386,7 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
     base.value = saved;
     state.value = saved.state;
     if (!editedDuringSave) draft.value = { body: saved.body === sent.body ? draft.value.body : saved.body, data: clone(saved.data) };
+    showSavedIssues(saved);
     savedAt.value = new Date().toISOString();
     notifyChanged();
     // A pending schedule publishes the draft it reviewed. This save moved the draft, so that run will publish nothing.
@@ -537,7 +553,7 @@ function useTheirs(): void {
  * from someone else in between fails the publish instead of publishing their draft unseen.
  */
 async function publish(): Promise<void> {
-  if (!canPublish.value || publishing.value) return;
+  if (!canPublish.value || publishing.value || errorCount.value) return;
   clearTimeout(autosaveTimer);
   await bodyEditor.value?.commit();
   await settled();
@@ -747,7 +763,6 @@ async function restore(): Promise<void> {
     const restored = await client.restore(collection.name, documentId, preview.value.revision.id, base.value?.digest ?? null, consoleTabSession);
     accept(restored);
     savedAt.value = new Date().toISOString();
-    fieldErrors.value = {};
     preview.value = undefined;
     historyOpen.value = false;
     notifyChanged();
@@ -985,18 +1000,21 @@ const menuItems = computed(() => [[
       <UButton v-if="creating && canWrite" size="sm" label="Create" :loading="saving" @click="save()" />
       <!-- A split button: Publish now, or Schedule… from the arrow. A deleted document publishes its deletion now only. -->
       <UFieldGroup v-else-if="publishable" size="sm">
-        <UButton
-          :label="state === 'deleted' ? 'Publish deletion' : 'Publish'"
-          :loading="publishing"
-          :disabled="Boolean(conflict) || scheduling"
-          @click="publish"
-        />
+        <UTooltip :text="errorCount ? consoleFixFieldsLabel(errorCount) : undefined" :disabled="!errorCount" :content="{ side: 'bottom' }">
+          <UButton
+            :label="state === 'deleted' ? 'Publish deletion' : 'Publish'"
+            :loading="publishing"
+            :disabled="Boolean(conflict) || scheduling || Boolean(errorCount)"
+            :aria-description="errorCount ? consoleFixFieldsLabel(errorCount) : undefined"
+            @click="publish"
+          />
+        </UTooltip>
         <UDropdownMenu
           v-if="state !== 'deleted'"
           :items="[{ label: 'Schedule…', icon: 'i-lucide-calendar-clock', disabled: Boolean(schedule && schedule.status !== 'failed'), onSelect: openSchedule }]"
           :content="{ align: 'end' }"
         >
-          <UButton icon="i-lucide-chevron-down" aria-label="More publish options" :disabled="Boolean(conflict) || publishing" :loading="scheduling" class="border-s border-(--ui-bg)/25" />
+          <UButton icon="i-lucide-chevron-down" aria-label="More publish options" :disabled="Boolean(conflict) || publishing || Boolean(errorCount)" :loading="scheduling" class="border-s border-(--ui-bg)/25" />
         </UDropdownMenu>
       </UFieldGroup>
       <UTooltip v-if="!creating && !missing" text="Outline and history" :content="{ side: 'bottom' }">

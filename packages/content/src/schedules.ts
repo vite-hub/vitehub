@@ -121,6 +121,8 @@ export interface ContentSchedulesHost {
   expectations(method: string, expect: unknown): ContentScheduledDocument[]
   /** The digests on the draft and on `published` of each expected document. */
   digests(expect: readonly ContentScheduledDocument[]): Promise<Array<{ draft: string | null, published: string | null }>>
+  /** Throw `CONTENT_INVALID` naming each expected draft with field issues. */
+  validate(expect: readonly ContentScheduledDocument[]): Promise<void>
   /** A `WORKSPACE_CONFLICT` naming each document whose draft no longer matches. */
   mismatch(method: string, mismatches: Array<{ collection: string, id: string, expected: string | null, actual: string | null }>): Error
   /** `publish({ expect })` that records the schedule on the publish revision. */
@@ -280,6 +282,8 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
       return actual === entry.digest ? [] : [{ collection: entry.collection, id: entry.id, expected: entry.digest, actual }]
     })
     if (mismatches.length) throw host.mismatch("schedule", mismatches)
+    // A draft in progress cannot be scheduled: its run would publish nothing.
+    await host.validate(expect)
     if (digests.every(digest => digest.draft === digest.published)) {
       throw invalid(`schedule() has nothing to publish: ${expect.map(entry => contentScheduleKey(entry.collection, entry.id)).join(", ")} ${expect.length === 1 ? "is" : "are"} already published as reviewed.`)
     }

@@ -204,7 +204,8 @@ describe("singletons", { timeout: 30_000 }, () => {
       details: { issues: expect.arrayContaining([expect.objectContaining({ field: "name" }), expect.objectContaining({ field: "links", path: [0, "url"] })]) },
     })
     expect(await rejection(settings.save({ data: site, body: "# Hi" }))).toMatchObject({ code: "CONTENT_INVALID", details: { issues: [{ path: ["body"], message: expect.stringContaining("JSON documents have no body") }] } })
-    expect(await rejection(settings.save({ data: { ...site, social: ["nope"] } }))).toMatchObject({ code: "CONTENT_INVALID", details: { issues: [expect.objectContaining({ field: "social", path: [0] })] } })
+    // An invalid field is a draft in progress: stored, with its issues.
+    expect(await settings.save({ data: { ...site, social: ["nope"] } })).toMatchObject({ issues: [expect.objectContaining({ field: "social", path: [0] })] })
   })
 
   it("lists, searches, and stores collections of data files", async () => {

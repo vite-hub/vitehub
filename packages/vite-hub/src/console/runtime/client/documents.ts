@@ -31,6 +31,8 @@ export interface ConsoleDocumentSummary {
   digest: string | null
   id: string
   path: string
+  /** Field issues of the draft. Publish refuses it until they are fixed. */
+  issues?: number
   schedule?: ConsoleDocumentSchedule
   state: ConsoleDocumentState
   title: string
@@ -44,6 +46,8 @@ export interface ConsoleDocumentPublishExpectation {
 }
 
 export interface ConsoleDocumentChange extends ConsoleDocumentPublishExpectation {
+  /** Field issues of the draft. Publish all leaves it out. */
+  issues?: number
   state: Exclude<ConsoleDocumentState, "published">
 }
 
@@ -65,6 +69,8 @@ export interface ConsoleDocument {
   data: Record<string, unknown>
   digest: string
   id: string
+  /** Field issues of a draft saved in progress. It saved, but cannot publish until they are fixed. */
+  issues?: ConsoleFieldIssue[]
   path: string
   revision: string
   schedule?: ConsoleDocumentSchedule
@@ -292,6 +298,11 @@ export function createConsoleDocumentsClient(base: string, section: string): Con
   }
 }
 
+
+/** "Fix 2 fields to publish": why Publish is off for a draft with field issues. */
+export function consoleFixFieldsLabel(count: number): string {
+  return `Fix ${count === 1 ? "1 field" : `${count} fields`} to publish`
+}
 
 /** Returns the field issues of a `CONTENT_INVALID` failure, or undefined for another error. */
 export function consoleFieldIssues(error: unknown): ConsoleFieldIssue[] | undefined {
