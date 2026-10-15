@@ -4,7 +4,7 @@ import type { ProvisionStep } from "./provision.ts"
 import { isPlainObject } from "./object.ts"
 
 export interface ViteHubCliStreams {
-  stderr: { write: (chunk: string | Uint8Array) => unknown }
+  stderr: { write: (chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
 
@@ -82,10 +82,19 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
 
   const write = process.stdout.write
   process.stdout.write = (chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => {
-    stderr.write(chunk)
     const done = typeof encoding === "function" ? encoding : callback
-    done?.()
-    return true
+    let called = false
+    const onComplete = (error?: Error | null) => {
+      called = true
+      done?.(error)
+    }
+    const result = typeof encoding === "function"
+      ? stderr.write(chunk, onComplete)
+      : stderr.write(chunk, encoding, onComplete)
+    // Lightweight test and adapter streams may not implement Node's callback contract.
+    // Complete the callback for those streams while preserving native stream results/errors.
+    if (done && !called && typeof result !== "boolean") done()
+    return result as boolean
   }
   try {
     return await run()
