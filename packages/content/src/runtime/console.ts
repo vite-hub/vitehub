@@ -274,10 +274,13 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > maximumListLimit) throw invalidInput(`limit must be an integer from 1 to ${maximumListLimit}.`)
       return await attempt(async () => {
         const statuses = await collection.status()
+        const authorizedStatuses = (await Promise.all(statuses.map(async (status) =>
+          await content.can({ user: context.user, collection: collection.name, action: "read", id: status.id }) ? status : null,
+        ))).filter((status): status is (typeof statuses)[number] => status !== null)
         const states: Record<ViteHubConsoleDocumentState, number> = { draft: 0, published: 0, changed: 0, deleted: 0 }
-        const statusById = new Map(statuses.map(status => [status.id, status]))
+        const statusById = new Map(authorizedStatuses.map(status => [status.id, status]))
         const changes: ViteHubConsoleDocumentChange[] = []
-        for (const status of statuses) {
+        for (const status of authorizedStatuses) {
           states[status.state]++
           if (status.state !== "published") changes.push({ id: status.id, state: status.state, digest: status.draft })
         }
@@ -289,12 +292,13 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         }
         // Deleted documents exist only on `published`, so that state lists them from there.
         let ref: "draft" | "published" = "draft"
-        if (input.state) {
-          const ids = statuses.filter(status => status.state === input.state).map(status => status.id)
-          if (!ids.length) return { items: [], nextCursor: null, total: 0, states, changes }
-          Object.assign(filter, { id: ids })
-          if (input.state === "deleted") ref = "published"
-        }
+        const authorizedIds = authorizedStatuses.map(status => status.id)
+        if (!authorizedIds.length) return { items: [], nextCursor: null, total: 0, states, changes }
+        Object.assign(filter, { id: input.state
+          ? authorizedStatuses.filter(status => status.state === input.state).map(status => status.id)
+          : authorizedIds })
+        if (input.state && !(filter.id as string[]).length) return { items: [], nextCursor: null, total: 0, states, changes }
+        if (input.state === "deleted") ref = "published"
         const options: ContentListOptions = { ref, filter, limit }
         const search = optionalText(input.search?.trim() || undefined, "search")
         if (search) options.search = search
