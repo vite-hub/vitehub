@@ -1,6 +1,7 @@
 import { defineConfig } from "vite-plus";
 
 import { normalizePackageExports } from "@vite-hub/internal/package-exports"
+import packageManifest from "./package.json" with { type: "json" };
 
 export default defineConfig({
   pack: {
@@ -24,7 +25,10 @@ export default defineConfig({
       "src/runtime/vercel-vite.ts",
     ],
     exports: {
-      customExports: normalizePackageExports,
+      customExports: (exports) => normalizePackageExports({
+        ...packageManifest.exports,
+        ...exports,
+      }),
       inlinedDependencies: false,
     },
     outExtensions: () => ({

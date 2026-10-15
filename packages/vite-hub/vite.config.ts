@@ -349,6 +349,7 @@ export default defineConfig({
         delete exports["./console/auth-cloudflare-access"];
         delete exports["./console/auth-inline"];
         return normalizePackageExports({
+          ...frameworkPackageManifest.exports,
           ...exports,
           "./console/auth/client": "./dist/console/auth-client.js",
           "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
