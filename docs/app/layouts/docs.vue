@@ -69,10 +69,6 @@ const docsShellUi = {
   margin-top: auto;
 }
 
-.vh-docs-landing {
-  max-width: var(--vh-landing-width);
-}
-
 @media (min-width: 40rem) {
   .vh-docs-main,
   .vh-docs-landing {
@@ -91,6 +87,10 @@ const docsShellUi = {
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
+  }
+
+  .vh-docs-content {
+    flex: 1;
   }
 }
 </style>
