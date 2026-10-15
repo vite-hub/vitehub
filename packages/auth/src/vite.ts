@@ -249,7 +249,7 @@ function splitSetCookieHeader(value: string): string[] {
   let inAttributes = false
   let unknownAttribute = false
   let unknownAttributeHasValue = false
-  let deferredCookieBoundary = false
+  let deferredCookieBoundary: number | undefined
   for (let index = 0; index < value.length; index++) {
     const character = value[index]
     if (character === ";") {
@@ -268,8 +268,8 @@ function splitSetCookieHeader(value: string): string[] {
     if (inAttributes && unknownAttribute && unknownAttributeHasValue) {
       // An unknown extension value may contain commas and name-like pairs.
       // Defer the first candidate; a later candidate is the unambiguous next cookie.
-      if (!deferredCookieBoundary) {
-        deferredCookieBoundary = true
+      if (deferredCookieBoundary === undefined) {
+        deferredCookieBoundary = index
         continue
       }
     }
@@ -278,7 +278,11 @@ function splitSetCookieHeader(value: string): string[] {
     inAttributes = false
     unknownAttribute = false
     unknownAttributeHasValue = false
-    deferredCookieBoundary = false
+    deferredCookieBoundary = undefined
+  }
+  if (deferredCookieBoundary !== undefined) {
+    values.push(value.slice(start, deferredCookieBoundary).trim())
+    start = deferredCookieBoundary + 1
   }
   values.push(value.slice(start).trim())
   return values.filter(Boolean)
