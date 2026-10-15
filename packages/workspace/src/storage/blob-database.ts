@@ -54,7 +54,7 @@ function publicRevision(row: RevisionRow): WorkspaceRevision {
 
 class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   #namespace: Promise<string[]>
-  #ready?: Promise<void>
+  #ready?: Promise<string>
   // The working tree follows the default ref and lives only in this instance.
   #draft?: Promise<{ store: WorkspaceStore, head: WorkspaceRevision | null }>
   #dirty = false
@@ -114,15 +114,14 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const candidates = await this.#namespace
     this.#ready ??= this.options.database.transaction(async tx => {
       const existing = await tx.select({ workspace: workspaces.workspace }).from(workspaces).where(inArray(workspaces.workspace, candidates))
-      const workspace = candidates.find(candidate => existing.some(row => row.workspace === candidate)) ?? candidates[0]!
-      await tx.insert(workspaces).values({ workspace }).onConflictDoNothing()
-    }).then(() => {}, error => {
+      const selected = candidates.find(candidate => existing.some(row => row.workspace === candidate)) ?? candidates[0]!
+      await tx.insert(workspaces).values({ workspace: selected }).onConflictDoNothing()
+      return selected
+    }).catch(error => {
       this.#ready = undefined
       throw error
     })
-    await this.#ready
-    const existing = await this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(inArray(workspaces.workspace, candidates))
-    return candidates.find(candidate => existing.some(row => row.workspace === candidate)) ?? candidates[0]!
+    return await this.#ready
   }
 
   #active(workspace: string) {
