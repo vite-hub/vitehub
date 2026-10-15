@@ -308,16 +308,6 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   }
 }
 
-function isNativeFunction(value: unknown): value is (...args: never[]) => unknown {
-  if (typeof value !== "function") return false
-  try {
-    return Function.prototype.toString.call(value).includes("[native code]")
-  }
-  catch {
-    return false
-  }
-}
-
 function hasResponsePrototype(value: unknown): boolean {
   try {
     let prototype: object | null = Object.getPrototypeOf(Object(value))
@@ -403,10 +393,6 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       if (typeof descriptor?.get !== "function") throw new Error("Malformed authorization response")
       const owner = responsePropertyDescriptor(Object.getPrototypeOf(candidate), key)
       if (descriptor?.get !== owner?.get) throw new Error("Malformed authorization response")
-      const constructor = responsePropertyDescriptor(Object.getPrototypeOf(candidate), "constructor")?.value
-      if (isNativeFunction(descriptor.get) && !isNativeFunction(constructor)) {
-        throw new Error("Malformed authorization response")
-      }
       return [key, descriptor.get]
     })) as Record<(typeof authorizationResponseProperties)[number], () => unknown>
     const status: unknown = Reflect.apply(descriptors.status, candidate, [])
@@ -420,6 +406,14 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     if (headers === null || Object(headers) !== headers) return
 
     const headerCarrier = Object(headers)
+    // Require the Headers internal slots before accepting a response snapshot.
+    // Method names and prototypes can be forged, but native brand operations fail
+    // unless the value was created by a Web Headers implementation.
+    const nativeHeadersGet = Object.getOwnPropertyDescriptor(Headers.prototype, "get")?.value
+    const nativeHeadersForEach = Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value
+    if (typeof nativeHeadersGet !== "function" || typeof nativeHeadersForEach !== "function") return
+    Reflect.apply(nativeHeadersGet, headers, ["content-type"])
+    Reflect.apply(nativeHeadersForEach, headers, [() => {}])
     const snapshot = { status, statusText, headers, body }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
