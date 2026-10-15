@@ -346,6 +346,8 @@ export interface ContentCollectionsRuntime {
   collection(name: string): ContentCollection
   publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
   revisions(collection: string, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /** Content revisions of every collection on one ref, newest first. */
+  history(options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** A Comark Source over the `published` ref of one collection. `withRef("draft")` pins the draft. */
   comarkSource(name: string): ContentHistorySource
   /** Called after `publish()` changes the `published` ref, with the affected collection names. */
@@ -380,12 +382,14 @@ function assertRef(ref: unknown, fallback: ContentRef): ContentRef {
   return ref as ContentRef
 }
 
-function revisionTouches(revision: WorkspaceRevision, collection: string, id: string): boolean {
+function revisionDocuments(revision: WorkspaceRevision): unknown[] {
   const content: unknown = revision.metadata?.content
   const documents: unknown = content !== null && Object(content) === content ? Reflect.get(Object(content), "documents") : undefined
-  return Array.isArray(documents) && documents.some(document =>
-    document !== null && Object(document) === document
-    && Reflect.get(document, "collection") === collection && Reflect.get(document, "id") === id)
+  return Array.isArray(documents) ? documents.filter(document => document !== null && Object(document) === document) : []
+}
+
+function revisionTouches(revision: WorkspaceRevision, collection: string, id: string): boolean {
+  return revisionDocuments(revision).some(document => Reflect.get(Object(document), "collection") === collection && Reflect.get(Object(document), "id") === id)
 }
 
 function writeMetadata(metadata: Record<string, unknown> | undefined, content: Record<string, unknown>): Record<string, unknown> {
@@ -1021,9 +1025,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
   }
 
-  async function documentRevisions(collection: string, id: string, revisionOptions: ContentRevisionsOptions = {}): Promise<ContentRevisionsResult> {
-    const runtime = requireCollection(collection)
-    runtime.pathFor(id)
+  /** Walks one ref newest first and keeps the revisions that `matches` accepts, scanning at most 1,000 per call. */
+  async function scanRevisions(revisionOptions: ContentRevisionsOptions, matches: (revision: WorkspaceRevision) => boolean): Promise<ContentRevisionsResult> {
     const ref = assertRef(revisionOptions.ref, "draft")
     const limit = revisionOptions.limit ?? 20
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
@@ -1037,13 +1040,24 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const page = await retained.list({ ref, limit: 100, cursor })
       for (const revision of page.revisions) {
         scanned++
-        if (!revisionTouches(revision, runtime.name, id)) continue
+        if (!matches(revision)) continue
         found.push(revision)
         if (found.length === limit) return { revisions: found, cursor: revision.id }
       }
       cursor = page.cursor
     } while (cursor && scanned < maxRevisionScan)
     return cursor ? { revisions: found, cursor } : { revisions: found }
+  }
+
+  async function documentRevisions(collection: string, id: string, revisionOptions: ContentRevisionsOptions = {}): Promise<ContentRevisionsResult> {
+    const runtime = requireCollection(collection)
+    runtime.pathFor(id)
+    return await scanRevisions(revisionOptions, revision => revisionTouches(revision, runtime.name, id))
+  }
+
+  /** Revisions that Content wrote for documents of a defined collection, such as saves and publishes. */
+  async function contentHistory(revisionOptions: ContentRevisionsOptions = {}): Promise<ContentRevisionsResult> {
+    return await scanRevisions(revisionOptions, revision => revisionDocuments(revision).some(document => collections.has(String(Reflect.get(Object(document), "collection")))))
   }
 
   function comarkSource(name: string, ref: ContentRef = "published"): ContentHistorySource {
@@ -1082,6 +1096,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     collection: name => requireCollection(name).collection,
     publish,
     revisions: documentRevisions,
+    history: contentHistory,
     comarkSource: name => comarkSource(name),
     onPublish: listener => {
       publishListeners.push(listener)

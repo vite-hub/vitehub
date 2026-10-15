@@ -10,6 +10,7 @@ import {
   isViteHubConsoleSectionId,
   readViteHubConsoleActionFailure,
   readViteHubConsoleSection,
+  resolveViteHubConsoleSectionPages,
   viteHubConsoleDocumentActionNames,
 } from "../src/console.ts"
 
@@ -133,7 +134,40 @@ describe("Console section contributions", () => {
     // Collections are read from the owner actions on each request.
     await expect(readViteHubConsoleSection(editor, { rootDir: "/app" })).resolves.toEqual({ collections: [], kind: "document-editor" })
     expect(() => describeViteHubConsoleDocumentActions({ ...editor, actions: { export: "create", module: "../local.ts" } })).toThrow(TypeError)
-    expect(viteHubConsoleDocumentActionNames).toEqual(["get", "list", "publish", "raw", "remove", "restore", "revisions", "save"])
+    expect(viteHubConsoleDocumentActionNames).toEqual(["get", "list", "overview", "publish", "raw", "remove", "restore", "revisions", "save", "search"])
+  })
+
+  it("describes section pages with one index page and resolves their required sections", () => {
+    const editor: ViteHubConsoleSectionContribution = {
+      actions: { export: "createWidgetDocumentActions", module: "@vite-hub/widget/runtime/console" },
+      description: "Edit widget documents.",
+      entry: () => "/app/server/widgets.ts",
+      icon: "i-lucide-file-pen-line",
+      id: "widget-docs",
+      label: "Widget Docs",
+      pages: [
+        { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },
+        { id: "media", label: "Media", icon: "i-lucide-image", group: " Assets ", requires: ["blob"], view: { kind: "media-library" } },
+      ],
+      view: { kind: "document-editor", notice: "Documents live in the widget store." },
+    }
+    const descriptor = describeViteHubConsoleSection(editor)
+    expect(descriptor.pages).toEqual([
+      { icon: "i-lucide-layout-dashboard", id: "dashboard", index: true, label: "Dashboard", view: { kind: "document-dashboard" } },
+      { group: "Assets", icon: "i-lucide-image", id: "media", label: "Media", requires: ["blob"], view: { kind: "media-library" } },
+    ])
+    // The host drops pages whose required sections the project does not enable, and keeps `requires` on the server.
+    expect(resolveViteHubConsoleSectionPages(descriptor, ["content"]).map(page => page.id)).toEqual(["dashboard"])
+    expect(resolveViteHubConsoleSectionPages(descriptor, ["content", "blob"])[1]).toEqual({ group: "Assets", icon: "i-lucide-image", id: "media", label: "Media", view: { kind: "media-library" } })
+    expect(resolveViteHubConsoleSectionPages(describeViteHubConsoleSection(table), [])).toEqual([])
+
+    const page = editor.pages![0]!
+    expect(() => describeViteHubConsoleSection({ ...editor, pages: [{ ...page, id: "-" }] })).toThrow(/route segment/)
+    expect(() => describeViteHubConsoleSection({ ...editor, pages: [page, page] })).toThrow(/twice/)
+    expect(() => describeViteHubConsoleSection({ ...editor, pages: [page, { ...page, id: "other" }] })).toThrow(/more than one index/)
+    expect(() => describeViteHubConsoleSection({ ...editor, pages: [{ ...page, view: { kind: "calendar" } as never }] })).toThrow(/unknown view/)
+    expect(() => describeViteHubConsoleSection({ ...editor, pages: [{ ...page, requires: ["Blob"] }] })).toThrow(/section ids/)
+    expect(() => describeViteHubConsoleSection({ ...table, pages: [page] })).toThrow(/only document editor sections/)
   })
 
   it("marks action failures that the Console may return", () => {

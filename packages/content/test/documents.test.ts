@@ -272,6 +272,13 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(restored).toMatchObject({ body: hello.body, digest: first.digest })
     expect(await posts.status("hello")).toMatchObject({ state: "changed" })
     expect((await content.revisions("posts", "hello")).revisions[0]).toMatchObject({ id: restored.revision, metadata: { content: { action: "restore" } } })
+
+    // Without a document, revisions() lists the Content revisions of every collection on one ref.
+    const recent = await content.revisions()
+    expect(recent.revisions.map(revision => revision.id)).toEqual([restored.revision, second.revision, expect.any(String), first.revision])
+    expect(recent.revisions[2]).toMatchObject({ metadata: { content: { action: "save", documents: [{ collection: "posts", id: "other" }] } } })
+    expect((await content.revisions({ limit: 2 })).cursor).toBe(second.revision)
+    expect((await content.revisions({ ref: "published" })).revisions).toEqual([expect.objectContaining({ metadata: expect.objectContaining({ content: expect.objectContaining({ action: "publish" }) }) })])
   })
 
   it("lists with filters, search, sort, facets, totals, and cursors", async () => {

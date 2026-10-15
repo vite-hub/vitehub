@@ -7,14 +7,20 @@ import { useRoute, useRouter } from "vue-router";
 import type { CommandPaletteGroup, CommandPaletteItem } from "@nuxt/ui"
 import type { Collection } from "@vite-hub/source"
 import type { AgentInvocationListItem } from "@vite-hub/ui"
+import type { ConsoleDocumentOverview, ConsoleDocumentSearchResult, ConsoleDocumentState } from "../client/documents"
+import type { ConsoleContributedSection, ConsoleDocumentCollection } from "../definitions"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
-import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance"
+import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances, consoleDarkSchemeQuery } from "../client/appearance"
+import { consoleDocumentStateColor, consoleDocumentStateLabel, consoleErrorMessage, consolePublishMismatches, consoleSingularLabel, createConsoleDocumentsClient } from "../client/documents"
+import { publishConsoleDocumentChanges } from "../client/publish"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
 import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections"
 import type { ConsoleNavigation } from "../client/sections"
 import { relativeDuration } from "../client/time"
+import { useConsoleToast } from "../client/toast"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
-import { consoleOverviewShortcut, consoleSectionDetails, consoleSectionShortcut, groupConsoleSections } from "../sections"
+import { parseConsoleSectionContent } from "../definitions"
+import { consoleOverviewShortcut, consoleSectionDetails, consoleSectionPageRouteName, consoleSectionRouteName, consoleSectionShortcut, groupConsoleSections } from "../sections"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 
@@ -42,6 +48,27 @@ interface ConsoleDefinitionSearchItem {
 interface ConsoleKVSearchItem {
   key: string
   store: string
+}
+
+/** A document editor section that the user may open, with what search needs from it. */
+interface ConsoleDocumentSearchSection {
+  collections: ConsoleDocumentCollection[]
+  details: ConsoleContributedSection
+  overview?: ConsoleDocumentOverview
+}
+
+interface ConsoleDocumentSearchItem {
+  collection: ConsoleDocumentCollection
+  id: string
+  section: ConsoleDocumentSearchSection
+  state?: ConsoleDocumentState
+  title: string
+}
+
+/** Extra words that find an item, such as `images` for Media (cmdk keyword aliases). */
+const pageKeywords: Readonly<Record<string, readonly string[]>> = {
+  "document-dashboard": ["home", "overview", "stats", "activity"],
+  "media-library": ["images", "files", "uploads", "assets", "library"],
 }
 
 declare global {
@@ -83,7 +110,16 @@ const sessionSearchEnabled = ref(false)
 let navigationRequest: AbortController | undefined
 let sessionRequest: AbortController | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
-const emit = defineEmits<{ selectPage: []; selectSession: [] }>()
+const emit = defineEmits<{ changed: []; selectPage: []; selectSession: [] }>()
+const toast = useConsoleToast()
+// Document actions live next to the section list, as `/api/_vitehub/console/documents`.
+const documentsBase = props.sectionsBase.replace(/\/sections$/, "/documents")
+const documentSections = ref<ConsoleDocumentSearchSection[]>([])
+const documentResults = ref<ConsoleDocumentSearchItem[]>([])
+const documentSearchPending = ref(false)
+const documentSearchError = ref<unknown>()
+const publishingAll = ref(false)
+let documentRequest: AbortController | undefined
 
 const agentsEnabled = computed(() => sections.value.includes("agents"));
 const availableAgentNames = computed(() => props.agentNames ?? discoveredAgentNames.value);
@@ -141,7 +177,185 @@ const kvSearchItems = computed<CommandPaletteItem[]>(() =>
     onSelect: () => selectKVKey(item),
   })),
 )
-const paletteError = computed(() => navigationError.value || sessionSearch.error.value)
+const paletteError = computed(() => navigationError.value || sessionSearch.error.value || documentSearchError.value)
+
+function documentRoute(item: Pick<ConsoleDocumentSearchItem, "collection" | "id" | "section">) {
+  return {
+    name: resolveConsoleRouteName(route.name, consoleSectionRouteName(item.section.details.id)),
+    params: { collection: item.collection.name, document: item.id.split("/") },
+    query: {},
+  }
+}
+
+/** ⌘ Enter or Ctrl Enter, and ⌘-click, open the item in a new tab. */
+function opensNewTab(event?: Event): boolean {
+  const original: unknown = event instanceof CustomEvent ? Reflect.get(Object(event.detail), "originalEvent") : event
+  return original instanceof KeyboardEvent || original instanceof MouseEvent ? original.metaKey || original.ctrlKey : false
+}
+
+async function openLocation(location: Parameters<typeof router.push>[0], event?: Event): Promise<void> {
+  open.value = false
+  if (opensNewTab(event)) {
+    window.open(router.resolve(location).href, "_blank", "noopener")
+    return
+  }
+  emit("selectPage")
+  await router.push(location)
+}
+
+function documentItem(item: ConsoleDocumentSearchItem): CommandPaletteItem {
+  return {
+    label: item.title,
+    suffix: `${item.collection.label} · ${item.id}`,
+    slot: "document",
+    state: item.state,
+    stateLabel: item.state ? consoleDocumentStateLabel(item.state) : undefined,
+    onSelect: (event: Event) => void openLocation(documentRoute(item), event),
+  }
+}
+
+// With no query, the Content group shows recently changed documents from the overview.
+const recentDocumentItems = computed<ConsoleDocumentSearchItem[]>(() => {
+  const seen = new Set<string>()
+  return documentSections.value.flatMap(section => (section.overview?.activity ?? []).flatMap((entry) => {
+    if (entry.action === "remove") return []
+    return entry.documents.flatMap((document) => {
+      const collection = section.collections.find(candidate => candidate.name === document.collection)
+      const key = `${section.details.id}:${document.collection}/${document.id}`
+      if (!collection || seen.has(key)) return []
+      seen.add(key)
+      const change = section.overview?.collections.find(candidate => candidate.name === document.collection)?.changes.find(candidate => candidate.id === document.id)
+      return [{ collection, id: document.id, section, state: change?.state ?? "published", title: document.title }]
+    })
+  })).slice(0, 5)
+})
+
+const pendingPublish = computed(() => documentSections.value.flatMap(section => (section.overview?.collections ?? []).flatMap((entry) => {
+  const collection = section.collections.find(candidate => candidate.name === entry.name)
+  return collection?.access.publish ? entry.changes.map(change => ({ change, collection, section })) : []
+})))
+
+async function publishAll(): Promise<void> {
+  const targets = pendingPublish.value
+  if (publishingAll.value || !targets.length) return
+  open.value = false
+  publishingAll.value = true
+  try {
+    let count = 0
+    for (const section of new Set(targets.map(entry => entry.section))) {
+      const client = createConsoleDocumentsClient(documentsBase, section.details.id)
+      count += await publishConsoleDocumentChanges(client, targets.filter(entry => entry.section === section).map(entry => ({ change: entry.change, collection: entry.collection.name })))
+    }
+    toast.show({ title: count === 1 ? "Change published" : `${count} changes published` })
+  }
+  catch (publishError) {
+    const moved = consolePublishMismatches(publishError)
+    toast.error(moved ? "A draft changed after search loaded it. Open search and publish again." : `Couldn't publish. ${consoleErrorMessage(publishError, "Try again.")}`)
+  }
+  finally {
+    publishingAll.value = false
+    emit("changed")
+  }
+}
+
+const contentActions = computed<CommandPaletteItem[]>(() => [
+  ...documentSections.value.flatMap(section => section.collections.filter(collection => collection.access.write).map((collection): CommandPaletteItem => {
+    const noun = consoleSingularLabel(collection.label)
+    return {
+      icon: "i-lucide-plus",
+      keywords: ["create", "add", "write", "draft", collection.name, collection.label],
+      label: `New ${noun === "Document" ? `${collection.label} document` : noun.toLowerCase()}`,
+      onSelect: (event: Event) => void openLocation({
+        name: resolveConsoleRouteName(route.name, consoleSectionRouteName(section.details.id)),
+        params: { collection: collection.name, document: [] },
+        query: { new: "1" },
+      }, event),
+    }
+  })),
+  // A nested page lists what would publish, so the reader reviews it before confirming. Backspace goes back.
+  ...(pendingPublish.value.length
+    ? [{
+        children: [
+          {
+            icon: "i-lucide-upload",
+            label: pendingPublish.value.length === 1 ? "Publish 1 change" : `Publish ${pendingPublish.value.length} changes`,
+            loading: publishingAll.value,
+            onSelect: () => void publishAll(),
+          },
+          ...pendingPublish.value.map(({ change, collection, section }) => ({
+            label: change.title,
+            suffix: `${collection.label} · ${change.id}`,
+            slot: "document",
+            state: change.state,
+            stateLabel: consoleDocumentStateLabel(change.state),
+            onSelect: (event: Event) => void openLocation(change.state === "deleted"
+              ? { name: resolveConsoleRouteName(route.name, consoleSectionRouteName(section.details.id)), params: { collection: collection.name, document: [] }, query: {} }
+              : documentRoute({ collection, id: change.id, section }), event),
+          })),
+        ],
+        icon: "i-lucide-upload",
+        keywords: ["deploy", "release", "ship", "go live", "changes"],
+        label: "Publish all changes",
+        placeholder: "Review the changes, then publish…",
+        suffix: String(pendingPublish.value.length),
+      }]
+    : []),
+])
+
+const themeActions = computed<CommandPaletteItem[]>(() => appearance
+  ? [
+      {
+        icon: "i-lucide-sun-moon",
+        keywords: ["dark", "light", "mode", "appearance", "theme"],
+        label: "Toggle theme",
+        onSelect: () => {
+          const dark = appearance.preference.value === "dark" || (appearance.preference.value === "system" && window.matchMedia(consoleDarkSchemeQuery).matches)
+          appearance.select(dark ? "light" : "dark")
+        },
+      },
+      {
+        children: consoleAppearances.map(option => ({
+          active: appearance.preference.value === option,
+          icon: consoleAppearanceOptions[option].icon,
+          label: consoleAppearanceOptions[option].label,
+          onSelect: () => appearance.select(option),
+        })),
+        icon: consoleAppearanceOptions[appearance.preference.value].icon,
+        keywords: ["appearance", "system", "dark", "light"],
+        label: "Change theme…",
+        placeholder: "Choose a theme…",
+      },
+    ]
+  : [])
+
+/** Pages and collections of the document editor sections, after their section in the Go to group. */
+function documentSectionItems(section: ConsoleSectionId): CommandPaletteItem[] {
+  const entry = documentSections.value.find(candidate => candidate.details.id === section)
+  const details = installedNavigation.value?.contributions[section]
+  if (!details) return []
+  return [
+    ...(details.pages ?? []).map(page => ({
+      icon: page.icon,
+      keywords: [...pageKeywords[page.view.kind] ?? []],
+      label: page.label,
+      suffix: details.label,
+      onSelect: (event: Event) => void openLocation(page.index
+        ? { name: resolveConsoleRouteName(route.name, consoleSectionRouteName(section)), params: { collection: "", document: [] }, query: {} }
+        : { name: resolveConsoleRouteName(route.name, consoleSectionPageRouteName(section, page.id)), query: {} }, event),
+    })),
+    ...(entry?.collections ?? []).map(collection => ({
+      icon: "i-lucide-files",
+      keywords: ["collection", "documents", collection.name],
+      label: collection.label,
+      suffix: `${details.label} collection`,
+      onSelect: (event: Event) => void openLocation({
+        name: resolveConsoleRouteName(route.name, consoleSectionRouteName(section)),
+        params: { collection: collection.name, document: [] },
+        query: {},
+      }, event),
+    })),
+  ]
+}
 const groups = computed<CommandPaletteGroup[]>(() => [
   ...(paletteError.value
     ? [{
@@ -156,8 +370,12 @@ const groups = computed<CommandPaletteGroup[]>(() => [
         label: "Search status",
       }]
     : []),
-  ...(props.actions?.length
-    ? [{ id: "actions", items: props.actions, label: "Actions" }]
+  // With a query, document matches lead: finding a document is what search is for most often.
+  ...(debouncedSearchTerm.value && documentSections.value.length
+    ? [documentGroup.value]
+    : []),
+  ...(props.actions?.length || contentActions.value.length || themeActions.value.length
+    ? [{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...themeActions.value], label: "Actions" }]
     : []),
   {
     id: "go-to",
@@ -165,6 +383,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
       {
         icon: "i-lucide-layout-grid",
         kbds: [...consoleOverviewShortcut],
+        keywords: ["home", "sections", "start"],
         label: "Overview",
         onSelect: () => selectPage("vitehub-console"),
       },
@@ -180,12 +399,15 @@ const groups = computed<CommandPaletteGroup[]>(() => [
               section,
               slot: "section",
               onSelect: () => selectPage(details.routeName),
-            }]
+            }, ...documentSectionItems(section)]
           : []
       }),
     ],
     label: "Go to",
   },
+  ...(!debouncedSearchTerm.value && recentDocumentItems.value.length
+    ? [{ id: "documents", ignoreFilter: true, items: recentDocumentItems.value.map(documentItem), label: "Recent documents" }]
+    : []),
   ...(agentsEnabled.value && availableAgentNames.value.length
     ? [{
         id: "agents",
@@ -227,21 +449,18 @@ const groups = computed<CommandPaletteGroup[]>(() => [
         },
       ]
     : []),
-  ...(appearance
-    ? [{
-        id: "appearance",
-        items: consoleAppearances.map(option => ({
-          active: appearance.preference.value === option,
-          icon: consoleAppearanceOptions[option].icon,
-          label: consoleAppearanceOptions[option].label,
-          onSelect: () => appearance.select(option),
-        })),
-        label: "Appearance",
-      }]
-    : []),
 ])
+// Server-side matches, so the palette does not filter them again.
+const documentGroup = computed<CommandPaletteGroup>(() => ({
+  id: "documents",
+  ignoreFilter: true,
+  items: documentSearchPending.value && !documentResults.value.length
+    ? [{ disabled: true, icon: "i-lucide-loader-circle", label: "Searching documents…" }]
+    : documentResults.value.map(documentItem),
+  label: "Content",
+}))
 const loading = computed(() =>
-  navigationLoading.value || (agentsEnabled.value && sessionSearch.pending.value),
+  navigationLoading.value || documentSearchPending.value || (agentsEnabled.value && sessionSearch.pending.value),
 )
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -275,7 +494,59 @@ function strings(value: unknown): string[] {
     : []
 }
 
+/** Loads the collections and the overview of each document editor section, for its pages, actions, and recent documents. */
+async function loadDocumentSections(installed: ConsoleSectionId[], signal: AbortSignal): Promise<void> {
+  const sections = installed.flatMap((section) => {
+    const details = installedNavigation.value?.contributions[section]
+    return details?.view.kind === "document-editor" ? [details] : []
+  })
+  documentSections.value = await Promise.all(sections.map(async (details): Promise<ConsoleDocumentSearchSection> => {
+    const client = createConsoleDocumentsClient(documentsBase, details.id)
+    const [content, overview] = await Promise.all([
+      requestConsole(props.definitionsBase, { query: { section: details.id }, signal }).then(value => parseConsoleSectionContent(value, details.id)),
+      // Search still works when the overview fails; it only loses recent documents and Publish all changes.
+      client.overview({ activity: 10 }).catch(() => undefined),
+    ])
+    const entry: ConsoleDocumentSearchSection = { collections: content?.kind === "document-editor" ? [...content.collections] : [], details }
+    if (overview) entry.overview = overview
+    return entry
+  }))
+}
+
+async function searchDocuments(term: string): Promise<void> {
+  documentRequest?.abort()
+  documentResults.value = []
+  documentSearchError.value = undefined
+  if (!term || !documentSections.value.length) {
+    documentSearchPending.value = false
+    return
+  }
+  const controller = new AbortController()
+  documentRequest = controller
+  documentSearchPending.value = true
+  try {
+    const found = await Promise.all(documentSections.value.map(async section => (await createConsoleDocumentsClient(documentsBase, section.details.id).search(term, { limit: 8, signal: controller.signal }))
+      .flatMap((result: ConsoleDocumentSearchResult) => {
+        const collection = section.collections.find(candidate => candidate.name === result.collection)
+        return collection ? [{ collection, id: result.id, section, state: result.state, title: result.title }] : []
+      })))
+    if (documentRequest !== controller) return
+    documentResults.value = found.flat()
+  }
+  catch (error) {
+    if (error instanceof Object && "name" in error && error.name === "AbortError") return
+    if (documentRequest === controller) documentSearchError.value = error
+  }
+  finally {
+    if (documentRequest === controller) {
+      documentRequest = undefined
+      documentSearchPending.value = false
+    }
+  }
+}
+
 async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): Promise<void> {
+  await loadDocumentSections(installed, signal)
   const definitionSections = installed.flatMap((section) => {
     const details = resolveConsoleSectionDetails(installedNavigation.value, section)
     const catalog = section === "databases"
@@ -338,6 +609,7 @@ async function loadNavigation(discoverContent = false): Promise<void> {
     definitionItems.value = []
     kvItems.value = []
     kvSearchTruncated.value = false
+    documentSections.value = []
   }
   try {
     const navigation = await loadConsoleNavigation(props.sectionsBase)
@@ -425,6 +697,7 @@ watch(searchTerm, (value) => {
   searchTimer = setTimeout(() => {
     searchTimer = undefined
     if (open.value) debouncedSearchTerm.value = value.trim()
+    if (open.value) void searchDocuments(debouncedSearchTerm.value)
   }, 150)
 })
 
@@ -434,9 +707,11 @@ watch(open, async (value) => {
     searchTimer = undefined
     navigationRequest?.abort()
     sessionRequest?.abort()
+    documentRequest?.abort()
     return
   }
   await loadNavigation(true);
+  if (open.value && debouncedSearchTerm.value) void searchDocuments(debouncedSearchTerm.value)
   if (!open.value) return
   if (!agentsEnabled.value) return;
   const nextSearchTerm = searchTerm.value.trim()
@@ -453,11 +728,31 @@ defineShortcuts({
   },
 })
 
-onMounted(() => void loadNavigation());
+/**
+ * The listbox ignores Enter with a modifier, so ⌘ Enter and Ctrl Enter click the highlighted item with that modifier.
+ * The item then opens its page in a new tab.
+ */
+function openHighlightedInNewTab(event: KeyboardEvent): void {
+  if (!open.value || event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.isComposing) return
+  const highlighted = document.querySelector('[role="dialog"] [role="option"][data-highlighted]')
+  if (!(highlighted instanceof HTMLElement)) return
+  event.preventDefault()
+  highlighted.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: event.ctrlKey, metaKey: event.metaKey }))
+}
+
+// Server rendering and component tests mount search without a window.
+const browserWindow = (): Window | undefined => ("window" in globalThis ? window : undefined)
+
+onMounted(() => {
+  browserWindow()?.addEventListener("keydown", openHighlightedInNewTab, true)
+  void loadNavigation()
+});
 
 onBeforeUnmount(() => {
+  browserWindow()?.removeEventListener("keydown", openHighlightedInNewTab, true);
   navigationRequest?.abort();
   sessionRequest?.abort();
+  documentRequest?.abort();
   if (searchTimer) clearTimeout(searchTimer);
 });
 </script>
@@ -468,7 +763,8 @@ onBeforeUnmount(() => {
     v-model:search-term="searchTerm"
     :groups="groups"
     :loading="loading"
-    description="Run actions and search pages, Agents, definitions, KV keys, and sessions."
+    :fuse="{ fuseOptions: { keys: ['label', 'description', 'suffix', 'keywords'] } }"
+    description="Run actions and search pages, documents, Agents, definitions, KV keys, and sessions."
     placeholder="Search the Console…"
     preserve-group-order
     title="Search console"
@@ -484,7 +780,7 @@ onBeforeUnmount(() => {
           No matches
         </p>
         <p class="text-xs text-muted">
-          {{ value.trim() ? "Try a page, Agent, definition, key, or session." : "No Console results are available yet." }}
+          {{ value.trim() ? "Try a page, document, Agent, definition, key, or session." : "No Console results are available yet." }}
         </p>
       </div>
     </template>
@@ -492,10 +788,28 @@ onBeforeUnmount(() => {
     <template #section-leading="{ item, ui }">
       <ConsoleSectionIcon :section="item.section" :icon="item.icon" :class="ui.itemLeadingIcon()" />
     </template>
+    <!-- Documents lead with their state dot, as in the Content list. The label next to it is for screen readers. -->
+    <template #document-leading="{ item }">
+      <span class="flex size-5 shrink-0 items-center justify-center">
+        <span
+          class="size-2 rounded-full"
+          :class="{
+            success: 'bg-success',
+            warning: 'bg-warning',
+            error: 'bg-error',
+            neutral: 'ring-1 ring-(--ui-text-dimmed) ring-inset',
+          }[consoleDocumentStateColor(item.state ?? 'draft')]"
+          aria-hidden="true"
+        />
+        <span v-if="item.stateLabel" class="sr-only">{{ item.stateLabel }}</span>
+      </span>
+    </template>
     <template #footer>
       <div class="vitehub-console__search-footer">
         <span><UKbd value="arrowup" size="sm" /><UKbd value="arrowdown" size="sm" /> Navigate</span>
         <span><UKbd value="enter" size="sm" /> Select</span>
+        <span><UKbd value="meta" size="sm" /><UKbd value="enter" size="sm" /> New tab</span>
+        <span><UKbd value="backspace" size="sm" /> Back</span>
         <span><UKbd value="escape" size="sm" /> Close</span>
         <span class="vitehub-console__search-footer-end"><UKbd value="g" size="sm" /> then a key to go to a page</span>
       </div>

@@ -49,12 +49,14 @@ function fakeActions(overrides: Partial<ConsoleDocumentActions> = {}): ConsoleDo
     collections: () => [{ access: { publish: true, read: true, write: true }, label: "Posts", name: "posts", path: "posts/**/*.md", schema: { type: "object" } }],
     get: unused,
     list: unused,
+    overview: unused,
     publish: unused,
     raw: unused,
     remove: unused,
     restore: unused,
     revisions: unused,
     save: unused,
+    search: unused,
     ...overrides,
   }
 }
@@ -124,6 +126,22 @@ describe("Console document editor route", () => {
       await expect(call(method, {}), method).resolves.toMatchObject({ status: 403 })
     }
     await expect(call(consoleRpcMethods.definitions, { query: { section: "kv" } })).resolves.toMatchObject({ status: 403 })
+  })
+
+  it("serves the dashboard and search actions of every section page with the section access", async () => {
+    // Pages have no access scope of their own: `{ sections: ['content'] }` reaches the dashboard, search, and Media.
+    installConsoleAccess({ authorize: () => ({ sections: ["content"] }), mode: "open" })
+    const overview = vi.fn(() => ({ activity: [], collections: [] }))
+    const search = vi.fn((input: unknown) => ({ items: [], input }))
+    install(fakeActions({ overview, search }))
+    await expect(documents("overview", {})).resolves.toEqual({ body: { ok: true, value: { activity: [], collections: [] } }, status: 200 })
+    await expect(documents("search", { query: "launch" })).resolves.toMatchObject({ body: { ok: true, value: { input: { query: "launch" } } }, status: 200 })
+
+    installConsoleAccess({ authorize: () => ({ sections: ["kv"] }), mode: "open" })
+    await expect(documents("overview", {})).resolves.toMatchObject({ status: 403 })
+    await expect(documents("search", { query: "launch" })).resolves.toMatchObject({ status: 403 })
+    expect(overview).toHaveBeenCalledOnce()
+    expect(search).toHaveBeenCalledOnce()
   })
 
   it("reads the collections that the owner allows through the definitions route", async () => {
