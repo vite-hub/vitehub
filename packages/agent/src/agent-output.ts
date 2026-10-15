@@ -883,12 +883,14 @@ function isResponseLike(value: unknown): value is Response {
     // provenance. Genuine streams expose the platform `locked` accessor on
     // their prototype chain; require that non-callable surface before
     // accepting a failed reader probe as the already-locked case.
-    let lockedAccessor = false
+    let lockedAccessor: (() => unknown) | undefined
     let streamPrototype: object | null = Object.getPrototypeOf(body) as object | null
     while (streamPrototype) {
       const descriptor = Object.getOwnPropertyDescriptor(streamPrototype, "locked")
       if (descriptor) {
-        lockedAccessor = hasRuntimeType(descriptor.get, "function")
+        if (hasRuntimeType(descriptor.get, "function")) {
+          lockedAccessor = () => descriptor.get!.call(body)
+        }
         break
       }
       streamPrototype = Object.getPrototypeOf(streamPrototype) as object | null
@@ -899,8 +901,10 @@ function isResponseLike(value: unknown): value is Response {
       reader.releaseLock()
     }
     catch {
-      // A locked genuine stream remains a Response; incompatible objects were
-      // rejected by the intrinsic stream tag check above.
+      // A locked genuine stream remains a Response. Confirm the lock state
+      // through the stream's own accessor so a failed probe on an incompatible
+      // object cannot establish the Response classification.
+      if (lockedAccessor() !== true) return false
     }
     return true
   }
