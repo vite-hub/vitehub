@@ -57,15 +57,17 @@ function isRequest(value: unknown): value is Request {
       const urlGetter = get("url")
       const methodGetter = get("method")
       const bodyUsedGetter = get("bodyUsed")
+      const bodyGetter = get("body")
       const signalGetter = get("signal")
       const methodNames = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
       const methods = methodNames.map(key => Object.getOwnPropertyDescriptor(prototype, key)?.value)
-      if (![headersGetter, urlGetter, methodGetter, bodyUsedGetter, signalGetter].every(getter => typeof getter === "function")) continue
+      if (![headersGetter, urlGetter, methodGetter, bodyUsedGetter, bodyGetter, signalGetter].every(getter => typeof getter === "function")) continue
       if (!methods.every(method => typeof method === "function")) continue
       const headers = headersGetter.call(value)
       urlGetter.call(value)
       methodGetter.call(value)
       const bodyUsed = bodyUsedGetter.call(value)
+      bodyGetter.call(value)
       signalGetter.call(value)
       let headersPrototype: object | null = headers
       let headersGet: unknown
