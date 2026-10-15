@@ -376,6 +376,12 @@ describe("useRealtimeTiptap", () => {
     control(provider, { type: "session", access: "read", epoch: "seed-1" })
     expect(provider.params.epoch).toBe("seed-1")
     expect(realtime.readOnly.value).toBe(true)
+    expect(realtime.readOnlyReason.value).toBe("access")
+    control(provider, { type: "session", access: "read", epoch: "seed-1", reason: "document" })
+    expect(realtime.readOnlyReason.value).toBe("document")
+    control(provider, { type: "session", access: "write", epoch: "seed-1" })
+    expect(realtime.readOnly.value).toBe(false)
+    expect(realtime.readOnlyReason.value).toBeNull()
 
     const remote = new Y.Doc()
     remote.getMap("fields").set("title", "Hello")

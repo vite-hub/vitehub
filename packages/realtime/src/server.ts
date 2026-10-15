@@ -15,7 +15,10 @@ import type {
   RealtimeDocumentAdapter,
   RealtimeDocumentContext,
   RealtimeEditor,
+  RealtimeFieldValue,
+  RealtimeIssue,
   RealtimeLoadedDocument,
+  RealtimeReadOnlyReason,
   RealtimeRegistry,
   RealtimeResetReason,
   RealtimeSaveOptions,
@@ -25,7 +28,18 @@ import type {
 import { createRealtimeIdentity } from "./presence.ts"
 import { AwarenessOwnershipConflict, compactRealtimeAwareness, createRealtimeAwarenessOwners } from "./awareness.ts"
 import { isRealtimeDocumentConflict } from "./conflict.ts"
-import { containsRealtimeState, createRealtimeYDoc, diffRealtimeYDoc, readRealtimeStatus, readRealtimeYDoc, realtimeStatusFingerprint, writeRealtimeStatus } from "./document.ts"
+import {
+  containsRealtimeState,
+  createRealtimeYDoc,
+  diffRealtimeYDoc,
+  keepRealtimeFinalNewline,
+  readRealtimeStatus,
+  readRealtimeYDoc,
+  realtimeCodecReadsBack,
+  realtimeJsonEqual,
+  realtimeStatusFingerprint,
+  writeRealtimeStatus,
+} from "./document.ts"
 import { realtimeMarkdownEditor } from "./editor.ts"
 import {
   decodeWorkspaceChangePayload,
@@ -35,6 +49,7 @@ import {
   messageQueryAwareness,
   messageWorkspaceChange,
   realtimeForbiddenWriteCloseCode,
+  realtimeReadOnlyCode,
   realtimeResetCloseCode,
   realtimeSourceChangedCode,
   realtimeSyncPendingCode,
@@ -73,6 +88,12 @@ export const realtimePersistenceDefaults = Object.freeze({ debounce: 2_000, maxW
 /** Origin of updates that the server writes itself: seeds, stored-form merges, and status. */
 const serverOrigin = Symbol("vitehub.realtime.server")
 
+const readOnlyDocumentMessage = "The editor cannot save this document without loss. The room is read-only."
+const readOnlyDocumentRejection = "This realtime document is read-only: the editor cannot save it without loss."
+const codecReadBackIssue: RealtimeIssue = {
+  message: "The editor cannot read back the Markdown that it saved. Some content can change when the document opens again.",
+}
+
 export function encodeSyncUpdate(update: Uint8Array): Uint8Array {
   const encoder = encoding.createEncoder()
   encoding.writeVarUint(encoder, messageSync)
@@ -104,8 +125,8 @@ export class RealtimeWriteRejected extends Error {
 
 export interface RealtimeSyncOptions {
   maxStateBytes?: number
-  /** Reject any update that changes the document. */
-  readOnly?: boolean
+  /** Reject any update that changes the document. A string replaces the rejection message. */
+  readOnly?: boolean | string
   /** Reject updates that change the server-written `status` map. Default `true`. */
   protectStatus?: boolean
 }
@@ -134,7 +155,8 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
       throw new RealtimeWriteRejected("Realtime update depends on state this room does not have.")
     }
     if (options.readOnly && !Y.equalSnapshots(before, Y.snapshot(candidate))) {
-      throw new RealtimeWriteRejected("This realtime connection is read-only.")
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- `readOnly` is a flag or a rejection message.
+      throw new RealtimeWriteRejected(typeof options.readOnly === "string" ? options.readOnly : "This realtime connection is read-only.")
     }
     if (options.protectStatus !== false && realtimeStatusFingerprint(candidate) !== realtimeStatusFingerprint(document)) {
       throw new RealtimeWriteRejected("Realtime document status is written by the server.")
@@ -227,6 +249,7 @@ interface DocumentRoom extends RoomBase {
   editors: Map<string, RealtimeUser>
   epoch: string
   firstDirtyAt?: number
+  guard: DocumentGuard
   idleTimer?: ReturnType<typeof setTimeout>
   kind: "document"
   operations: number
@@ -240,6 +263,33 @@ interface DocumentRoom extends RoomBase {
 }
 
 type Room = DocumentRoom | EventsRoom
+
+/** What the editor codec reported for the stored document, and the save that would change nothing. */
+interface DocumentGuard {
+  /** Body and fields whose save would leave the stored document as it is. */
+  clean: { body: string, fields: Record<string, RealtimeFieldValue> }
+  /** The stored body ends with a newline; saves keep it when the codec drops it. */
+  finalNewline: boolean
+  issues: RealtimeIssue[]
+  /** `verify()` returned `writable: false`. */
+  readOnly: boolean
+}
+
+async function verifyDocument(editor: RealtimeEditor, loaded: RealtimeLoadedDocument): Promise<DocumentGuard> {
+  const result = await editor.verify?.(loaded.body, { fields: loaded.fields })
+  const finalNewline = loaded.body.endsWith("\n")
+  const fields = Object.fromEntries(Object.entries(loaded.fields ?? {}).filter(([, value]) => value !== undefined))
+  return {
+    clean: { body: keepRealtimeFinalNewline(result?.canonical ?? loaded.body, finalNewline), fields },
+    finalNewline,
+    issues: result?.issues ?? [],
+    readOnly: result?.writable === false,
+  }
+}
+
+function guardStatus(guard: DocumentGuard): { error: string | null, issues: RealtimeIssue[] } {
+  return { error: guard.readOnly ? readOnlyDocumentMessage : null, issues: guard.issues }
+}
 
 interface RealtimeRoomSql {
   exec(query: string, ...bindings: unknown[]): { toArray(): Array<Record<string, unknown>> }
@@ -475,9 +525,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     listen(room, document)
   }
 
-  async function seedDocument(room: Pick<DocumentRoom, "resolved">, loaded: RealtimeLoadedDocument): Promise<Y.Doc> {
+  async function seedDocument(room: Pick<DocumentRoom, "resolved">, loaded: RealtimeLoadedDocument, guard: DocumentGuard): Promise<Y.Doc> {
     const document = await createRealtimeYDoc(room.resolved.editor, loaded)
-    writeRealtimeStatus(document, { digest: loaded.digest, error: null, issues: [], savedAt: null, savedBy: null }, serverOrigin)
+    writeRealtimeStatus(document, { digest: loaded.digest, ...guardStatus(guard), savedAt: null, savedBy: null }, serverOrigin)
     assertRealtimeRoomStateQuota(document)
     return document
   }
@@ -487,6 +537,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return openRoom(key, sql, async () => {
       const context: RealtimeDocumentContext = { authority: sql ? "cloudflare" : "memory", definition: definitionName, documentId }
       const loaded = await resolved.adapter.load(context)
+      const guard = await verifyDocument(resolved.editor, loaded)
       if (sql) documentTables(sql)
       const stored = sql?.exec("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
       const storedDigest = text(stored?.digest) ?? null
@@ -510,6 +561,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           persistedUpdates = updates.length
           dirty = Number(stored?.dirty) === 1 || updates.length > 0
           assertRealtimeRoomStateQuota(document)
+          // The codec may have changed since the room was persisted: show what it reports now.
+          if (guard.readOnly || readRealtimeStatus(document).error === readOnlyDocumentMessage) {
+            writeRealtimeStatus(document, guardStatus(guard), serverOrigin)
+          }
         }
         catch (error) {
           document.destroy()
@@ -517,7 +572,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         }
       }
       else {
-        document = await seedDocument({ resolved }, loaded)
+        document = await seedDocument({ resolved }, loaded, guard)
       }
       const room: DocumentRoom = {
         awareness: createAwareness(document),
@@ -530,6 +585,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         dirty,
         editors: new Map(),
         epoch: restores && storedEpoch ? storedEpoch : crypto.randomUUID(),
+        guard,
         key,
         kind: "document",
         operations: 0,
@@ -632,7 +688,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
 
   function scheduleSave(room: DocumentRoom, delay?: number): void {
     const persistence = room.resolved.persistence
-    if (!persistence || room.destroyed) return
+    if (!persistence || room.destroyed || room.guard.readOnly) return
     const now = Date.now()
     room.firstDirtyAt ??= now
     if (room.idleTimer) clearTimeout(room.idleTimer)
@@ -644,12 +700,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   }
 
   async function reseedRoom(room: DocumentRoom, reason: RealtimeResetReason, loaded?: RealtimeLoadedDocument): Promise<void> {
-    const next = await seedDocument(room, loaded ?? await room.resolved.adapter.load(room.context))
+    const source = loaded ?? await room.resolved.adapter.load(room.context)
+    const guard = await verifyDocument(room.resolved.editor, source)
+    const next = await seedDocument(room, source, guard)
     const previous = { awareness: room.awareness, document: room.document }
     const peers = [...room.peers]
     room.peers.clear()
     room.epoch = crypto.randomUUID()
-    room.digest = loaded?.digest ?? readRealtimeStatus(next).digest
+    room.digest = source.digest
+    room.guard = guard
     room.dirty = false
     room.editors.clear()
     room.firstDirtyAt = undefined
@@ -670,6 +729,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
 
   async function saveRoom(room: DocumentRoom, reason: RealtimeSaveOptions["reason"], force: boolean): Promise<RealtimeSaved | undefined> {
     const { adapter, editor, persistence } = room.resolved
+    if (room.guard.readOnly) {
+      if (!force) return
+      throw new HTTPError({ status: 409, message: readOnlyDocumentMessage, data: { code: realtimeReadOnlyCode } })
+    }
     if (!room.dirty && !(force && room.digest === null)) {
       if (!force) return
       const status = readRealtimeStatus(room.document)
@@ -683,8 +746,26 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const user = editors.at(-1)
     const submitted = new Y.Doc()
     Y.applyUpdate(submitted, Y.encodeStateAsUpdate(room.document))
+    const finishSave = () => {
+      room.retryDelay = 0
+      if (room.revision === revision) {
+        room.dirty = false
+        room.editors.clear()
+      }
+      else scheduleSave(room)
+      persistRoom(room)
+    }
     try {
-      const document = await readRealtimeYDoc(editor, submitted)
+      const written = await readRealtimeYDoc(editor, submitted)
+      const document = { ...written, body: keepRealtimeFinalNewline(written.body, room.guard.finalNewline) }
+      const { clean } = room.guard
+      if (room.digest !== null && document.body === clean.body && realtimeJsonEqual(document.fields, clean.fields)) {
+        // The edits cancel out, or only change the codec's own form of the stored document: write nothing.
+        writeRealtimeStatus(room.document, { error: null }, serverOrigin)
+        finishSave()
+        return { ...readRealtimeStatus(room.document), document }
+      }
+      const readsBack = await realtimeCodecReadsBack(editor, submitted, written.body)
       let result
       try {
         result = await adapter.save(room.context, document, { editors, ifDigest: room.digest, reason, user })
@@ -701,6 +782,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         })
       }
       room.digest = result.digest
+      const storedBody = result.stored?.body ?? document.body
+      room.guard = {
+        clean: { body: storedBody, fields: result.stored?.fields ?? document.fields },
+        finalNewline: storedBody.endsWith("\n"),
+        issues: [],
+        readOnly: false,
+      }
       if (result.stored) {
         const update = await diffRealtimeYDoc(editor, submitted, result.stored)
         if (update.byteLength > 0) Y.applyUpdate(room.document, update, serverOrigin)
@@ -708,18 +796,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       const status = {
         digest: result.digest,
         error: null,
-        issues: result.issues ?? [],
+        issues: readsBack ? result.issues ?? [] : [...result.issues ?? [], codecReadBackIssue],
         savedAt: new Date().toISOString(),
         savedBy: user ?? null,
       }
       writeRealtimeStatus(room.document, status, serverOrigin)
-      room.retryDelay = 0
-      if (room.revision === revision) {
-        room.dirty = false
-        room.editors.clear()
-      }
-      else scheduleSave(room)
-      persistRoom(room)
+      finishSave()
       return { ...status, document: { ...document, ...result.stored, fields: result.stored?.fields ?? document.fields } }
     }
     catch (error) {
@@ -869,7 +951,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         room.peers.add(peer)
         peer.subscribe(room.channel)
         if (room.kind === "document") {
-          peer.send(encodeRealtimeControl({ type: "session", access: writable ? "write" : "read", epoch: room.epoch }))
+          const reason: RealtimeReadOnlyReason | undefined = room.guard.readOnly ? "document" : writable ? undefined : "access"
+          peer.send(encodeRealtimeControl(reason
+            ? { type: "session", access: "read", epoch: room.epoch, reason }
+            : { type: "session", access: "write", epoch: room.epoch }))
         }
         peer.send(encodeSyncStep1(room.document))
         const clients = [...room.awareness.getStates().keys()]
@@ -986,7 +1071,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
             }
             peerSyncUpdateAt.set(peer, now)
           }
-          const response = applyRealtimeSyncMessage(data, room.document, peer, { readOnly: !writable })
+          const readOnly = room.guard.readOnly ? readOnlyDocumentRejection : !writable
+          const response = applyRealtimeSyncMessage(data, room.document, peer, { readOnly })
           if (response) peer.send(response)
         }
         catch (error) {
