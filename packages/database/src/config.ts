@@ -309,12 +309,26 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
   const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
   seen.add(identifier)
-  const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const match = new RegExp(`(?:^|[;\\n\\r])\\s*(?:const|let|var)\\s+${escapedIdentifier}\\s*=\\s*([^;]+)`, 's').exec(maskCommentsAndStrings(source))
-  if (!match) return undefined
-  const original = source.slice(match.index, match.index + match[0].length)
-  const declaration = /=\s*([\s\S]+)/.exec(original)?.[1]
-  return readOpaqueResourceOwnership(declaration, source, seen) ?? false
+  const masked = maskCommentsAndStrings(source)
+  const declarationPattern = /(?:^|[;\n\r])\s*(?:export\s+)?(?:const|let|var)\s+([^;]+)/g
+  for (const match of masked.matchAll(declarationPattern)) {
+    let depth = 0
+    for (const char of masked.slice(0, match.index)) {
+      if (char === "{") depth++
+      else if (char === "}") depth--
+    }
+    if (depth !== 0) continue
+    const declarations = splitTopLevel(match[1]!)
+    for (const declaration of declarations) {
+      const name = /^\s*([A-Za-z_$][\w$]*)\s*=/.exec(declaration)?.[1]
+      if (name !== identifier) continue
+      const relativeOffset = match[0].indexOf(match[1]!) + declaration.indexOf("=") + 1
+      const sourceOffset = match.index + relativeOffset
+      const value = stripLeadingEntryComments(source.slice(sourceOffset).split(";", 1)[0])
+      return readOpaqueResourceOwnership(value, source, seen)
+    }
+  }
+  return undefined
 }
 
 function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource?: boolean, value?: CloudflareD1BindingConfig } {
