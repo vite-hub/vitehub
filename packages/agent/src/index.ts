@@ -5160,12 +5160,7 @@ function withEagerStreamUsageExtensions<
     }
     finally {
       if (!extensionsRun) {
-        const source = result && hasRuntimeType(result, "object") ? result as Record<string, unknown> : undefined
-        const usageRecord = usageRecordFromStreamChunk({
-          type: "finish",
-          usage: source?.usage,
-          totalUsage: source?.totalUsage,
-        }, result)
+        const usageRecord = await resolveAgentUsageRecord(result, context.run)
         await runExtensions(usageRecord)
         if (usageRecord) yield { type: "usage", usageRecord }
       }

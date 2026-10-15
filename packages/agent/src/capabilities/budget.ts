@@ -90,10 +90,13 @@ function validateOptions(options: AgentBudgetOptions): { tokens: AgentBudgetToke
 function budgetExceeded(usage: AgentUsage | undefined, cost: AgentUsageRecord["cost"], limits: ReturnType<typeof validateOptions>): AgentBudgetExceeded[] {
   if (!usage && !cost) return []
   const exceeded: AgentBudgetExceeded[] = []
+  const totalTokens = usage?.totalTokens ?? (usage?.inputTokens !== undefined && usage?.outputTokens !== undefined
+    ? usage.inputTokens + usage.outputTokens
+    : undefined)
   const checks: Array<[AgentBudgetExceeded["metric"], number | undefined, number | undefined]> = [
     ["inputTokens", usage?.inputTokens, limits.tokens.input],
     ["outputTokens", usage?.outputTokens, limits.tokens.output],
-    ["totalTokens", usage?.totalTokens, limits.tokens.total],
+    ["totalTokens", totalTokens, limits.tokens.total],
   ]
   for (const [metric, actual, limit] of checks) {
     if (actual !== undefined && limit !== undefined && actual > limit) exceeded.push({ actual, limit, metric })
@@ -111,7 +114,9 @@ function outputTokenLimit(tokens: AgentBudgetTokenLimits): number | undefined {
 export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
   const id = options.id || "budget"
   const limits = validateOptions(options)
-  const pricing = options.pricing === false ? undefined : options.pricing || modelsDevPricing()
+  const pricing = options.pricing === false
+    ? undefined
+    : options.pricing || (limits.usd !== undefined ? modelsDevPricing() : undefined)
   const mode = options.mode || "observe"
 
   const metadata = { kind: "budget", mode, tokens: limits.tokens }
