@@ -511,7 +511,7 @@ export interface ViteHubConsoleDocumentReference {
   refs: Array<"draft" | "published">
 }
 
-/** The documents that use each pathname, in collections the user may read. Pathnames without users map to `[]`. */
+/** The documents that use each pathname, among the documents the user may read. Pathnames without users map to `[]`. */
 export interface ViteHubConsoleDocumentReferences {
   references: Record<string, ViteHubConsoleDocumentReference[]>
 }
