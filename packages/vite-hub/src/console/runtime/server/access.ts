@@ -68,33 +68,29 @@ function rejection(status: number, message: string): Response {
   })
 }
 
-function isResponse(value: unknown): value is Response {
-  if (value instanceof Response) return true
-  if (value === null || (typeof value !== "object" && typeof value !== "function")) return false
+async function authorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value instanceof Response) return value
+  if (value === null || typeof value !== "object") return
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    let current: object | null = value
-    let status: (() => unknown) | undefined
-    while (current) {
-      const descriptor = Object.getOwnPropertyDescriptor(current, "status")
-      if (descriptor?.get) {
-        status = descriptor.get
-        break
-      }
-      current = Object.getPrototypeOf(current)
-    }
-    if (!status) return false
-    status.call(value)
-    const prototype = Object.getPrototypeOf(value)
-    if (!prototype) return false
-    return ["body", "bodyUsed", "headers", "ok", "statusText", "type", "url", "clone", "text"].every(key => {
-      let owner: object | null = prototype
-      while (owner && !Object.prototype.hasOwnProperty.call(owner, key)) owner = Object.getPrototypeOf(owner)
-      return owner !== null
-    })
+    if (Object.prototype.toString.call(value) !== "[object Response]") return
+    if (Object.prototype.hasOwnProperty.call(value, Symbol.toStringTag)) return
+    const headers = Reflect.get(value, "headers")
+    const status = Reflect.get(value, "status")
+    const statusText = Reflect.get(value, "statusText")
+    if (typeof status !== "number" || typeof statusText !== "string" || !headers || typeof headers !== "object") return
+    const clone = Reflect.get(value, "clone")
+    if (typeof clone !== "function") return
+    const cloned = Reflect.apply(clone, value, [])
+    if (!cloned || typeof cloned !== "object" || cloned === value || Object.getPrototypeOf(cloned) !== Object.getPrototypeOf(value)) return
+    const arrayBuffer = Reflect.get(cloned, "arrayBuffer")
+    if (typeof arrayBuffer !== "function") return
+    const body = Reflect.get(value, "body")
+    const init = { headers: new Headers(headers as Headers), status, statusText }
+    if (body === null) return new Response(null, init)
+    return new Response(await Reflect.apply(arrayBuffer, cloned, []), init)
   }
   catch {
-    return false
+    return
   }
 }
 
@@ -156,7 +152,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   if (policy.authorize) {
     const request = webRequest(event)
     const result: unknown = await policy.authorize(user ? { request, user } : { request })
-    if (isResponse(result)) return result
+    const response = await authorizationResponse(result)
+    if (response) return response
     if (result === false) return rejection(403, "Forbidden.")
     if (result !== true) {
       const allowed = authorizedSections(result)
@@ -194,7 +191,7 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
  */
 export async function consoleConnectionsActor(event: ConsoleRequestEvent): Promise<string | undefined> {
   const access = await checkConsoleAccess(event, { user: true })
-  if (isResponse(access) || !consoleAccessAllows(access, "connections")) return undefined
+  if (access instanceof Response || !consoleAccessAllows(access, "connections")) return undefined
   if (access.mode === "auth") return access.user ? `user:${access.user.id}` : undefined
   return `user:${access.mode}`
 }
@@ -231,7 +228,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
     let access = checkedEvents.get(event)
     if (!access || !consoleAccessGrant.isValid(access)) {
       const checked = await checkConsoleAccess(event)
-      if (isResponse(checked)) return checked
+      if (checked instanceof Response) return checked
       checkedEvents.set(event, checked)
       access = checked
     }
