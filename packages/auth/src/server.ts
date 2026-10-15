@@ -311,10 +311,22 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 
 function hasResponsePrototype(value: unknown): boolean {
   try {
-    const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
-    if (typeof bodyGetter !== "function") return false
-    Reflect.apply(bodyGetter, value, [])
-    return true
+    if (value instanceof Response) return true
+    let current: object | null = Object.getPrototypeOf(Object(value))
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < 8; depth++) {
+      if (seen.has(current)) return false
+      seen.add(current)
+      const bodyGetter = Object.getOwnPropertyDescriptor(current, "body")?.get
+      if (typeof bodyGetter === "function") {
+        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+        if (typeof constructor !== "function" || constructor.name !== "Response") return false
+        Reflect.apply(bodyGetter, value, [])
+        return true
+      }
+      current = Object.getPrototypeOf(current)
+    }
+    return false
   }
   catch {
     return false
