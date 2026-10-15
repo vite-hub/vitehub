@@ -40,21 +40,26 @@ function isRequest(value: unknown): value is Request {
     if (value instanceof Request) return true
     if (value === null || typeof value !== "object") return false
 
-    // Request accessors live on the candidate's realm prototype. Their Web
-    // IDL brand checks recognize genuine requests without cloning or reading
-    // the body. Validate the returned Headers through this realm's native
-    // operation as an additional host-enforced check.
+    // Foreign realms have their own Fetch accessors. Locate the prototype
+    // that owns them and invoke those accessors for their Web IDL brand check.
+    // Requiring its own Request constructor prevents arbitrary inherited
+    // getter objects from being treated as requests.
     let prototype: object | null = value
     while ((prototype = Object.getPrototypeOf(prototype)) !== null) {
-      const accessors = ["headers", "url", "method", "bodyUsed"].map(key =>
-        Object.getOwnPropertyDescriptor(prototype, key)?.get,
-      )
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Accessors cross a foreign realm boundary as unknown values.
-      if (!accessors.every((accessor): accessor is () => unknown => typeof accessor === "function")) continue
-      const [headers, url, method, bodyUsed] = accessors.map(accessor => accessor.call(value))
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (typeof constructor !== "function" || constructor.name !== "Request" || constructor.prototype !== prototype) continue
+      const get = (key: string) => Object.getOwnPropertyDescriptor(prototype, key)?.get
+      const headersGetter = get("headers")
+      const urlGetter = get("url")
+      const methodGetter = get("method")
+      const bodyUsedGetter = get("bodyUsed")
+      if (![headersGetter, urlGetter, methodGetter, bodyUsedGetter].every(getter => typeof getter === "function")) continue
+      const headers = headersGetter.call(value)
+      urlGetter.call(value)
+      methodGetter.call(value)
+      bodyUsedGetter.call(value)
       Headers.prototype.get.call(headers, "x-vite-hub-request-check")
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Fetch accessors cross a foreign realm boundary as unknown values.
-      if (typeof url === "string" && typeof method === "string" && typeof bodyUsed === "boolean") return true
+      return true
     }
     return false
   } catch {
