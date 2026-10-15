@@ -851,6 +851,13 @@ function isResponseLike(value: unknown): value is Response {
     // under this stable name; reject arbitrary constructor names before the
     // remaining structural checks can route a generic result here.
     if (constructorDescriptor.value.name !== "Response") return false
+    // Fetch Response constructors expose the standard static factories. A
+    // caller-created self-linked function can copy the name and prototype
+    // link, but it must not be accepted as a platform Response constructor
+    // without this constructor surface.
+    if (!hasRuntimeType(constructorDescriptor.value.error, "function")
+      || !hasRuntimeType(constructorDescriptor.value.json, "function")
+      || !hasRuntimeType(constructorDescriptor.value.redirect, "function")) return false
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     // The foreign implementation owns its getters. Require the full Response
     // accessor contract before accepting an output as a byte stream.
@@ -984,6 +991,19 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield* streamChunksToEvents(value as AsyncIterable<unknown>)
     return
   }
+  // Explicit Agent streams take precedence over response-shaped output fields.
+  if (isResponseLike(value)) {
+    const body = value.body
+    if (body) {
+      const pipeThrough = getPrototypeMethod(body, "pipeThrough")
+      if (!pipeThrough) throw new TypeError("Response body does not expose pipeThrough")
+      for await (const text of pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
+        if (text) yield { text, type: "text-delta" }
+      }
+    }
+    yield { type: "finish" }
+    return
+  }
   const text = hasRuntimeType(value, "object") && value !== null
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ? textFromResult(value as Record<string, unknown>)
@@ -1000,19 +1020,6 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
       ? (value as { finishReason: string }).finishReason
       : undefined
     yield { ...(reason ? { reason } : {}), type: "finish" }
-    return
-  }
-  // Explicit Agent streams take precedence over response-shaped output fields.
-  if (isResponseLike(value)) {
-    const body = value.body
-    if (body) {
-      const pipeThrough = getPrototypeMethod(body, "pipeThrough")
-      if (!pipeThrough) throw new TypeError("Response body does not expose pipeThrough")
-      for await (const text of pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
-        if (text) yield { text, type: "text-delta" }
-      }
-    }
-    yield { type: "finish" }
     return
   }
 }
