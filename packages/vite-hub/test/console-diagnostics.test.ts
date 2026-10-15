@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleProblem } from "../src/console/runtime/client/problem.ts"
-import { ConsoleRequestError, isRetryableConsoleRequestError, requestConsole } from "../src/console/runtime/client/request.ts"
+import { ConsoleNetworkError, ConsoleRequestError, isRetryableConsoleRequestError, requestConsole } from "../src/console/runtime/client/request.ts"
 import {
   consoleDiagnosticAction,
   consoleDiagnosticBody,
@@ -128,7 +128,7 @@ describe("Console problems", () => {
   })
 
   it("treats a network failure as a transient failure", () => {
-    expect(consoleProblem(new TypeError("Failed to fetch"))).toMatchObject({ action: "retry", code: "CONSOLE_UNAVAILABLE" })
+    expect(consoleProblem(new ConsoleNetworkError(new TypeError("Failed to fetch")))).toMatchObject({ action: "retry", code: "CONSOLE_UNAVAILABLE" })
   })
 
   it("keeps the code and guidance of a thrown diagnostic", () => {

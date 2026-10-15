@@ -73,7 +73,7 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ),
     CONSOLE_DEVELOPMENT_ONLY: code(
       "console: true is development-only. It works only on the development server.",
-      "For production, set console: { access: \"auth\" } or console: { exposure: \"host-managed\", authorize }.",
+      "For production, set console: { auth: \"app\" } or console: { auth: { ... }, authorize }.",
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),
@@ -84,7 +84,7 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "docs",
     ),
     CONSOLE_AUTHORIZE_REQUIRED: code(
-      "console: { exposure: \"host-managed\" } requires console.authorize.",
+      "A host-managed Console requires console.authorize.",
       "Set console.authorize to a server file that default-exports defineConsoleAuthorize().",
       `${consoleGuide}#how-each-mode-checks-a-request`,
       "docs",

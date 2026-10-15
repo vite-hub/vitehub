@@ -120,9 +120,16 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
   return { method }
 }
 
-/** A retry can succeed only for a transient failure. Configuration and access failures need a change first. */
+/** A fetch failure known to originate at the network boundary. */
+export class ConsoleNetworkError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : "Console network request failed.", { cause })
+    this.name = "ConsoleNetworkError"
+  }
+}
+
 export function isRetryableConsoleRequestError(error: unknown): boolean {
-  if (!(error instanceof ConsoleRequestError)) return error instanceof TypeError
+  if (!(error instanceof ConsoleRequestError)) return error instanceof ConsoleNetworkError
   const transientStatus = error.status === 408 || error.status === 429 || error.status === 500 || (error.status >= 502 && error.status <= 504)
   if (isConsoleDiagnosticCode(error.code)) return transientStatus && consoleDiagnosticAction(error.code) === "retry"
   return transientStatus
@@ -153,14 +160,21 @@ export async function requestConsole(
   if (call.id !== undefined) input.id = call.id
   if (options.body !== undefined) input.body = options.body
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
-  const response = await fetch(consoleRpcCallURL(path), {
-    body: JSON.stringify({ method: call.method, input }),
-    cache: "no-store",
-    credentials: "same-origin",
-    headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
-    method: "POST",
-    signal: options.signal,
-  })
+  const requestBody = JSON.stringify({ method: call.method, input })
+  let response: Response
+  try {
+    response = await fetch(consoleRpcCallURL(path), {
+      body: requestBody,
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+      method: "POST",
+      signal: options.signal,
+    })
+  }
+  catch (error) {
+    throw new ConsoleNetworkError(error)
+  }
   if (!response.ok) throw await consoleResponseError(response)
   const result = record(await response.json().catch(() => undefined))
   if (result?.ok === true) return result.value
