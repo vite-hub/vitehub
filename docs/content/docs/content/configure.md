@@ -229,7 +229,11 @@ Content registers a `vitehub.content` Workspace plugin with a `write:validate` h
 | The `draft` ref | Work in progress. Fields may fail validation. A file that cannot be read as an object of fields is refused: invalid YAML or JSON, a root that is not one object, or a body on a JSON or YAML document. |
 | `published`, any other ref, and Workspace `fs` writes | Only documents whose fields validate. |
 
-Every writer goes through the hook: Workspace `fs` writes, Sessions, Agents, and history commits. A refused write fails with `CONTENT_INVALID`.
+Every writer goes through the hook: Workspace `fs` writes, Sessions, Agents, and history commits. A refused write fails with `CONTENT_INVALID`. The hook also checks the other writes at a document path:
+
+- **Deletes.** Deleting a document from the draft works like `remove()`. Deleting it from `published` fails with `CONTENT_R0013`: a document leaves the published site only when `publish()` publishes its deletion.
+- **Directories.** `mkdir` at a document path, such as `posts/hello.md`, fails with `CONTENT_INVALID`. Folders that hold documents, such as `posts/2026`, are allowed.
+- **Bytes.** Binary content must be UTF-8 text and a valid document for its ref. Other bytes fail with `CONTENT_INVALID`.
 
 ### Drafts in progress
 

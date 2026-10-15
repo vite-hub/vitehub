@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks"
+
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
@@ -516,10 +518,20 @@ function writeMetadata(metadata: Record<string, unknown> | undefined, content: R
   return { ...metadata, content }
 }
 
+/** The text of a write, or undefined when it has no content or its bytes are not UTF-8. */
 function textOf(content: WorkspaceWriteInput["content"]): string | undefined {
   if (content === undefined) return
-  return hasRuntimeType(content, "string") ? content : new TextDecoder().decode(content)
+  if (hasRuntimeType(content, "string")) return content
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(content)
+  }
+  catch {
+    return undefined
+  }
 }
+
+/** Set while Content's own `publish()` commits, the one writer that may delete documents from `published`. */
+const contentPublishes = new AsyncLocalStorage<true>()
 
 /** Create the document runtime for every collection and install validation on their Workspace paths. */
 export function createContentCollections(options: ContentCollectionsOptions): ContentCollectionsRuntime {
@@ -679,12 +691,26 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     hooks: {
       // Every Workspace writer, including Agents, Sessions, and other history commits, goes through this check.
       "write:validate": async (input) => {
-        if (input.operation !== "writeFile") return
         const path = input.path.replace(/^\/+/, "")
         for (const collection of collections.values()) {
           if (!collection.compiled.match(path)) continue
+          const id = collection.idFor(path)
+          if (input.operation === "rm") {
+            // Like remove(): a document leaves the draft, and leaves `published` only when publish() publishes that.
+            if (input.ref === "published" && !contentPublishes.getStore()) {
+              throw contentErrorDiagnostics.CONTENT_R0013({
+                message: `[vitehub] Content document ${JSON.stringify(`${collection.name}/${id}`)} leaves the published site only through content.publish(). Remove it from the draft with remove(), then publish the deletion.`,
+              })
+            }
+            return
+          }
+          if (input.operation === "mkdir") {
+            throw contentInvalid(collection.name, id, path, [{ message: `${path} is a document path of collection ${JSON.stringify(collection.name)}. A directory cannot take its place.`, path: [] }])
+          }
           const text = textOf(input.content)
-          if (text === undefined) return
+          if (text === undefined) {
+            throw contentInvalid(collection.name, id, path, [{ message: input.content === undefined ? "The write has no file content." : "The file is not UTF-8 text. Content documents are Markdown, JSON, or YAML text.", path: [] }])
+          }
           const parsed = await collection.parseText(text)
           // The draft holds work in progress: only a file that cannot be parsed is refused there. Every other ref,
           // `published` above all, and the working tree get full field validation.
@@ -1219,7 +1245,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (invalid.length) throw contentInvalidDocuments("publish", invalid)
       if (!documents.length) return { revision: null, documents: [] }
       try {
-        const revision = await retained.commit({
+        const revision = await contentPublishes.run(true, () => retained.commit({
           ref: "published",
           ifHead: publishedHead?.id ?? null,
           changes: { put, delete: remove },
@@ -1230,7 +1256,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             documents: documents.map(({ collection, id }) => ({ collection, id })),
             ...(schedule ? { schedule } : {}),
           }),
-        })
+        }))
         const affected = [...new Set(documents.map(document => document.collection))]
         for (const listener of publishListeners) await listener(affected)
         return { revision, documents }
