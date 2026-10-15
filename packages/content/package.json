@@ -37,6 +37,10 @@
       "types": "./dist/database.d.ts",
       "import": "./dist/database.js"
     },
+    "./editor": {
+      "types": "./dist/editor.d.ts",
+      "import": "./dist/editor.js"
+    },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js"
@@ -66,9 +70,18 @@
   },
   "devDependencies": {
     "@libsql/client": "catalog:database",
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-code-block": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/realtime": "workspace:*",
+    "comark": "catalog:markdown",
     "comark-content": "catalog:markdown",
+    "comark-tiptap": "catalog:markdown",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -79,11 +92,47 @@
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-code-block": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
+    "@vite-hub/realtime": "workspace:*",
+    "comark": "catalog:markdown",
     "comark-content": "catalog:markdown",
+    "comark-tiptap": "catalog:markdown",
     "drizzle-orm": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@tiptap/core": {
+      "optional": true
+    },
+    "@tiptap/extension-code-block": {
+      "optional": true
+    },
+    "@tiptap/extension-image": {
+      "optional": true
+    },
+    "@tiptap/extension-table": {
+      "optional": true
+    },
+    "@tiptap/pm": {
+      "optional": true
+    },
+    "@tiptap/starter-kit": {
+      "optional": true
+    },
+    "@vite-hub/realtime": {
+      "optional": true
+    },
+    "comark": {
+      "optional": true
+    },
+    "comark-tiptap": {
+      "optional": true
+    },
     "drizzle-orm": {
       "optional": true
     },
