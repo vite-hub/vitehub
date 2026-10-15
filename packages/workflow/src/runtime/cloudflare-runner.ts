@@ -54,12 +54,10 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
           return (clone as (value: unknown) => unknown)(candidate) instanceof Error
         }
         catch {
-          // A non-configurable non-cloneable field cannot be hidden. Preserve
-          // genuine errors with a data-valued stack, while rejecting objects
-          // that fabricate an Error tag alongside a caller-controlled stack.
-          const stack = Reflect.getOwnPropertyDescriptor(candidate, "stack")
-          const ownTag = typeof Symbol === "function" && Reflect.getOwnPropertyDescriptor(candidate, Symbol.toStringTag)
-          return Boolean(stack && "value" in stack && !ownTag)
+          // A non-configurable non-cloneable field cannot be hidden safely.
+          // Without the intrinsic predicate, there is no reliable brand
+          // evidence left that cannot be forged by the caller.
+          return false
         }
       }
       finally {
