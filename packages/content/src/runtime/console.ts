@@ -585,10 +585,15 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           await sessions.release(collection.name, id, { session })
           return presence({ available: true, editing: false, holder: null, sessions: [], now: new Date().toISOString() })
         }
-        const result: ContentDocumentSessions = action === "report"
-          ? await sessions.report(collection.name, id, { session, user: sessionsUser, kind: input.kind ?? "view", input: input.input === true })
-          : await sessions.acquire(collection.name, id, { session, user: sessionsUser, takeover: action === "takeover" })
+        const [result, status] = await Promise.all([
+          action === "report"
+            ? sessions.report(collection.name, id, { session, user: sessionsUser, kind: input.kind ?? "view", input: input.input === true })
+            : sessions.acquire(collection.name, id, { session, user: sessionsUser, takeover: action === "takeover" }),
+          // The draft digest lets an open editor notice a save from another tab without reading the document.
+          collection.status(id),
+        ]) as [ContentDocumentSessions, ContentDocumentStatus | null]
         return presence({
+          digest: status?.draft ?? null,
           available: true,
           editing: result.editing,
           holder: result.holder ? sessionView(result.holder, session) : null,

@@ -18,9 +18,11 @@ import {
   rememberConsoleListQuery,
   stableConsoleJSON,
 } from "../client/documents";
+import { useConsoleDocumentSessions } from "../client/presence";
 import { useConsoleToast } from "../client/toast";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleStatus from "./console-status.vue";
 
@@ -37,6 +39,8 @@ const emit = defineEmits<{ changed: [] }>();
 const route = useRoute();
 const router = useRouter();
 const toast = useConsoleToast();
+// Who has each document open, polled like the editor reports: 15 seconds while visible, 60 while hidden.
+const { of: sessionsOf, user: sessionUser } = useConsoleDocumentSessions({ client: props.client, collection: props.collection.name });
 
 const fields = computed(() => describeConsoleSchemaFields(props.collection.schema));
 // Fields with a small set of values become filters.
@@ -476,7 +480,10 @@ onBeforeUnmount(() => {
               class="block min-w-0 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2"
               @click.prevent="open(item)"
             >
-              <span class="block truncate text-sm font-medium text-highlighted" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': item.state === 'deleted' }">{{ item.title }}</span>
+              <span class="flex min-w-0 items-center gap-2">
+                <span class="truncate text-sm font-medium text-highlighted" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': item.state === 'deleted' }">{{ item.title }}</span>
+                <ConsolePresenceAvatars :sessions="sessionsOf(collection.name, item.id)" :user="sessionUser" variant="row" />
+              </span>
               <span class="block truncate font-mono text-xs text-dimmed">{{ item.id }}</span>
             </a>
             <!-- On a phone the state follows the title instead of taking a column. -->

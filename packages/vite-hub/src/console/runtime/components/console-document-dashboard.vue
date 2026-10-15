@@ -11,11 +11,13 @@ import {
   consolePublishMismatches,
   consoleSingularLabel,
 } from "../client/documents";
+import { useConsoleDocumentSessions } from "../client/presence";
 import { publishConsoleDocumentChanges } from "../client/publish";
 import { useConsoleToast } from "../client/toast";
 import { resolveConsoleRouteName } from "../console-route";
 import { consoleSectionRouteName } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
+import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleStatus from "./console-status.vue";
 
@@ -46,6 +48,23 @@ const publishOpen = ref(false);
 const published = ref(new Set<string>());
 
 const byName = computed(() => new Map(props.collections.map(collection => [collection.name, collection])));
+// Who has which document open, for the avatars on each row and the Open now list.
+const { sessions: openSessions, of: sessionsOf, user: sessionUser } = useConsoleDocumentSessions({ client: props.client });
+const openNow = computed(() => {
+  const titles = new Map<string, string>();
+  for (const entry of props.overview?.collections ?? []) {
+    for (const change of entry.changes) titles.set(`${entry.name}/${change.id}`, change.title);
+    for (const item of entry.scheduled) titles.set(`${entry.name}/${item.id}`, item.title);
+  }
+  const documents = new Map<string, { collection: ConsoleDocumentCollection, id: string, title: string }>();
+  for (const session of openSessions.value) {
+    const collection = byName.value.get(session.collection);
+    const key = `${session.collection}/${session.id}`;
+    if (session.self || !collection || documents.has(key)) continue;
+    documents.set(key, { collection, id: session.id, title: titles.get(key) ?? (collection.kind === "singleton" ? collection.label : session.id) });
+  }
+  return [...documents.values()];
+});
 const totals = computed(() => {
   const totals: Record<ConsoleDocumentState, number> = { draft: 0, changed: 0, published: 0, deleted: 0 };
   for (const entry of props.overview?.collections ?? []) {
@@ -189,6 +208,22 @@ async function publishAll(): Promise<void> {
 
       <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
         <div class="grid gap-8">
+          <section v-if="openNow.length" aria-labelledby="open-now" class="grid gap-2">
+            <h2 id="open-now" class="text-[13px] font-medium text-highlighted">
+              Open now
+              <span class="ms-1 font-normal text-dimmed tabular-nums">{{ openNow.length }}</span>
+            </h2>
+            <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default">
+              <li v-for="entry in openNow.slice(0, 12)" :key="`${entry.collection.name}/${entry.id}`">
+                <RouterLink :to="documentRoute(entry.collection.name, entry.id)" class="flex h-11 items-center gap-3 px-3 hover:bg-elevated/60 focus-visible:outline-2 focus-visible:-outline-offset-2">
+                  <span class="min-w-0 flex-1 truncate text-sm text-highlighted">{{ entry.title }}</span>
+                  <span class="hidden truncate text-xs text-dimmed sm:inline">{{ entry.collection.label }}</span>
+                  <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.id)" :user="sessionUser" />
+                </RouterLink>
+              </li>
+            </ul>
+          </section>
+
           <section aria-labelledby="needs-publishing" class="grid gap-2">
             <header class="flex items-baseline justify-between gap-3">
               <h2 id="needs-publishing" class="text-[13px] font-medium text-highlighted">
@@ -211,7 +246,10 @@ async function publishAll(): Promise<void> {
                   class="vitehub-dashboard-row"
                 >
                   <ConsoleStatus class="vitehub-dashboard-row__status" :tone="consoleDocumentStateColor(entry.change.state)" :label="consoleDocumentStateLabel(entry.change.state)" />
-                  <span class="vitehub-dashboard-row__title" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': entry.change.state === 'deleted' }">{{ entry.change.title }}</span>
+                  <span class="vitehub-dashboard-row__title flex items-center gap-2">
+                    <span class="truncate" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': entry.change.state === 'deleted' }">{{ entry.change.title }}</span>
+                    <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.change.id)" :user="sessionUser" variant="row" />
+                  </span>
                   <span class="vitehub-dashboard-row__meta">{{ entry.collection.label }}</span>
                   <span class="vitehub-dashboard-row__time">
                     <ConsoleRelativeTime v-if="entry.change.updatedAt" :value="entry.change.updatedAt" />
@@ -236,7 +274,10 @@ async function publishAll(): Promise<void> {
                   :title="entry.item.schedule.failure"
                 >
                   <ConsoleStatus class="vitehub-dashboard-row__status" :tone="consoleDocumentScheduleTone(entry.item.schedule)" :label="scheduleStatus[entry.item.schedule.status]" />
-                  <span class="vitehub-dashboard-row__title">{{ entry.item.title }}</span>
+                  <span class="vitehub-dashboard-row__title flex items-center gap-2">
+                    <span class="truncate">{{ entry.item.title }}</span>
+                    <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.item.id)" :user="sessionUser" variant="row" />
+                  </span>
                   <span class="vitehub-dashboard-row__meta">{{ entry.collection.label }}</span>
                   <time class="vitehub-dashboard-row__time" :datetime="entry.item.schedule.at">{{ scheduleTime(entry.item.schedule.at) }}</time>
                 </RouterLink>

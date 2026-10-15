@@ -13,6 +13,7 @@ import {
   consoleDocumentStateLabel,
   consoleErrorMessage,
   consoleFieldIssues,
+  consoleLeaseHolder,
   consoleListQueryFor,
   consolePublishMismatches,
   consoleRevisionLabel,
@@ -29,6 +30,7 @@ import {
   stableConsoleJSON,
 } from "../client/documents";
 import { splitConsoleFrontmatter } from "../client/editor";
+import { consoleClockTime, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
 import { useConsoleToast } from "../client/toast";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
 import ConsoleDocumentHistory from "./console-document-history.vue";
@@ -36,6 +38,7 @@ import ConsoleDocumentProperties from "./console-document-properties.vue";
 import ConsoleMarkdownEditor from "./console-markdown-editor.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
 import ConsolePageHeader from "./console-page-header.vue";
+import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSeoPanel from "./console-seo-panel.vue";
 import ConsoleStatus from "./console-status.vue";
@@ -137,6 +140,41 @@ let saveQueued = false;
 
 const canWrite = computed(() => props.collection.access.write);
 const canPublish = computed(() => props.collection.access.publish);
+
+/**
+ * Presence and the edit lease. The first edit claims the lease while keystrokes stay on screen; saving waits for the
+ * answer. Another tab that holds it makes this one read-only until the user takes over.
+ */
+const session = useConsoleDocumentPresence({
+  client: props.client,
+  collection: props.collection.name,
+  documentId: () => (creating.value ? undefined : props.documentId),
+  canWrite: () => canWrite.value,
+  onDigest: onRemoteDigest,
+});
+const leaseMode = session.mode;
+const { dialogOpen: leaseDialogOpen, holder: leaseHolder, others: sessionOthers, presence: sessionPresence, unreachable: sessionUnreachable } = session;
+/** Sessions are on, but this tab cannot check them: a failed request, or an owner without the sessions table. */
+const sessionsUnchecked = computed(() => !creating.value && (sessionUnreachable.value || sessionPresence.value?.available === false));
+/** The one line under the header that says who holds the lease and what this tab can do about it. */
+const leaseBanner = computed<{ icon: string, text: string } | undefined>(() => {
+  if (!canWrite.value || creating.value) return;
+  const name = holderName.value;
+  if (leaseMode.value === "blocked") return { icon: "i-lucide-lock", text: name === "You" ? "Read-only · You're editing this in another tab" : `Read-only · ${name} is editing` };
+  if (leaseMode.value === "taken") {
+    const savedTime = consoleClockTime(savedAt.value ?? base.value?.updatedAt);
+    const by = name === "You" ? "Your other tab took over" : `${name} took over`;
+    return { icon: "i-lucide-user-round-pen", text: savedTime ? `${by} · Your changes up to ${savedTime} are saved` : by };
+  }
+  if (leaseMode.value === "left") return { icon: "i-lucide-lock-open", text: name === "You" ? "Your other tab stopped editing" : `${name} stopped editing` };
+});
+const holderName = computed(() => (session.ownOtherTab.value ? "You" : session.holder.value?.user.name ?? "Someone"));
+/** Saves another tab refused while it held the lease. Their edits stay on screen. */
+const refusedEdits = ref(0);
+/** Whether this tab may change the document now: write access, and no other tab holds the lease. */
+const editable = computed(() => canWrite.value && (creating.value || leaseMode.value === "free" || leaseMode.value === "editing"));
+const leaseCompareOpen = ref(false);
+const leaseCompare = ref<{ mine: Version, theirs: ConsoleDocument | null }>();
 const id = computed(() => (creating.value ? newId.value.trim() : props.documentId!));
 const savedVersion = computed<Version>(() => (base.value ? { body: base.value.body, data: base.value.data } : { body: "", data: consoleSchemaDefaults(props.collection.schema) }));
 const dirty = computed(() => {
@@ -165,7 +203,7 @@ const idError = computed(() => (creating.value && newId.value && !isConsoleDocum
  * Drafts save on their own once they exist. A new document waits for Create, since its id names the file. A singleton
  * has a fixed file, so its first edit creates it.
  */
-const autosaves = computed(() => canWrite.value && !creating.value && (Boolean(base.value) || (single.value && state.value !== "deleted")) && !conflict.value && !publishing.value && !restoring.value);
+const autosaves = computed(() => canWrite.value && !creating.value && (Boolean(base.value) || (single.value && state.value !== "deleted")) && !conflict.value && !publishing.value && !restoring.value && session.mayWrite.value);
 const sourceParts = computed(() => (storedFile.value === undefined ? undefined : splitConsoleFrontmatter(storedFile.value)));
 
 // "Saving…" shows only when a save takes longer than 200ms, then stays at least 400ms, so fast saves do not flicker.
@@ -234,7 +272,11 @@ function documentRoute(documentId: string) {
   return { name: route.name ?? undefined, params: { collection: props.collection.name, document: documentId.split("/") }, query: {} };
 }
 
+/** Digests this editor already showed. A presence answer that crossed a save names an older one and is ignored. */
+const seenDigests = new Set<string>();
+
 function accept(document: ConsoleDocument): void {
+  seenDigests.add(document.digest);
   base.value = document;
   state.value = document.state;
   schedule.value = document.schedule;
@@ -307,6 +349,8 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
     await focusFirstInvalid();
     return;
   }
+  // The first save of this tab waits for the lease. A refused claim opens the dialog and keeps the edits on screen.
+  if (!creating.value && !session.mayWrite.value && !(await session.claim())) return;
   saving.value = true;
   const failedBefore = Boolean(saveError.value);
   saveError.value = undefined;
@@ -315,12 +359,15 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
     const saved = await props.client.save(props.collection.name, id.value, {
       ...sent,
       ifDigest: options.ifDigest !== undefined ? options.ifDigest : base.value?.digest ?? null,
+      session: consoleTabSession,
     });
+    refusedEdits.value = 0;
     fieldErrors.value = {};
     conflict.value = undefined;
     conflictOpen.value = false;
     // Keep edits made while the save was running.
     const editedDuringSave = draft.value.body !== sent.body || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(sent.data);
+    seenDigests.add(saved.digest);
     base.value = saved;
     state.value = saved.state;
     if (!editedDuringSave) draft.value = { body: saved.body === sent.body ? draft.value.body : saved.body, data: clone(saved.data) };
@@ -338,7 +385,13 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
   }
   catch (error) {
     const issues = consoleFieldIssues(error);
-    if (issues) {
+    if (consoleLeaseHolder(error)) {
+      // Another tab took the lease. The banner says who, keeps the edits, and offers Copy and Take back.
+      refusedEdits.value++;
+      await session.refresh();
+      if (leaseMode.value === "free" || leaseMode.value === "editing") leaseMode.value = "taken";
+    }
+    else if (issues) {
       fieldErrors.value = groupConsoleFieldIssues(humanizeConsoleFieldIssues(fields.value, issues));
       errorSnapshot = Object.fromEntries(Object.entries(draft.value.data).map(([name, value]) => [name, stableConsoleJSON(value ?? null)]));
       errorBody = sent.body;
@@ -370,6 +423,60 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
   if (dirty.value && !saveError.value) scheduleAutosave();
 }
 
+/** The draft digest of each presence answer. A clean page reloads what another tab saved; a dirty one keeps the conflict flow. */
+function onRemoteDigest(digest: string | null): void {
+  if (creating.value || loading.value || saving.value || publishing.value || restoring.value || dirty.value) return;
+  if ((base.value?.digest ?? null) === digest) return;
+  if (!base.value && digest === null) return;
+  if (digest !== null && seenDigests.has(digest)) return;
+  const viewing = leaseMode.value === "free";
+  const before = base.value?.digest;
+  void load().then(() => {
+    if (viewing && !dirty.value && base.value?.digest !== before) toast.show({ title: `This ${single.value ? "page" : noun.value.toLowerCase()} was updated` });
+  });
+}
+
+/** Read-only from the dialog: edits typed before the claim answered are dropped. */
+function openReadOnly(): void {
+  session.readOnly();
+  if (dirty.value && !creating.value) draft.value = { body: savedVersion.value.body, data: clone(savedVersion.value.data) };
+}
+
+/** Takes the lease from its holder, then saves edits that waited for it. */
+async function takeOver(): Promise<void> {
+  if (!(await session.takeover())) {
+    toast.error("Couldn't take over. Try again.");
+    return;
+  }
+  refusedEdits.value = 0;
+  if (dirty.value) await save();
+}
+
+/** After the holder left: read their last save, then edit on the next keystroke. */
+async function reloadAndEdit(): Promise<void> {
+  session.resume();
+  await load();
+}
+
+/** Compares the version the other tab saved with the one on screen. */
+async function compareWithHolder(): Promise<void> {
+  const theirs = await props.client.get(props.collection.name, id.value).catch(() => null);
+  leaseCompare.value = { mine: { body: draft.value.body, data: compact(draft.value.data) }, theirs };
+  leaseCompareOpen.value = true;
+}
+
+/** Copies the edits another tab refused, so nothing typed is lost. */
+async function copyUnsaved(): Promise<void> {
+  const text = hasBody.value ? draft.value.body : JSON.stringify(compact(draft.value.data), null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.show({ title: "Your edits copied" });
+  }
+  catch {
+    toast.error("Couldn't copy. Select the text and copy it.");
+  }
+}
+
 /** Resolves once no save is running, such as an autosave that started just before a publish. */
 function settled(): Promise<void> {
   if (!saving.value) return Promise.resolve();
@@ -398,7 +505,15 @@ function dataChangedSinceErrors(): boolean {
 }
 
 watch(draft, () => {
-  if (dirty.value) scheduleAutosave();
+  if (!dirty.value) return;
+  if (!creating.value) {
+    session.input();
+    // The first edit claims the lease. Keystrokes stay on screen while the claim answers.
+    if (!session.mayWrite.value && leaseMode.value === "free") void session.claim().then((held) => {
+      if (held) scheduleAutosave();
+    });
+  }
+  scheduleAutosave();
 }, { deep: true });
 
 function keepMine(): void {
@@ -537,11 +652,15 @@ async function remove(): Promise<void> {
   clearTimeout(autosaveTimer);
   await settled();
   if (!base.value) return;
+  if (!(await session.claim())) {
+    deleteOpen.value = false;
+    return;
+  }
   const removed = { id: id.value, revision: base.value.revision };
   const { client, collection } = props;
   deleting.value = true;
   try {
-    await client.remove(collection.name, removed.id, base.value.digest);
+    await client.remove(collection.name, removed.id, base.value.digest, consoleTabSession);
     deleteOpen.value = false;
     base.value = null;
     notifyChanged();
@@ -616,6 +735,7 @@ async function openRevision(revision: ConsoleDocumentRevision): Promise<void> {
  */
 async function restore(): Promise<void> {
   if (!preview.value?.document) return;
+  if (!(await session.claim())) return;
   clearTimeout(autosaveTimer);
   await bodyEditor.value?.commit();
   await settled();
@@ -624,7 +744,7 @@ async function restore(): Promise<void> {
   const documentId = id.value;
   restoring.value = true;
   try {
-    const restored = await client.restore(collection.name, documentId, preview.value.revision.id, base.value?.digest ?? null);
+    const restored = await client.restore(collection.name, documentId, preview.value.revision.id, base.value?.digest ?? null, consoleTabSession);
     accept(restored);
     savedAt.value = new Date().toISOString();
     fieldErrors.value = {};
@@ -810,7 +930,7 @@ const menuItems = computed(() => [[
     : []),
   { label: "Copy id", icon: "i-lucide-copy", onSelect: () => void navigator.clipboard?.writeText(id.value) },
   ...(base.value ? [{ label: "Copy path", icon: "i-lucide-folder", onSelect: () => void navigator.clipboard?.writeText(base.value!.path) }] : []),
-], ...(canWrite.value && base.value && !single.value ? [[{ label: "Delete", icon: "i-lucide-trash-2", color: "error" as const, onSelect: () => (deleteOpen.value = true) }]] : [])]);
+], ...(editable.value && base.value && !single.value ? [[{ label: "Delete", icon: "i-lucide-trash-2", color: "error" as const, onSelect: () => (deleteOpen.value = true) }]] : [])]);
 </script>
 
 <template>
@@ -822,6 +942,10 @@ const menuItems = computed(() => [[
       </UTooltip>
     </template>
     <template #right>
+      <ConsolePresenceAvatars v-if="sessionOthers.length" class="me-1" :sessions="sessionOthers" :user="sessionPresence?.user" />
+      <UTooltip v-if="sessionsUnchecked" :text="sessionPresence?.reason ?? 'The Console could not reach the server. Saves still refuse to overwrite a newer version.'" :content="{ side: 'bottom' }">
+        <span class="me-1 hidden lg:inline-flex"><ConsoleStatus label="Can't check who else is editing" /></span>
+      </UTooltip>
       <span class="me-1 hidden sm:inline-flex" role="status" aria-live="polite">
         <button
           v-if="headerStatus?.action && !savingVisible"
@@ -927,6 +1051,24 @@ const menuItems = computed(() => [[
         :actions="[{ label: 'History', icon: 'i-lucide-history', color: 'neutral', variant: 'outline', onClick: () => (historyOpen = true) }]"
       />
       <article v-else class="mx-auto w-full max-w-[52rem] px-6 pt-10 pb-8 sm:px-16 sm:pt-14">
+        <div v-if="leaseBanner" class="mb-6 grid gap-1.5 rounded-md px-3 py-2 text-[13px] ring-1 ring-default ring-inset" role="status" aria-live="polite">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <UIcon :name="leaseBanner.icon" class="size-4 shrink-0 text-muted" aria-hidden="true" />
+            <span class="min-w-0 flex-1 text-default">{{ leaseBanner.text }}</span>
+            <template v-if="leaseMode === 'blocked'">
+              <UButton size="xs" color="neutral" variant="outline" label="Take over" @click="takeOver" />
+            </template>
+            <template v-else-if="leaseMode === 'taken'">
+              <UButton size="xs" color="neutral" variant="ghost" label="Compare" @click="compareWithHolder" />
+              <UButton size="xs" color="neutral" variant="outline" label="Take back" @click="takeOver" />
+            </template>
+            <UButton v-else-if="leaseMode === 'left'" size="xs" color="neutral" variant="outline" label="Reload and edit" @click="reloadAndEdit" />
+          </div>
+          <div v-if="leaseMode === 'taken' && refusedEdits" class="flex items-center gap-3 ps-7 text-muted">
+            <span class="flex-1">{{ refusedEdits === 1 ? "1 edit wasn't saved" : `${refusedEdits} edits weren't saved` }}</span>
+            <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-copy" label="Copy" @click="copyUnsaved" />
+          </div>
+        </div>
         <p v-if="!canWrite" class="mb-6 flex items-center gap-2 text-[13px] text-muted">
           <UIcon name="i-lucide-lock" class="size-4 shrink-0" aria-hidden="true" />
           Read-only. You can read drafts of this collection but not change them.
@@ -943,7 +1085,7 @@ const menuItems = computed(() => [[
               rows="1"
               class="block w-full resize-none overflow-hidden rounded-sm bg-transparent text-[32px]/[40px] font-semibold tracking-[-0.04rem] text-highlighted outline-none placeholder:text-dimmed focus-visible:outline-none disabled:cursor-default"
               :placeholder="`${noun} title`"
-              :disabled="!canWrite"
+              :disabled="!editable"
               :aria-invalid="fieldErrors[titleField.name] ? 'true' : undefined"
               :aria-describedby="fieldErrors[titleField.name] ? `field-${titleField.name}-error` : undefined"
               @input="onTitleInput"
@@ -957,7 +1099,7 @@ const menuItems = computed(() => [[
             :schema="collection.schema"
             :exclude="[titleField?.name, seoField?.name].filter(name => name !== undefined)"
             :errors="fieldErrors"
-            :disabled="!canWrite"
+            :disabled="!editable"
             :unfolded="!hasBody"
             @submit="saveFromShortcut"
           >
@@ -993,7 +1135,7 @@ const menuItems = computed(() => [[
             :hint="seoField.hint"
             :fallbacks="consoleSeoFallbacks(draft.data, collection.titleField, base?.url)"
             :errors="fieldErrors"
-            :disabled="!canWrite"
+            :disabled="!editable"
             @update:model-value="updateSeo"
           />
 
@@ -1022,14 +1164,14 @@ const menuItems = computed(() => [[
           :collection="collection.name"
           :components="collection.components"
           :document-id="creating ? undefined : id"
-          :disabled="!canWrite"
+          :disabled="!editable"
           label="Body"
           @outline="outline = $event"
         />
         <UTextarea
           v-if="hasBody && mode === 'source'"
           v-model="draft.body"
-          :disabled="!canWrite"
+          :disabled="!editable"
           autoresize
           :rows="16"
           variant="none"
@@ -1113,6 +1255,41 @@ const menuItems = computed(() => [[
   </UModal>
 
   <UModal
+    :open="leaseDialogOpen"
+    :title="holderName === 'You' ? 'You\'re editing this in another tab' : `${holderName} is editing this page`"
+    :description="holderName === 'You' ? 'Open it read-only here, or take over from the other tab. Everything you saved stays in history.' : `Open it read-only, or take over. Everything ${holderName} saved stays in history.`"
+    @update:open="(open) => { if (!open) openReadOnly() }"
+  >
+    <template v-if="leaseHolder?.since" #body>
+      <p class="text-[13px] text-muted tabular-nums">Editing since {{ consoleClockTime(leaseHolder.since) }}</p>
+    </template>
+    <template #footer>
+      <div class="flex w-full justify-end gap-2">
+        <UButton color="neutral" variant="outline" label="Open read-only" @click="openReadOnly" />
+        <UButton v-if="canWrite" color="neutral" label="Take over" @click="takeOver" />
+      </div>
+    </template>
+  </UModal>
+
+  <UModal
+    :open="leaseCompareOpen && Boolean(leaseCompare)"
+    :title="`${holderName === 'You' ? 'Your other tab' : holderName} took over`"
+    description="Removed lines are in their saved version, added lines are on your screen."
+    :ui="{ content: 'sm:max-w-3xl' }"
+    @update:open="(open) => { if (!open) leaseCompareOpen = false }"
+  >
+    <template #body>
+      <ConsoleDocumentDiff v-if="leaseCompare" :before="leaseCompare.theirs ? { body: leaseCompare.theirs.body, data: leaseCompare.theirs.data } : null" :after="leaseCompare.mine" :format="collection.format" :name="fileName" />
+    </template>
+    <template #footer>
+      <div class="flex w-full justify-end gap-2">
+        <UButton color="neutral" variant="ghost" label="Close" @click="leaseCompareOpen = false" />
+        <UButton color="neutral" variant="outline" icon="i-lucide-copy" label="Copy mine" @click="copyUnsaved" />
+      </div>
+    </template>
+  </UModal>
+
+  <UModal
     v-model:open="scheduleOpen"
     title="Schedule publishing"
     :description="`Publish this draft of ${title} later. Saving it again before then makes the schedule fail instead of publishing changes nobody reviewed.`"
@@ -1173,7 +1350,7 @@ const menuItems = computed(() => [[
         @more="loadRevisions(true)"
       />
     </template>
-    <template v-if="preview?.document && canWrite" #footer>
+    <template v-if="preview?.document && editable" #footer>
       <UButton icon="i-lucide-rotate-ccw" label="Restore this version" :loading="restoring" @click="restore" />
     </template>
   </USlideover>
