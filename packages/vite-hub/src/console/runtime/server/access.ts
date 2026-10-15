@@ -99,8 +99,7 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         && hasResponseMethods
         && tagDescriptor
         && typeof constructor === "function"
-        && constructor.prototype === responsePrototype
-        && constructor.name === "Response") break
+        && constructor.prototype === responsePrototype) break
       responsePrototype = Object.getPrototypeOf(responsePrototype)
     }
     // Genuine Fetch implementations expose both the clone algorithm and Response tag
