@@ -132,6 +132,7 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
+
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
     expect(response?.status).toBe(409)
@@ -315,7 +316,7 @@ describe("Auth access handlers", () => {
     }
   })
 
-  it("snapshots a serializable Response-shaped prototype without rereading its getters", async () => {
+  it("rejects a serializable Response-shaped prototype", async () => {
     const sourceBody = new Response("Policy rejected").body
     const headers = vi.fn()
       .mockReturnValueOnce(new Headers({ "x-policy": "reject" }))
@@ -336,16 +337,9 @@ describe("Auth access handlers", () => {
       access: { routes: [{ route: "/**", authorize: () => candidate }] },
     }))
 
-    const response = await handler(new Request("https://app.example/"))
-
-    expect(response).toBeInstanceOf(Response)
-    expect(response).not.toBe(candidate)
-    expect(response?.status).toBe(409)
-    expect(response?.statusText).toBe("Conflict")
-    expect(response?.headers.get("x-policy")).toBe("reject")
-    await expect(response?.text()).resolves.toBe("Policy rejected")
-    expect(headers).toHaveBeenCalledTimes(1)
-    expect(body).toHaveBeenCalledTimes(1)
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    expect(headers).not.toHaveBeenCalled()
+    expect(body).not.toHaveBeenCalled()
   })
 
   it("preserves foreign status, body, and separate Set-Cookie headers", async () => {
@@ -378,6 +372,117 @@ describe("Auth access handlers", () => {
     await response?.body?.cancel("client disconnected")
 
     expect(cancel).toHaveBeenCalledWith("client disconnected")
+  })
+
+  it("bridges native stream state across distinct inherited reader methods", async () => {
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([65, 66]))
+        controller.close()
+      },
+    })
+    const overriddenReader = vi.fn(() => { throw new Error("must not call supplied reader") })
+    Object.setPrototypeOf(source, Object.create(ReadableStream.prototype, {
+      getReader: { value: overriddenReader },
+    }))
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response?.body?.getReader).toBe(ReadableStream.prototype.getReader)
+    await expect(response?.text()).resolves.toBe("AB")
+    expect(overriddenReader).not.toHaveBeenCalled()
+    expect(source.locked).toBe(false)
+  })
+
+  it("keeps the normalized body idle until consumption", async () => {
+    const pull = vi.fn(controller => {
+      controller.enqueue(new Uint8Array([65]))
+      controller.close()
+    })
+    const source = new ReadableStream<Uint8Array>({ pull }, { highWaterMark: 0 })
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(pull).not.toHaveBeenCalled()
+    await expect(response?.text()).resolves.toBe("A")
+    expect(pull).toHaveBeenCalledOnce()
+    expect(source.locked).toBe(false)
+  })
+
+  it("forwards source errors and releases the native reader", async () => {
+    const error = new Error("source failed")
+    const source = new ReadableStream<Uint8Array>({ pull() { throw error } }, { highWaterMark: 0 })
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+
+    await expect(response?.body?.getReader().read()).rejects.toBe(error)
+    expect(source.locked).toBe(false)
+  })
+
+  it("forwards cancellation while a native read is pending and releases ownership", async () => {
+    const cancel = vi.fn()
+    const source = new ReadableStream<Uint8Array>({ cancel }, { highWaterMark: 0 })
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+    const reader = response!.body!.getReader()
+    const pending = reader.read()
+
+    await reader.cancel("client disconnected")
+
+    await expect(pending).resolves.toEqual({ done: true, value: undefined })
+    expect(cancel).toHaveBeenCalledWith("client disconnected")
+    expect(source.locked).toBe(false)
+  })
+
+  it("releases the native reader when source cancellation rejects", async () => {
+    const error = new Error("cancel failed")
+    const source = new ReadableStream<Uint8Array>({ cancel() { throw error } }, { highWaterMark: 0 })
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+
+    await expect(response?.body?.cancel("client disconnected")).rejects.toBe(error)
+    expect(source.locked).toBe(false)
+  })
+
+  it("rejects invalid response construction before locking the source body", async () => {
+    const source = new ReadableStream<Uint8Array>({}, { highWaterMark: 0 })
+    const foreign = new ForeignResponse(null, { status: 204 })
+    Object.defineProperty(foreign, "body", { value: source })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    expect(source.locked).toBe(false)
+  })
+
+  it("rejects an own body reader override without invoking it", async () => {
+    const foreign = new ForeignResponse("Policy rejected", { status: 409 })
+    const getReader = vi.fn(() => { throw new Error("must not call own reader") })
+    Object.defineProperty(foreign.body, "getReader", { value: getReader })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    expect(getReader).not.toHaveBeenCalled()
   })
 
   it.each([["local", Response], ["foreign", ForeignResponse]] as const)("preserves status-zero error semantics from the %s runtime", async (_runtime, ResponseConstructor) => {
