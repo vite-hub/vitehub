@@ -124,6 +124,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(otherRevision.metadata).toEqual({ source: ["raw-store"] })
     expect(uploads).toHaveBeenCalledTimes(3)
     expect(uploads.mock.calls.map(([key]) => key)).toEqual(expect.arrayContaining([expect.stringMatching(/\/sha256\/[a-f0-9]{64}$/)]))
+    expect(uploads.mock.calls.every(([key]) => String(key).startsWith("_vitehub/workspace-history/"))).toBe(true)
     await store.delete()
     expect(await store.history.usage()).toEqual({ bytes: 0, objects: 0 })
     expect(await store.history.list()).toEqual({ revisions: [] })
@@ -703,5 +704,24 @@ describe("history policy and capabilities", () => {
     const first = await commit([grant], options)
     await expect(commit([], { ifHead: first.id, files: {} })).rejects.toThrow("requires a Source write grant")
     expect(await store.history.head()).toEqual(first)
+  })
+})
+
+describe("retained history Blob prefix", () => {
+  it("nests a custom prefix under the ViteHub-owned history root", async () => {
+    const { blob, database, uploads } = await setup("libsql")
+    const store = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "handbook-doc", prefix: "handbook" })
+    await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "handbook" }) })
+    const keys = uploads.mock.calls.map(([key]) => String(key))
+    expect(keys).toHaveLength(1)
+    expect(keys[0]).toMatch(/^_vitehub\/workspace-history\/handbook\/[a-f0-9]{64}\/sha256\/[a-f0-9]{64}$/)
+    const [error, listed] = await blob.list()
+    expect(error).toBeNull()
+    expect(listed?.blobs.map(object => object.pathname)).toEqual(keys)
+  })
+
+  it.each(["", "/handbook", "handbook/", "../handbook", "hand//book", "hand.book"])("rejects prefix %j", async (prefix) => {
+    const { blob, database } = await setup("libsql")
+    expect(() => createBlobDatabaseWorkspaceStore({ blob, database, workspace: "handbook-doc", prefix })).toThrow("History Blob prefix")
   })
 })

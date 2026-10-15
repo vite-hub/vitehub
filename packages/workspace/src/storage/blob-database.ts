@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { ViteHubError } from "@vite-hub/runtime"
+import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
 import { workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "../core/file-metadata.ts"
@@ -24,7 +25,10 @@ export interface BlobDatabaseWorkspaceStoreOptions {
   database: RuntimeDrizzleDatabase<Record<string, unknown>>
   /** Stable workspace identity. Deleted identities cannot be reused. */
   workspace: string
-  /** A dedicated Blob key prefix. Defaults to vitehub/workspace-history. */
+  /**
+   * A dedicated namespace under `_vitehub/workspace-history/`. For example, `handbook`
+   * stores objects under `_vitehub/workspace-history/handbook/`.
+   */
   prefix?: string
 }
 
@@ -59,8 +63,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   constructor(private options: BlobDatabaseWorkspaceStoreOptions) {
     if (!hasRuntimeType(options.workspace, "string") || !options.workspace) throw workspaceError("[vitehub] Blob + Database Store requires a workspace identity.")
-    const prefix = options.prefix ?? "vitehub/workspace-history"
-    if (!/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(prefix)) throw workspaceError("[vitehub] History Blob prefix must contain only letters, numbers, underscores, dashes, and single slashes.")
+    if (options.prefix !== undefined && !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(options.prefix)) throw workspaceError("[vitehub] History Blob prefix must contain only letters, numbers, underscores, dashes, and single slashes.")
+    // ViteHub owns every history object, so a custom prefix only nests below the owned root.
+    const root = `${vitehubOwnedPrefix}workspace-history`
+    const prefix = options.prefix === undefined ? root : `${root}/${options.prefix}`
     this.#namespace = sha256(options.workspace).then(digest => `${prefix}/${digest}`)
   }
 

@@ -1,10 +1,13 @@
 import * as v from "valibot"
+import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 import type { BlobStorage } from "@vite-hub/blob"
 
-export const consoleAttachmentCleanupPrefix = "vitehub-console-attachment-cleanup/"
-const quarantinePrefix = "vitehub-console-attachment-quarantine/"
+const consolePrefix = `${vitehubOwnedPrefix}console/`
+export const consoleAttachmentPrefix = `${consolePrefix}attachments/`
+export const consoleAttachmentCleanupPrefix = `${consolePrefix}cleanup/`
+export const consoleAttachmentQuarantinePrefix = `${consolePrefix}quarantine/`
 const cleanupPrefix = consoleAttachmentCleanupPrefix
-export const consoleAttachmentPrefix = "vitehub-console-attachments/"
+const quarantinePrefix = consoleAttachmentQuarantinePrefix
 const idSchema = v.pipe(v.string(), v.uuid())
 
 class CorruptCleanupRecord extends Error {

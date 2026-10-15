@@ -160,7 +160,9 @@ Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
 Workspace your package does not define.
 
-File objects use `<prefix>/<sha256(workspace)>/sha256/<digest>` Blob keys.
+File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>` Blob keys.
+The optional `prefix` nests below `_vitehub/workspace-history/`, so ViteHub owns every
+history object.
 Identical bytes share one object within a workspace. Database stores immutable
 manifests, refs, an upload catalog, and Workspace metadata. Usage counts unique
 uncompressed file bytes across committed revisions on every ref. Workspaces have separate

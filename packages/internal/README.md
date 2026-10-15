@@ -31,6 +31,8 @@ Source readers use `createSourceScanner(file)` from `@vite-hub/internal/source-s
 
 Packages use it for definition discovery, generated runtime registries, Provider Output, hosted runtime helpers, and hosting normalization.
 
+ViteHub writes its own Blob objects, such as Workspace history, Console attachments, and derived caches, under one prefix. `vitehubOwnedPrefix` from `@vite-hub/internal/owned-paths` is `_vitehub/`. Build every ViteHub-owned Blob path from it. `isVitehubOwnedPath(pathname)` returns true for those paths, so a UI that lists a Blob store can hide them and refuse to move or delete them.
+
 Owner packages expose inspection data through `vitehub.inspect` on their Vite plugin. The contributor returns `definitions` inspectors and `providerOutput` entries from `@vite-hub/internal/inspect`. `vitehub inspect` and the Console render that data. They do not own it.
 
 Owner packages contribute Console sections with `ViteHubConsoleSectionContribution` from `@vite-hub/internal/console`. A contribution has an `id`, a `label`, an Iconify `icon`, a `description`, a `read` function that runs on the server, and a `view`. The view is a `definition-catalog` (Definitions in a sidebar with a detail panel) or a `record-table` (records in a table with a detail panel), and it has a `notice` that states which runtime data the section does not include. The Vue UI stays in `vite-hub`. For example, `@vite-hub/queue/vite` exports `queueConsoleSection`, and its `read` is `inspectQueueDefinitions`, so the Console and `vitehub inspect definitions` show the same Definitions. Record values are display strings. Do not put credentials in records.
