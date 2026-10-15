@@ -590,6 +590,30 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("preserves tagged cross-realm errors without native brand checks", () => {
+    const errorConstructor = Error as ErrorConstructor & { isError?: unknown }
+    const nativeIsError = errorConstructor.isError
+    const processValue = (globalThis as typeof globalThis & { process?: { getBuiltinModule?: unknown } }).process
+    const nativeGetBuiltinModule = processValue?.getBuiltinModule
+    try {
+      errorConstructor.isError = undefined
+      if (processValue) processValue.getBuiltinModule = undefined
+      const error = runInNewContext("new Error('tagged cross-realm boom')")
+      Object.defineProperty(error, Symbol.toStringTag, { value: "ProviderError" })
+      const event = toAgentStreamEvent({ error, type: "error" })
+      expect(event).toMatchObject({ error: "tagged cross-realm boom", type: "error" })
+      expect(Reflect.get(event!, agentStreamErrorSymbol)).toBe(error)
+
+      const spoofed = { message: "spoofed", [Symbol.toStringTag]: "Error" }
+      const spoofedEvent = toAgentStreamEvent({ error: spoofed, type: "error" })
+      expect(Object.getOwnPropertySymbols(spoofedEvent!)).not.toContain(agentStreamErrorSymbol)
+    }
+    finally {
+      errorConstructor.isError = nativeIsError
+      if (processValue) processValue.getBuiltinModule = nativeGetBuiltinModule
+    }
+  })
+
   it("does not treat spoofed or hostile values as stream errors", () => {
     const spoofed = { message: "spoofed", [Symbol.toStringTag]: "Error" }
     const spoofedEvent = toAgentStreamEvent({ error: spoofed, type: "error" })
