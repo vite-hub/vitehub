@@ -1104,9 +1104,25 @@ it("does not cache regions inferred from Vercel requests", async () => {
 })
 
 it("reads regions from a request created in another realm", () => {
-  const request = runInNewContext(`new Request("https://example.com", {
-    headers: { "ce-vqsregion": "ams1" },
-  })`, { Request })
+  const request = runInNewContext(`(() => {
+    class Headers {}
+    Headers.prototype.get = BaseHeaders.prototype.get
+    class Request {
+      constructor(input, init) {
+        const request = new BaseRequest(input, init)
+        Object.setPrototypeOf(request.headers, Headers.prototype)
+        Object.setPrototypeOf(request, Request.prototype)
+        return request
+      }
+    }
+    Object.defineProperty(Request.prototype, "headers", {
+      get: BaseRequest.prototype.__lookupGetter__("headers"),
+    })
+    return new Request("https://example.com", {
+      headers: { "ce-vqsregion": "ams1" },
+    })
+  })()`, { BaseRequest: Request, BaseHeaders: Headers })
+  expect(request).not.toBeInstanceOf(Request)
   expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
 })
 
