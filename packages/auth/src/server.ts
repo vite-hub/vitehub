@@ -332,10 +332,18 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+  try {
+    const stream = Object(body)
+    const prototype = Object.getPrototypeOf(stream)
+    const locked = responsePropertyDescriptor(stream, "locked")?.get
+    const getReader = responsePropertyDescriptor(stream, "getReader")?.value
+    const streamConstructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    const streamPrototype = streamConstructor && Object(streamConstructor).prototype
+    const nativeGetReader = streamPrototype && Object.getOwnPropertyDescriptor(streamPrototype, "getReader")?.value
+    if (typeof locked !== "function" || Reflect.apply(locked, stream, [])) return false
+    return typeof getReader === "function" && getReader === nativeGetReader
+  }
+  catch { return false }
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
@@ -548,7 +556,8 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {
