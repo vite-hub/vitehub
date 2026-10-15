@@ -36,8 +36,26 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
 
     const clone = Reflect.get(globalThis, "structuredClone")
     if (!hasRuntimeType(clone, "function")) return false
-    const cloned = (clone as (value: unknown) => unknown)(candidate)
-    return cloned instanceof Error
+    try {
+      return (clone as (value: unknown) => unknown)(candidate) instanceof Error
+    }
+    catch {
+      // Error objects can carry configurable, non-cloneable application fields.
+      // Hide those fields for the brand check, then restore the object exactly.
+      const descriptors = new Map<PropertyKey, PropertyDescriptor>()
+      try {
+        for (const key of Reflect.ownKeys(candidate)) {
+          const descriptor = Reflect.getOwnPropertyDescriptor(candidate, key)
+          if (!descriptor?.configurable || !("value" in descriptor)) continue
+          descriptors.set(key, descriptor)
+          Reflect.defineProperty(candidate, key, { ...descriptor, value: undefined })
+        }
+        return (clone as (value: unknown) => unknown)(candidate) instanceof Error
+      }
+      finally {
+        for (const [key, descriptor] of descriptors) Reflect.defineProperty(candidate, key, descriptor)
+      }
+    }
   }
   catch {
     return false
