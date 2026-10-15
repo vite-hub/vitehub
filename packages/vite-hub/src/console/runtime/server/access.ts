@@ -93,7 +93,10 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       const cloneDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, "clone")
       const tagDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, Symbol.toStringTag)
       const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
+      const methods = ["arrayBuffer", "blob", "formData", "json", "text"]
+      const hasResponseMethods = methods.every(method => typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.value === "function")
       if (typeof cloneDescriptor?.value === "function"
+        && hasResponseMethods
         && tagDescriptor
         && typeof constructor === "function"
         && constructor.prototype === responsePrototype
@@ -110,7 +113,16 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
     if (typeof cloneMethod !== "function") return invalidAuthorizationResponse
     const clone = Reflect.apply(cloneMethod, value, [])
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the foreign clone result before inspecting its fields.
-    if (!clone || typeof clone !== "object" || clone === value || Object.getPrototypeOf(clone) !== prototype
+    let clonePrototype = clone && typeof clone === "object" ? Object.getPrototypeOf(clone) : null
+    let sharesResponsePrototype = false
+    while (clonePrototype) {
+      if (clonePrototype === responsePrototype) {
+        sharesResponsePrototype = true
+        break
+      }
+      clonePrototype = Object.getPrototypeOf(clonePrototype)
+    }
+    if (!clone || typeof clone !== "object" || clone === value || !sharesResponsePrototype
       || objectToString.call(clone) !== "[object Response]"
       || Object.prototype.hasOwnProperty.call(clone, Symbol.toStringTag)) return invalidAuthorizationResponse
     // A callable clone spoof must also expose the transferable Response contract.
