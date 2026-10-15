@@ -287,7 +287,12 @@ async function runAccessAuthorize(
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
-  if (value instanceof Response) return value.status >= 200 && value.status <= 599 ? value : undefined
+  if (value instanceof Response) {
+    if (value.status < 200 || value.status > 599) return
+    if (typeof value.headers?.forEach !== "function") return
+    if (value.body !== null && typeof value.body.getReader !== "function") return
+    return value
+  }
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return
     // SAFETY: Foreign responses are untrusted. Copy their data into a local

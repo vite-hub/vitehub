@@ -105,6 +105,15 @@ describe("Auth access handlers", () => {
     await expect(response.text()).resolves.toBe("Policy rejected")
   })
 
+  it("rejects native responses with unusable headers", async () => {
+    const response = new Response("Policy rejected", { status: 409 })
+    Object.defineProperty(response.headers, "forEach", { value: undefined })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))!.status).toBe(403)
+  })
+
   it("rejects a forged response body with an unusable reader", async () => {
     const forgedResponse = {
       status: 409,
