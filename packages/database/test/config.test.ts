@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { discoverDatabaseDefinitions, resolveDBViteConfig } from "../src/config.ts"
+import { discoverDatabaseDefinitions, readStaticDatabaseSchema, resolveDBViteConfig } from "../src/config.ts"
 import { resolveConfigValue } from "../src/config-value.ts"
 import { resolveCloudflareD1Bindings, resolveRuntimeCloudflareConfig } from "../src/internal/cloudflare.ts"
 import { renderDatabaseConfigExpression } from "../src/internal/runtime-config-expression.ts"
@@ -54,7 +54,6 @@ describe("discoverDatabaseDefinitions", () => {
       name: "default",
       schemaSources: [{ handler: file, tableNames: ["notes"] }],
       source: "server-database-default",
-      tableNames: ["notes"],
     }])
   })
 
@@ -72,8 +71,8 @@ describe("discoverDatabaseDefinitions", () => {
     const tenant = await writeDefinition(rootDir, "server/databases/tenant/config.ts", "accounts")
 
     expect(discoverDatabaseDefinitions(rootDir)).toEqual([
-      expect.objectContaining({ handler: analytics, mode: "named", name: "analytics", tableNames: ["events"] }),
-      expect.objectContaining({ handler: tenant, mode: "named", name: "tenant", tableNames: ["accounts"] }),
+      expect.objectContaining({ handler: analytics, mode: "named", name: "analytics" }),
+      expect.objectContaining({ handler: tenant, mode: "named", name: "tenant" }),
     ])
   })
 
@@ -82,7 +81,7 @@ describe("discoverDatabaseDefinitions", () => {
     const archive = await writeDefinition(rootDir, "server/databases/billing/archive/config.ts", "invoices")
 
     expect(discoverDatabaseDefinitions(rootDir)).toEqual([
-      expect.objectContaining({ handler: archive, mode: "named", name: "billing/archive", tableNames: ["invoices"] }),
+      expect.objectContaining({ handler: archive, mode: "named", name: "billing/archive" }),
     ])
   })
 
@@ -130,7 +129,7 @@ describe("discoverDatabaseDefinitions", () => {
     ])
   })
 
-  it("reads table names from the exported database definition only", async () => {
+  it("reads static fallback table names from the exported database definition only", async () => {
     const rootDir = await createTempProject()
     const file = join(rootDir, "server/databases/config.ts")
     await mkdir(dirname(file), { recursive: true })
@@ -147,9 +146,7 @@ describe("discoverDatabaseDefinitions", () => {
       "",
     ].join("\n"))
 
-    expect(discoverDatabaseDefinitions(rootDir)).toEqual([
-      expect.objectContaining({ handler: file, tableNames: ["notes"] }),
-    ])
+    expect(readStaticDatabaseSchema(file)).toEqual({ complete: true, tableNames: ["notes"] })
   })
 
   it("rejects mixing the default database with named databases", async () => {

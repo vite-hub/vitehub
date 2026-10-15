@@ -4,35 +4,38 @@ import { createImportPath } from "@vite-hub/internal/build/paths"
 import { dirname, join } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { loadDatabaseTableNames } from "./schema-tables.ts"
 
+import type { DatabaseTableNameOptions } from "./schema-tables.ts"
 import type { DiscoveredDatabaseDefinition, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
-/** Exports each table key from the source that wins it, so Drizzle Kit sees every table once. */
-function createTableExports(definition: DiscoveredDatabaseDefinition, sourceVariables: string[]) {
-  const winners = new Map<string, string>()
-  definition.schemaSources.forEach((source, index) => {
-    for (const tableName of source.tableNames) winners.set(tableName, sourceVariables[index]!)
+const reservedSchemaExports = new Set(["default", "schema"])
+
+function renderExportName(name: string) {
+  return /^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name)
+}
+
+// drizzle-kit finds tables through named exports, so each table gets one.
+function createTableExports(definition: DiscoveredDatabaseDefinition, tableNames: string[], definitionVariable: string) {
+  return tableNames.flatMap((tableName, index) => {
+    if (reservedSchemaExports.has(tableName)) {
+      throw databaseErrorDiagnostics.DATABASE_B0009({ message: `[vitehub] Database Definition "${definition.handler}" uses the reserved schema key ${JSON.stringify(tableName)}. Rename that table key.` })
+    }
+    return [
+      `const table_${index} = ${definitionVariable}.schema[${JSON.stringify(tableName)}]`,
+      `export { table_${index} as ${renderExportName(tableName)} }`,
+    ]
   })
-  return definition.tableNames.map(tableName => `export const ${tableName} = ${winners.get(tableName)}.schema[${JSON.stringify(tableName)}]`)
 }
 
-function schemaSourceVariables(definition: DiscoveredDatabaseDefinition, single: string, prefix: string) {
-  return definition.schemaSources.length === 1 ? [single] : definition.schemaSources.map((_, index) => `${prefix}${index}`)
-}
-
-function renderSchemaExpression(sourceVariables: string[]) {
-  return sourceVariables.length === 1
-    ? `${sourceVariables[0]}.schema`
-    : `{ ${sourceVariables.map(variable => `...${variable}.schema`).join(", ")} }`
-}
-
-function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition) {
-  const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
+function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, tableNames: string[]) {
+  const definitionVariable = "databaseDefinition"
   return [
-    ...definition.schemaSources.map((source, index) => `import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
+    `import ${definitionVariable} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     "",
-    ...createTableExports(definition, sourceVariables),
-    `export const schema = ${renderSchemaExpression(sourceVariables)}`,
+    ...createTableExports(definition, tableNames, definitionVariable),
+    `export const schema = ${definitionVariable}.schema`,
     "export default schema",
     "",
   ].join("\n")
@@ -77,20 +80,13 @@ function renderGeneratedDrizzleConfig(config: ResolvedDBViteConfig, databaseName
   ].join("\n")
 }
 
-function renderSchemaType(variables: string[]) {
-  const [first, ...rest] = variables.map(variable => `typeof ${variable}.schema`)
-  return rest.reduce((merged, next) => `Omit<${merged}, keyof ${next}> & ${next}`, first!)
-}
-
 function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatabaseDefinition[]) {
-  const variables = definitions.map((definition, index) => schemaSourceVariables(definition, `database_${index}`, `database_${index}_`))
-  const imports = definitions.flatMap((definition, index) => definition.schemaSources.map((source, sourceIndex) =>
-    `import type ${variables[index]![sourceIndex]} from ${JSON.stringify(createImportPath(file, source.handler))}`))
-  const schemaTypes = variables.map(renderSchemaType)
+  const imports = definitions.map((definition, index) =>
+    `import type database_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`)
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
   const registryEntries = definitions.flatMap((definition, index) => [
     `    ${JSON.stringify(definition.name)}: {`,
-    `      schema: ${schemaTypes[index]}`,
+    `      schema: typeof database_${index}.schema`,
     "    },",
   ])
   const registryDeclarations = ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(moduleName => [
@@ -105,7 +101,7 @@ function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatab
   return [
     ...imports,
     "",
-    `type DefaultDatabaseSchema = ${schemaTypes[schemaDefinitionIndex]}`,
+    `type DefaultDatabaseSchema = typeof database_${schemaDefinitionIndex}.schema`,
     "",
     'declare module "#vitehub/database/schema" {',
     "  interface DatabaseSchema extends DefaultDatabaseSchema {}",
@@ -123,12 +119,14 @@ export async function removeGeneratedDatabaseTypes(rootDir: string) {
   await writeFile(generatedTypesFile, "export {}\n", "utf8")
 }
 
-export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig) {
+/** Writes generated schemas, Drizzle configs, and types. Each Database Definition is loaded to list its tables. */
+export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig, options: DatabaseTableNameOptions = {}) {
   const generatedTypesFile = join(config.rootDir, ".vitehub/types/database.d.ts")
   await Promise.all(config.definitions.map(async (definition) => {
     const file = config.generatedSchemaFilesByDatabase[definition.name]!
+    const tableNames = await loadDatabaseTableNames(definition.handler, options)
     await mkdir(dirname(file), { recursive: true })
-    await writeFile(file, renderGeneratedDrizzleSchema(file, definition), "utf8")
+    await writeFile(file, renderGeneratedDrizzleSchema(file, definition, tableNames), "utf8")
   }))
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
