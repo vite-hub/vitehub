@@ -329,6 +329,12 @@ function hasResponsePrototype(value: unknown): boolean {
           if (typeof clone !== "function") return false
           const cloned = Reflect.apply(clone, value, [])
           if (cloned === value || Object(cloned) !== cloned) return false
+          // A caller-created prototype can imitate the accessors and return a
+          // second object linked to itself. Genuine Response implementations
+          // retain the platform brand across clone(), including independent
+          // runtime implementations.
+          if (Object.prototype.toString.call(value) !== "[object Response]"
+            || Object.prototype.toString.call(cloned) !== "[object Response]") return false
           let clonedPrototype: object | null = Object.getPrototypeOf(cloned)
           let reachesResponsePrototype = false
           for (let cloneDepth = 0; clonedPrototype && cloneDepth < authorizationResponsePrototypeLimit; cloneDepth++) {
