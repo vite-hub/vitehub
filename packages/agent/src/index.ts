@@ -7143,9 +7143,14 @@ async function executeAgentInvocationWithCapacityLease<
     invocation.deliveryReminderRunner = async (settledResult) => {
       let nextResult = settledResult
       for (const provider of invocation.finishDeliveryReminderProviders) {
-        while (isSettledAgentResult(nextResult)) {
+        // Stream cleanup calls this runner after consuming the stream. The
+        // preserved result can still expose the original async iterable, so
+        // settlement cannot be inferred from its shape at this point.
+        let firstReminder = true
+        while (firstReminder || isSettledAgentResult(nextResult)) {
           const reminder = provider.next(invocation.context)
           if (!reminder) break
+          firstReminder = false
           invocation.input.abortSignal?.throwIfAborted()
           const previousText = finalTextFromAgentOutput(nextResult)?.trim() || undefined
           reminderTranscript = deliveryReminderTranscript(invocation, reminderTranscript, previousText, reminder.instruction)
