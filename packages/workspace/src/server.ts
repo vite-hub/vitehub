@@ -120,8 +120,12 @@ function headerValue(headers: WorkspaceDevHeaders, name: string): string | undef
   const tag = Object.prototype.toString.call(headers)
   const prototype = Object.getPrototypeOf(headers)
   const constructor = prototype && Reflect.get(prototype, "constructor")
-  const isCrossRealmHeaders = tag === "[object Headers]"
-    || (hasRuntimeType(constructor, "function") && Reflect.get(constructor, "name") === "Headers")
+  // `Symbol.toStringTag` is user-controllable, so it cannot establish the
+  // Headers brand on its own. A genuine cross-realm Headers instance exposes
+  // its own constructor on the prototype; use that signal before invoking any
+  // inherited getter.
+  const isCrossRealmHeaders = hasRuntimeType(constructor, "function")
+    && Reflect.get(constructor, "name") === "Headers"
   if (isCrossRealmHeaders) {
     const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
     const crossRealmGet = Reflect.get(headers, "get")
