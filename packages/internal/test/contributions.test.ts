@@ -91,6 +91,10 @@ describe("collectContributions", () => {
     const [collected] = await collect([{ name: "url", vitehub: { widgets: [{ definition: { module: file }, name: "docs" }] } }])
     expect(collected?.definition.module).toBe("/app/widgets/docs.ts")
 
+    const mixedCaseFile = file.replace(/^file:/, "FiLe:")
+    const [mixedCase] = await collect([{ name: "mixed-case-url", vitehub: { widgets: [{ definition: { module: mixedCaseFile }, name: "docs" }] } }])
+    expect(mixedCase?.definition.module).toBe("/app/widgets/docs.ts")
+
     await expect(collect([{ name: "relative", vitehub: { widgets: [{ definition: { module: "./docs.ts" }, name: "docs" }] } }]))
       .rejects.toThrow("INVALID [vitehub] Plugin \"relative\" contributed an invalid Widget: `definition.module` of Widget \"docs\" is relative")
 

@@ -107,12 +107,12 @@ async function flattenPlugins(value: unknown, plugins: object[], seen: Set<unkno
 }
 
 function readModule(value: string): string {
-  if (!value.startsWith("file:")) return value
+  if (!/^file:/i.test(value)) return value
   // `fileURLToPath` normalizes relative spellings such as `file:../x` to an
   // absolute path, so validate the original URL form before converting it.
   const url = value.slice("file:".length)
   if (!url.startsWith("/")) throw new TypeError("relative file URL")
-  return fileURLToPath(value)
+  return fileURLToPath(`file:${url}`)
 }
 
 function isRelative(module: string): boolean {
