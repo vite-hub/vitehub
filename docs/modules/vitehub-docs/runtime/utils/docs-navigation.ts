@@ -19,6 +19,8 @@ export type DocsCatalogGroup = {
   sections: DocsSection[];
 };
 
+const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
+
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
 
@@ -115,5 +117,6 @@ export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] 
 export function getDocsSectionKind(section: DocsSection): string {
   if (section.id === docsRootSectionId) return "Get started";
   if (section.id === "ui") return "UI components";
+  if (primitiveCategories.has(section.category || "")) return "Server Primitive";
   return section.category || "Platform";
 }
