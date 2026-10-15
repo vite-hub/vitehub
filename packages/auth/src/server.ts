@@ -288,13 +288,29 @@ function isResponseLike(value: unknown): value is Response {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject primitives before validating the native Response brand below.
   if (value === null || typeof value !== "object") return false
   try {
-    // Use the native getter's brand check without consuming or cloning the body.
+    // Use the local native getter when the response comes from this runtime.
     const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!
     status.call(value)
     return true
   }
   catch {
-    return false
+    // A response from another runtime has a different native brand. Validate
+    // its own prototype accessors instead, without consuming or cloning it.
+    try {
+      let prototype: object | null = value
+      let bodyGetter: (() => unknown) | undefined
+      while (prototype && !bodyGetter) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "body")
+        if (descriptor?.get) bodyGetter = descriptor.get as () => unknown
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      if (!bodyGetter || typeof (value as { clone?: unknown }).clone !== "function") return false
+      bodyGetter.call(value)
+      return true
+    }
+    catch {
+      return false
+    }
   }
 }
 
