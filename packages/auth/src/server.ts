@@ -298,20 +298,31 @@ function isResponseLike(value: unknown): value is Response {
     // its own prototype accessors instead, without consuming or cloning it.
     try {
       let prototype: object | null = value
+      let statusGetter: (() => unknown) | undefined
+      let statusTextGetter: (() => unknown) | undefined
+      let headersGetter: (() => unknown) | undefined
       let bodyGetter: (() => unknown) | undefined
+      let cloneMethod: ((this: unknown) => unknown) | undefined
       const seen = new Set<object>()
-      while (prototype && !bodyGetter && !seen.has(prototype)) {
+      while (prototype && (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !cloneMethod) && !seen.has(prototype)) {
         seen.add(prototype)
-        const descriptor = Object.getOwnPropertyDescriptor(prototype, "body")
-        if (descriptor?.get) bodyGetter = descriptor.get as () => unknown
+        const descriptors = Object.getOwnPropertyDescriptors(prototype)
+        if (descriptors.status?.get) statusGetter ??= descriptors.status.get as () => unknown
+        if (descriptors.statusText?.get) statusTextGetter ??= descriptors.statusText.get as () => unknown
+        if (descriptors.headers?.get) headersGetter ??= descriptors.headers.get as () => unknown
+        if (descriptors.body?.get) bodyGetter ??= descriptors.body.get as () => unknown
+        if (typeof descriptors.clone?.value === "function") cloneMethod ??= descriptors.clone.value as (this: unknown) => unknown
         prototype = Object.getPrototypeOf(prototype)
       }
-      if (!bodyGetter || typeof (value as { clone?: unknown }).clone !== "function") return false
+      if (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !cloneMethod) return false
+      statusGetter.call(value)
+      statusTextGetter.call(value)
+      const headers = headersGetter.call(value)
+      if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
       bodyGetter.call(value)
-      // Native Response#clone always creates a distinct response. Requiring
-      // that invariant rejects caller-controlled response-shaped objects whose
-      // clone method merely returns the object itself.
-      if ((value as { clone: () => unknown }).clone() === value) return false
+      // Calling the prototype method performs the native internal brand check;
+      // unlike a caller-provided clone property, it cannot be spoofed.
+      if (cloneMethod.call(value) === value) return false
       return true
     }
     catch {
