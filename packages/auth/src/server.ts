@@ -286,20 +286,64 @@ async function runAccessAuthorize(
   return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
+const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
+
+const authorizationResponsePrototypeLimit = 32
+
+function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
-    const hostStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-    let status: unknown
-    try {
-      status = hostStatus?.call(value)
+    let current: object | null = Object(value)
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) throw new Error("Cyclic authorization response prototype")
+      seen.add(current)
+      const descriptor = Object.getOwnPropertyDescriptor(current, key)
+      if (descriptor) return descriptor
+      current = Object.getPrototypeOf(current)
     }
-    catch {
-      const prototype = Object.getPrototypeOf(value)
-      const foreignStatus = prototype && Object.getOwnPropertyDescriptor(prototype, "status")?.get
-      status = foreignStatus?.call(value)
+    if (current) throw new Error("Authorization response prototype chain is too deep")
+  }
+  catch {
+    // Fail the whole snapshot rather than treating malformed reflection as a missing method.
+    throw new Error("Malformed authorization response prototype")
+  }
+}
+
+function hasResponsePrototype(value: unknown): boolean {
+  try {
+    if (value instanceof Response) return true
+    let current: object | null = Object.getPrototypeOf(Object(value))
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) return false
+      seen.add(current)
+      const bodyGetter = Object.getOwnPropertyDescriptor(current, "body")?.get
+      if (typeof bodyGetter === "function") {
+        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+        // A Response subclass may override `body`; keep walking until the
+        // native Response prototype provides the brand-checked accessor.
+        if (constructor?.name === "Response") {
+          Reflect.apply(bodyGetter, value, [])
+          const clone = Object.getOwnPropertyDescriptor(current, "clone")?.value
+          if (typeof clone !== "function") return false
+          const cloned = Reflect.apply(clone, value, [])
+          if (cloned === value || Object(cloned) !== cloned) return false
+          let clonedPrototype: object | null = Object.getPrototypeOf(cloned)
+          let reachesResponsePrototype = false
+          for (let cloneDepth = 0; clonedPrototype && cloneDepth < authorizationResponsePrototypeLimit; cloneDepth++) {
+            if (clonedPrototype === current) {
+              reachesResponsePrototype = true
+              break
+            }
+            clonedPrototype = Object.getPrototypeOf(clonedPrototype)
+          }
+          if (!reachesResponsePrototype) return false
+          return true
+        }
+      }
+      current = Object.getPrototypeOf(current)
     }
-    return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599
+    return false
   }
   catch {
     return false
@@ -355,27 +399,65 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
 }
 
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
-  if (value === null || typeof value !== "object") return
-  if (value instanceof Response) return value
-  if (!isResponseLike(value)) return
+  if (value === null || Object(value) !== value) return
   try {
-    const candidate = value as { status: number; statusText: string; headers: Headers; body: ReadableStream<Uint8Array> | null }
-    const status = candidate.status
-    const statusText = candidate.statusText
-    const headers = candidate.headers
-    const body = candidate.body
-    if (!Number.isInteger(status) || status < 0 || status > 599 || typeof statusText !== "string" || headers === null || typeof headers !== "object") return
-    // Error responses use status 0, which cannot be passed to the Response
-    // constructor. Preserve the foreign response instead of converting it.
-    if (status === 0) return value as Response
+    const candidate = Object(value)
+    if (!hasResponsePrototype(candidate)) return
+    // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
+    const status: unknown = Reflect.get(candidate, "status")
+    const statusText: unknown = Reflect.get(candidate, "statusText")
+    const headers: unknown = Reflect.get(candidate, "headers")
+    const body: unknown = Reflect.get(candidate, "body")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
+    if (typeof statusText !== "string") return
+    if (headers === null || Object(headers) !== headers) return
+
+    const headerCarrier = Object(headers)
+    const snapshot = { status, statusText, headers, body }
+    const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
+      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+    let nativeProperties = false
+    try {
+      nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
+        const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+        return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
+      })
+    }
+    catch {
+      // A proxy can expose native descriptors without owning native response state.
+    }
+    const nativeHeaderMethods = ["get", "forEach"].every(key =>
+      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
+    const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
+      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+    const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    if (!isSerializableAuthorizationBody(body)) return
+    const forEach = Reflect.get(headerCarrier, "forEach")
+    const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
+    const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
+    if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
-    const setCookieHeaders = typeof headers.getSetCookie === "function" ? headers.getSetCookie() : []
-    headers.forEach((v, k) => {
-      if (k.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
-      normalizedHeaders.append(k, v)
-    })
-    for (const cookie of setCookieHeaders) normalizedHeaders.append("set-cookie", cookie)
-    return new Response(body, { status, statusText, headers: normalizedHeaders })
+    Reflect.apply(forEach, headers, [(value: string, key: string) => {
+      if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, value)
+    }])
+    for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
+
+    // Preserve the standard error response before constructing a local response.
+    if (status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0) return Response.error()
+    if (body === null) return new Response(null, { status, statusText, headers: normalizedHeaders })
+    const bridgedBody = bridgeAuthorizationBody(body)
+    try {
+      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+    }
+    catch (error) {
+      bridgedBody.release()
+      throw error
+    }
   }
   catch {
     return
