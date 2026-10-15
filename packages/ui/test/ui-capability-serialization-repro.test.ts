@@ -51,7 +51,6 @@ describe("AgentCapabilityInspector serialization", () => {
     expect(html).not.toContain("Record-only view");
     expect(html).toContain("vh-capability-inspector__empty");
   });
-
   it.each(cases)("renders %s without crashing", async (_name, values, expected) => {
     const props = values.state === undefined ? invocation(undefined, values.metadata) : invocation(values.state);
     const wrapper = mount(AgentCapabilityInspector, { props: { invocation: props } });
@@ -72,5 +71,4 @@ describe("AgentCapabilityInspector serialization", () => {
     const html = await renderToString(createSSRApp({ render: () => h(AgentCapabilityInspector, { invocation: props }) }));
     expect(html).toContain("Safe view");
   });
-
 });

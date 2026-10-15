@@ -10,8 +10,8 @@ import {
 import { useWorkspaceAssets } from "../asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 
-import { workspaceConflict, workspaceError } from "./errors.ts"
-import { requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
+import { workspaceError } from "./errors.ts"
+import { historyConflict, normalizeHistoryRef, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
@@ -303,15 +303,18 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
   const workspace = {
     name,
     history: {
-      head: async () => await requireWorkspaceHistory(await resolveWorkspace()).head(),
+      head: async options => await requireWorkspaceHistory(await resolveWorkspace()).head(options),
       list: async options => await requireWorkspaceHistory(await resolveWorkspace()).list(options),
+      refs: async () => await requireWorkspaceHistory(await resolveWorkspace()).refs(),
       open: async id => await requireWorkspaceHistory(await resolveWorkspace()).open(id),
       usage: async () => await requireWorkspaceHistory(await resolveWorkspace()).usage(),
       commit: async options => {
         const history = requireWorkspaceHistory(await resolveWorkspace())
         validateHistoryMessage(options.message)
-        const head = await history.head()
-        if ((head?.id ?? null) !== options.ifHead) throw workspaceConflict("[vitehub] Workspace head changed before the history commit.", { details: { expected: options.ifHead, actual: head?.id ?? null } })
+        const ref = normalizeHistoryRef(options.ref)
+        // Reject a stale head before build Sources synchronize.
+        const head = await history.head({ ref })
+        if ((head?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, head?.id ?? null)
         return await requireWorkspaceHistory(await resolveSyncedWorkspace()).commit(options)
       },
     },
@@ -686,8 +689,9 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
   const facade = {
     fs,
     history: {
-      head: () => requireWorkspaceHistory(workspace).head(),
+      head: (options?: import("./types.ts").WorkspaceHistoryRefOptions) => requireWorkspaceHistory(workspace).head(options),
       list: (options?: import("./types.ts").WorkspaceHistoryListOptions) => requireWorkspaceHistory(workspace).list(options),
+      refs: () => requireWorkspaceHistory(workspace).refs(),
       open: (id: string) => requireWorkspaceHistory(workspace).open(id),
       usage: () => requireWorkspaceHistory(workspace).usage(),
     },

@@ -487,9 +487,9 @@ Each command posts to `/_vitehub/rpc/__call` under the app URL, and the Console 
 
 | Variable | Value |
 | --- | --- |
-| `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value from a signed-in Console session. With `access: 'auth'`, copy the `vitehub_console.session_token` cookie, which has the `__Secure-` prefix on HTTPS. |
-| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value, for example the Bearer token that a `host-managed` `authorize` function checks. |
-| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | A Cloudflare Access service token for `access: 'cloudflare-access'`. |
+| `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value from a signed-in Console session. With Console Auth, copy the `vitehub_console.session_token` cookie, which has the `__Secure-` prefix on HTTPS. |
+| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value, for example the Bearer token that a `console.authorize` function checks. |
+| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | A Cloudflare Access service token for `auth: { provider: 'cloudflare-access' }`. |
 
 A URL selects the Console when its host is not `localhost`, or when its path contains `/_vitehub`, such as a Console page URL that you copy from the browser or `http://localhost:3000/_vitehub` for a local production build. Other localhost URLs keep their local meaning. Remote URLs must use HTTPS and must not contain credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a Console authentication failure.
 
