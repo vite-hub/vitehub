@@ -28,7 +28,7 @@ function isActive(path: string) {
 
 <template>
   <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
-    <template v-for="pageGroup in pageGroups" :key="pageGroup.label || 'pages'">
+    <template v-for="(pageGroup, pageGroupIndex) in pageGroups" :key="pageGroup.label || `pages-${pageGroupIndex}`">
       <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
         <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink
