@@ -67,6 +67,7 @@ function isResponseLike(value: unknown): value is Response {
     const headerMethods = ["get", "set", "has", "append", "delete", "forEach"]
     const responseMethods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
     let nativeBrand = false
+    let foreignBrand = false
     try {
       // SAFETY: Response.prototype.body is the platform getter and performs the internal-slot brand check.
       Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value)
@@ -90,6 +91,21 @@ function isResponseLike(value: unknown): value is Response {
       const body = Object.getOwnPropertyDescriptor(prototype, "body")
       if (body && typeof body.get === "function") {
         hasBodyGetter = true
+        try {
+          body.get.call(value)
+          const bodyUsed = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
+          const status = Object.getOwnPropertyDescriptor(prototype, "status")
+          const headers = Object.getOwnPropertyDescriptor(prototype, "headers")
+          if (bodyUsed?.get && status?.get && headers?.get) {
+            bodyUsed.get.call(value)
+            status.get.call(value)
+            headers.get.call(value)
+            foreignBrand = true
+          }
+        }
+        catch {
+          // A getter that does not recognize the object's internal slots is not a brand check.
+        }
       }
       const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
       if (tag) {
@@ -133,7 +149,7 @@ function isResponseLike(value: unknown): value is Response {
       // Node's Response stores its slots internally, while DOM shims commonly
       // expose them as own properties. Both forms are valid when the inspected
       // body getter accepts the value (or the shim exposes the complete shape).
-      && (nativeBrand || hasShimState)
+      && (nativeBrand || foreignBrand || hasShimState)
     return typeof response.status === "number"
       && typeof response.statusText === "string"
       && (nativeBrand || foreignImplementation)
