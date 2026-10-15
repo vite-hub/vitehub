@@ -5097,13 +5097,11 @@ function withEagerStreamUsageExtensions<
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
-    for await (const chunk of stream) {
-      const usageRecord = usageRecordFromStreamChunk(chunk, result)
-      if (!usageRecord) {
-        yield chunk
-        continue
-      }
-      const usage = { ...usageRecord }
+    let extensionsRun = false
+    const runExtensions = async (usageRecord: ReturnType<typeof usageRecordFromStreamChunk>) => {
+      if (extensionsRun) return
+      extensionsRun = true
+      const usage = usageRecord ? { ...usageRecord } : undefined
       const eventBase = {
         actor: context.actor,
         input: context.input,
@@ -5111,7 +5109,7 @@ function withEagerStreamUsageExtensions<
         invocation: {
           durationMs: Date.now() - context.startedAt,
           ...(context.run ? { run: context.run } : {}),
-          usage,
+          ...(usage ? { usage } : {}),
         },
         result,
         runtime: context.runtimeContext,
@@ -5119,32 +5117,55 @@ function withEagerStreamUsageExtensions<
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await createAgentInvocationExtensions(eventBase as never, providers)
-      if (chunk && hasRuntimeType(chunk, "object")) {
-        const prototype = Object.getPrototypeOf(chunk)
-        if (prototype !== Object.prototype && prototype !== null) {
-          if (Object.isExtensible(chunk)) {
-            try {
-              Object.defineProperty(chunk, "usageRecord", {
-                configurable: true,
-                enumerable: true,
-                value: usage,
-                writable: true,
-              })
-              yield chunk
-              continue
-            }
-            catch {
-              // Preserve the custom chunk and emit the canonical record separately.
-            }
-          }
+    }
+
+    try {
+      for await (const chunk of stream) {
+        const usageRecord = usageRecordFromStreamChunk(chunk, result)
+        if (usageRecord) await runExtensions(usageRecord)
+        if (!usageRecord) {
           yield chunk
-          yield { type: "usage", usageRecord: usage }
           continue
         }
-        yield { ...chunk, usageRecord: usage }
-        continue
+        const usage = { ...usageRecord }
+        if (chunk && hasRuntimeType(chunk, "object")) {
+          const prototype = Object.getPrototypeOf(chunk)
+          if (prototype !== Object.prototype && prototype !== null) {
+            if (Object.isExtensible(chunk)) {
+              try {
+                Object.defineProperty(chunk, "usageRecord", {
+                  configurable: true,
+                  enumerable: true,
+                  value: usage,
+                  writable: true,
+                })
+                yield chunk
+                continue
+              }
+              catch {
+                // Preserve the custom chunk and emit the canonical record separately.
+              }
+            }
+            yield chunk
+            yield { type: "usage", usageRecord: usage }
+            continue
+          }
+          yield { ...chunk, usageRecord: usage }
+          continue
+        }
+        yield { type: "usage", usageRecord: usage }
       }
-      yield { type: "usage", usageRecord: usage }
+    }
+    finally {
+      if (!extensionsRun) {
+        const source = result && hasRuntimeType(result, "object") ? result as Record<string, unknown> : undefined
+        const usageRecord = usageRecordFromStreamChunk({
+          type: "finish",
+          usage: source?.usage,
+          totalUsage: source?.totalUsage,
+        }, result)
+        await runExtensions(usageRecord)
+      }
     }
   })()
 }
