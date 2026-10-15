@@ -29,8 +29,7 @@ const docsShellUi = {
     <UPage v-else :ui="docsShellUi">
       <template #left>
         <UPageAside class="vh-docs-aside">
-          <DocsAsideLeftTop />
-          <DocsAsideLeftBody />
+          <DocsSidebars panel />
         </UPageAside>
       </template>
 
