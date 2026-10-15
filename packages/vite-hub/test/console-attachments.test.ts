@@ -65,6 +65,21 @@ it("retains image bytes and metadata across storage restart without embedding by
   expect(Buffer.from(await (bytes as Blob).arrayBuffer()).toString("base64")).toBe(png)
 })
 
+it("reads attachments stored under the legacy prefix", async () => {
+  const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
+  setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
+  installConsoleBlob(base, blob)
+  const id = crypto.randomUUID()
+  const [putError] = await blob.put(`vitehub-console-attachments/${id}`, Buffer.from(png, "base64"), { contentType: "image/png" })
+  expect(putError).toBeNull()
+  const message = await consoleInputMessage("", [{ id, name: "legacy.png" }])
+  const part = message.parts[0]
+  expect(part).toMatchObject({ type: "image", id, mediaType: "image/png", name: "legacy.png" })
+  if (part?.type !== "image") throw new Error("Expected image")
+  const bytes = await part.fetchData!()
+  expect(Buffer.from(await (bytes as Blob).arrayBuffer()).toString("base64")).toBe(png)
+})
+
 it("rejects remote URLs, unsupported files, missing images, and path traversal", async () => {
   await expect(upload("https://example.test/image.png")).rejects.toMatchObject({ statusCode: 415 })
   await expect(upload("data:text/html;base64,PHNjcmlwdD4=")).rejects.toMatchObject({ statusCode: 415 })

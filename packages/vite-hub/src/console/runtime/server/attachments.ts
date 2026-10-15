@@ -82,7 +82,7 @@ async function inputMessage(prompt: string, attachments: unknown, fresh = new Se
     if (!fresh.has(id) && await isConsoleAttachmentPendingCleanup(storage, id)) throw error(404, "The stored image is pending deletion.")
     let attachmentPrefix = prefix
     let [headError, metadata] = await storage.head(`${attachmentPrefix}${id}`)
-    if (!headError && !metadata) {
+    if (headError?.code === "BLOB_NOT_FOUND" || (!headError && !metadata)) {
       attachmentPrefix = legacyConsoleAttachmentPrefix
       ;[headError, metadata] = await storage.head(`${attachmentPrefix}${id}`)
     }
