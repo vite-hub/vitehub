@@ -1117,6 +1117,20 @@ it("falls back to Vercel ID when a request has no queue-region header", () => {
   expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "iad1" })
 })
 
+it("reads headers through a deep Fetch prototype chain", () => {
+  const request = new Request("https://example.com", {
+    headers: { "ce-vqsregion": "ams1" },
+  })
+  let prototype = Object.getPrototypeOf(request)
+  for (let index = 0; index < 40; index++) {
+    const layer = Object.create(prototype)
+    prototype = layer
+  }
+  Object.setPrototypeOf(request, prototype)
+
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
+})
+
 it("ignores proxies around ordinary header methods", () => {
   const get = new Proxy(() => "evil", {})
   const request = { headers: { get } }
