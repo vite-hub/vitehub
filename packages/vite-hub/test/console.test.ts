@@ -550,7 +550,7 @@ describe("Agent invocation console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
+        console: { auth: false, authorize: hostManagedAuthorize },
         preset: "node",
         sections: [],
       })
@@ -581,7 +581,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(inheritedRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
       const plugin = consoleVitePlugin({
-        console: { exposure: "host-managed", authorize: hostManagedAuthorize },
+        console: { auth: false, authorize: hostManagedAuthorize },
         preset: "node",
         sections: ["databases"],
       })
