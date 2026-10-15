@@ -334,12 +334,11 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (Object(body) !== body) return false
   try {
     const stream = Object(body)
-    const prototype = Object.getPrototypeOf(stream)
     const locked = responsePropertyDescriptor(stream, "locked")?.get
     const getReader = responsePropertyDescriptor(stream, "getReader")?.value
-    const streamConstructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    const streamPrototype = streamConstructor && Object(streamConstructor).prototype
-    const nativeGetReader = streamPrototype && Object.getOwnPropertyDescriptor(streamPrototype, "getReader")?.value
+    const prototype = Object.getPrototypeOf(stream)
+    const constructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    const nativeGetReader = constructor && Object.getOwnPropertyDescriptor(Object(constructor).prototype, "getReader")?.value
     if (typeof locked !== "function" || Reflect.apply(locked, stream, [])) return false
     return typeof getReader === "function" && getReader === nativeGetReader
   }
@@ -347,11 +346,9 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  // Keep foreign streams unlocked until the normalized body is consumed or canceled.
-  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
-  const sourceCancel: ReadableStream<Uint8Array>["cancel"] = ReadableStream.prototype.cancel
-  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
-  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  const bodyPrototype = Object.getPrototypeOf(body)
+  const getReader = bodyPrototype && Object.getOwnPropertyDescriptor(bodyPrototype, "getReader")?.value
+  if (typeof getReader !== "function") throw new TypeError("Invalid authorization body")
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   let released = false
   let initializing: Promise<ReadableStreamDefaultReader<Uint8Array>> | undefined
@@ -364,33 +361,31 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const release = () => {
     if (released || !reader) return
     released = true
-    Reflect.apply(releaseLock, reader, [])
+    const releaseLock = Object.getPrototypeOf(reader)?.releaseLock
+    if (typeof releaseLock === "function") Reflect.apply(releaseLock, reader, [])
   }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const sourceReader = await acquire()
+        const read = Object.getPrototypeOf(sourceReader)?.read
+        if (typeof read !== "function") throw new TypeError("Invalid authorization reader")
         const result = await Reflect.apply(read, sourceReader, [])
-        if (result.done) {
-          release()
-          controller.close()
-        }
+        if (result.done) { release(); controller.close() }
         else controller.enqueue(result.value)
-      }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
+      } catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
       try {
         const sourceReader = reader ?? (initializing && await initializing)
-        if (sourceReader) await Reflect.apply(cancel, sourceReader, [reason])
-        else await Reflect.apply(sourceCancel, body, [reason])
-      }
-      finally {
-        release()
-      }
+        if (sourceReader) {
+          const cancel = Object.getPrototypeOf(sourceReader)?.cancel
+          if (typeof cancel === "function") await Reflect.apply(cancel, sourceReader, [reason])
+        } else {
+          const cancel = Object.getPrototypeOf(body)?.cancel
+          if (typeof cancel === "function") await Reflect.apply(cancel, body, [reason])
+        }
+      } finally { release() }
     },
   }, { highWaterMark: 0 })
   return { stream, release }
@@ -448,8 +443,8 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
-    if (body === null) return normalizedResponse
+      : undefined
+    if (body === null) return normalizedResponse ?? new Response(null, { status, statusText, headers: normalizedHeaders })
     const bridgedBody = bridgeAuthorizationBody(body)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
@@ -556,8 +551,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
-  if (authorize !== true && typeof authorize !== "function") {
+  if (authorize !== true && !(authorize instanceof Function)) {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {
