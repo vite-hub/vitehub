@@ -21,99 +21,32 @@ interface BlobMethods {
   readonly type: string
 }
 
+const blobArrayBuffer = Blob.prototype.arrayBuffer
+const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
+
 function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype) {
-      const sliceDescriptor = Object.getOwnPropertyDescriptor(prototype, "slice")
-      // Resolve the stream from a Blob returned by the brand-checked slice.
-      // This skips own and prototype-level stream overrides on the input.
-      if (!sliceDescriptor) {
-        prototype = Object.getPrototypeOf(prototype)
-        continue
-      }
-      const slice = sliceDescriptor.value
-      if (!hasRuntimeType(slice, "function")) {
-        prototype = Object.getPrototypeOf(prototype)
-        continue
-      }
-      try {
-        const sliced: unknown = Reflect.apply(slice, value, [0, 0])
-        // A real Blob slice always creates a distinct Blob. Reject methods
-        // that simply return their receiver, which can otherwise imitate the
-        // prototype checks below without carrying Blob internal slots.
-        if (sliced === value) {
-          prototype = Object.getPrototypeOf(prototype)
-          continue
-        }
-        if (sliced === null || (typeof sliced !== "object" && typeof sliced !== "function")) {
-          prototype = Object.getPrototypeOf(prototype)
-          continue
-        }
-        const slicedPrototype = Object.getPrototypeOf(sliced)
-        const constructor = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "constructor")?.value
-        const slicedSlice = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "slice")?.value
-        const stream = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "stream")?.value
-        const arrayBuffer = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "arrayBuffer")?.value
-        const text = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "text")?.value
-        const sizeGetter = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "size")?.get
-        if (
-          !hasRuntimeType(constructor, "function") || constructor.name !== "Blob" ||
-          constructor.prototype !== slicedPrototype ||
-          slicedSlice !== slice || !hasRuntimeType(stream, "function") ||
-          !hasRuntimeType(arrayBuffer, "function") || !hasRuntimeType(text, "function") ||
-          !hasRuntimeType(sizeGetter, "function")
-        ) {
-          prototype = Object.getPrototypeOf(prototype)
-          continue
-        }
-        // Applying the same slice operation to its result confirms that the
-        // returned object carries the Blob's internal slots, rather than being
-        // an arbitrary object returned by a spoofed slice method.
-        const slicedAgain = Reflect.apply(slicedSlice, sliced, [0, 0])
-        if (slicedAgain === sliced) {
-          prototype = Object.getPrototypeOf(prototype)
-          continue
-        }
-        const size = Reflect.apply(sizeGetter, sliced, [])
-        const slicedType = Reflect.getOwnPropertyDescriptor(sliced, "type")
-        const typeGetter = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "type")?.get
-        if (
-          size !== 0 ||
-          (slicedType && !hasRuntimeType(slicedType.value, "string")) ||
-          (!slicedType && !hasRuntimeType(typeGetter, "function"))
-        ) {
-          prototype = Object.getPrototypeOf(prototype)
-          continue
-        }
-        const type = typeGetter
-          ? String(Reflect.apply(typeGetter, value, []))
-          : String(Reflect.getOwnPropertyDescriptor(value, "type")?.value ?? "")
-        return {
-          // Use the validated byte operation instead of invoking a potentially
-          // overridden stream method supplied by the input value.
-          body: () => new ReadableStream<Uint8Array>({
-            async start(controller) {
-              try {
-                const bytes = await Reflect.apply(arrayBuffer, value, []) as ArrayBuffer
-                controller.enqueue(new Uint8Array(bytes))
-                controller.close()
-              }
-              catch (error) {
-                controller.error(error)
-              }
-            },
-          }),
-          type,
-        }
-      }
-      catch {
-        // Continue to the next prototype in the chain.
-      }
-      prototype = Object.getPrototypeOf(prototype)
+    // Blob.prototype.arrayBuffer is an intrinsic operation. Calling it performs
+    // the Web IDL brand check, including for Blob objects from another realm.
+    if (typeof blobType !== "function") return undefined
+    const cloned = typeof structuredClone === "function" ? structuredClone(value) : value
+    const type = String(Reflect.apply(blobType, cloned, []))
+    return {
+      type,
+      body: () => new ReadableStream<Uint8Array>({
+        async start(controller) {
+          try {
+            const bytes = await Reflect.apply(blobArrayBuffer, cloned, []) as ArrayBuffer
+            controller.enqueue(new Uint8Array(bytes))
+            controller.close()
+          }
+          catch (error) {
+            controller.error(error)
+          }
+        },
+      }),
     }
-    return undefined
   }
   catch {
     return undefined
@@ -130,8 +63,7 @@ export function toResponse(value: unknown): Response {
   }
   const blobMethods = getBlobMethods(value)
   if (blobMethods) {
-    const type = blobMethods.type
-    return new Response(blobMethods.body(), type ? { headers: { "content-type": type } } : undefined)
+    return new Response(blobMethods.body(), blobMethods.type ? { headers: { "content-type": blobMethods.type } } : undefined)
   }
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },
