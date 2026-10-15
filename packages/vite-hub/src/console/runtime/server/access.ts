@@ -254,6 +254,7 @@ export async function consoleConnectionsActor(
 ): Promise<string | undefined> {
   const access = await checkConsoleAccess(event)
   if (access instanceof Response || isResponseLike(access)) return undefined
+  if (!consoleAccessAllows(access, "connections")) return undefined
   if (access.mode === "auth") return sessionActor ? await sessionActor() : undefined
   return `user:${access.mode}`
 }
