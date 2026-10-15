@@ -204,7 +204,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
 
   const cwd = options.cwd || process.cwd()
   const env = options.env || process.env
-  const stderr = options.stderr || process.stderr
+  const stderr = options.stderr || ({
+    write: (chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => typeof encoding === "function"
+      ? process.stderr.write(chunk, encoding)
+      : process.stderr.write(chunk, encoding, callback),
+  } as ViteHubCliStreams["stderr"])
   const spawn = options.spawn || defaultSpawn
   const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && namespace.name !== "inspect")
   if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
@@ -281,8 +285,8 @@ function trackStream(stream: ViteHubCliStream) {
   const writes: Array<Promise<PromiseSettledResult<unknown>>> = []
   return {
     stream: {
-      write(chunk: string | Uint8Array) {
-        const result = stream.write(chunk)
+      write(chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) {
+        const result = (stream.write as unknown as (chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => unknown)(chunk, encoding, callback)
         writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>, PromiseSettledResult<unknown>>(
           value => ({ status: "fulfilled", value }),
           reason => ({ reason, status: "rejected" }),
@@ -322,7 +326,10 @@ function processEntrypointStream(stream: NodeJS.WriteStream): ViteHubCliEntrypoi
         resolveFlush()
       }
     })),
-    write: chunk => stream.write(chunk),
+    write: ((chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => {
+      if (typeof encoding === "function") return stream.write(chunk, encoding)
+      return stream.write(chunk, encoding, callback)
+    }) as ViteHubCliEntrypointStream["write"],
   }
 }
 
