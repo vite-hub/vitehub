@@ -85,6 +85,8 @@ export async function requestConsole(
   options: {
     body?: unknown
     method?: "GET" | "POST"
+    /** Let the request finish after the page unloads, such as a release sent on `pagehide`. */
+    keepalive?: boolean
     query?: Record<string, unknown>
     signal?: AbortSignal
   } = {},
@@ -110,6 +112,7 @@ export async function requestConsole(
     cache: "no-store",
     credentials: "same-origin",
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+    ...(options.keepalive ? { keepalive: true } : {}),
     method: "POST",
     signal: options.signal,
   })

@@ -463,7 +463,8 @@ describe("Content Console sessions", { timeout: 30_000 }, () => {
   it("takes the lease on first edit, blocks other tabs, and hands it over", async () => {
     const { actions } = await setup(await historyWorkspace({ sessions: true }))
     const created = await actions.save({ ...hello, session: tabA }, editor)
-    expect((await actions.session({ collection: "posts", id: "hello", session: tabA, action: "acquire" }, editor)).editing).toBe(true)
+    const acquired = await actions.session({ collection: "posts", id: "hello", session: tabA, action: "acquire" }, editor)
+    expect(acquired).toMatchObject({ editing: true, digest: created.digest })
     const blocked = await actions.session({ collection: "posts", id: "hello", session: tabB, action: "acquire" }, writer)
     expect(blocked).toMatchObject({ editing: false, holder: { user: { name: "Ada" }, kind: "edit", self: false } })
     expect(blocked.holder!.since).toEqual(expect.any(String))
