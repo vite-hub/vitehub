@@ -329,6 +329,23 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
+function prototypeMethod(value: unknown, key: PropertyKey): unknown {
+  try {
+    let current: object | null = Object.getPrototypeOf(Object(value))
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) return
+      seen.add(current)
+      const method = Object.getOwnPropertyDescriptor(current, key)?.value
+      if (method !== undefined) return method
+      current = Object.getPrototypeOf(current)
+    }
+  }
+  catch {
+    return
+  }
+}
+
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
@@ -336,9 +353,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const stream = Object(body)
     const locked = responsePropertyDescriptor(stream, "locked")?.get
     const getReader = responsePropertyDescriptor(stream, "getReader")?.value
-    const prototype = Object.getPrototypeOf(stream)
-    const constructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    const nativeGetReader = constructor && Object.getOwnPropertyDescriptor(Object(constructor).prototype, "getReader")?.value
+    const nativeGetReader = prototypeMethod(stream, "getReader")
     if (typeof locked !== "function" || Reflect.apply(locked, stream, [])) return false
     return typeof getReader === "function" && getReader === nativeGetReader
   }
@@ -346,8 +361,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  const bodyPrototype = Object.getPrototypeOf(body)
-  const getReader = bodyPrototype && Object.getOwnPropertyDescriptor(bodyPrototype, "getReader")?.value
+  const getReader = prototypeMethod(body, "getReader")
   if (typeof getReader !== "function") throw new TypeError("Invalid authorization body")
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   let released = false

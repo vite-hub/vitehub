@@ -403,6 +403,21 @@ describe("Auth access handlers", () => {
     }
   })
 
+  it("preserves a foreign stream subclass inheriting its native reader method", async () => {
+    const body = new (class extends ReadableStream<Uint8Array> {})({
+      start(controller) { controller.enqueue(new TextEncoder().encode("Policy rejected")) },
+    })
+    const foreign = new ForeignResponse(body, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response?.status).toBe(409)
+    await expect(response?.text()).resolves.toBe("Policy rejected")
+  })
+
   it("rejects a body carrier that would be stringified instead of streamed", async () => {
     const foreign = new ForeignResponse(null, { status: 409 })
     Object.defineProperty(foreign, "body", { value: { locked: false, getReader() {} } })
