@@ -88,11 +88,23 @@ export type RuntimeDrizzleDatabase<TSchema extends Record<string, unknown>> = Ba
 }
 export type Database<TSchema extends Record<string, unknown> = Record<string, unknown>> = DatabaseDefinition<TSchema> & RuntimeDrizzleDatabase<TSchema>
 
+/** A module whose `schema` tables join a database. */
+export interface DatabaseSchemaSource {
+  /** Database Definition file. ViteHub reads tables from its default export's `schema`. */
+  handler: string
+  /** Table keys that ViteHub can read without running the module. */
+  tableNames: string[]
+}
+
 export interface DiscoveredDatabaseDefinition {
+  /** The Definition that supplies the database options. */
   handler: string
   mode: "default" | "named"
   name: string
+  /** Schema modules merged into this database, lowest precedence first. A later table key replaces an earlier one. */
+  schemaSources: DatabaseSchemaSource[]
   source: string
+  /** Table keys of all schema sources. */
   tableNames: string[]
 }
 
@@ -145,4 +157,11 @@ export interface ResolvedDBViteConfig {
 
 export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
   connection?: DatabaseConnectionConfig
+}
+
+/** Options that only the Database Nuxt bridge sets on the Vite integration. */
+export interface NuxtDatabaseViteOptions {
+  nuxtHostResource?: true
+  /** Server directories of the Nuxt application and its layers. They replace `<projectRoot>/server`. */
+  nuxtServerDirs?: string[]
 }

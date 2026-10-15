@@ -229,24 +229,29 @@ function payload(message: EmailMessage): Record<string, unknown> {
 }
 
 export default function resendEmailDriver(options: ResendEmailDriverOptions): EmailDriver {
-  requiredOption("resend", options?.apiKey, "apiKey");
-  if (!isString(options.apiKey))
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Guard untrusted provider options before reading own properties; each option is validated below.
+  const record = options !== null && typeof options === "object" ? options : undefined;
+  const apiKey = record && Object.hasOwn(record, "apiKey") ? record.apiKey : undefined;
+  requiredOption("resend", apiKey, "apiKey");
+  if (!isString(apiKey))
     throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must be a string.");
-  if (!options.apiKey.startsWith("re_"))
+  if (!apiKey.startsWith("re_"))
     throw emailProviderError("resend", "INVALID_OPTIONS", "apiKey must start with 're_'.");
-  if (/[^\u0021-\u007E]/.test(options.apiKey))
+  if (/[^\u0021-\u007E]/.test(apiKey))
     throw emailProviderError(
       "resend",
       "INVALID_OPTIONS",
       "apiKey contains an invalid HTTP header character.",
     );
-  const request = options.fetch ?? globalThis.fetch;
+  const configuredFetch = record && Object.hasOwn(record, "fetch") ? record.fetch : undefined;
+  const request = configuredFetch ?? globalThis.fetch;
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Fetch callbacks cross JavaScript realms, so callability must be validated at this runtime boundary.
   if (typeof request !== "function")
     throw emailProviderError("resend", "INVALID_OPTIONS", "fetch is unavailable.");
   let endpoint: string;
   try {
-    const url = new URL(options.endpoint ?? "https://api.resend.com");
+    const configuredEndpoint = record && Object.hasOwn(record, "endpoint") ? record.endpoint : undefined;
+    const url = new URL(configuredEndpoint ?? "https://api.resend.com");
     if (url.protocol !== "http:" && url.protocol !== "https:")
       throw emailErrorDiagnostics.EMAIL_R0005({ message: "Unsupported protocol" });
     if (url.username || url.password || url.search || url.hash)
@@ -380,7 +385,7 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         response = await request(`${endpoint}/emails`, {
           body,
           headers: {
-            authorization: `Bearer ${options.apiKey}`,
+            authorization: `Bearer ${apiKey}`,
             "content-type": "application/json",
             ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
           },
