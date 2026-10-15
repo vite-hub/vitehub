@@ -78,6 +78,7 @@ function isRequestLike(value: AuthRequest): value is Request {
     const constructor = Reflect.get(value, "constructor")
     // Caller-created Request classes are structural lookalikes, not platform implementations.
     // Native and independent Fetch implementations expose native or host-defined constructors.
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Inspect the foreign constructor only to reject known caller-defined Request shapes.
     if (typeof constructor === "function") {
       const source = Function.prototype.toString.call(constructor)
       // Reject caller-defined Request classes while retaining known Fetch implementations.
