@@ -110,8 +110,8 @@ icon: i-lucide-file-text
   `createContentClient()` calls `/api/content/**`, served by the Vite plugin or Nuxt module.
   :::
 
-  :::product-feature-item{title="Let an Agent draft and publish documents" icon="i-lucide-bot" to="/docs/content/agent-capability"}
-  `content()` gives an Agent typed tools for each collection. Your `authorize` policy decides what it may do, and publishing asks for approval.
+  :::product-feature-item{title="Let an Agent draft, publish, and schedule documents" icon="i-lucide-bot" to="/docs/content/agent-capability"}
+  `content()` gives an Agent typed tools for each collection and singleton. Your `authorize` policy decides what it may read and change, and publishing asks for approval.
   :::
 
   :::product-feature-item{title="Give an Agent the files through Workspace" icon="i-lucide-bot" to="/docs/workspace/agent-capability"}
