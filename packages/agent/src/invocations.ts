@@ -2549,6 +2549,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             return runningPersisted
           }
           if (await markRunning()) return true
+          // The update can lose a confirmed claim after its renewal but before
+          // the store write. Revalidate before allowing best-effort dispatch;
+          // a confirmed loss aborts the invocation, while an unavailable
+          // renewal remains eligible for best-effort recovery.
+          if (claimConfirmed && !claimUnavailable) await renew()
+          if (cancellation.signal.aborted) return false
           const latest = await boundedStoreOperation(() => store.getSummary(recordId))
           // A best-effort run may start without the running state, so it must
           // still observe a cancellation request that the store returned.
@@ -2592,6 +2598,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
             while (!finished && !finishing) {
               if (await update({ cancelNotEnforcedBy, cancelWarningPending: false, status: "running", timestamp: new Date().toISOString() })) return
+              // The write may race a claim replacement. Revalidate after the
+              // failed write so a confirmed loss cancels the active Driver.
+              if (claimConfirmed && !claimUnavailable) await renew()
+              if (cancellation.signal.aborted) return
               if (Date.now() >= deadline) return
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
