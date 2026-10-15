@@ -69,6 +69,10 @@ const docsShellUi = {
   margin-top: auto;
 }
 
+.vh-docs-aside {
+  display: none;
+}
+
 @media (min-width: 40rem) {
   .vh-docs-main,
   .vh-docs-landing {
@@ -87,6 +91,7 @@ const docsShellUi = {
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
+    display: flex;
   }
 
   .vh-docs-content {
