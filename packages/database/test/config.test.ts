@@ -409,6 +409,21 @@ describe("resolveDBViteConfig", () => {
       .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
   })
 
+  it("resolves exported opaque declarations", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        `export const cloudflare = { databaseId: '${name}-id', databaseName: '${name}-db' }`,
+        `export default defineDatabase({ name: '${name}', cloudflare: { ...cloudflare }, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
+  })
+
   it("resolves default migrations from a forwarded server directory", async () => {
     const rootDir = await createTempProject()
     const serverDir = join(rootDir, "backend")
