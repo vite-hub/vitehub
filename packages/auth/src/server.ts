@@ -75,19 +75,6 @@ function isRequestLike(value: AuthRequest): value is Request {
     if (!value.signal || typeof value.signal.aborted !== "boolean") return false
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check request state without calling clone(), which would tee a streaming body.
     if (typeof Reflect.get(value, "bodyUsed") !== "boolean" || typeof value.signal.aborted !== "boolean") return false
-    const constructor = Reflect.get(value, "constructor")
-    // Caller-created Request classes are structural lookalikes, not platform implementations.
-    // Native and independent Fetch implementations expose native or host-defined constructors.
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Inspect the foreign constructor only to reject known caller-defined Request shapes.
-    if (typeof constructor === "function") {
-      const source = Function.prototype.toString.call(constructor)
-      // Reject caller-defined Request classes while retaining native Fetch implementations.
-      // A substring check is spoofable because comments and string literals are included
-      // in function source. Native constructors use this exact representation.
-      const isNativeConstructor = /^function\s+Request\(\)\s*\{\s*\[native code\]\s*\}$/.test(source)
-      if ((/^class\s+Request\b/.test(source) || /^function\s+Request\b/.test(source))
-        && !isNativeConstructor) return false
-    }
     return true
   }
   catch {
