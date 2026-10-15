@@ -174,15 +174,55 @@ interface RealtimeDurableObjectNamespace {
 }
 
 function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName"): boolean {
-  let descriptor: PropertyDescriptor | undefined
-  try {
-    descriptor = Object.getOwnPropertyDescriptor(value, name)
+  let owner: object | null = value
+  while (owner && owner !== Object.prototype) {
+    let descriptor: PropertyDescriptor | undefined
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(owner, name)
+    }
+    catch {
+      return false
+    }
+    if (descriptor) {
+      let method: unknown
+      if ("value" in descriptor) {
+        method = descriptor.value
+      }
+      else {
+        try {
+          method = Reflect.get(value, name)
+        }
+        catch {
+          return false
+        }
+      }
+      if (typeof method !== "function") return false
+      if (owner !== value) {
+        let source: string
+        try {
+          source = Function.prototype.toString.call(method)
+        }
+        catch {
+          return false
+        }
+        // Cloudflare's host methods are native functions. JavaScript-authored
+        // prototype methods are rejected so arbitrary inherited bindings do
+        // not reach the forwarding path.
+        if (!/\[native code\]/.test(source)) return false
+        // Proxies of ordinary test/user functions also stringify as native;
+        // their names expose that they are not the host namespace methods.
+        if (method.name !== name && !method.name.startsWith("bound ")) return false
+      }
+      return true
+    }
+    try {
+      owner = Object.getPrototypeOf(owner)
+    }
+    catch {
+      return false
+    }
   }
-  catch {
-    return false
-  }
-  if (!descriptor || !("value" in descriptor)) return false
-  return typeof descriptor.value === "function"
+  return false
 }
 
 function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
