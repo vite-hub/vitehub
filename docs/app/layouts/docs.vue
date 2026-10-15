@@ -69,6 +69,7 @@ const hasPanel = computed(
     max-height: calc(100dvh - var(--ui-header-height));
     min-height: calc(100dvh - var(--ui-header-height));
     flex: 0 0 auto;
+    overflow-x: clip;
   }
 
   .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-sidebars) {
@@ -76,7 +77,7 @@ const hasPanel = computed(
     height: 100%;
   }
 
-  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-aside) {
+  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-panel) {
     position: sticky;
     top: var(--ui-header-height);
     display: flex;
