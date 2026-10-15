@@ -310,7 +310,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
         catch {
           if (controller.signal.aborted) disconnected()
         }
-        if (!stillCurrent()) disconnected()
+        if (action !== "refresh" && !stillCurrent()) disconnected()
         if (response.ok) return data
         const errorData = isRecord(data) ? data : undefined
         const nestedData = isRecord(errorData?.data) ? errorData.data : undefined
