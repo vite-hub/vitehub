@@ -113,6 +113,10 @@
       "types": "./dist/hosted-vercel-blob.d.ts",
       "import": "./dist/hosted-vercel-blob.js"
     },
+    "./internal/runtime/history-dev": {
+      "types": "./dist/runtime/history-dev.d.ts",
+      "import": "./dist/runtime/history-dev.js"
+    },
     "./internal/runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js"
