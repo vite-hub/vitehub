@@ -314,7 +314,7 @@ function hasResponsePrototype(value: unknown): boolean {
     if (value instanceof Response) return true
     let current: object | null = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
-    for (let depth = 0; current && depth < 8; depth++) {
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(current)) return false
       seen.add(current)
       const bodyGetter = Object.getOwnPropertyDescriptor(current, "body")?.get
