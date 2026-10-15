@@ -355,6 +355,9 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const headers = candidate.headers
     const body = candidate.body
     if (!Number.isInteger(status) || status < 0 || status > 599 || typeof statusText !== "string" || headers === null || typeof headers !== "object") return
+    // Error responses use status 0, which cannot be passed to the Response
+    // constructor. Preserve the foreign response instead of converting it.
+    if (status === 0) return value as Response
     const normalizedHeaders = new Headers()
     headers.forEach((v, k) => normalizedHeaders.append(k, v))
     return new Response(body, { status, statusText, headers: normalizedHeaders })

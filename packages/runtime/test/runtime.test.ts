@@ -751,6 +751,236 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("does not treat an inherited SharedArrayBuffer tag as shared memory", async () => {
+    Object.defineProperty(Object.prototype, Symbol.toStringTag, { configurable: true, value: "SharedArrayBuffer" })
+    try {
+      const log = createTraceEventLog()
+      await log.append({
+        name: "custom.event",
+        payload: { value: { files: 1 }, visibility: "public" },
+        type: "lifecycle",
+      })
+
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+    }
+    finally {
+      Reflect.deleteProperty(Object.prototype, Symbol.toStringTag)
+    }
+  })
+
+  it.each([false, true])("rejects forged shared-memory getters (constructor hidden: %s)", async (hidden) => {
+    const getter = vi.fn(() => 0)
+    Object.defineProperty(Object.prototype, "byteLength", { configurable: true, get: getter })
+    Object.defineProperty(Object.prototype, Symbol.toStringTag, { configurable: true, value: "SharedArrayBuffer" })
+    if (hidden) vi.stubGlobal("SharedArrayBuffer", undefined)
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
+      await log.append({
+        name: "custom.event",
+        payload: { value: { files: 1 }, visibility: "public" },
+        type: "lifecycle",
+      })
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+      expect(getter).not.toHaveBeenCalled()
+    }
+    finally {
+      Reflect.deleteProperty(Object.prototype, "byteLength")
+      Reflect.deleteProperty(Object.prototype, Symbol.toStringTag)
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each(["SharedArrayBuffer", "WebAssembly.Memory"])("ignores a replaced %s constructor when checking shared memory", async (constructor) => {
+    const shared = runInNewContext("new SharedArrayBuffer(0)")
+    const getter = vi.fn(() => 0)
+    class ForgedSharedArrayBuffer {}
+    Object.defineProperty(ForgedSharedArrayBuffer.prototype, "byteLength", { get: getter })
+    Object.defineProperty(ForgedSharedArrayBuffer.prototype, Symbol.toStringTag, { value: "SharedArrayBuffer" })
+    if (constructor === "SharedArrayBuffer") {
+      vi.stubGlobal("SharedArrayBuffer", ForgedSharedArrayBuffer)
+    }
+    else {
+      vi.stubGlobal("SharedArrayBuffer", undefined)
+      vi.stubGlobal("WebAssembly", {
+        Memory: class {
+          buffer = new ForgedSharedArrayBuffer()
+        },
+      })
+    }
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
+      await log.append({ name: "ordinary", payload: { value: { files: 1 }, visibility: "public" }, type: "lifecycle" })
+      await log.append({ name: "shared", payload: { value: shared, visibility: "public" }, type: "lifecycle" })
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+      expect(log.entries()[1]?.payload).toEqual({ visibility: "private" })
+      expect(getter).not.toHaveBeenCalled()
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each(["DataView", "ArrayBuffer.byteLength"])("ignores replaced %s buffer operations before module import", async (operation) => {
+    const ordinary = new ArrayBuffer(4)
+    const shared = runInNewContext("new SharedArrayBuffer(0)")
+    const descriptor = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")
+    if (!descriptor) throw new Error("Expected the native ArrayBuffer byteLength descriptor")
+    const replacement = vi.fn(() => { throw new Error("replaced byte length") })
+    if (operation === "DataView") {
+      vi.stubGlobal("DataView", class { constructor() {} })
+    }
+    else {
+      Object.defineProperty(ArrayBuffer.prototype, "byteLength", { configurable: true, get: replacement })
+    }
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
+      await log.append({ name: "object", payload: { value: { files: 1 }, visibility: "public" }, type: "lifecycle" })
+      await log.append({ name: "array-buffer", payload: { value: ordinary, visibility: "public" }, type: "lifecycle" })
+      await log.append({ name: "shared", payload: { value: shared, visibility: "public" }, type: "lifecycle" })
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+      expect(log.entries()[1]?.payload?.visibility).toBe("public")
+      expect(log.entries()[2]?.payload).toEqual({ visibility: "private" })
+      expect(replacement).not.toHaveBeenCalled()
+    }
+    finally {
+      Object.defineProperty(ArrayBuffer.prototype, "byteLength", descriptor)
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each(["throw", "forge"])("fails closed when Function.prototype.toString is %s before import", async (mode) => {
+    const descriptor = Object.getOwnPropertyDescriptor(Function.prototype, "toString")
+    if (!descriptor) throw new Error("Expected the native Function.prototype.toString descriptor")
+    const shared = runInNewContext("new SharedArrayBuffer(0)")
+    Object.defineProperty(Function.prototype, "toString", {
+      configurable: true,
+      value: mode === "throw"
+        ? function () { throw new Error("replaced toString") }
+        : function () { return "function toString() { [native code] }" },
+      writable: true,
+    })
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      Object.defineProperty(Function.prototype, "toString", descriptor)
+      const log = runtime.createTraceEventLog()
+      await log.append({ name: "shared", payload: { value: shared, visibility: "public" }, type: "lifecycle" })
+      expect(log.entries()[0]?.payload).toEqual({ visibility: "private" })
+    }
+    finally {
+      Object.defineProperty(Function.prototype, "toString", descriptor)
+    }
+  })
+
+  it("fails closed when a formatter forges buffer operation signatures", async () => {
+    const formatterDescriptor = Object.getOwnPropertyDescriptor(Function.prototype, "toString")
+    const byteLengthDescriptor = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")
+    if (!formatterDescriptor || !byteLengthDescriptor) throw new Error("Expected native descriptors")
+    const originalFormatter = formatterDescriptor.value as (this: Function) => string
+    const shared = runInNewContext("new SharedArrayBuffer(0)")
+    const forgedDataView = class DataView { constructor() {} }
+    const forgedByteLength = function () { throw new Error("forged") }
+    Object.defineProperty(forgedByteLength, "name", { value: "get byteLength" })
+    vi.stubGlobal("DataView", forgedDataView)
+    Object.defineProperty(ArrayBuffer.prototype, "byteLength", { configurable: true, get: forgedByteLength })
+    Object.defineProperty(Function.prototype, "toString", {
+      configurable: true,
+      value: function () {
+        const name = (this as Function).name
+        if (["ArrayBuffer", "SharedArrayBuffer", "DataView", "Memory", "get byteLength", "get buffer"].includes(name)) {
+          return `function ${name}() { [native code] }`
+        }
+        return originalFormatter.call(this)
+      },
+      writable: true,
+    })
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
+      await log.append({ name: "object", payload: { value: { files: 1 }, visibility: "public" }, type: "lifecycle" })
+      await log.append({ name: "array-buffer", payload: { value: new ArrayBuffer(4), visibility: "public" }, type: "lifecycle" })
+      await log.append({ name: "shared", payload: { value: shared, visibility: "public" }, type: "lifecycle" })
+      expect(log.entries()[0]?.payload).toEqual({ value: { files: 1 }, visibility: "public" })
+      expect(log.entries()[1]?.payload?.visibility).toBe("public")
+      expect(log.entries()[2]?.payload).toEqual({ visibility: "private" })
+    }
+    finally {
+      Object.defineProperty(Function.prototype, "toString", formatterDescriptor)
+      Object.defineProperty(ArrayBuffer.prototype, "byteLength", byteLengthDescriptor)
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("does not trust forged buffer operations authenticated by a replaced formatter", async () => {
+    const toStringDescriptor = Object.getOwnPropertyDescriptor(Function.prototype, "toString")
+    const arrayBufferDescriptor = Object.getOwnPropertyDescriptor(globalThis, "ArrayBuffer")
+    const sharedArrayBufferDescriptor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")
+    const dataViewDescriptor = Object.getOwnPropertyDescriptor(globalThis, "DataView")
+    if (!toStringDescriptor || !arrayBufferDescriptor || !sharedArrayBufferDescriptor || !dataViewDescriptor) throw new Error("Expected buffer intrinsic descriptors")
+    const names = new WeakMap<Function, string>()
+    const nativeToString = toStringDescriptor.value as (this: Function) => string
+    const makeForged = (name: string, implementation: Function) => {
+      names.set(implementation, name)
+      return implementation
+    }
+    const forgedArrayBuffer = makeForged("ArrayBuffer", function (this: unknown) { return {} })
+    const forgedSharedArrayBuffer = makeForged("SharedArrayBuffer", function (this: unknown) { return {} })
+    const forgedDataView = makeForged("DataView", function (this: unknown) {})
+    Object.defineProperty(forgedSharedArrayBuffer, "prototype", { value: { [Symbol.toStringTag]: "SharedArrayBuffer", get byteLength() { return 0 } } })
+    Object.defineProperty(forgedArrayBuffer, "prototype", { value: { get byteLength() { return 0 } } })
+    const forgedFormatter = function (this: Function) {
+      const name = names.get(this)
+      if (name) return `function ${name}() { [native code] }`
+      return nativeToString.call(this)
+    }
+    Object.defineProperty(Function.prototype, "toString", { ...toStringDescriptor, value: forgedFormatter })
+    Object.defineProperty(globalThis, "ArrayBuffer", { ...arrayBufferDescriptor, value: forgedArrayBuffer })
+    Object.defineProperty(globalThis, "SharedArrayBuffer", { ...sharedArrayBufferDescriptor, value: forgedSharedArrayBuffer })
+    Object.defineProperty(globalThis, "DataView", { ...dataViewDescriptor, value: forgedDataView })
+    try {
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
+      await log.append({ name: "object", payload: { value: { files: 1 }, visibility: "public" }, type: "lifecycle" })
+      expect(log.entries()[0]?.payload).toEqual({ visibility: "private" })
+    }
+    finally {
+      Object.defineProperty(Function.prototype, "toString", toStringDescriptor)
+      Object.defineProperty(globalThis, "ArrayBuffer", arrayBufferDescriptor)
+      Object.defineProperty(globalThis, "SharedArrayBuffer", sharedArrayBufferDescriptor)
+      Object.defineProperty(globalThis, "DataView", dataViewDescriptor)
+    }
+  })
+
+  it.each([
+    new ArrayBuffer(0),
+    new ArrayBuffer(4),
+    new Uint8Array(4),
+    new DataView(new ArrayBuffer(4)),
+    runInNewContext("new ArrayBuffer(4)"),
+  ])("preserves ordinary buffer and view payloads (%#)", async (value) => {
+    const log = createTraceEventLog()
+    await log.append({ name: "ordinary", payload: { value, visibility: "public" }, type: "lifecycle" })
+    expect(log.entries()[0]?.payload?.visibility).toBe("public")
+  })
+
+  it("rejects cross-realm shared buffer payloads", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "custom.event",
+      payload: { value: runInNewContext("new SharedArrayBuffer(1)"), visibility: "public" },
+      type: "lifecycle",
+    })
+    expect(log.entries()[0]?.payload).toEqual({ visibility: "private" })
+  })
+
   it("keeps a cross-realm typed array public payload", async () => {
     const log = createTraceEventLog()
     const value = runInNewContext("new Uint8Array([1, 2, 3])")
@@ -1203,7 +1433,9 @@ describe("@vite-hub/runtime", () => {
     const memory = new WebAssemblyMemory({ initial: 1, maximum: 1, shared: true })
     vi.stubGlobal("SharedArrayBuffer", undefined)
     try {
-      const log = createTraceEventLog()
+      vi.resetModules()
+      const runtime = await import("../src/index.ts")
+      const log = runtime.createTraceEventLog()
       await log.append({
         name: "custom.public",
         payload: { value: { files: 1 }, visibility: "public" },
