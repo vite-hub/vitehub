@@ -30,6 +30,23 @@ describe("Cloudflare SQL carrier discovery", () => {
     expect(databaseSize).not.toHaveBeenCalled()
   })
 
+  it("rejects a receiver-sensitive JavaScript databaseSize getter", () => {
+    function SqlStorage() {}
+    const prototype = SqlStorage.prototype
+    const exec = function exec() { return { toArray: () => [] } }
+    const databaseSize = {
+      get databaseSize() {
+        return this === Object.create(prototype) ? (() => { throw new Error("forged") })() : 0
+      },
+    }
+    Object.defineProperties(prototype, {
+      exec: { value: exec },
+      databaseSize: { get: Object.getOwnPropertyDescriptor(databaseSize, "databaseSize")!.get },
+    })
+
+    expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
+  })
+
   it("rejects proxy-wrapped fabricated native carriers", () => {
     function SqlStorage() {}
     const exec = vi.fn()
@@ -55,7 +72,7 @@ describe("Cloudflare SQL carrier discovery", () => {
     }, {})
     Object.defineProperties(prototype, {
       exec: { value: exec },
-      databaseSize: { get: databaseSize },
+      databaseSize: { get: databaseSize as unknown as () => number },
     })
 
     expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)

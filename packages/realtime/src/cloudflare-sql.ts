@@ -50,8 +50,11 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     if (databaseSize.name !== "get databaseSize") return false
     // The platform getter is a native accessor. This prevents ordinary
     // JavaScript accessors from forging the receiver-sensitive brand probe.
-    const isNativeFunction = (value: Function): boolean => /\[native code\]/.test(Function.prototype.toString.call(value))
-    if (!isNativeFunction(databaseSize)) return false
+    // Native accessors have a stable engine-generated source form. A broad
+    // substring check is forgeable by an ordinary JavaScript getter whose
+    // source merely contains "[native code]".
+    const nativeGetterSource = /^function get databaseSize\(\) \{ \[native code\] \}$/
+    if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
 
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)
