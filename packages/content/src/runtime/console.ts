@@ -207,9 +207,19 @@ function writeMetadata(context: ViteHubConsoleDocumentActionContext): Record<str
   return by ? { author: by, source: "console" } : { source: "console" }
 }
 
+/**
+ * Why a schedule run published nothing. The runtime message names every document of the schedule that failed, and
+ * the user may not read all of them, so the Console says it without document ids.
+ */
+function scheduleFailure(code: string): string {
+  if (code === "WORKSPACE_CONFLICT") return "A document changed after it was scheduled, so nothing was published."
+  if (code === "CONTENT_INVALID") return "A document has invalid fields, so nothing was published."
+  return "Nothing was published."
+}
+
 function scheduleView(schedule: ContentDocumentSchedule | ContentSchedule): ViteHubConsoleDocumentSchedule {
   const result: ViteHubConsoleDocumentSchedule = { id: schedule.id, at: schedule.at, status: schedule.status }
-  if (schedule.failure) result.failure = schedule.failure.message
+  if (schedule.failure) result.failure = scheduleFailure(schedule.failure.code)
   return result
 }
 
@@ -640,8 +650,14 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (!content.sessions) return { user, available: false, reason: "This Content runtime does not track sessions.", sessions: [] }
       const names = new Set(collections.map(collection => collection.name))
       try {
-        const listed = await content.sessions.list(collections.length === 1 ? collections[0]!.name : undefined)
-        return { user, available: true, sessions: listed.filter(entry => names.has(entry.collection)).map(entry => sessionView(entry, session)) }
+        const listed = (await content.sessions.list(collections.length === 1 ? collections[0]!.name : undefined)).filter(entry => names.has(entry.collection))
+        // A session names its document, so each document needs read access, as in the list.
+        const readableByCollection = new Map(await Promise.all(collections.map(async collection => [
+          collection.name,
+          await readableIds(context, collection, listed.filter(entry => entry.collection === collection.name).map(entry => entry.id)),
+        ] as const)))
+        const visible = listed.filter(entry => readableByCollection.get(entry.collection)?.has(entry.id))
+        return { user, available: true, sessions: visible.map(entry => sessionView(entry, session)) }
       }
       catch (error) {
         const reason = sessionsUnavailable(error)

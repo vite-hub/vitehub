@@ -287,7 +287,7 @@ export interface ViteHubConsoleDocumentSchedule {
   /** When it publishes, as an ISO timestamp. */
   at: string
   status: ViteHubConsoleDocumentScheduleStatus
-  /** Why the run published nothing, when `status` is `failed`. */
+  /** Why the run published nothing, when `status` is `failed`. It names no documents: the schedule can hold some that the user may not read. */
   failure?: string
 }
 
@@ -632,7 +632,7 @@ export interface ViteHubConsoleDocumentActions {
   restore(input: { collection: string, id: string, revision: string, ifDigest: string | null, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   /** Report, take, or release this tab's session on one document, and read who else has it open. */
   session(input: ViteHubConsoleDocumentSessionInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPresence>
-  /** Every open tab in collections the user may read, or in one `collection`. `session` marks this tab as `self`. */
+  /** Every open tab on a document the user may read, in every collection or in one `collection`. `session` marks this tab as `self`. */
   sessions(input: { collection?: string, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentSessions>
   /**
    * Counts, unpublished changes, and recent activity of every collection the user may read, for the dashboard. Read
