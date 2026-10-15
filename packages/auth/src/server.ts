@@ -498,6 +498,10 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const body: unknown = Reflect.get(candidate, "body")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    // The Fetch Response constructor rejects status 0 when a body is present.
+    // Reject before acquiring the source reader so malformed responses cannot
+    // leave a foreign stream locked.
+    if (status === 0 && body !== null) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
@@ -541,11 +545,16 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       ? Response.error()
       : body === null
         ? new Response(null, { status, statusText, headers: normalizedHeaders })
-        : new Response(bridgeAuthorizationBody(body, authorizationBodyReader(Object(body)) ?? (() => undefined)).stream, {
-            status,
-            statusText,
-            headers: normalizedHeaders,
-          })
+        : (() => {
+            const bridge = bridgeAuthorizationBody(body, authorizationBodyReader(Object(body)) ?? (() => undefined))
+            try {
+              return new Response(bridge.stream, { status, statusText, headers: normalizedHeaders })
+            }
+            catch (error) {
+              bridge.release()
+              throw error
+            }
+          })()
     // Foreign implementations and shadowed native values become stable local responses.
     return normalizedResponse
   }
