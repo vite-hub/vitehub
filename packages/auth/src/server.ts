@@ -317,13 +317,14 @@ function hasResponsePrototype(value: unknown): boolean {
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(current)) return false
       seen.add(current)
-      const bodyGetter = Object.getOwnPropertyDescriptor(current, "body")?.get
-      if (typeof bodyGetter === "function") {
+      const accessors = authorizationResponseProperties.map(key =>
+        Object.getOwnPropertyDescriptor(current, key)?.get)
+      if (accessors.every(accessor => typeof accessor === "function")) {
         const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-        // A Response subclass may override `body`; keep walking until the
-        // native Response prototype provides the brand-checked accessor.
+        // A Response subclass may override accessors; keep walking until a
+        // complete Response prototype provides the brand-checked accessors.
         if (constructor?.name === "Response") {
-          Reflect.apply(bodyGetter, value, [])
+          for (const accessor of accessors) Reflect.apply(accessor as (...args: never[]) => unknown, value, [])
           const clone = Object.getOwnPropertyDescriptor(current, "clone")?.value
           if (typeof clone !== "function") return false
           const cloned = Reflect.apply(clone, value, [])
