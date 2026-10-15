@@ -717,6 +717,21 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     // value from property access. Reject that inconsistent shape before the
     // structural fallback can mistake it for an Error.
     if (!hasToStringTag && Reflect.get(error, Symbol.toStringTag) === "Error") return
+    // structuredClone preserves the intrinsic Error brand but does not copy
+    // user-defined symbol tags or an Error prototype chain onto plain objects.
+    // Prefer it when available so configurable stack descriptors cannot forge
+    // the fallback brand.
+    const structuredClone = Reflect.get(globalThis, "structuredClone")
+    if (hasRuntimeType(structuredClone, "function")) {
+      try {
+        const clone = Reflect.apply(structuredClone, globalThis, [error])
+        if (Object.prototype.toString.call(clone) !== "[object Error]") return
+      }
+      catch {
+        // Continue with the guarded structural fallback when cloning is not
+        // supported for this value or runtime.
+      }
+    }
     const branded = hasRuntimeType(currentIsError, "function")
       ? currentIsError(error) === true
       : hasRuntimeType(intrinsicIsError, "function")
