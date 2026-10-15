@@ -151,7 +151,7 @@ describe("docs product navigation", () => {
 
   it("keeps commas in frontmatter titles", () => {
     expect(getDocsPageByPath("/docs/agents/runtime-policy")?.title)
-      .toBe("Runtime policy, approvals, and traces");
+      .toBe("Policy and approvals");
   });
 
   it("redirects each removed page, its trailing-slash form, and its raw Markdown copy to a published page", () => {
