@@ -36,6 +36,9 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
 // stream-facing getters while retaining support for genuine foreign realms.
 const responseSnapshotProperties = ["status", "statusText", "headers", "body", "type"] as const
 const responsePrototypeLimit = 32
+const intrinsicResponse = Response
+const intrinsicHeaders = Headers
+const intrinsicReadableStream = ReadableStream
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   let current: object | null = Object(value)
@@ -67,9 +70,20 @@ function responsePrototype(value: unknown): object | undefined {
 function hasResponsePrototype(value: unknown): boolean {
   const branded = responsePrototype(value)
   if (!branded) return false
-  // Do not allow an intermediate prototype to replace intrinsic accessors.
-  return responseSnapshotProperties.every(key => responsePropertyDescriptor(value, key)?.get
-    === Object.getOwnPropertyDescriptor(branded, key)?.get)
+  // Own accessors are allowed: a genuine Response can expose a changing
+  // snapshot through own properties. Reject replacement accessors on any
+  // prototype between the candidate and its branded Response prototype.
+  let current: object | null = Object.getPrototypeOf(Object(value))
+  const seen = new Set<object>()
+  while (current && current !== branded) {
+    if (seen.has(current)) return false
+    seen.add(current)
+    for (const key of responseSnapshotProperties) {
+      if (Object.prototype.hasOwnProperty.call(current, key)) return false
+    }
+    current = Object.getPrototypeOf(current)
+  }
+  return current === branded
 }
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
@@ -198,15 +212,14 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     const markerGetter = headersDescriptor(headers, "get")?.value
     if (!branded || !hasRuntimeType(markerGetter, "function")
       || Reflect.apply(markerGetter, headers, ["x-vercel-ai-ui-message-stream"]) !== "v1") return
-    const nativeProperties = snapshot.type === type && hasResponsePrototype(value) && responseSnapshotProperties.every(key =>
-      responsePropertyDescriptor(value, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+    const nativeProperties = value instanceof intrinsicResponse && snapshot.type === type && hasResponsePrototype(value)
     const nativeHeaders = ["get", "forEach"].every(key =>
-      responsePropertyDescriptor(headers, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+      responsePropertyDescriptor(headers, key)?.value === Object.getOwnPropertyDescriptor(intrinsicHeaders.prototype, key)?.value)
     const cookieDescriptor = responsePropertyDescriptor(headers, "getSetCookie")
     const nativeCookies = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
-      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeReader = responsePropertyDescriptor(body, "getReader")?.value === ReadableStream.prototype.getReader
-    if (nativeProperties && nativeHeaders && nativeCookies && nativeReader) return value
+      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(intrinsicHeaders.prototype, "getSetCookie")?.value)
+    const nativeReader = responsePropertyDescriptor(body, "getReader")?.value === intrinsicReadableStream.prototype.getReader
+    if (nativeProperties && nativeHeaders && nativeCookies && nativeReader) return value as Response & { body: ReadableStream<Uint8Array> }
     if (!isPortableUIMessageBody(body)) return
     const forEach = Reflect.get(headers, "forEach")
     if (!hasRuntimeType(forEach, "function")) return
