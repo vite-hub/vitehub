@@ -384,6 +384,12 @@ describe("schedule provider output", () => {
     expect(existsSync(cloudflareWorker)).toBe(true)
     await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("waitUntil: (promise) => ctx.waitUntil(promise)")
     await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("unwrapScheduleDefinition")
+    await expect(readFile(cloudflareWorker, "utf8")).resolves.toContain("normalizeCron(definition.cron) !== normalizeCron(event.cron)")
+    const { default: cloudflareHandler } = await import(pathToFileURL(cloudflareWorker).href)
+    for (const cron of [42, true, {}, ["0 0 * * *"], "   "]) {
+      await expect(cloudflareHandler.scheduled({ cron, scheduledTime: Date.now() }, {}, { waitUntil: vi.fn() }))
+        .resolves.toBeUndefined()
+    }
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 0 * * *"])
     expect(JSON.parse(await readFile(vercelConfig, "utf8")).crons).toEqual([{
       path: "/api/vitehub/schedules/vercel/cleanup",

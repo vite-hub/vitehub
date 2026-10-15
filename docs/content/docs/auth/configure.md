@@ -10,6 +10,8 @@ icon: i-lucide-sliders-horizontal
 
 Create one Primary Auth Definition in `server/auth.ts` or `server.auth.ts`. ViteHub also accepts the `.mts`, `.cts`, `.js`, `.mjs`, and `.cjs` extensions. More than one Definition fails the build.
 
+In a Nuxt application, a layer can supply `server/auth.ts`. An application Definition replaces it. Auth Definitions in two layers fail the build until the application defines one.
+
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
 

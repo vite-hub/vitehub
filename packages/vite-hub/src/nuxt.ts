@@ -2,7 +2,7 @@ import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDi
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -80,6 +80,7 @@ type NuxtLike = {
     callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>),
   ) => void
   options: {
+    _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
     app?: {
       baseURL?: string
@@ -624,7 +625,7 @@ async function applyNitroConfig(
     isSsrBuild: true,
     mode: nuxt.options.vite?.mode ?? (nuxt.options.dev ? "development" : "production"),
   } as const
-  const serverDirs = nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined
+  const serverDirs = resolveNuxtServerDirs(nuxt.options)
   const generatedRoot = join(nuxt.options.buildDir, "vitehub")
   let config = mergeConfig({
     plugins,
@@ -704,7 +705,7 @@ async function applyNitroConfig(
         nitro: config.nitro || {},
         projectRoot,
         root: projectRoot,
-        serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+        serverDirs: resolveNuxtServerDirs(nuxt.options),
       })
     }
 
@@ -714,7 +715,7 @@ async function applyNitroConfig(
       config.nitro = await createWorkflowNitroConfig({
         nitro: config.nitro || {},
         projectRoot,
-        serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+        serverDirs: resolveNuxtServerDirs(nuxt.options),
         transformRegistry: transformWorkflowRegistry,
       })
     }
@@ -792,7 +793,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     : projectRoot
   const consoleJournal = resolveConsoleJournal(
     consoleDatabaseUrl(options),
-    consoleD1Binding(plan.preset, configuredOptions.database, { root: consoleDatabaseRoot, serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined }),
+    consoleD1Binding(plan.preset, configuredOptions.database, { root: consoleDatabaseRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }),
     !nuxt.options.dev,
   )
   const nitro = (nuxt.options.nitro ??= {})
@@ -860,7 +861,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         ? resolveAuthViteConfig(
             effectiveAuth === true ? undefined : effectiveAuth,
             viteRoot,
-            { serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined },
+            { serverDirs: resolveNuxtServerDirs(nuxt.options) },
           )
         : undefined
       assertConsoleAccess(configuredConsole, {
@@ -1014,7 +1015,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     (await emailPlugin?.api?.prepareTypes?.({
       materialize: true,
       projectRoot,
-      serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+      serverDirs: resolveNuxtServerDirs(nuxt.options),
     })) ?? {}
   const emailCleanupCandidate: unknown = replayPlugins.find(
     plugin => plugin.name === "@vite-hub/email/optional-peer-resolver",
@@ -1041,7 +1042,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   } | undefined
   let generatedSourceHandlers = await sourcePlugin?.api?.prepareSources?.({
     projectRoot,
-    serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+    serverDirs: resolveNuxtServerDirs(nuxt.options),
   }) ?? []
   // SAFETY: The plugin name identifies the Connections preparation API.
   const connectionsPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/connections/vite" || plugin.name === "@vite-hub/connections/types-cleanup") as Plugin & {
@@ -1049,7 +1050,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   } | undefined
   await connectionsPlugin?.api?.prepareTypes?.({
     projectRoot: viteRoot,
-    serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+    serverDirs: resolveNuxtServerDirs(nuxt.options),
   })
   const typesPlugin = replayPlugins.find(plugin => plugin.name === "vite-hub/types") as Plugin & {
     api?: {
@@ -1096,7 +1097,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   viteConfig[VITEHUB_GENERATED_ROOT] = join(nuxt.options.buildDir, "vitehub")
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
   viteConfig[VITEHUB_PROJECT_ROOT] = projectRoot
-  if (nuxt.options.serverDir) viteConfig[VITEHUB_SERVER_DIRS] = [nuxt.options.serverDir]
+  const viteServerDirs = resolveNuxtServerDirs(nuxt.options)
+  if (viteServerDirs) viteConfig[VITEHUB_SERVER_DIRS] = viteServerDirs
   const installedVitePlugins: unknown = [
     ...plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
     ...filterPluginOptions(existing, plugin => !plugins.some(candidate => candidate.name === plugin.name)),
@@ -1214,7 +1216,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleDatabaseUrl(options),
         consoleD1Binding(plan.preset, replayedJournalDatabase, {
           root: hasReplayedDatabaseDiscoveryRoot ? projectRoot : consoleDatabaseRoot,
-          serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+          serverDirs: resolveNuxtServerDirs(nuxt.options),
         }),
         !nuxt.options.dev,
       )
@@ -1267,7 +1269,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         rateLimitScanDirs: configuredScanDirs(replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
         sections: consoleSections,
         scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
-        serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+        serverDirs: resolveNuxtServerDirs(nuxt.options),
         workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.workspace ?? nuxt.options.vite?.workspace ?? options.workspace),
         workflowDiscoveryRoot: rootDir,
       })
@@ -1356,7 +1358,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       consoleBlobStores,
       consoleKVStores,
       resolvedConsoleFixture,
-      nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+      resolveNuxtServerDirs(nuxt.options),
       !nuxt.options.vitehubCliDiscovery,
       !nuxt.options.vitehubCliDiscovery,
       consoleInvokeEnabled && !resolvedConsoleFixture,
