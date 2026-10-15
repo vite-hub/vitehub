@@ -17,7 +17,7 @@ import { createConnectionsRuntime } from "@vite-hub/connections/server"
 import { bindConsoleAccess, consoleConnectionsActor, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import { assertConsoleProductionAccess, consoleVitePlugin } from "../src/console/vite.ts"
+import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleOptions } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
@@ -81,6 +81,11 @@ describe("Console data route contract", () => {
 })
 
 describe("Console access policies", () => {
+  it("rejects unknown legacy access and exposure values", () => {
+    expect(() => resolveConsoleOptions({ access: "authz" })).toThrow(/console\.access/)
+    expect(() => resolveConsoleOptions({ exposure: "prod" })).toThrow(/console\.exposure/)
+  })
+
   it("fails closed when no policy is installed", async () => {
     const { handler, result } = await run(undefined)
     expect(handler).not.toHaveBeenCalled()

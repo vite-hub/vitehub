@@ -93,6 +93,12 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
   }
   const legacy = value as { access?: string, exposure?: string, auth?: unknown }
+  if (legacy.access !== undefined && legacy.access !== "auth" && legacy.access !== "local" && legacy.access !== "open") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.access must be "auth", "local", or "open". Use console.auth instead.' })
+  }
+  if (legacy.exposure !== undefined && legacy.exposure !== "host-managed" && legacy.exposure !== "open") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure must be "host-managed" or "open". Use console.auth instead.' })
+  }
   if (!("auth" in value) && (legacy.access !== undefined || legacy.exposure !== undefined)) {
     const auth = legacy.exposure === "host-managed" ? "app" : legacy.access === "auth" ? "app" : legacy.access === "local" ? false : false
     return { ...value, auth } as ConsoleOptions
