@@ -37,7 +37,8 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   if (site !== undefined) siteOrigin(site, invalid)
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
   if (robots !== undefined && robots !== true && robots !== false) {
-    const disallow = robots !== null && Object(robots) === robots ? Reflect.get(Object(robots), "disallow") : null
+    if (robots === null || Object(robots) !== robots || Array.isArray(robots)) throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
+    const disallow = Reflect.get(robots, "disallow")
     if (disallow !== undefined && (!Array.isArray(disallow) || disallow.some(path => String(path) !== path || !path.startsWith("/")))) {
       throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
     }
@@ -49,7 +50,7 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
 export function siteOrigin(site: unknown, invalid: (message: string) => Error = message => contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] ${message}` })): string {
   if (String(site) !== site || !/^https?:\/\//i.test(site)) throw invalid(`site must be an absolute http(s) URL such as https://example.com, received ${JSON.stringify(site)}.`)
   try {
-    return new URL(site).href.replace(/\/+$/, "")
+    return new URL(site).origin
   }
   catch {
     throw invalid(`site must be an absolute http(s) URL such as https://example.com, received ${JSON.stringify(site)}.`)
