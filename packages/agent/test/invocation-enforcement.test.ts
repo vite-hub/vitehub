@@ -158,7 +158,9 @@ describe("Agent Invocation enforcement", () => {
         claimAttempts++
         // The revalidation before dispatch must succeed; lose the claim only
         // on the later renewal while the Driver is active.
-        if (claimAttempts > 2) return false
+        // Initial claim, running-state renewal, and pre-dispatch revalidation
+        // must all succeed so the loss is observed only after dispatch.
+        if (claimAttempts > 3) return false
         return await backing.claim(...args)
       },
       async update(id, input, claimId) {
