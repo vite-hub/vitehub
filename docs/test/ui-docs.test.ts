@@ -183,13 +183,15 @@ describe("UI documentation", () => {
     );
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
+    const sidebarPanel = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
     expect(sidebarTop).not.toContain("<details");
     expect(sidebarTop).toContain("UContentSearchButton");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    expect(layout).toContain('<UPageAside class="vh-docs-aside">');
+    expect(layout).toContain('<UPageAside class="vh-docs-aside hidden lg:flex">');
+    expect(sidebarPanel).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain("<DocsSidebars panel />");
   });
