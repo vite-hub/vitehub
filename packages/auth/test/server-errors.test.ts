@@ -70,6 +70,25 @@ describe("server authentication provider boundaries", () => {
     expect(protectedAction).not.toHaveBeenCalled()
   })
 
+  it("rejects forged response prototypes", async () => {
+    const denied = runInNewContext(`(() => {
+      const prototype = {
+        constructor: { name: "Response" },
+        get status() { return 404 },
+        get statusText() { return "Not Found" },
+        get headers() { return new Headers() },
+        get body() { return null },
+      }
+      return Object.create(prototype)
+    })()`, { Headers }) as Response
+    const authorize = runInNewContext("() => denied", { denied }) as () => Response
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+    await expect(guarded(request)).resolves.toMatchObject({ status: 403 })
+    expect(protectedAction).not.toHaveBeenCalled()
+  })
+
   it("rejects spoofed authorization responses", async () => {
     const denied = runInNewContext(`({
       [Symbol.toStringTag]: "Response",

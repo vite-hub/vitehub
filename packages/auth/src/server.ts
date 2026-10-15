@@ -311,26 +311,14 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 
 function hasResponsePrototype(value: unknown): boolean {
   try {
-    let prototype: object | null = Object.getPrototypeOf(Object(value))
-    const seen = new Set<object>()
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
-      seen.add(prototype)
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
-      if (constructor?.name === "Response"
-        && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(prototype, key)?.get)
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reflection returns an unknown accessor; validate it before accepting the candidate response prototype.
-        && typeof bodyGetter === "function") {
-        return true
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
+    const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
+    if (typeof bodyGetter !== "function") return false
+    Reflect.apply(bodyGetter, value, [])
+    return true
   }
   catch {
     return false
   }
-  return false
 }
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
