@@ -82,6 +82,19 @@ export interface RealtimeDocumentAdapter {
   save(context: RealtimeDocumentContext, document: RealtimeDocumentSnapshot, options: RealtimeSaveOptions): Promise<RealtimeSaveResult>
   /** Optional durable history entry, used by `history.checkpoint()`. */
   checkpoint?(context: RealtimeDocumentContext, options: RealtimeHistoryOptions): Promise<WorkspaceSnapshot>
+  /**
+   * Optional. Called while a writable room has clients: when a client joins or leaves, and every 60 seconds. `users`
+   * are the identified users connected now. Use it to keep a lease, such as the live edit lease of a Content document.
+   * A thrown error shows in the room `status` until the next successful call.
+   */
+  hold?(context: RealtimeDocumentContext, options: RealtimeHoldOptions): Promise<void> | void
+  /** Optional. Called once after the last client left a room that `hold()` kept, after the room saved its edits. */
+  release?(context: RealtimeDocumentContext): Promise<void> | void
+}
+
+export interface RealtimeHoldOptions {
+  /** Identified users connected to the room now, in the order they joined. */
+  users: RealtimeUser[]
 }
 
 export interface RealtimeWorkspaceDocumentOptions {
@@ -149,8 +162,11 @@ export interface RealtimeDefinition {
   /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
   authorize?: (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
   document: RealtimeWorkspaceDocumentOptions | RealtimeDocumentAdapter
-  /** Editor schema and Markdown codec. Defaults to the built-in Markdown kit. */
-  editor?: RealtimeEditor
+  /**
+   * Editor schema and Markdown codec. Defaults to the built-in Markdown kit. A function picks the codec of each
+   * document, such as one per Content collection; browsers that open the document must use the same schema.
+   */
+  editor?: RealtimeEditor | ((context: RealtimeDocumentContext) => RealtimeEditor)
   history?: {
     checkpoint: true | { message?: string }
   }
@@ -180,7 +196,8 @@ export interface RealtimeCheckpoint extends RealtimeSaved {
 export interface DiscoveredRealtimeDefinition {
   handler: string
   name: string
-  source: "server-realtime"
+  /** `server-realtime` for a file in `server/realtime/`; `contributed` for one another package adds, such as Content. */
+  source: "contributed" | "server-realtime"
 }
 
 export interface RealtimeModuleOptions {
