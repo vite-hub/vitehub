@@ -174,13 +174,6 @@ function githubRequestStatus(error: unknown): number | undefined {
   return cause?.status;
 }
 
-function githubRequestIsNonFastForward(error: unknown): boolean {
-  const cause = error instanceof GitHubRequestError
-    ? error
-    : error instanceof Error && error.cause instanceof GitHubRequestError ? error.cause : undefined;
-  return cause?.message.toLowerCase().includes("not a fast forward") ?? false;
-}
-
 export function githubBranchMovedConflict(input: {
   actualHead?: string;
   branch: string;
@@ -637,7 +630,7 @@ export async function commitGitHubChanges(input: {
     }
     catch (error) {
       const status = githubRequestStatus(error);
-      if (status === 409 || (status === 422 && githubRequestIsNonFastForward(error))) {
+      if (status === 409) {
         throw githubBranchMovedConflict({
           branch: input.branch,
           expectedHead: input.parentSha,

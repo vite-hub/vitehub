@@ -1327,7 +1327,7 @@ describe("GitHub workspace store", () => {
     ).toEqual([]);
   });
 
-  it.each([409, 422])("maps a GitHub non-fast-forward update (%s) to a structured conflict", async (status) => {
+  it("maps a GitHub non-fast-forward update (409) to a structured conflict", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
       {
@@ -1340,8 +1340,8 @@ describe("GitHub workspace store", () => {
     );
 
     await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
-    mainRefUpdateStatus = status;
-    mainRefUpdateMessage = status === 422 ? "Update is not a fast forward" : undefined;
+    mainRefUpdateStatus = 409;
+    mainRefUpdateMessage = undefined;
 
     await expect(store.snapshot({ name: "raced conflict" })).rejects.toMatchObject({
       code: "WORKSPACE_CONFLICT",
