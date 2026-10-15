@@ -385,20 +385,50 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       || Object.prototype.hasOwnProperty.call(readerObject, "cancel")
       || Object.prototype.hasOwnProperty.call(readerObject, "releaseLock")) return false
     let readerPrototype: object | null = Object.getPrototypeOf(readerObject)
+    let read: ((...args: []) => unknown) | undefined
+    let cancel: ((...args: [unknown?]) => unknown) | undefined
     let releaseLock: (() => void) | undefined
     let closed: (() => unknown) | undefined
+    let readOwner: object | undefined
+    let cancelOwner: object | undefined
+    let releaseOwner: object | undefined
     const readerPrototypes = new Set<object>()
     for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (readerPrototypes.has(readerPrototype)) return false
       readerPrototypes.add(readerPrototype)
+      const readDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "read")
+      const cancelDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")
       const descriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
       const closedDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "closed")
+      if (!read && typeof readDescriptor?.value === "function") { read = readDescriptor.value; readOwner = readerPrototype }
+      if (!cancel && typeof cancelDescriptor?.value === "function") { cancel = cancelDescriptor.value; cancelOwner = readerPrototype }
       if (!closed && typeof closedDescriptor?.get === "function") closed = closedDescriptor.get
-      if (typeof descriptor?.value === "function") releaseLock = descriptor.value
-      if (releaseLock && closed) break
+      if (!releaseLock && typeof descriptor?.value === "function") { releaseLock = descriptor.value; releaseOwner = readerPrototype }
+      if (read && cancel && releaseLock && closed) break
       readerPrototype = Object.getPrototypeOf(readerPrototype)
     }
-    if (!releaseLock || !closed) return false
+    if (!read || !cancel || !releaseLock || !closed || readOwner !== releaseOwner || cancelOwner !== releaseOwner) return false
+    // The stream probe must validate every operation that the bridge will
+    // invoke. A shadowed read or cancel method can otherwise fabricate data
+    // or fail during consumption while releaseLock still appears genuine.
+    let freshReaderPrototype: object | null = Object.getPrototypeOf(Object(reader))
+    let freshRead: ((...args: []) => unknown) | undefined
+    let freshCancel: ((...args: [unknown?]) => unknown) | undefined
+    let freshReleaseLock: (() => void) | undefined
+    const freshReaderPrototypes = new Set<object>()
+    for (let depth = 0; freshReaderPrototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (freshReaderPrototypes.has(freshReaderPrototype)) return false
+      freshReaderPrototypes.add(freshReaderPrototype)
+      const readDescriptor = Object.getOwnPropertyDescriptor(freshReaderPrototype, "read")
+      const cancelDescriptor = Object.getOwnPropertyDescriptor(freshReaderPrototype, "cancel")
+      const releaseDescriptor = Object.getOwnPropertyDescriptor(freshReaderPrototype, "releaseLock")
+      if (!freshRead && typeof readDescriptor?.value === "function") freshRead = readDescriptor.value
+      if (!freshCancel && typeof cancelDescriptor?.value === "function") freshCancel = cancelDescriptor.value
+      if (!freshReleaseLock && typeof releaseDescriptor?.value === "function") freshReleaseLock = releaseDescriptor.value
+      if (freshRead && freshCancel && freshReleaseLock) break
+      freshReaderPrototype = Object.getPrototypeOf(freshReaderPrototype)
+    }
+    if (read !== freshRead || cancel !== freshCancel || releaseLock !== freshReleaseLock) return false
     Reflect.apply(closed, readerObject, [])
     Reflect.apply(releaseLock, readerObject, [])
     // Releasing the reader must unlock the same fresh stream. An override can
