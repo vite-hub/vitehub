@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import type { TableColumn, TableRow } from "@nuxt/ui";
 import type { LocationQueryValue } from "vue-router";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
+import { consoleBytes } from "../client/format";
 import ConsoleFrame from "./console-frame.vue";
+import ConsolePageHeader from "./console-page-header.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleStatus from "./console-status.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 interface KVListResponse {
@@ -29,11 +32,6 @@ interface KVValueResponse {
   truncated?: boolean;
   type?: string;
   value?: string;
-}
-
-interface KVRow {
-  key: string;
-  store: string;
 }
 
 const props = defineProps<{
@@ -62,18 +60,16 @@ let valueRequest: AbortController | undefined;
 let applyingRouteSelection = false;
 
 const storeItems = computed(() => stores.value.map((store) => ({ label: store, value: store })));
-const tableRows = computed<KVRow[]>(() =>
-  keys.value.map((key) => ({ key, store: selectedStore.value })),
-);
-const columns: TableColumn<KVRow>[] = [
-  { accessorKey: "key", header: "Key" },
-  { accessorKey: "store", header: "Store" },
-];
-const tableMeta = computed(() => ({
-  class: {
-    tr: (row: TableRow<KVRow>) => (row.original.key === selectedKey.value ? "bg-elevated/60" : ""),
-  },
-}));
+/** The KV route truncates large values at this size. */
+const valueLimit = 256 * 1024;
+const keyFilter = ref("");
+// The filter narrows the loaded keys. Load more to search further in a large store.
+const visibleKeys = computed(() => {
+  const filter = keyFilter.value.trim().toLowerCase();
+  return filter ? keys.value.filter(key => key.toLowerCase().includes(filter)) : keys.value;
+});
+const keyCount = computed(() => `${keys.value.length}${nextCursor.value ? "+" : ""} ${keys.value.length === 1 && !nextCursor.value ? "key" : "keys"}`);
+const valueFormat = computed(() => [selectedValue.value?.type, selectedValue.value?.format?.toUpperCase()].filter(Boolean).join(" · "));
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value)
@@ -239,10 +235,6 @@ async function selectKey(key: string): Promise<void> {
   await loadValue(key);
 }
 
-function selectRow(_event: Event, row: TableRow<KVRow>): void {
-  void selectKey(row.original.key);
-}
-
 async function refresh(): Promise<void> {
   await loadKeys({ keepMissingSelection: true, keepSelection: true });
 }
@@ -332,7 +324,6 @@ onBeforeUnmount(() => {
 
 <template>
   <ConsoleFrame active="kv" :sections-base="sectionsBase">
-
     <ConsoleSearch
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
@@ -342,150 +333,97 @@ onBeforeUnmount(() => {
     />
 
     <UDashboardPanel id="kv-value" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
-      <template #header>
-        <UDashboardNavbar
-          title="KV"
-          :toggle="false"
-          :ui="{ root: 'border-b border-default' }"
-        >
-          <template #right>
-            <span class="hidden text-xs text-muted sm:inline"
-              >{{ keys.length }} {{ keys.length === 1 ? "key" : "keys" }}</span
-            >
-            <USelect
-              v-if="stores.length > 1"
-              v-model="selectedStore"
-              class="w-36"
-              :items="storeItems"
-              aria-label="KV store"
-            />
-            <span v-else class="hidden font-mono text-xs text-muted sm:inline">{{
-              selectedStore
-            }}</span>
-            <UTooltip text="Refresh keys">
-              <UButton
-                aria-label="Refresh keys"
-                color="neutral"
-                icon="i-lucide-refresh-cw"
-                size="xs"
-                variant="ghost"
-                :loading="listLoading || valueLoading"
-                @click="refresh"
-              />
-            </UTooltip>
-            <UBadge color="neutral" label="Read-only" size="sm" variant="subtle" />
-          </template>
-        </UDashboardNavbar>
-      </template>
+      <ConsolePageHeader title="KV" :description="stores.length > 1 ? undefined : selectedStore" :toggle="false">
+        <template #right>
+          <span class="text-xs text-dimmed">Read-only</span>
+          <UTooltip text="Refresh keys">
+            <UButton aria-label="Refresh keys" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="listLoading || valueLoading" @click="refresh" />
+          </UTooltip>
+        </template>
+      </ConsolePageHeader>
+      <ConsolePageToolbar v-if="stores.length > 1 || keys.length">
+        <USelect v-if="stores.length > 1" v-model="selectedStore" class="w-40" size="sm" :items="storeItems" aria-label="KV store" />
+        <UInput v-model="keyFilter" class="w-full sm:w-64" icon="i-lucide-search" size="sm" placeholder="Filter loaded keys…" aria-label="Filter loaded keys" />
+        <span class="ms-auto text-xs text-muted tabular-nums" aria-live="polite">{{ keyFilter.trim() ? `${visibleKeys.length} of ${keyCount}` : keyCount }}</span>
+      </ConsolePageToolbar>
 
-      <template #body>
-        <main class="min-h-0 flex-1 overflow-y-auto">
-          <UAlert
-            v-if="errorMessage(listError)"
-            class="m-3"
-            color="error"
-            variant="subtle"
-            icon="i-lucide-cloud-off"
-            title="Could not load keys"
-            :description="errorMessage(listError)"
-            :actions="[
-              { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
-            ]"
-          />
-          <template v-else>
-            <UTable
-              :columns="columns"
-              :data="tableRows"
-              empty="No keys in this store."
-              :loading="listLoading"
-              :meta="tableMeta"
-              sticky="header"
-              :on-select="selectRow"
-              :ui="{
-                root: 'max-h-[42vh] border-b border-default',
-                tr: 'outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
-              }"
-            >
-              <template #key-cell="{ row }">
-                <span class="flex min-w-0 items-center gap-2 font-mono text-xs text-highlighted">
-                  <UIcon name="i-lucide-key-round" class="size-3.5 shrink-0 text-muted opacity-65" />
-                  <span class="truncate">{{ row.original.key || "(empty key)" }}</span>
-                </span>
-              </template>
-              <template #store-cell="{ row }">
-                <span class="font-mono text-xs text-muted">{{ row.original.store }}</span>
-              </template>
-            </UTable>
-            <div v-if="nextCursor" class="border-b border-default px-3 py-2">
-              <UButton
-                color="neutral"
-                label="Load more"
-                size="xs"
-                variant="ghost"
-                :loading="listLoading"
-                @click="loadMore"
-              />
-            </div>
+      <UAlert
+        v-if="errorMessage(listError)"
+        class="m-4"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-cloud-off"
+        title="Couldn't load keys"
+        :description="errorMessage(listError)"
+        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: refresh }]"
+      />
+      <div v-else class="flex min-h-0 flex-1 flex-col md:flex-row">
+        <nav class="flex max-h-[40vh] min-h-0 shrink-0 flex-col overflow-y-auto border-b border-default p-2 md:max-h-none md:w-80 md:border-r md:border-b-0" aria-label="Keys">
+          <template v-if="listLoading && !keys.length">
+            <USkeleton v-for="index in 8" :key="index" class="my-0.5 h-8 rounded-md" />
           </template>
+          <template v-else-if="visibleKeys.length">
+            <button
+              v-for="key in visibleKeys"
+              :key="key"
+              type="button"
+              class="vitehub-console__section-link shrink-0 text-start"
+              :aria-current="key === selectedKey ? 'true' : undefined"
+              :title="key"
+              @click="selectKey(key)"
+            >
+              <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ key || "(empty key)" }}</span>
+            </button>
+            <UButton v-if="nextCursor" class="mt-1 self-start" label="Load more" size="sm" variant="ghost" :loading="listLoading" @click="loadMore" />
+          </template>
+          <p v-else-if="keys.length" class="px-2 py-1.5 text-xs text-muted">No loaded keys match “{{ keyFilter.trim() }}”.</p>
+          <p v-else class="px-2 py-1.5 text-xs text-muted">No keys in this store yet.</p>
+        </nav>
 
-          <div v-if="valueLoading && !selectedValue" class="flex h-24 items-center justify-center">
-            <UIcon
-              name="i-lucide-loader-circle"
-              class="size-4 animate-spin text-muted opacity-70"
-            />
+        <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-live="polite" aria-label="Value">
+          <div v-if="valueLoading && !selectedValue" class="grid gap-2 p-4" aria-busy="true">
+            <USkeleton class="h-4 w-56" />
+            <USkeleton v-for="index in 6" :key="index" class="h-3.5" :class="index % 2 ? 'w-2/3' : 'w-1/2'" />
           </div>
           <UAlert
             v-else-if="errorMessage(valueError)"
-            class="m-3"
+            class="m-4"
             color="error"
             variant="subtle"
             icon="i-lucide-cloud-off"
-            title="Could not load this value"
+            title="Couldn't load this value"
             :description="errorMessage(valueError)"
-            :actions="[
-              {
-                label: 'Try again',
-                icon: 'i-lucide-refresh-cw',
-                onClick: () => loadValue(),
-              },
-            ]"
+            :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => loadValue() }]"
           />
-          <UAlert
+          <UEmpty
             v-else-if="selectedValue && !selectedValue.found"
-            class="m-3"
-            color="warning"
-            variant="subtle"
+            variant="naked"
+            class="py-16"
             icon="i-lucide-key-round"
-            title="Key no longer exists"
-            description="Refresh the table to load the current store contents."
+            title="This key no longer exists"
+            description="Someone deleted it after the list loaded. Refresh to load the current keys."
+            :actions="[{ label: 'Refresh', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: refresh }]"
           />
-          <section v-else-if="selectedValue" class="min-w-0">
-            <header
-              class="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-b border-default px-3 py-2"
-            >
-              <h2 class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted">
+          <template v-else-if="selectedValue">
+            <header class="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b border-default px-4 py-2">
+              <h2 class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted" :title="selectedValue.key">
                 {{ selectedValue.key || "(empty key)" }}
               </h2>
-              <span class="font-mono text-xs uppercase tracking-[.08em] text-muted">{{
-                selectedValue.type
-              }}</span>
-              <span class="font-mono text-xs uppercase tracking-[.08em] text-muted">{{
-                selectedValue.format
-              }}</span>
-              <UBadge
-                v-if="selectedValue.truncated"
-                color="warning"
-                label="Truncated at 256 KiB"
-                size="sm"
-                variant="subtle"
-              />
+              <ConsoleStatus v-if="selectedValue.truncated" tone="warning" :label="`Truncated at ${consoleBytes(valueLimit)}`" />
+              <span v-if="valueFormat" class="text-xs text-muted">{{ valueFormat }}</span>
             </header>
-            <pre
-              class="min-h-48 overflow-auto p-4 font-mono text-xs leading-5 text-toned"
-            ><code>{{ selectedValue.value }}</code></pre>
-          </section>
-        </main>
-      </template>
+            <pre class="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs leading-5 text-toned"><code>{{ selectedValue.value }}</code></pre>
+          </template>
+          <UEmpty
+            v-else-if="!listLoading"
+            variant="naked"
+            class="py-16"
+            icon="i-lucide-database"
+            :title="keys.length ? 'No key selected' : 'This store is empty'"
+            :description="keys.length ? 'Choose a key to see its value.' : 'Keys show here when the application writes them.'"
+          />
+        </section>
+      </div>
     </UDashboardPanel>
   </ConsoleFrame>
 </template>

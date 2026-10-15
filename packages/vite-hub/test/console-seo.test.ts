@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { consoleImageUrl, consoleSeoFallbacks, consoleSeoField, consoleTruncate, describeConsoleSchemaFields } from "../src/console/runtime/client/documents.ts"
+import { consoleImageUrl, consoleSeoFallbacks, consoleSeoField, consoleTruncate } from "../src/console/runtime/client/documents.ts"
+import { describeConsoleSchemaFields } from "../src/console/runtime/client/schema-form.ts"
 
 // The schema Content builds for a posts collection with `seo: seo({ image: image() })`.
 const posts = {
