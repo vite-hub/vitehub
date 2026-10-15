@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -354,15 +353,37 @@ async function copyAuthorizationBody(response: object, body: unknown): Promise<U
   if (body === null) return null
   if (Object(body) !== body) return
   try {
-    const arrayBuffer = responseMethod(response, "arrayBuffer")
-    if (!arrayBuffer) return
-    // Native fetch implementations expose this as a native method. Reject
-    // caller-supplied inherited methods before accepting their returned bytes.
-    if (!Function.prototype.toString.call(arrayBuffer).includes("[native code]")) return
-    const result = await Reflect.apply(arrayBuffer, response, [])
-    if (Object.prototype.toString.call(result) !== "[object ArrayBuffer]") return
-    // SAFETY: the brand tag check above accepts ArrayBuffer values across realms.
-    return new Uint8Array(result as ArrayBuffer)
+    // Structured cloning with transfer performs a non-forgeable ReadableStream
+    // brand check and works across fetch realms without trusting an inherited
+    // (or proxy-wrapped) arrayBuffer method.
+    const clone = (globalThis.structuredClone as unknown as (value: unknown, options: { transfer: object[] }) => unknown)(body, { transfer: [body as object] })
+    const getReader = Reflect.get(clone as object, "getReader")
+    if (typeof getReader !== "function") return
+    const reader = Reflect.apply(getReader, clone, []) as object
+    const read = Reflect.get(reader, "read")
+    const releaseLock = Reflect.get(reader, "releaseLock")
+    if (typeof read !== "function" || typeof releaseLock !== "function") return
+    const chunks: Uint8Array[] = []
+    try {
+      while (true) {
+        const result = await Reflect.apply(read, reader, []) as { done?: unknown, value?: unknown }
+        if (result?.done) break
+        if (Object.prototype.toString.call(result?.value) !== "[object Uint8Array]") return
+        const chunk = result.value as Uint8Array
+        chunks.push(new Uint8Array(chunk))
+      }
+    }
+    finally {
+      Reflect.apply(releaseLock, reader, [])
+    }
+    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
+    const bytes = new Uint8Array(length)
+    let offset = 0
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return bytes
   }
   catch {
     return
@@ -426,7 +447,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     return normalizedResponse
   }
   catch {
-    return
+    return undefined
   }
 }
 

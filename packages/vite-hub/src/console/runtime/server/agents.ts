@@ -1,4 +1,5 @@
 import { consoleInvocationsFallbackKey, resolveConsoleInvocations } from "../../internal.ts"
+import { agentInvocationsDisabledKey, resolveDefaultAgentInvocations } from "../../../_internal/agent/invocations.ts"
 import { installConsoleInvocations, type ConsoleD1Journal } from "./invocations.ts"
 import * as v from "valibot"
 import { markDiscoveredAgentName } from "@vite-hub/agent/server/internal"
@@ -72,12 +73,21 @@ function explicitAgentInvocations(agent: AgentInput | undefined): AgentInvocatio
   return invocations as AgentInvocations
 }
 
+/** The app-wide `agent.invocations` journal of an Agent Definition that does not set its own journal. */
+function defaultAgentInvocations(agent: AgentInput | undefined): AgentInvocations | undefined {
+  if (!agent || Reflect.get(agent, consoleInvocationsFallbackKey) !== true || Reflect.get(agent, agentInvocationsDisabledKey) === true) return undefined
+  return resolveDefaultAgentInvocations()
+}
+
 function resolveConsoleAgentInvocations(
   definitions: readonly ResolvedConsoleAgentDefinition[],
   installation: ConsoleAgentDefinitionInstallation,
 ): AgentInvocations {
   if (installation.invocations) return installation.invocations
-  const configured = [...new Set(definitions.map(({ agent }) => explicitAgentInvocations(agent)).filter(Boolean))]
+  const configured = [...new Set(definitions.flatMap(({ agent }) => {
+    const journal = explicitAgentInvocations(agent) ?? defaultAgentInvocations(agent)
+    return journal ? [journal] : []
+  }))]
   if (configured.length > 1) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0047({ message: "[vitehub] Console cannot inspect multiple Agent invocation journals. Configure one shared journal for the discovered Agent Definitions." })
   }
