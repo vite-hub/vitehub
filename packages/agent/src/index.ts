@@ -7180,14 +7180,37 @@ async function executeAgentInvocationWithCapacityLease<
             reminderContext.prompt = undefined
             nextResult = await adapter!.generate(reminderContext as never)
           }
-          if (isAsyncIterable(nextResult)) {
-            for await (const _chunk of nextResult) { /* drain reminder output before the next turn */ }
+          const settled = await settleDeliveryReminderResult(nextResult, customRun, invocation)
+          if (settled) {
+            nextResult = settled.result
             reminderResultSettled = true
           }
         }
       }
       return nextResult
     }
+  }
+
+  async function settleDeliveryReminderResult(
+    value: unknown,
+    custom: boolean,
+    context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  ): Promise<{ result: unknown } | undefined> {
+    let stream: AsyncIterable<unknown> | undefined
+    if (isAsyncIterable(value)) {
+      stream = custom ? value : streamAgentOutputToEvents(value)
+    }
+    else if (hasTraceableStreamResult(value)) {
+      stream = streamAgentOutputToEvents(value)
+    }
+    else {
+      const normalized = normalizeUIMessageStreamResponse(value)
+      if (normalized) stream = toReadableAsyncIterableStream(uiMessageStreamFromResponse(normalized))
+    }
+    if (!stream) return
+    const streamed = withStreamedResult(stream, value, undefined, context.toolResults, context.tools)
+    for await (const _chunk of streamed.stream) { /* settle and collect tool results */ }
+    return { result: await streamed.finishResult(value) }
   }
 
   if (options.kind === "run"
