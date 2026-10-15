@@ -289,7 +289,16 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   try {
     if (value instanceof Response) {
       if (value.status < 200 || value.status > 599) return
-      if (typeof value.headers?.forEach !== "function") return
+      const nativeHeaders = value.headers
+      if (typeof nativeHeaders?.forEach !== "function") return
+      // Access and validate the optional cookie accessor while still inside
+      // the guarded normalization path. A foreign/overridden getter may
+      // throw, and the HTTP adapter reads it again when sending the response.
+      const nativeGetSetCookie = (nativeHeaders as Headers & { getSetCookie?: () => unknown }).getSetCookie
+      if (typeof nativeGetSetCookie === "function") {
+        const values = nativeGetSetCookie.call(nativeHeaders)
+        if (!Array.isArray(values) || !values.every(cookie => typeof cookie === "string")) return
+      }
       if (value.body !== null) {
         if (value.body.locked) return
         if (typeof value.body.getReader !== "function") return
