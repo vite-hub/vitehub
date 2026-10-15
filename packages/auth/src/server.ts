@@ -289,7 +289,16 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
+    const hostStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+    let status: unknown
+    try {
+      status = hostStatus?.call(value)
+    }
+    catch {
+      const prototype = Object.getPrototypeOf(value)
+      const foreignStatus = prototype && Object.getOwnPropertyDescriptor(prototype, "status")?.get
+      status = foreignStatus?.call(value)
+    }
     return typeof status === "number" && Number.isInteger(status) && status >= 0 && status <= 599
   }
   catch {
@@ -348,6 +357,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
   if (value === null || typeof value !== "object") return
   if (value instanceof Response) return value
+  if (!isResponseLike(value)) return
   try {
     const candidate = value as { status: number; statusText: string; headers: Headers; body: ReadableStream<Uint8Array> | null }
     const status = candidate.status
