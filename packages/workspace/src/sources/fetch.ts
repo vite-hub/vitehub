@@ -1,5 +1,6 @@
 import { executeHttpRequest, parseStandardSchema } from "@vite-hub/internal/http-request"
 import { posix } from "node:path"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import { isWorkspaceBytes, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
@@ -226,13 +227,12 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
   const normalized = method === undefined
     ? "GET"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript callers can bypass the method union; reject non-string values before calling toUpperCase.
-    : typeof method === "string"
+    : hasRuntimeType(method, "string")
       ? method.toUpperCase()
       : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Report invalid JavaScript inputs without calling their custom string conversion.
-    const label = typeof method === "string" ? method : typeof method
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invalid method diagnostics report the JavaScript representation without coercing provider objects.
+    const label = hasRuntimeType(method, "string") ? method : typeof method
     throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }
   return normalized

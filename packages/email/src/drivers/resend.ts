@@ -30,7 +30,10 @@ const RESPONSE_READ_TIMEOUT_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 function cancelled(signal: AbortSignal | undefined, cause: unknown): boolean {
-  return signal?.aborted === true || (cause instanceof DOMException && cause.name === "AbortError");
+  return signal?.aborted === true || (
+    isRecord(cause)
+    && cause.name === "AbortError"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

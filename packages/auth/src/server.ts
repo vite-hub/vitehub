@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -335,7 +334,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   try {
     // Use the stream's own realm methods. Native stream brand checks reject
     // applying this realm's methods to a foreign ReadableStream.
-    const getReader = Reflect.get(body as object, "getReader")
+    const getReader = nativeStreamMethod(body, "getReader")
     if (typeof getReader !== "function") return false
     const reader: unknown = Reflect.apply(getReader, body, [])
     if (Object(reader) !== reader) return false
@@ -352,10 +351,27 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   }
 }
 
+function nativeStreamMethod<T extends keyof ReadableStream<Uint8Array>>(body: object, key: T): ReadableStream<Uint8Array>[T] | undefined {
+  if (Object.prototype.hasOwnProperty.call(body, key)) return undefined
+  let current: object | null = body
+  const seen = new Set<object>()
+  for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(current)) return undefined
+    seen.add(current)
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor && typeof descriptor.value === "function") {
+      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+      if (constructor?.name === "ReadableStream") return descriptor.value as ReadableStream<Uint8Array>[T]
+    }
+    current = Object.getPrototypeOf(current)
+  }
+  return undefined
+}
+
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   // Use operations from the stream's own realm so foreign streams pass their
   // native brand checks. Validation has already probed these capabilities.
-  const getReader = Reflect.get(body, "getReader") as () => ReadableStreamDefaultReader<Uint8Array>
+  const getReader = nativeStreamMethod(body, "getReader") as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
   const read = Reflect.get(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
   const cancel = Reflect.get(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
@@ -457,7 +473,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }
   }
   catch {
-    return
+    return undefined
   }
 }
 
