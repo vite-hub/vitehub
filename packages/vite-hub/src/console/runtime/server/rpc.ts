@@ -17,6 +17,7 @@ import consoleInvocationHandler from "./invocation.get.ts"
 import consoleInvocationsHandler from "./invocations.get.ts"
 import consoleEnvHandler from "./env.get.ts"
 import consoleKVHandler from "./kv.get.ts"
+import { runConsoleMediaAction, uploadConsoleMedia } from "./media.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
 import { consoleScheduleRunHandler } from "./schedule-run.ts"
@@ -31,6 +32,8 @@ import type { ConsoleSectionId } from "../sections.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export const consoleRpcCallPath = "/_vitehub/rpc/__call"
+/** Media library uploads: one file per `multipart/form-data` request, so the browser can report progress. */
+export const consoleRpcUploadPath = "/_vitehub/rpc/__upload"
 
 const maximumConsoleRpcRequestBytes = 64 * 1_024
 // Invocation envelopes also carry image data URLs, and document saves carry a whole Markdown document.
@@ -170,6 +173,10 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
   [consoleRpcMethods.invocations]: { section: "agents", run: (input, context) => consoleInvocationsHandler(requestEvent("invocations", input, context)) },
   [consoleRpcMethods.env]: { section: "env", run: (input, context) => consoleEnvHandler(requestEvent("env", input, context)) },
   [consoleRpcMethods.kv]: { section: "kv", run: (input, context) => consoleKVHandler(requestEvent("kv", input, context)) },
+  [consoleRpcMethods.media]: {
+    section: querySection,
+    run: (input, context) => runConsoleMediaAction(querySection(input) ?? "", input.query?.action, input.body, context.access),
+  },
   [consoleRpcMethods.search]: {
     section: "agents",
     async run(input, context) {
@@ -203,9 +210,9 @@ function isSameOriginRequest(request: Request, url: URL): boolean {
 }
 
 // Accept an application mount prefix, but no other path before or after the Console route.
-function isConsoleRpcCallPath(pathname: string): boolean {
+function isConsoleRpcPath(pathname: string, path: string): boolean {
   const route = pathname.indexOf("/_vitehub/rpc/")
-  return route !== -1 && pathname.slice(route) === consoleRpcCallPath
+  return route !== -1 && pathname.slice(route) === path
 }
 
 function largeEnvelopePrefix(body: string): { maximumBytes: number, method: string, prefix: string } | undefined {
@@ -266,7 +273,13 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
   if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Forbidden")
-  if (!isConsoleRpcCallPath(url.pathname)) throw consoleRequestError(404, "Console RPC endpoint not found.")
+  if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
+    if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
+    const section = url.searchParams.get("section") ?? ""
+    if (!consoleAccessAllows(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section.")
+    return uploadConsoleMedia(request, section, context.access)
+  }
+  if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
   let payload: unknown
   try {
