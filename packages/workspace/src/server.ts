@@ -128,16 +128,20 @@ function headerValue(headers: WorkspaceDevHeaders, name: string): string | undef
   const constructorSource = hasRuntimeType(constructor, "function")
     ? Function.prototype.toString.call(constructor)
     : ""
+  const prototypeGet = prototype
+    ? Object.getOwnPropertyDescriptor(prototype, "get")?.value
+    : undefined
   const isCrossRealmHeaders = hasRuntimeType(constructor, "function")
     && Reflect.get(constructor, "name") === "Headers"
     && (constructor === (typeof Headers === "function" ? Headers : undefined)
+      || /^class\s+Headers\b/.test(constructorSource)
       || /^function\s+Headers\(\)\s*\{\s*\[native code\]\s*\}$/.test(constructorSource)
       || constructorSource.includes("webidl.brandCheck"))
     && Reflect.get(constructor, "prototype") === prototype
+    && hasRuntimeType(prototypeGet, "function")
   if (isCrossRealmHeaders) {
     const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
-    const crossRealmGet = Object.getOwnPropertyDescriptor(prototype, "get")?.value
-    for (const getter of [get, crossRealmGet]) {
+    for (const getter of [get, prototypeGet]) {
       if (!hasRuntimeType(getter, "function")) continue
       try {
         const value = Reflect.apply(getter, headers, [name])
