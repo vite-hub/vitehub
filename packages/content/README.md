@@ -114,10 +114,17 @@ useHead(contentHead(post, { site: { url: "https://vitehub.dev", name: "ViteHub" 
 
 ```bash
 vitehub content collections
+vitehub content list <collection> [--ref published] [--search <text>]
+vitehub content show <collection> [id] [--ref published]
 vitehub content status [collection] [id]
-vitehub content diff <collection> <id>
-vitehub content revisions <collection> <id> [--ref published]
+vitehub content diff <collection> [id]
+vitehub content revisions <collection> [id] [--ref published]
+vitehub content edit <collection> [id] [--file <path>|-] [--if-digest <digest>] [--override-lease]
 vitehub content publish [--collection <name>] [--id <id>...] [--dry-run] [--yes]
+vitehub content schedule --at <time> [--collection <name>] [--id <id>...] [--dry-run] [--yes]
+vitehub content scheduled [collection] [id] [--status pending|overdue|failed]
+vitehub content unschedule <schedule>
+vitehub content sitemap [--site <url>] [--xml]
 ```
 
-Every command accepts `--json`. `publish` lists each pending change with its draft digest and publishes exactly those digests with `publish({ expect })`, so a draft saved after the list fails the publish instead of going out unreviewed. The commands call a guarded endpoint that exists only on the Vite Development Server, which forwards each operation into the Nitro dev environment where `server/content.ts` runs. They do not reach a deployed app. `handleContentDevRequest()` from `@vite-hub/content/runtime/dev` is the Nitro handler; it is not a public runtime API.
+Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. The commands call a guarded endpoint that exists only on the Vite Development Server, which forwards each operation into the Nitro dev environment where `server/content.ts` runs. They do not reach a deployed app. `handleContentDevRequest()` from `@vite-hub/content/runtime/dev` is the Nitro handler; it is not a public runtime API.

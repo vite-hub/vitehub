@@ -40,7 +40,7 @@ Available namespaces:
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores in a running Vite + Nitro Development Server.
   channels    External Channel registration workflows.
-  content     Inspect and publish Content document collections in a running Vite + Nitro Development Server.
+  content     Inspect, edit, publish, and schedule Content documents in a running Vite + Nitro Development Server.
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
   env         Server Env inspection workflows.
@@ -71,11 +71,18 @@ Available namespaces:
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
 | `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
-| `vitehub content collections` | Available | Content Package | List document collections with their fields and document counts. |
-| `vitehub content status` | Available | Content Package | Show whether each document is draft, published, changed, or deleted. |
+| `vitehub content collections` | Available | Content Package | List collections and singletons with their fields and document counts. |
+| `vitehub content list` | Available | Content Package | List the documents of one collection with their state, title, and field issues. |
+| `vitehub content show` | Available | Content Package | Print the stored file of one document and its field issues. |
+| `vitehub content status` | Available | Content Package | Show whether each document is draft, published, changed, or deleted, with field issues and schedules. |
 | `vitehub content diff` | Available | Content Package | Print a unified diff of one document from published to draft. |
 | `vitehub content revisions` | Available | Content Package | List the revisions of one document, newest first. |
+| `vitehub content edit` | Available | Content Package | Edit one draft in `$EDITOR` or save it from a file. Honours edit leases unless `--override-lease`. |
 | `vitehub content publish` | Available | Content Package | Publish the listed draft documents in one revision after confirmation, pinned to their digests. |
+| `vitehub content schedule` | Available | Content Package | Publish the listed draft documents at a later time, pinned to their digests. |
+| `vitehub content scheduled` | Available | Content Package | List pending, overdue, and failed schedules. |
+| `vitehub content unschedule` | Available | Content Package | Cancel a pending schedule, or dismiss a failed one. |
+| `vitehub content sitemap` | Available | Content Package | Print the sitemap URLs of published documents. |
 | `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
@@ -327,19 +334,20 @@ Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with
 The commands use a guarded dev endpoint that `hubKv()` registers only on the Development Server. The endpoint forwards each operation into the Nitro dev environment, which owns the KV storage. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 and the CLI prints that the host is not supported. Deployed runtimes do not expose the endpoint.
 
 
-## Inspect and publish Content
+## Edit and publish Content
 
 Start the app's Vite Development Server, then run `vitehub content` from another terminal. The commands call the app's `server/content.ts` in the Nitro dev environment, so they see the same drafts and published documents as the app.
 
 ```bash [Terminal]
 pnpm vitehub content collections
-pnpm vitehub content status posts
+pnpm vitehub content list posts
+pnpm vitehub content edit posts hello
 pnpm vitehub content diff posts hello
-pnpm vitehub content revisions posts hello --ref published
 pnpm vitehub content publish --collection posts --id hello
+pnpm vitehub content schedule --collection posts --id hello --at 2026-10-20T09:00:00+02:00
 ```
 
-`publish` lists the pending changes with their draft digests, asks for confirmation, and publishes exactly those digests. A draft saved in between fails the publish and nothing is published. Pass `--yes` to skip the prompt, or `--dry-run` to only list the changes. Without an interactive terminal, `publish` fails unless you pass `--yes`. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`.
+`edit` opens the draft in `$EDITOR`, or saves `--file`, and prints the field issues the draft was saved with. It fails with `CONTENT_LEASE_HELD` while another session holds the edit lease, unless you pass `--override-lease`. `publish` and `schedule` list the pending changes with their draft digests, ask for confirmation, and pin exactly those digests. A draft saved in between fails the command and nothing is published. Pass `--yes` to skip the prompt, or `--dry-run` to only list the changes. Without an interactive terminal, they fail unless you pass `--yes`. Omit the id for a singleton. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`.
 
 The commands use a guarded dev endpoint that the Content Vite plugin registers only on the Development Server. They cannot reach a deployed app, and Nuxt and plain Vite hosts are not supported. Read [Content CLI](/docs/content/cli) for each command's output.
 
