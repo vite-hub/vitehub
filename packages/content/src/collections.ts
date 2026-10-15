@@ -17,6 +17,7 @@ import {
   warnUntypedFields,
 } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { contentScheduleKey, createContentSchedules } from "./schedules.ts"
 import { isContentSeoField } from "./seo.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
@@ -33,6 +34,7 @@ import type {
   ContentFormat,
   DocumentComponent,
 } from "./documents.ts"
+import type { ContentDocumentSchedule, ContentSchedulesRuntime, ContentScheduledDocument } from "./schedules.ts"
 
 /** The history refs Content owns: every save commits to `draft`; `publish()` copies documents to `published`. */
 export type ContentRef = "draft" | "published"
@@ -165,6 +167,11 @@ export interface ContentDocumentStatus {
   draft: string | null
   /** Digest on the `published` ref, or null when it is not published. */
   published: string | null
+  /**
+   * The schedule from `content.schedule()` that publishes this document: its pending or overdue one, or else a failed
+   * one. Absent when none names it.
+   */
+  schedule?: ContentDocumentSchedule
 }
 
 /** One document `publish({ expect })` must find on the draft before it publishes it. */
@@ -411,7 +418,7 @@ export interface ContentCollectionsOptions {
   collections: Record<string, ContentCollectionDefinition>
 }
 
-export interface ContentCollectionsRuntime {
+export interface ContentCollectionsRuntime extends Omit<ContentSchedulesRuntime, "documentSchedules"> {
   readonly collections: ReadonlyMap<string, AnyContentCollection>
   collection(name: string): AnyContentCollection
   publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
@@ -910,7 +917,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     function status(): Promise<ContentDocumentStatus[]>
     async function status(id?: string): Promise<ContentDocumentStatus | ContentDocumentStatus[] | null> {
       if (id !== undefined) pathFor(id)
-      const [draft, published] = await Promise.all([refState("draft"), refState("published")])
+      const [draft, published, scheduled] = await Promise.all([refState("draft"), refState("published"), schedules.documentSchedules()])
       const draftEntries = draft.opened ? entries(draft.opened.files) : new Map<string, CollectionEntry>()
       const publishedEntries = published.opened ? entries(published.opened.files) : new Map<string, CollectionEntry>()
       const statusOf = (documentId: string): ContentDocumentStatus | null => {
@@ -920,7 +927,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const state: ContentDocumentState = draftDigest === null
           ? "deleted"
           : publishedDigest === null ? "draft" : draftDigest === publishedDigest ? "published" : "changed"
-        return { collection: name, id: documentId, state, draft: draftDigest, published: publishedDigest }
+        const status: ContentDocumentStatus = { collection: name, id: documentId, state, draft: draftDigest, published: publishedDigest }
+        const schedule = scheduled.get(contentScheduleKey(name, documentId))
+        if (schedule) status.schedule = schedule
+        return status
       }
       if (id !== undefined) return statusOf(id)
       return [...new Set([...draftEntries.keys(), ...publishedEntries.keys()])].sort().map(statusOf).filter(entry => entry !== null)
@@ -1007,17 +1017,24 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   function readExpectations(publishOptions: ContentPublishOptions): PublishTarget[] | undefined {
-    const expected: unknown = publishOptions.expect
-    if (expected === undefined) return
+    if (publishOptions.expect === undefined) return
     if (publishOptions.collection !== undefined || publishOptions.ids !== undefined) {
       throw publishInvalid("publish({ expect }) names every document to publish. Do not combine it with collection or ids.")
     }
+    return expectationTargets("publish", publishOptions.expect)
+  }
+
+  /** Validate `expect` entries of `publish()` or `schedule()`: known documents, one entry each, and digests. */
+  function expectationTargets(method: string, expected: unknown): PublishTarget[] {
+    const invalidExpectation = (message: string) => method === "publish"
+      ? contentErrorDiagnostics.CONTENT_R0009({ message: `[vitehub] ${message}` })
+      : contentErrorDiagnostics.CONTENT_R0011({ message: `[vitehub] ${message}` })
     if (!Array.isArray(expected) || !expected.length) {
-      throw publishInvalid("publish({ expect }) requires a non-empty list of { collection, id, digest }.")
+      throw invalidExpectation(`${method}({ expect }) requires a non-empty list of { collection, id, digest }.`)
     }
     const seen = new Set<string>()
     return expected.map((entry: unknown) => {
-      if (entry === null || Object(entry) !== entry) throw publishInvalid("Each publish({ expect }) entry must be { collection, id, digest }.")
+      if (entry === null || Object(entry) !== entry) throw invalidExpectation(`Each ${method}({ expect }) entry must be { collection, id, digest }.`)
       const digest: unknown = Reflect.get(Object(entry), "digest")
       const collection = requireCollection(Reflect.get(Object(entry), "collection"))
       // A singleton needs no id.
@@ -1026,21 +1043,26 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       // SAFETY: pathFor() accepts only nonempty string ids.
       const documentId = id as string
       if (digest !== null && (String(digest) !== digest || !digest)) {
-        throw publishInvalid(`publish({ expect }) digest for ${JSON.stringify(`${collection.name}/${documentId}`)} must be a digest string, or null for a deleted document.`)
+        throw invalidExpectation(`${method}({ expect }) digest for ${JSON.stringify(`${collection.name}/${documentId}`)} must be a digest string, or null for a deleted document.`)
       }
-      if (seen.has(path)) throw publishInvalid(`publish({ expect }) lists ${JSON.stringify(`${collection.name}/${documentId}`)} more than once.`)
+      if (seen.has(path)) throw invalidExpectation(`${method}({ expect }) lists ${JSON.stringify(`${collection.name}/${documentId}`)} more than once.`)
       seen.add(path)
       return { collection, id: documentId, path, digest }
     })
   }
 
-  function mismatchMessage(mismatches: ContentPublishMismatch[]): string {
+  function mismatchError(method: string, mismatches: ContentPublishMismatch[]): ViteHubError {
     const lines = mismatches.map(({ collection, id, actual }) =>
       `- ${collection}/${id}: ${actual === null ? "deleted on the draft" : `draft is now ${actual.slice(0, 12)}`}`)
-    return `[vitehub] Content changed on the draft after it was reviewed, so publish() published nothing:\n${lines.join("\n")}`
+    const outcome = method === "schedule" ? "schedule() scheduled nothing" : "publish() published nothing"
+    return contentConflict(`[vitehub] Content changed on the draft after it was reviewed, so ${outcome}:\n${lines.join("\n")}`, {
+      ref: "draft",
+      documents: mismatches.map(mismatch => ({ ...mismatch })),
+    })
   }
 
-  async function publish(publishOptions: ContentPublishOptions = {}): Promise<ContentPublishResult> {
+  /** `schedule` names the schedule that runs this publish, on the revision metadata. */
+  async function publish(publishOptions: ContentPublishOptions = {}, schedule?: string): Promise<ContentPublishResult> {
     if (publishOptions === null || Object(publishOptions) !== publishOptions) throw publishInvalid("publish() options must be an object.")
     const expectations = readExpectations(publishOptions)
     if (publishOptions.ids !== undefined && publishOptions.collection === undefined) {
@@ -1070,7 +1092,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           const actual = draft?.files.get(path) ?? null
           if (actual !== digest) mismatches.push({ collection: collection.name, id, expected: digest ?? null, actual })
         }
-        if (mismatches.length) throw contentConflict(mismatchMessage(mismatches), { ref: "draft", documents: mismatches.map(mismatch => ({ ...mismatch })) })
+        if (mismatches.length) throw mismatchError("publish", mismatches)
       }
       if (!draftHead || !draft) {
         if (publishOptions.ids) throw contentNotFound(selected[0]!.name, publishOptions.ids[0]!)
@@ -1128,6 +1150,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             action: "publish",
             draft: draftHead.id,
             documents: documents.map(({ collection, id }) => ({ collection, id })),
+            ...(schedule ? { schedule } : {}),
           }),
         })
         const affected = [...new Set(documents.map(document => document.collection))]
@@ -1180,6 +1203,29 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     return await scanRevisions(revisionOptions, revision => revisionDocuments(revision).some(document => collections.has(String(Reflect.get(Object(document), "collection")))))
   }
 
+  const schedules = createContentSchedules({
+    history,
+    open: async (revision) => {
+      const opened = await openRevision(revision)
+      return { files: opened.files, read: path => readText(opened, path) }
+    },
+    expectations: (method, expect) => expectationTargets(method, expect).map(({ collection, id, digest }) => ({ collection: collection.name, id, digest: digest ?? null })),
+    digests: async (expect: readonly ContentScheduledDocument[]) => {
+      const [draft, published] = await Promise.all([refState("draft"), refState("published")])
+      return expect.map(({ collection, id }) => {
+        const path = requireCollection(collection).pathFor(id)
+        return { draft: draft.opened?.files.get(path) ?? null, published: published.opened?.files.get(path) ?? null }
+      })
+    },
+    mismatch: mismatchError,
+    publish: async scheduled => await publish({
+      expect: scheduled.expect,
+      ...(scheduled.message === undefined ? {} : { message: scheduled.message }),
+      ...(scheduled.metadata === undefined ? {} : { metadata: scheduled.metadata }),
+    }, scheduled.id),
+    metadata: writeMetadata,
+  })
+
   function comarkSource(name: string, ref: ContentRef = "published"): ContentHistorySource {
     const collection = requireCollection(name)
     let current: { revision: string | null, opened?: OpenedRevision, files: Map<string, string> } | undefined
@@ -1215,6 +1261,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     collections: new Map([...collections].map(([name, runtime]) => [name, runtime.collection])),
     collection: name => requireCollection(name).collection,
     publish,
+    schedule: schedules.schedule,
+    schedules: schedules.schedules,
+    unschedule: schedules.unschedule,
+    publishDue: schedules.publishDue,
     revisions: documentRevisions,
     history: contentHistory,
     comarkSource: name => comarkSource(name),

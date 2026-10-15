@@ -67,7 +67,7 @@ interface ConsoleDocumentSearchItem {
 
 /** Extra words that find an item, such as `images` for Media (cmdk keyword aliases). */
 const pageKeywords: Readonly<Record<string, readonly string[]>> = {
-  "document-dashboard": ["home", "overview", "stats", "activity"],
+  "document-dashboard": ["home", "overview", "stats", "activity", "scheduled", "schedule"],
   "document-settings": ["settings", "site", "config", "configuration", "preferences", "singleton"],
   "media-library": ["images", "files", "uploads", "assets", "library"],
 }

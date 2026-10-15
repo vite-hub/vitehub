@@ -16,6 +16,7 @@ The section appears when `server/content.ts` passes `collections` to `defineCont
 
 - Counts of drafts, changed, published, and deleted documents across the collections you may read.
 - **Needs publishing** lists every unpublished change, newest first. **Publish** in the header publishes all of them, exactly as the dashboard shows them. Writers see the list without the button.
+- **Scheduled** lists every [scheduled publish](/docs/content/scheduling), soonest first, when there is one.
 - **Recent activity** names who saved, deleted, restored, or published which document, and when.
 - **Collections** lists each collection with a **New** button when you may edit it.
 
@@ -35,6 +36,7 @@ The sidebar lists the dashboard, every collection with its draft and changed cou
 | See the file | **Source** (<kbd>⌘</kbd> <kbd>/</kbd>) shows the stored file: the frontmatter read-only and the Markdown body editable. |
 | Save | Drafts save one second after typing stops. <kbd>⌘</kbd> <kbd>S</kbd> saves at once. A new document saves when you choose **Create**, since its id names the file. |
 | Publish | **Publish** on a document, **Publish N changes** on a collection, **Publish** on the dashboard for every collection, or select documents and publish only those. |
+| Schedule | The arrow next to **Publish** opens **Schedule…**: pick a date and time in your time zone, and the draft on screen publishes then. The header shows **Scheduled · Oct 20, 09:00**, the list gets a **Scheduled** tab, and the dashboard lists upcoming publishes under **Scheduled**. Saving the document again before then makes the schedule fail instead of publishing changes nobody reviewed. See [Scheduling](/docs/content/scheduling#console). |
 | Undo a change | **History** lists the saves and publishes of a document. Saves in a row by one person show as one entry, such as **Saved · 12 edits**, and expand to each save. Open one to compare its stored file with the saved draft, then restore it as a new draft. A version that no longer validates still opens. On wide screens the side panel shows History or the body's outline. |
 | Create and delete | **New** starts at the title. The id follows the title until you edit it. **Delete** removes the document from the draft. It stays published until you publish the deletion. |
 

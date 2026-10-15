@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import {
+  consoleDocumentScheduleTone,
   consoleDocumentStates,
   consoleDocumentStateColor,
   consoleDocumentStateLabel,
@@ -17,12 +18,12 @@ import { consoleSectionRouteName } from "../sections";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleStatus from "./console-status.vue";
 
-import type { ConsoleDocumentActivity, ConsoleDocumentOverview, ConsoleDocumentPendingChange, ConsoleDocumentsClient, ConsoleDocumentState } from "../client/documents";
+import type { ConsoleDocumentActivity, ConsoleDocumentOverview, ConsoleDocumentPendingChange, ConsoleDocumentScheduledChange, ConsoleDocumentsClient, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleDocumentCollection } from "../definitions";
 
 /**
- * The dashboard of a document editor section: counts by state, the changes that wait for a publish, recent activity,
- * and a New button per collection. The section shell loads the overview once and shares it with the sidebar counts.
+ * The dashboard of a document editor section: counts by state, the changes that wait for a publish, the scheduled
+ * publishes, recent activity, and a New button per collection. The section shell loads the overview once and shares it with the sidebar counts.
  */
 const props = defineProps<{
   client: ConsoleDocumentsClient;
@@ -60,6 +61,18 @@ const pending = computed(() => (props.overview?.collections ?? [])
   .flatMap(entry => entry.changes.map(change => ({ change, collection: byName.value.get(entry.name) })))
   .filter((entry): entry is { change: ConsoleDocumentPendingChange, collection: ConsoleDocumentCollection } => Boolean(entry.collection) && !published.value.has(key(entry.collection!.name, entry.change.id)))
   .sort((left, right) => (right.change.updatedAt ?? "").localeCompare(left.change.updatedAt ?? "")));
+// Every scheduled publish across the collections, soonest first.
+const scheduled = computed(() => (props.overview?.collections ?? [])
+  .flatMap(entry => (entry.scheduled ?? []).map(item => ({ item, collection: byName.value.get(entry.name) })))
+  .filter((entry): entry is { item: ConsoleDocumentScheduledChange, collection: ConsoleDocumentCollection } => Boolean(entry.collection))
+  .sort((left, right) => left.item.schedule.at.localeCompare(right.item.schedule.at)));
+const scheduleStatus = { failed: "Failed", overdue: "Overdue", pending: "Scheduled" } as const;
+
+/** `Oct 20, 09:00` in the browser time zone. */
+function scheduleTime(at: string): string {
+  return new Date(at).toLocaleString(undefined, { day: "numeric", hour: "2-digit", hour12: false, minute: "2-digit", month: "short" });
+}
+
 // Writers see the changes, but only collections they may publish count toward the Publish button.
 const publishable = computed(() => pending.value.filter(entry => entry.collection.access.publish));
 const canPublishAny = computed(() => props.collections.some(collection => collection.access.publish));
@@ -209,6 +222,28 @@ async function publishAll(): Promise<void> {
               </li>
             </ul>
             <p v-if="pending.length > 12" class="text-xs text-dimmed tabular-nums">And {{ pending.length - 12 }} more. Each collection lists all of its changes.</p>
+          </section>
+
+          <section v-if="scheduled.length" aria-labelledby="scheduled" class="grid gap-2">
+            <h2 id="scheduled" class="text-[13px] font-medium text-highlighted">
+              Scheduled
+              <span class="ms-1 font-normal text-dimmed tabular-nums">{{ scheduled.length }}</span>
+            </h2>
+            <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default">
+              <li v-for="entry in scheduled.slice(0, 12)" :key="`${entry.collection.name}/${entry.item.id}`">
+                <RouterLink
+                  :to="documentRoute(entry.collection.name, entry.item.id)"
+                  class="flex h-11 min-w-0 items-center gap-3 px-3 hover:bg-elevated/60 focus-visible:outline-2 focus-visible:-outline-offset-2"
+                  :title="entry.item.schedule.failure"
+                >
+                  <ConsoleStatus class="w-20 shrink-0" :tone="consoleDocumentScheduleTone(entry.item.schedule)" :label="scheduleStatus[entry.item.schedule.status]" />
+                  <span class="min-w-0 flex-1 truncate text-sm text-highlighted">{{ entry.item.title }}</span>
+                  <span class="hidden shrink-0 text-xs text-dimmed sm:inline">{{ entry.collection.label }}</span>
+                  <time class="shrink-0 whitespace-nowrap text-right text-xs text-muted tabular-nums" :datetime="entry.item.schedule.at">{{ scheduleTime(entry.item.schedule.at) }}</time>
+                </RouterLink>
+              </li>
+            </ul>
+            <p v-if="scheduled.length > 12" class="text-xs text-dimmed tabular-nums">And {{ scheduled.length - 12 }} more. Each collection's Scheduled tab lists all of them.</p>
           </section>
 
           <section aria-labelledby="collections" class="grid gap-2">

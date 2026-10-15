@@ -33,8 +33,29 @@ import type {
 } from "./collections.ts"
 import type { ContentSourceInput } from "./content-source.ts"
 import type { ContentCollectionDefinition, SingletonDefinition, DocumentsDefinition } from "./documents.ts"
+import type {
+  ContentPublishDueOptions,
+  ContentPublishDueResult,
+  ContentSchedule,
+  ContentScheduleOptions,
+  ContentSchedulesOptions,
+  ContentUnscheduleOptions,
+} from "./schedules.ts"
 import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 export { contentSource } from "./content-source.ts"
+export { contentScheduleOverdueMs, contentSchedulesRef } from "./schedules.ts"
+export type {
+  ContentDocumentSchedule,
+  ContentPublishDueOptions,
+  ContentPublishDueResult,
+  ContentSchedule,
+  ContentScheduledDocument,
+  ContentScheduleFailure,
+  ContentScheduleOptions,
+  ContentSchedulesOptions,
+  ContentScheduleStatus,
+  ContentUnscheduleOptions,
+} from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export { documents, optional, singleton } from "./documents.ts"
 export { contentSeoLengths, seo } from "./seo.ts"
@@ -217,6 +238,20 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   collection<TName extends CollectionName<TCollections>>(name: TName): CollectionOf<TCollections[TName]>
   /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
   publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
+  /**
+   * Publish exactly these reviewed drafts at a later time. The draft digests must match now. At its time,
+   * `publishDue()` calls `publish({ expect })`; a draft saved after scheduling makes the schedule `failed` instead.
+   */
+  schedule(options: ContentScheduleOptions): Promise<ContentSchedule>
+  /** Pending, overdue, and failed schedules, earliest first. Schedules that ran are removed; their publish revisions name them. */
+  schedules(options?: ContentSchedulesOptions): Promise<ContentSchedule[]>
+  /** Cancel a pending schedule, or dismiss a failed one. Throws `CONTENT_NOT_FOUND` when it already ran or is gone. */
+  unschedule(id: string, options?: ContentUnscheduleOptions): Promise<void>
+  /**
+   * Run every pending or overdue schedule whose time has come. Call it from a Schedule Definition, such as one that
+   * runs every minute. Runs are safe to overlap: each publish checks the reviewed digests, and each schedule settles once.
+   */
+  publishDue(options?: ContentPublishDueOptions): Promise<ContentPublishDueResult>
   /** Revisions that saved, removed, restored, or published one document, newest first. */
   revisions(collection: CollectionName<TCollections>, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Revisions of a singleton defined with `singleton()`. */
@@ -364,6 +399,10 @@ export function defineContent<
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
     collection: (name: string): unknown => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
+    schedule: (scheduleOptions: ContentScheduleOptions) => requireDocuments().schedule(scheduleOptions),
+    schedules: (schedulesOptions?: ContentSchedulesOptions) => requireDocuments().schedules(schedulesOptions),
+    unschedule: (id: string, unscheduleOptions?: ContentUnscheduleOptions) => requireDocuments().unschedule(id, unscheduleOptions),
+    publishDue: (dueOptions?: ContentPublishDueOptions) => requireDocuments().publishDue(dueOptions),
     revisions: (collectionOrOptions?: string | ContentRevisionsOptions, id?: string | ContentRevisionsOptions, revisionOptions?: ContentRevisionsOptions) => {
       if (!hasRuntimeType(collectionOrOptions, "string")) return requireDocuments().history(collectionOrOptions)
       // Without a string id, the second argument is the options of a singleton.

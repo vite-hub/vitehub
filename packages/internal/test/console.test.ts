@@ -134,7 +134,7 @@ describe("Console section contributions", () => {
     // Collections are read from the owner actions on each request.
     await expect(readViteHubConsoleSection(editor, { rootDir: "/app" })).resolves.toEqual({ collections: [], kind: "document-editor" })
     expect(() => describeViteHubConsoleDocumentActions({ ...editor, actions: { export: "create", module: "../local.ts" } })).toThrow(TypeError)
-    expect(viteHubConsoleDocumentActionNames).toEqual(["get", "list", "overview", "publish", "raw", "remove", "restore", "revisions", "save", "search"])
+    expect(viteHubConsoleDocumentActionNames).toEqual(["get", "list", "overview", "publish", "raw", "remove", "restore", "revisions", "save", "schedule", "search", "unschedule"])
   })
 
   it("describes section pages with one index page and resolves their required sections", () => {

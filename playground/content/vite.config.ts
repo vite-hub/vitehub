@@ -14,6 +14,8 @@ export default defineConfig({
       database: true,
       console: { auth: "app", authorize: "./server/console-authorize.ts" },
       kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
+      // `server/schedules/content-publish.ts` runs scheduled Content publishes in this process every minute.
+      schedule: { runtime: { driver: "process" } },
       workspace: true,
     }),
     // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.

@@ -80,6 +80,10 @@ icon: i-lucide-file-text
   `seo()` fields, `contentHead()` for any framework, and generated `/sitemap.xml` and `/robots.txt`.
   :::
 
+  :::product-feature-item{title="Publish reviewed drafts on a schedule" icon="i-lucide-calendar-clock" to="/docs/content/scheduling"}
+  `content.schedule()` publishes exactly what was reviewed at a later time, run by a Schedule Definition on every host.
+  :::
+
   :::product-feature-item{title="Documents, navigation, and search from server code" icon="i-lucide-code-2" to="/docs/content/server-api"}
   `content.get()`, `content.navigation()`, and `content.search()` run in server code.
   :::
