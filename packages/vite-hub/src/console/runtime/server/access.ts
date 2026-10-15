@@ -115,7 +115,7 @@ function webRequest(event: ConsoleRequestEvent): Request {
 const isSectionId = (value: unknown): value is ConsoleSectionId => typeof value === "string" && value.length > 0
 
 function authorizedSections(result: unknown): readonly ConsoleSectionId[] | undefined {
-  if (!(result instanceof Object) || !("sections" in result) || !Array.isArray(result.sections)) return
+  if (result === null || typeof result !== "object" || !("sections" in result) || !Array.isArray(result.sections)) return
   const sections: unknown[] = result.sections
   if (!sections.every(isSectionId)) return
   return Object.freeze([...new Set(sections)])

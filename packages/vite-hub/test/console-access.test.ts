@@ -128,6 +128,15 @@ describe("Console access policies", () => {
     await expect(withConsoleAccess(handler)(event({ "x-role": "admin" }))).resolves.toBe("open")
   })
 
+  it("accepts section results created in another runtime realm", async () => {
+    const authorize = runInNewContext("() => ({ sections: ['content'] })") as unknown as ConsoleAuthorize
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess((_event, access) => access.sections, { section: "content" })(event())
+
+    expect(result).toEqual(["content"])
+  })
+
   it("preserves genuine responses and rejects spoofed response-shaped values", async () => {
     const authorize = runInNewContext("() => new Response('Sign in elsewhere.', { status: 401 })", { Response }) as unknown as ConsoleAuthorize
 
