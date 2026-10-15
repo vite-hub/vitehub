@@ -321,34 +321,9 @@ function hasResponseBrand(value: object): boolean {
     // native Response objects created by compatible fetch implementations.
     if (authorizationResponseGetters.every(getter => getter && Reflect.apply(getter, value, []) !== undefined)) return true
 
-    // For an independent implementation, use its own prototype accessors.
-    // Genuine accessors perform an internal-slot check on an object that only
-    // shares the prototype; forged getters normally do not.
-    let prototype: object | null = Object.getPrototypeOf(value)
-    const seen = new Set<object>()
-    const getters = [] as Array<(receiver: object) => unknown>
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
-      seen.add(prototype)
-      for (const key of authorizationResponseProperties) {
-        if (getters.length === authorizationResponseProperties.indexOf(key)) {
-          const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
-          if (typeof getter !== "function") return false
-          getters.push(getter)
-        }
-      }
-      if (getters.length === authorizationResponseProperties.length) break
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    if (getters.length !== authorizationResponseProperties.length) return false
-    const probe = Object.create(Object.getPrototypeOf(value))
-    let rejectedProbe = false
-    for (const getter of getters) {
-      Reflect.apply(getter, value, [])
-      try { Reflect.apply(getter, probe, []) }
-      catch { rejectedProbe = true }
-    }
-    return rejectedProbe
+    // Do not invoke accessors supplied by the candidate. Their behavior is
+    // user-controlled and cannot prove that the object carries native state.
+    return false
   }
   catch {
     return false
@@ -369,7 +344,6 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     let locked: (() => boolean) | undefined
     let getReader: (() => unknown) | undefined
     let lockedOwner: object | undefined
-    let getReaderOwner: object | undefined
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(prototype)) return false
       seen.add(prototype)
@@ -381,12 +355,11 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       }
       if (!getReader && typeof readerDescriptor?.value === "function") {
         getReader = readerDescriptor.value
-        getReaderOwner = prototype
       }
       if (locked && getReader) break
       prototype = Object.getPrototypeOf(prototype)
     }
-    if (!locked || !getReader || lockedOwner !== getReaderOwner || Reflect.apply(locked, candidate, [])) return false
+    if (!locked || !getReader || Reflect.apply(locked, candidate, [])) return false
     // Validate the reader against a fresh stream from the body's realm. This
     // avoids relying on function source text while rejecting unrelated native
     // methods (for example, Array.prototype.values) installed on the stream
