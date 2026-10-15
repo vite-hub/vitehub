@@ -290,7 +290,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   if (value instanceof Response) {
     if (value.status < 200 || value.status > 599) return
     if (typeof value.headers?.forEach !== "function") return
-    if (value.body !== null && typeof value.body.getReader !== "function") return
+    if (value.body !== null) {
+      if (value.body.locked) return
+      if (typeof value.body.getReader !== "function") return
+    }
     return value
   }
   try {
@@ -302,7 +305,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 100 || response.status > 599) return
     if (typeof response.statusText !== "string") return
     const headers = new Headers()
+    const getSetCookie = (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie
+    const setCookieValues = typeof getSetCookie === "function" ? getSetCookie.call(response.headers) : []
     response.headers.forEach((value, key) => headers.append(key, value))
+    if (setCookieValues.length > 0) {
+      headers.delete("set-cookie")
+      for (const value of setCookieValues) headers.append("set-cookie", value)
+    }
     if (response.body === null) return new Response(null, { headers, status: response.status, statusText: response.statusText })
     if (typeof response.body.getReader !== "function") return
     const reader = response.body.getReader()
