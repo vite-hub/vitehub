@@ -49,6 +49,7 @@ const hasPanel = computed(
   max-width: none;
   min-height: calc(100dvh - var(--ui-header-height));
   flex-direction: column;
+  overflow-x: clip;
 }
 
 .vh-docs-footer {
