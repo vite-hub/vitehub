@@ -1,3 +1,5 @@
+import vm from "node:vm"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { inspectKVValue } from "../src/runtime/inspect-value.ts"
@@ -11,6 +13,48 @@ describe("KV inspection values", () => {
     expect(inspected?.value).not.toBe(value)
     expect(inspectKVValue(null)).toEqual({ type: "null", value: null })
     expect(inspectKVValue(new Uint8Array([0, 127, 255]))).toEqual({ encoding: "base64", type: "bytes", value: "AH//" })
+  })
+
+  it("recognizes byte arrays from another JavaScript realm", () => {
+    const value = vm.runInNewContext("new Uint8Array([0, 127, 255])")
+    expect(value).not.toBeInstanceOf(Uint8Array)
+    expect(inspectKVValue(value)).toEqual({ encoding: "base64", type: "bytes", value: "AH//" })
+  })
+
+  it.each(["byteLength", "length"] as const)("rejects hostile own %s accessors without running them", key => {
+    const value = new Uint8Array([0, 127, 255])
+    const getter = vi.fn()
+      .mockReturnValueOnce(3)
+      .mockImplementation(() => { throw new Error("unstable byte metadata") })
+    Object.defineProperty(value, key, { get: getter })
+
+    expect(inspectKVValue(value)).toBeUndefined()
+    expect(getter).not.toHaveBeenCalled()
+  })
+
+  it("uses native byte iteration without running a custom iterator", () => {
+    const value = new Uint8Array([0, 127, 255])
+    const iterator = vi.fn(() => { throw new Error("hostile iterator") })
+    Object.defineProperty(value, Symbol.iterator, { get: iterator })
+
+    expect(inspectKVValue(value)).toEqual({ encoding: "base64", type: "bytes", value: "AH//" })
+    expect(iterator).not.toHaveBeenCalled()
+  })
+
+  it("rejects detached byte arrays instead of reporting empty data", () => {
+    const value = new Uint8Array([0, 127, 255])
+    structuredClone(value, { transfer: [value.buffer] })
+
+    expect(inspectKVValue(value)).toBeUndefined()
+  })
+
+  it("rejects spoofed non-byte views and does not invoke Symbol.toStringTag", () => {
+    const typed = new Uint16Array([0x1234])
+    Object.defineProperty(typed, Symbol.toStringTag, { get: () => { throw new Error("should not run") } })
+    const dataView = new DataView(new ArrayBuffer(2))
+    Object.defineProperty(dataView, Symbol.toStringTag, { value: "Uint8Array" })
+    expect(inspectKVValue(typed)).toBeUndefined()
+    expect(inspectKVValue(dataView)).toBeUndefined()
   })
 
   it("rejects object behavior without running getters or toJSON", () => {
