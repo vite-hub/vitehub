@@ -539,14 +539,16 @@ function boundedString(value: string | undefined): string | undefined {
 function arrayBufferByteLength(value: unknown): number | undefined {
   try {
     const length = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
-    return typeof length === "number" ? length : undefined
+    // SAFETY: The intrinsic byteLength getter returns a number for a branded ArrayBuffer.
+    return length as number
   }
   catch {
     const SharedArrayBufferConstructor = globalThis.SharedArrayBuffer
     if (hasRuntimeType(SharedArrayBufferConstructor, "function")) {
       try {
         const length = Object.getOwnPropertyDescriptor(SharedArrayBufferConstructor.prototype, "byteLength")!.get!.call(value)
-        return typeof length === "number" ? length : undefined
+        // SAFETY: The intrinsic byteLength getter returns a number for a branded SharedArrayBuffer.
+        return length as number
       }
       catch {
         // Not an ArrayBuffer or SharedArrayBuffer.
