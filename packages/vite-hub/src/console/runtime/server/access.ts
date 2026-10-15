@@ -39,8 +39,9 @@ export type ConsoleGuardedHandler<TEvent, TResult> = (event: TEvent, access: Con
 export type ConsoleAccessRoute<THandler extends (event: never, access: ConsoleAccess) => unknown> = (event: Parameters<THandler>[0]) => Promise<Awaited<ReturnType<THandler>> | Response>
 
 const policyKey: unique symbol = Symbol.for("vitehub.console.access")
+const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-warning")
 // SAFETY: This module owns the process slot shared by separately bundled generated plugins and Console routes.
-const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy }
+const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
@@ -68,7 +69,8 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if ("authorize" in policy && policy.authorize !== undefined && !(policy.authorize instanceof Function)) {
     throw new TypeError("[vitehub] console.authorize must default-export a function.")
   }
-  if (policy.mode === "open" && !policy.authorize && productionRuntime()) {
+  if (policy.mode === "open" && !policy.authorize && productionRuntime() && !scope[openWarningKey]) {
+    scope[openWarningKey] = true
     globalThis.console?.warn(consoleOpenAccessWarning)
   }
   scope[policyKey] = Object.freeze({ ...policy })
@@ -98,6 +100,16 @@ function authorizedSections(result: unknown): readonly ConsoleSectionId[] | unde
   const sections: unknown[] = sectionsValue
   if (!sections.every(isSectionId)) return
   return Object.freeze([...new Set(sections)])
+}
+
+function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRouteScope {
+  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  if ("section" in routeScope) {
+    const section = routeScope.section
+    if (section instanceof Function || (typeof section === "string" && section.length > 0)) return
+  }
+  if ("anySection" in routeScope && routeScope.anySection === true) return
+  throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
 }
 
 async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: boolean } = {}): Promise<ConsoleAccess | Response> {
@@ -198,7 +210,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   routeScope: ConsoleRouteScope = { anySection: true },
 ): (event: TEvent) => Promise<TResult | Response> {
   if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
-  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  assertRouteScope(routeScope)
   const declared = Object.freeze({ ...routeScope }) as ConsoleRouteScope
   const route = async (event: TEvent) => {
     let access = checkedEvents.get(event)
