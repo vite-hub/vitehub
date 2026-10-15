@@ -461,7 +461,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
-      if ("database" in viteConfig) {
+      if (Object.hasOwn(viteConfig, "database")) {
         sections = sections.filter(section => section !== "databases")
         if (viteConfig.database) sections = [...sections, "databases"]
       }
@@ -479,7 +479,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
-      databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
+      databaseDiscoveryRoot = Object.hasOwn(viteConfig, "database")
+        ? configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
+        : configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
       rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? configuredProjectRoot({ projectRoot: options.rateLimitDiscoveryRoot })
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rate Limit configuration crosses Vite's open user-config boundary, so validate scan directory entries before discovery.
       rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
@@ -595,10 +597,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
-      databaseDiscoveryRoot = "database" in viteConfig
+      databaseDiscoveryRoot = Object.hasOwn(viteConfig, "database")
         ? configuredProjectRoot(viteConfig.database)
         : databaseDiscoveryRoot
-      if ("database" in viteConfig) {
+      if (Object.hasOwn(viteConfig, "database")) {
         sections = sections.filter(section => section !== "databases")
         if (viteConfig.database) sections = [...sections, "databases"]
       }
