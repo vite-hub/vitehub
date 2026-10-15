@@ -403,7 +403,8 @@ export function defineCollection<
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
   },
 ): Collection<TItem, TQuery, object> {
-  const [load, definition] = input instanceof Function
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection loaders may come from another JavaScript realm, so callable dispatch cannot use instanceof Function.
+  const [load, definition] = typeof input === "function"
     ? [input, options] as const
     : sourceDefinition(input)
   if (!definition) {
@@ -419,7 +420,8 @@ export function defineCollection<
   const cursorDefinition = "cursorSchema" in definition ? definition : undefined
   const cursorCodec = cursorDefinition ? createCollectionCursorCodec(cursorDefinition.cursorSchema) : undefined
   const authorize = definition.authorize
-  if (authorize !== undefined && authorize !== true && !(authorize instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection authorizers are callable callbacks; constructor identity differs across JavaScript realms.
+  if (authorize !== undefined && authorize !== true && typeof authorize !== "function") {
     throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true or a function." })
   }
 

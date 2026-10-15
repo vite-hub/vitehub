@@ -176,6 +176,13 @@ describe("Collections", () => {
       .toThrow("Collection authorize must be true or a function.")
   })
 
+  it("accepts authorize callbacks created in another realm", () => {
+    const authorize = runInNewContext("({ user }) => user.id === 'u1'") as (input: unknown) => boolean
+    const options = { cursor: (item: { id: number }) => item.id, cursorSchema: v.number() }
+
+    expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize }).authorize).toBe(authorize)
+  })
+
   it("rejects malformed cursors and invalid definition limits", async () => {
     const { collection } = mealsCollection()
     const query = await collection.parseQuery({})

@@ -2,6 +2,11 @@ import { effectScope, nextTick, ref } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Editor } from "@tiptap/core"
 
+import * as decoding from "lib0/decoding"
+import * as Y from "yjs"
+
+import { Node as TiptapNode } from "@tiptap/core"
+import { encodeRealtimeControl, messageRealtimeControl } from "../src/protocol.ts"
 import { useRealtimeTiptap } from "../src/vue.ts"
 
 const providers = vi.hoisted(() => [] as Array<{
@@ -10,11 +15,21 @@ const providers = vi.hoisted(() => [] as Array<{
   disconnect: ReturnType<typeof vi.fn<() => void>>
   statusHandler?: (event: { status: string }) => void
   syncHandler?: (value: boolean) => void
+  awareness: { setLocalStateField: ReturnType<typeof vi.fn> }
+  doc: Y.Doc
+  messageHandlers: Array<(encoder: unknown, decoder: decoding.Decoder) => void>
+  params: Record<string, string>
+  room: string
   ws: { send: ReturnType<typeof vi.fn> }
 }>)
 
+const session = vi.hoisted(() => ({ calls: 0 }))
+
 vi.mock("@vite-hub/auth/vue", () => ({
-  useUserSession: () => ({ user: ref() }),
+  useUserSession: () => {
+    session.calls++
+    return { user: ref({ id: "session-user", name: "Session" }) }
+  },
 }))
 
 vi.mock("y-websocket", () => ({
@@ -34,7 +49,7 @@ vi.mock("y-websocket", () => ({
     disconnect = vi.fn(() => {
       this.wsconnected = false
     })
-    messageHandlers: unknown[] = []
+    messageHandlers: Array<(encoder: unknown, decoder: decoding.Decoder) => void> = []
     on = vi.fn((event: string, handler: (value: unknown) => void) => {
       if (event === "status") this.statusHandler = handler as (event: { status: string }) => void
       if (event === "sync") this.syncHandler = handler as (value: boolean) => void
@@ -43,14 +58,32 @@ vi.mock("y-websocket", () => ({
     syncHandler?: (value: boolean) => void
     ws = { OPEN: 1, readyState: 1, send: vi.fn() }
     wsconnected = false
+    params: Record<string, string> = {}
 
-    constructor(_server: string, _room: string, public doc: object) {
+    constructor(public server: string, public room: string, public doc: Y.Doc) {
       providers.push(this)
     }
   },
 }))
 
+const checkpointResponse = {
+  digest: "saved",
+  document: { body: "# Saved", fields: {} },
+  error: null,
+  issues: [],
+  savedAt: "2026-01-01T00:00:00.000Z",
+  savedBy: null,
+  snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" },
+}
+
+function control(provider: (typeof providers)[number], message: Parameters<typeof encodeRealtimeControl>[0]) {
+  const decoder = decoding.createDecoder(encodeRealtimeControl(message))
+  expect(decoding.readVarUint(decoder)).toBe(messageRealtimeControl)
+  provider.messageHandlers[messageRealtimeControl]!(undefined, decoder)
+}
+
 afterEach(() => {
+  session.calls = 0
   vi.useRealTimers()
   providers.length = 0
   vi.unstubAllGlobals()
@@ -170,8 +203,8 @@ describe("useRealtimeTiptap", () => {
     const second = realtime.history.checkpoint()
     expect(realtime.history.pending.value).toBe(true)
 
-    responses[0]!(new Response(JSON.stringify({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })))
-    await expect(first).resolves.toEqual({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })
+    responses[0]!(new Response(JSON.stringify(checkpointResponse)))
+    await expect(first).resolves.toEqual(checkpointResponse)
     expect(realtime.history.pending.value).toBe(true)
 
     responses[1]!(new Response(JSON.stringify({ message: "publisher unavailable", statusMessage: "" }), { status: 500 }))
@@ -182,13 +215,13 @@ describe("useRealtimeTiptap", () => {
 
   it("rejects malformed successful checkpoint responses", async () => {
     vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ content: "# Saved" }))))
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ digest: "saved", document: { body: "# Saved" } }))))
     const scope = effectScope()
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
 
     await expect(realtime.history.checkpoint()).rejects.toMatchObject({
       code: "REALTIME_R0012",
-      message: "The realtime checkpoint response was invalid.",
+      message: "The realtime response was invalid.",
     })
     expect(realtime.history.pending.value).toBe(false)
     scope.stop()
@@ -246,7 +279,7 @@ describe("useRealtimeTiptap", () => {
 
   it("rejects a checkpoint during a same-tick document switch", async () => {
     vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
-    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })))
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(checkpointResponse)))
     vi.stubGlobal("fetch", fetch)
     const documentId = ref("first.md")
     const scope = effectScope()
@@ -255,12 +288,12 @@ describe("useRealtimeTiptap", () => {
 
     documentId.value = "second.md"
     const pending = realtime.history.checkpoint()
-    await expect(pending).rejects.toThrow("The realtime document is no longer connected to this checkpoint.")
+    await expect(pending).rejects.toThrow("The realtime document is no longer connected to this request.")
     expect(fetch).not.toHaveBeenCalled()
     expect(realtime.history.pending.value).toBe(false)
 
     await nextTick()
-    await expect(realtime.history.checkpoint()).resolves.toMatchObject({ content: "# Saved" })
+    await expect(realtime.history.checkpoint()).resolves.toMatchObject({ document: { body: "# Saved" } })
     expect(fetch).toHaveBeenCalledOnce()
     expect(fetch.mock.calls[0]![0]).toBe("/api/_vitehub/realtime/docs/second.md?history=checkpoint")
     scope.stop()
@@ -270,8 +303,8 @@ describe("useRealtimeTiptap", () => {
     vi.useFakeTimers()
     vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
     const fetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { code: "REALTIME_CHECKPOINT_REJECTED" } }), { status: 409 }))
-      .mockResolvedValue(new Response(JSON.stringify({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { code: "REALTIME_SYNC_PENDING" } }), { status: 409 }))
+      .mockResolvedValue(new Response(JSON.stringify(checkpointResponse)))
     vi.stubGlobal("fetch", fetch)
     const documentId = ref("first.md")
     const enabled = ref(true)
@@ -297,17 +330,112 @@ describe("useRealtimeTiptap", () => {
     scope.stop()
   })
 
-  it("retries after a rejected checkpoint is reconciled", async () => {
+  it("retries a checkpoint while the room is still syncing", async () => {
     vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
     const fetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { code: "REALTIME_CHECKPOINT_REJECTED" } }), { status: 409 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { code: "REALTIME_SYNC_PENDING" } }), { status: 409 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(checkpointResponse)))
     vi.stubGlobal("fetch", fetch)
     const scope = effectScope()
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
 
-    await expect(realtime.history.checkpoint()).resolves.toEqual({ content: "# Saved", snapshot: { createdAt: "2026-01-01T00:00:00.000Z", entries: {}, id: "snapshot" } })
+    await expect(realtime.history.checkpoint()).resolves.toEqual(checkpointResponse)
     expect(fetch).toHaveBeenCalledTimes(2)
+    scope.stop()
+  })
+
+  it("uses an injected identity and editor schema instead of the app session and default kit", () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const identity = ref({ id: "console:ana", image: "https://example.com/ana.png", name: "Ana" })
+    const Callout = TiptapNode.create({ name: "callout", group: "block", content: "inline*" })
+    const extensions = vi.fn(() => [TiptapNode.create({ name: "doc", topNode: true, content: "block+" }), TiptapNode.create({ name: "paragraph", group: "block", content: "inline*" }), TiptapNode.create({ name: "text", group: "inline" }), Callout])
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md"), { editor: { extensions }, identity }))!
+
+    expect(session.calls).toBe(0)
+    expect(realtime.extensions.value.map(extension => extension.name)).toEqual(["doc", "paragraph", "text", "callout", "collaboration"])
+    expect(providers[1]!.awareness.setLocalStateField).toHaveBeenCalledWith("user", expect.objectContaining({ id: "console:ana", name: "Ana" }))
+    scope.stop()
+  })
+
+  it("defaults presence to the ViteHub Auth session", () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const scope = effectScope()
+    scope.run(() => useRealtimeTiptap("docs", ref("page.md")))
+    expect(session.calls).toBe(1)
+    expect(providers[1]!.awareness.setLocalStateField).toHaveBeenCalledWith("user", expect.objectContaining({ id: "session-user", name: "Session" }))
+    scope.stop()
+  })
+
+  it("binds the session epoch and access, and exposes fields and server status", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+    const provider = providers[1]!
+
+    control(provider, { type: "session", access: "read", epoch: "seed-1" })
+    expect(provider.params.epoch).toBe("seed-1")
+    expect(realtime.readOnly.value).toBe(true)
+    expect(realtime.readOnlyReason.value).toBe("access")
+    control(provider, { type: "session", access: "read", epoch: "seed-1", reason: "document" })
+    expect(realtime.readOnlyReason.value).toBe("document")
+    control(provider, { type: "session", access: "write", epoch: "seed-1" })
+    expect(realtime.readOnly.value).toBe(false)
+    expect(realtime.readOnlyReason.value).toBeNull()
+
+    const remote = new Y.Doc()
+    remote.getMap("fields").set("title", "Hello")
+    remote.getMap("status").set("digest", "d1")
+    remote.getMap("status").set("issues", [{ field: "title", message: "Too short", path: [] }])
+    Y.applyUpdate(provider.doc, Y.encodeStateAsUpdate(remote))
+    expect(realtime.fields.value?.get("title")).toBe("Hello")
+    expect(realtime.saveStatus.value).toMatchObject({ digest: "d1", issues: [{ field: "title", message: "Too short" }] })
+    remote.destroy()
+    scope.stop()
+  })
+
+  it("drops its Yjs state and reconnects when the room is re-seeded", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const onReset = vi.fn((event: { previous: Y.Doc }) => event.previous.getMap("fields").get("title"))
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md"), { onReset }))!
+    const listener = vi.fn()
+    realtime.onReset(listener)
+    const first = providers[1]!
+    const firstDocument = realtime.document.value!
+    firstDocument.getMap("fields").set("title", "Unsaved")
+    control(first, { type: "session", access: "write", epoch: "seed-1" })
+
+    control(first, { type: "reset", epoch: "seed-2", reason: "source-changed" })
+
+    expect(onReset).toHaveBeenCalledWith(expect.objectContaining({ epoch: "seed-2", reason: "source-changed" }))
+    expect(onReset.mock.results[0]!.value).toBe("Unsaved")
+    expect(listener).toHaveBeenCalledOnce()
+    expect(first.destroy).toHaveBeenCalledOnce()
+    expect(providers).toHaveLength(3)
+    expect(providers[2]!.params.epoch).toBeUndefined()
+    expect(realtime.document.value).not.toBe(firstDocument)
+    expect(realtime.document.value!.getMap("fields").get("title")).toBeUndefined()
+    expect(realtime.extensions.value.at(-1)!.options.fragment).toBe(realtime.document.value!.getXmlFragment("body"))
+    scope.stop()
+  })
+
+  it("saves through the document endpoint and refreshes without a body", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const { snapshot: _snapshot, ...saved } = checkpointResponse
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(saved)))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ digest: "saved", reseeded: false })))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("guides/page.md")))!
+
+    await expect(realtime.save()).resolves.toMatchObject({ digest: "saved", document: { body: "# Saved" } })
+    expect(fetch.mock.calls[0]![0]).toBe("/api/_vitehub/realtime/docs/guides/page.md?document=save")
+    expect(realtime.saving.value).toBe(false)
+    await expect(realtime.refresh()).resolves.toEqual({ digest: "saved", reseeded: false })
+    expect(fetch.mock.calls[1]![0]).toBe("/api/_vitehub/realtime/docs/guides/page.md?document=refresh")
+    expect(fetch.mock.calls[1]![1].body).toBeUndefined()
     scope.stop()
   })
 })

@@ -15,6 +15,7 @@ import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
+import isBlob from "./internal/is-blob.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
@@ -242,7 +243,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
     async put(pathname: string, body: BlobPutBody, options: BlobPutOptions = {}) {
       const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
       assertWritablePath(normalizedPath)
-      const contentType = options.contentType || (body instanceof Blob ? body.type : undefined) || guessContentType(normalizedPath)
+      const contentType = options.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)
       return blobResult("put", store, () => driver.put(normalizedPath, body, {
         ...options,
         contentType,

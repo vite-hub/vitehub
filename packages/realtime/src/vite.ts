@@ -2,16 +2,17 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
+import { summarizeRealtimeDefinitions } from "./inspect.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, UserConfig } from "vite"
+import type { RealtimeInspectionAuthority } from "./inspect.ts"
 import type { RealtimeModuleOptions } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -22,13 +23,22 @@ export interface RealtimeVitePluginOptions extends RealtimeModuleOptions {
 export type RealtimeVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata }
 
 export interface RealtimeInspectionOptions {
+  /** Resolved room authority. Defaults to `auto`. */
+  authority?: RealtimeInspectionAuthority
   projectRoot: string
   serverDirs?: string[]
 }
 
-/** Lists Realtime Definitions as serializable inspection summaries. */
-export function inspectRealtimeDefinitions(options: RealtimeInspectionOptions): ViteHubDefinitionSummary[] {
-  return summarizeDefinitions(options.projectRoot, discoverRealtimeDefinitions(options.projectRoot, options.serverDirs), "server-realtime")
+/**
+ * Lists Realtime Definitions with their document adapter, editor codec, identity, authorization,
+ * persistence, and room authority, read statically from each definition file.
+ */
+export async function inspectRealtimeDefinitions(options: RealtimeInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
+  return await summarizeRealtimeDefinitions(
+    options.projectRoot,
+    discoverRealtimeDefinitions(options.projectRoot, options.serverDirs),
+    options.authority ?? "auto",
+  )
 }
 
 interface NitroConfig extends Record<string, unknown> {
@@ -76,6 +86,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   const importBase = options.importBase ?? "@vite-hub/realtime"
   let inspectionRoot: string | undefined
   let inspectionServerDirs: string[] | undefined
+  let inspectionAuthority: RealtimeInspectionAuthority = options.authority ?? "auto"
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
@@ -85,6 +96,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
           kind: "realtime",
           label: "Realtime",
           list: () => inspectRealtimeDefinitions({
+            authority: inspectionAuthority,
             projectRoot: inspectionRoot ?? resolveViteHubProjectRoot(process.cwd(), options),
             serverDirs: inspectionServerDirs,
           }),
@@ -133,6 +145,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
         throw realtimeErrorDiagnostics.REALTIME_B0001({ message: `[vitehub] Realtime authority "cloudflare" conflicts with the ${deploymentPreset} deployment preset.` })
       }
       if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
+        inspectionAuthority = "cloudflare"
         configureCloudflareRealtime(nitro)
       }
       else if (environment?.command === "build" && authority === "auto") {
@@ -140,6 +153,9 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       }
       else if (authority === "memory" && deploymentPreset && deploymentPreset !== "node") {
         throw realtimeErrorDiagnostics.REALTIME_B0003({ message: `[vitehub] Realtime authority "memory" is single-process only and cannot use the ${deploymentPreset} deployment preset.` })
+      }
+      if (authority === "memory" || (authority === "auto" && environment?.command !== "build" && inspectionAuthority !== "cloudflare")) {
+        inspectionAuthority = "memory"
       }
       nitro.features = { ...nitro.features, websocket: true }
       const kit = createNitroServerKit(nitro)

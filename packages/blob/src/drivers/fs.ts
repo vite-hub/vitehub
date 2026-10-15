@@ -6,6 +6,7 @@ import { object, optional, parse, record, safeParse, string } from "valibot"
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import isBlob from "../internal/is-blob.ts"
 
 interface FsMultipartState {
   contentType?: string
@@ -552,7 +553,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         // Prepare immutable metadata before the only visible publication step:
         // renaming the payload. Readers select metadata by that payload's inode.
         await writeAtomic(root, metadataPath, JSON.stringify({
-          contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+          contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
           customMetadata: putOptions.customMetadata,
         }))
       })
