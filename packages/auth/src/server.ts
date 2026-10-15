@@ -290,6 +290,17 @@ const authorizationResponseProperties = ["status", "statusText", "headers", "bod
 
 const authorizationResponsePrototypeLimit = 32
 
+const nativeReaderMethods = Object.fromEntries(([
+  "read", "cancel", "releaseLock",
+] as const).map(key => [key, Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, key)?.value])) as Record<string, unknown>
+const functionToString = Function.prototype.toString
+function isNativeReaderMethod(value: unknown, key: string): value is (...args: unknown[]) => unknown {
+  if (value === nativeReaderMethods[key]) return true
+  if (typeof value !== "function") return false
+  try { return functionToString.call(value).includes("[native code]") }
+  catch { return false }
+}
+
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
     let current: object | null = Object(value)
@@ -329,6 +340,7 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
+
 function isSerializableAuthorizationBody(
   body: unknown,
   nativeReader: ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined,
@@ -361,6 +373,7 @@ function isSerializableAuthorizationBody(
     return false
   }
 }
+
 
 function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined {
   if (body === null || typeof body !== "object") return
@@ -412,7 +425,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
       const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
       if (descriptor) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (typeof descriptor.value !== "function" || constructor?.name !== "ReadableStreamDefaultReader") {
+        if (!isNativeReaderMethod(descriptor.value, key) || constructor?.name !== "ReadableStreamDefaultReader") {
           throw new Error("Malformed authorization response reader")
         }
         let parent = Object.getPrototypeOf(prototype)
@@ -497,6 +510,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+
     const nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
       : getNativeAuthorizationBodyReader(body)
@@ -512,6 +526,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, value)
     }])
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
+
 
     // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
@@ -624,7 +639,8 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {

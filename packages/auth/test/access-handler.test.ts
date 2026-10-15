@@ -132,7 +132,6 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
-
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
     expect(response?.status).toBe(409)
@@ -381,6 +380,7 @@ describe("Auth access handlers", () => {
     expect(cancel).toHaveBeenCalledWith("client disconnected")
   })
 
+
   it("rejects a response body with an inherited reader override", async () => {
     const source = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -481,6 +481,26 @@ describe("Auth access handlers", () => {
     expect(source.locked).toBe(false)
   })
 
+  it.each(["read", "cancel", "releaseLock"] as const)("rejects a replaced native reader %s without executing it or leaking the lock", async (key) => {
+    const source = new ReadableStream<Uint8Array>({}, { highWaterMark: 0 })
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+    const prototype = ReadableStreamDefaultReader.prototype
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, key)!
+    const replacement = vi.fn(() => { throw new Error("must not invoke replaced native method") })
+    try {
+      Object.defineProperty(prototype, key, { ...descriptor, value: replacement })
+      await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+      expect(replacement).not.toHaveBeenCalled()
+      expect(source.locked).toBe(false)
+    }
+    finally {
+      Object.defineProperty(prototype, key, descriptor)
+    }
+  })
+
   it("rejects an own body reader override without invoking it", async () => {
     const foreign = new ForeignResponse("Policy rejected", { status: 409 })
     const getReader = vi.fn(() => { throw new Error("must not call own reader") })
@@ -518,6 +538,7 @@ describe("Auth access handlers", () => {
 
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
     expect(getReader).not.toHaveBeenCalled()
+
   })
 
   it("rejects a foreign response with an inherited body reader override", async () => {

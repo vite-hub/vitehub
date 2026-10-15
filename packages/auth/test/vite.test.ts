@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer, mergeConfig, resolveConfig } from "vite"
 
 import * as authServer from "../src/server.ts"
-
+import { defineAuth } from "../src/index.ts"
 import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth, shouldPassThroughAuthResponse } from "../src/vite.ts"
 
 const tempDirs: string[] = []
