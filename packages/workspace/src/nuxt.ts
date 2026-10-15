@@ -1,3 +1,5 @@
+import { resolveNuxtServerDirs } from "@vite-hub/internal/build/vite"
+
 import { createWorkspaceNitroConfig, hubWorkspace } from "./vite.ts"
 import { setWorkspaceVitePluginHosting } from "./hosts/vite/plugin.ts"
 
@@ -14,7 +16,9 @@ type NuxtLike = {
       imports?: Array<{ from: string, name: string }>
     }
     rootDir?: string
+    serverDir?: string
     srcDir?: string
+    _layers?: ReadonlyArray<{ config?: { rootDir?: string, serverDir?: string, srcDir?: string }, cwd?: string }>
     vite?: {
       plugins?: unknown[]
       workspace?: false | WorkspaceModuleOptions
@@ -66,6 +70,7 @@ export default function viteHubWorkspaceNuxtModule(options: WorkspaceNuxtModuleO
       command: nuxt.options.dev ? "serve" : "build",
       nitro: nitroConfig,
       plugins: nuxt.options.vite?.plugins,
+      serverDirs: resolveNuxtServerDirs(nuxt.options),
       viteRoot: nuxt.options.srcDir || rootDir,
       workspace: workspaceOptions,
     })
