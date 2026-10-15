@@ -147,11 +147,9 @@ function normalizeModulePath(id: string) {
   return normalize(id.split("?", 1)[0]!)
 }
 
-function moduleGraphContainsFile(server: Pick<ViteDevServer, "moduleGraph">, entry: string, changedFile: string) {
+function moduleGraphContainsFile(server: Pick<ViteDevServer, "moduleGraph">, entry: string, changedFile: string, affected: readonly ModuleNode[] = []) {
   const root = server.moduleGraph.getModuleById(entry)
-  if (!root) return false
-
-  const pending: ModuleNode[] = [root]
+  const pending: ModuleNode[] = root ? [root] : []
   const visited = new Set<ModuleNode>()
   while (pending.length) {
     const module = pending.pop()!
@@ -159,6 +157,17 @@ function moduleGraphContainsFile(server: Pick<ViteDevServer, "moduleGraph">, ent
     visited.add(module)
     if (module.id && normalizeModulePath(module.id) === changedFile) return true
     pending.push(...module.importedModules)
+  }
+  // For an unloaded changed file, Vite may provide an affected importer node but
+  // no module node for the file. Walk those nodes' importers to find the entry.
+  const importerSearch: ModuleNode[] = [...affected]
+  const importerVisited = new Set<ModuleNode>()
+  while (importerSearch.length) {
+    const module = importerSearch.pop()!
+    if (importerVisited.has(module)) continue
+    importerVisited.add(module)
+    if (module.id && normalizeModulePath(module.id) === normalizeModulePath(entry)) return true
+    importerSearch.push(...module.importers)
   }
   return false
 }
@@ -340,7 +349,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       // Definitions and contributed table modules can import the changed file.
       const isDatabaseUpdate = [...runtimeConfig.definitions.map(definition => definition.handler), ...contributionFiles].some(file =>
         normalizeModulePath(file) === changedFile
-        || moduleGraphContainsFile(context.server, file, changedFile),
+        || moduleGraphContainsFile(context.server, file, changedFile, context.modules),
       )
       if (!isDatabaseUpdate) return
 

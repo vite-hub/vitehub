@@ -163,7 +163,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             try {
               const { module } = contribution.definition
               const file = isAbsolute(module) ? resolve(module) : require.resolve(module)
-              contributionFiles.add(file)
+              collectWatchedModuleFiles(file, require, contributionFiles)
               contributionDirectories.add(dirname(file))
             }
             catch {
@@ -257,6 +257,14 @@ function resolveDatabaseNuxtProvisionState(provisionState: ReturnType<typeof rea
   if (!resolvedDatabaseName) return
   const databaseId = provisionState.cloudflare?.d1Nuxt?.[getDatabaseNuxtProvisionStateKey(resolvedDatabaseName)]
   return databaseId ? { cloudflare: { d1: { default: databaseId } } } : undefined
+}
+
+function collectWatchedModuleFiles(file: string, require: NodeRequire, files: Set<string>, seen = new Set<string>()) {
+  if (seen.has(file)) return
+  seen.add(file)
+  files.add(file)
+  const loaded = require.cache?.[file]
+  for (const child of loaded?.children ?? []) collectWatchedModuleFiles(child.filename, require, files, seen)
 }
 
 const nuxtModule: DatabaseNuxtModule = hubDb()
