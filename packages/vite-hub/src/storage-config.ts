@@ -26,7 +26,7 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   const blob = options.blob === true ? { driver: "fs" as const } : options.blob
   const agent = options.agent === true ? {} : options.agent
   const state = agent && agent.providers?.state
-  return {
+  const result = {
     ...options,
     ...(cache ? { cache } : {}),
     dataDir: root,
@@ -39,19 +39,27 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
       agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
     } : {}),
-    ...(options.console && options.console !== true ? { console: {
+  }
+  if (options.console) {
+    const consoleConfig = {
       ...options.console,
       databaseUrl: options.console.databaseUrl ?? file("console.sqlite"),
-      ...(options.console.access === "auth" && options.console.auth && "provider" in options.console.auth && options.console.auth.provider === "github" ? { auth: {
+    }
+    if (options.console.auth instanceof Object && "provider" in options.console.auth && options.console.auth.provider === "github") {
+      consoleConfig.auth = {
         ...options.console.auth,
         databasePath: options.console.auth.databasePath ?? join(root, "console-auth.sqlite"),
-      } } : {}),
-    } } : {}),
-    ...(options.workspace ? { workspace: {
+      }
+    }
+    result.console = consoleConfig
+  }
+  if (options.workspace) {
+    result.workspace = {
       ...(options.workspace === true ? {} : options.workspace),
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
-    } } : {}),
+    }
   }
+  return result
 }
 
 /** Where the Console stores Agent invocations when no Agent Definition configures a journal. */
@@ -87,6 +95,6 @@ export function resolveConsoleJournal(databaseUrl: string | undefined, d1Binding
 /** Resolve the journal path without changing the development-only Console shorthand. */
 export function consoleDatabaseUrl(options: ViteHubOptions): string | undefined {
   if (!options.console) return undefined
-  return (options.console === true ? undefined : options.console.databaseUrl)
+  return options.console.databaseUrl
     ?? (options.dataDir ? pathToFileURL(resolve(options.dataDir, "console.sqlite")).href : undefined)
 }
