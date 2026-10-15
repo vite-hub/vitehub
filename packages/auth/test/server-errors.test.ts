@@ -175,6 +175,7 @@ describe("server authentication provider boundaries", () => {
       json() { return Promise.resolve({}) }
       text() { return Promise.resolve("") }
       get [Symbol.toStringTag]() { return "Request" }
+      static marker = "[native code]"
     })()`)
     const response = new Response("ok")
     providerMocks.handler.mockImplementationOnce((input: unknown) => {

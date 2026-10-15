@@ -81,9 +81,12 @@ function isRequestLike(value: AuthRequest): value is Request {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Inspect the foreign constructor only to reject known caller-defined Request shapes.
     if (typeof constructor === "function") {
       const source = Function.prototype.toString.call(constructor)
-      // Reject caller-defined Request classes while retaining known Fetch implementations.
+      // Reject caller-defined Request classes while retaining native Fetch implementations.
+      // A substring check is spoofable because comments and string literals are included
+      // in function source. Native constructors use this exact representation.
+      const isNativeConstructor = /^function\s+Request\(\)\s*\{\s*\[native code\]\s*\}$/.test(source)
       if ((/^class\s+Request\b/.test(source) || /^function\s+Request\b/.test(source))
-        && !source.includes("[native code]")) return false
+        && !isNativeConstructor) return false
     }
     return true
   }
