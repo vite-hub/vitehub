@@ -309,6 +309,16 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   }
 }
 
+function isNativeFunction(value: unknown): value is (...args: never[]) => unknown {
+  if (typeof value !== "function") return false
+  try {
+    return Function.prototype.toString.call(value).includes("[native code]")
+  }
+  catch {
+    return false
+  }
+}
+
 function hasResponsePrototype(value: unknown): boolean {
   try {
     let prototype: object | null = Object.getPrototypeOf(Object(value))
@@ -382,11 +392,17 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
   try {
     const candidate = Object(value)
     if (!hasResponsePrototype(candidate)) return
-    // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
-    const status: unknown = Reflect.get(candidate, "status")
-    const statusText: unknown = Reflect.get(candidate, "statusText")
-    const headers: unknown = Reflect.get(candidate, "headers")
-    const body: unknown = Reflect.get(candidate, "body")
+    // Invoke the candidate realm's native accessors. A forged prototype shape
+    // cannot provide the internal Response brand required by these getters.
+    const descriptors = Object.fromEntries(authorizationResponseProperties.map((key) => {
+      const descriptor = responsePropertyDescriptor(candidate, key)
+      if (!isNativeFunction(descriptor?.get)) throw new Error("Malformed authorization response")
+      return [key, descriptor.get]
+    })) as Record<(typeof authorizationResponseProperties)[number], () => unknown>
+    const status: unknown = Reflect.apply(descriptors.status, candidate, [])
+    const statusText: unknown = Reflect.apply(descriptors.statusText, candidate, [])
+    const headers: unknown = Reflect.apply(descriptors.headers, candidate, [])
+    const body: unknown = Reflect.apply(descriptors.body, candidate, [])
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
@@ -415,7 +431,9 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!isSerializableAuthorizationBody(body)) return
-    const forEach = Reflect.get(headerCarrier, "forEach")
+    const forEachDescriptor = responsePropertyDescriptor(headerCarrier, "forEach")
+    if (typeof forEachDescriptor?.value !== "function") return
+    const forEach = forEachDescriptor.value
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
