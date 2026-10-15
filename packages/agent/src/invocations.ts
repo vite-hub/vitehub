@@ -599,7 +599,16 @@ function isAggregateErrorValue(value: unknown): value is AggregateError {
     if (isInstance(value, AggregateError)) return true
     let prototype = Object.getPrototypeOf(value)
     while (prototype && prototype !== Object.prototype) {
-      if (Object.getOwnPropertyDescriptor(prototype, "name")?.value === "AggregateError") return true
+      const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (
+        name === "AggregateError"
+        && hasRuntimeType(constructor, "function")
+        && constructor.prototype === prototype
+        && constructor.name === "AggregateError"
+        && Object.hasOwn(value, "errors")
+        && isArray((value as Record<string, unknown>).errors)
+      ) return true
       prototype = Object.getPrototypeOf(prototype)
     }
     return false

@@ -2252,6 +2252,37 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("does not treat an Error subclass named AggregateError as aggregate", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "spoofed-aggregate-error",
+      observations: [],
+      status: "running",
+      traceId: "spoofed-aggregate-error-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    class SpoofedAggregateError extends Error {}
+    Object.defineProperty(SpoofedAggregateError.prototype, "name", { value: "AggregateError" })
+    const error = new SpoofedAggregateError("message")
+
+    await store.update("spoofed-aggregate-error", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("spoofed-aggregate-error"))?.observations[0]?.payload).toEqual({
+      value: { error: { message: "message", name: "AggregateError" } },
+      visibility: "public",
+    })
+  })
+
   it("serializes public Blob, File, and boxed primitive payload values before persistence", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("remaining-structured-public-payload"))
