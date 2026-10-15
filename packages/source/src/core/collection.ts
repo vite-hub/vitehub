@@ -507,7 +507,8 @@ function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput exten
   },
 ) {
   const { authorize, route, source, transform } = input
-  if (Object(source) !== source || !(source.load instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection source loaders may come from another JavaScript realm.
+  if (Object(source) !== source || typeof source.load !== "function") {
     throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] defineCollection({ source }) requires a Collection source with load()." })
   }
   const shared = {
