@@ -36,9 +36,9 @@ async function generatedConsolePlugin(options: ViteHubOptions, command: "build" 
 describe("Node storage defaults", () => {
   it("puts enabled local stores under the explicit directory", () => {
     const dataDir = "/var/lib/app data"
-    expect(withDataDir({ preset: "node", dataDir, agent: true, console: true, kv: true, blob: true, workspace: true })).toMatchObject({
+    expect(withDataDir({ preset: "node", dataDir, agent: true, console: { auth: false }, kv: true, blob: true, workspace: true })).toMatchObject({
       agent: { providers: { state: { provider: "libsql", url: pathToFileURL(join(dataDir, "agent-state.sqlite")).href } } },
-      console: true,
+      console: { auth: false },
       kv: { driver: "fs-lite", base: join(dataDir, "kv") },
       blob: { driver: "fs", base: join(dataDir, "blob") },
       workspace: { root: join(dataDir, "workspaces") },
@@ -48,35 +48,30 @@ describe("Node storage defaults", () => {
   it("puts the inline Console Auth database under the explicit directory", () => {
     const dataDir = "/var/lib/app data"
     const auth = { provider: "github" as const, org: "acme" }
-    expect(withDataDir({ preset: "node", dataDir, console: { access: "auth", auth } }).console).toMatchObject({
+    expect(withDataDir({ preset: "node", dataDir, console: { auth } }).console).toMatchObject({
       auth: { ...auth, databasePath: join(dataDir, "console-auth.sqlite") },
     })
-    expect(withDataDir({ preset: "node", dataDir, console: { access: "auth", auth: { ...auth, databasePath: "/data/auth.sqlite" } } }).console)
+    expect(withDataDir({ preset: "node", dataDir, console: { auth: { ...auth, databasePath: "/data/auth.sqlite" } } }).console)
       .toMatchObject({ auth: { databasePath: "/data/auth.sqlite" } })
-    expect(withDataDir({ preset: "node", dataDir, console: { access: "auth", auth: {} } }).console).toMatchObject({ auth: {} })
+    expect(withDataDir({ preset: "node", dataDir, console: { auth: {} } }).console).toMatchObject({ auth: {} })
     const accessAuth = { provider: "cloudflare-access" as const, audience: "aud", teamDomain: "acme.cloudflareaccess.com" }
-    expect(withDataDir({ preset: "node", dataDir, console: { access: "auth", auth: accessAuth } }).console).toHaveProperty("auth", accessAuth)
+    expect(withDataDir({ preset: "node", dataDir, console: { auth: accessAuth } }).console).toHaveProperty("auth", accessAuth)
   })
 
-  it.each(["serve", "build"] as const)("preserves Vite Console shorthand with dataDir during %s", async (command) => {
+  it.each(["serve", "build"] as const)("keeps the Vite Console journal under dataDir during %s", async (command) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-storage-console-"))
     try {
       const dataDir = join(root, "persistent data")
-      const plugin = vitehub({ preset: "node", dataDir, agent: true, console: true })
+      const plugin = vitehub({ preset: "node", dataDir, agent: true, console: { auth: false } })
         .find((plugin): plugin is Plugin => !!plugin && typeof plugin === "object" && "name" in plugin && plugin.name === "vite-hub/console")
       const hook = plugin?.config
       if (!hook) throw new TypeError("Expected a Console config hook.")
       const handler = "handler" in hook ? hook.handler : hook
-      const configure = Reflect.apply(handler, {}, [{ root }, { command, mode: command === "build" ? "production" : "development" }])
-      if (command === "build") {
-        await expect(configure).rejects.toThrow("console: true is development-only")
-      }
-      else {
-        await configure
-        const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-        expect(generated).toContain("invoke: true")
-        expect(generated).toContain(`databaseUrl: ${JSON.stringify(pathToFileURL(join(dataDir, "console.sqlite")).href)}`)
-      }
+      await Reflect.apply(handler, {}, [{ root }, { command, mode: command === "build" ? "production" : "development" }])
+      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      // `invoke` defaults to true in development and false in a production build.
+      expect(generated.includes("invoke: true")).toBe(command === "serve")
+      expect(generated).toContain(`databaseUrl: ${JSON.stringify(pathToFileURL(join(dataDir, "console.sqlite")).href)}`)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -88,7 +83,7 @@ describe("Node storage defaults", () => {
       preset: "node" as const,
       dataDir: "/var/lib/app",
       agent: false as const,
-      console: { exposure: "host-managed" as const, authorize: hostManagedAuthorize, databaseUrl: "libsql://journal.example.com" },
+      console: { auth: false as const, authorize: hostManagedAuthorize, databaseUrl: "libsql://journal.example.com" },
       kv: { driver: "upstash" as const, url: "https://kv.example.com", token: "fixture" },
       blob: { driver: "fs" as const, base: "/existing/uploads" },
       workspace: { root: "/existing/workspaces" },
@@ -121,7 +116,7 @@ describe("Node storage defaults", () => {
 })
 
 describe("Console journal host defaults", () => {
-  const cloudflare = { preset: "cloudflare", agent: true, console: { exposure: "host-managed", authorize: hostManagedAuthorize }, database: { driver: "d1", binding: "DB" } } satisfies ViteHubOptions
+  const cloudflare = { preset: "cloudflare", agent: true, console: { auth: false, authorize: hostManagedAuthorize }, database: { driver: "d1", binding: "DB" } } satisfies ViteHubOptions
 
   it("does not select an unprovisioned explicit D1 binding", async () => {
     const { info, plugin } = await generatedConsolePlugin(cloudflare, "build")
@@ -167,7 +162,7 @@ describe("Console journal host defaults", () => {
   it("keeps libSQL on Node and when the Console database URL is explicit", async () => {
     const node = await generatedConsolePlugin({ ...cloudflare, preset: "node" }, "build")
     expect(node.plugin).not.toContain("cloudflare:workers")
-    const explicit = await generatedConsolePlugin({ ...cloudflare, console: { exposure: "host-managed", authorize: hostManagedAuthorize, databaseUrl: "libsql://journal.example.com" } }, "build")
+    const explicit = await generatedConsolePlugin({ ...cloudflare, console: { auth: false, authorize: hostManagedAuthorize, databaseUrl: "libsql://journal.example.com" } }, "build")
     expect(explicit.plugin).toContain(`databaseUrl: "libsql://journal.example.com"`)
     expect(explicit.plugin).not.toContain("cloudflare:workers")
   })

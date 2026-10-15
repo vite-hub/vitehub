@@ -69,6 +69,7 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `admission` | `{}` | Token budgets, a free-space guard and custom checks that stop model passes. See [Limit model passes](#limit-model-passes). |
 | `capacity` | Process defaults | Host admission `memory`, `cpu`, and `fallbackConcurrency` settings. |
 
+Use the Agent's top-level [`budget`](/docs/agents/capabilities/budget) option for a per-pass token or USD policy. Babysitter `admission` remains a host and time-window gate over retained journal usage. The two policies compose: admission can delay a new pass, while an invocation budget reports or enforces the usage of the pass that runs.
 ## Control work with labels
 
 Create the configured labels in your repositories. With the example above, add `agent:repair` when opening a pull request, or add it later to start work. Add `agent:paused` to pause it, and remove that label to resume while `agent:repair` remains present.
@@ -159,7 +160,7 @@ export default defineConfig({
     preset: 'node',
     agent: true,
     console: {
-      exposure: 'host-managed',
+      auth: false,
       authorize: './server/console-authorize.ts',
       databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
     },
@@ -167,7 +168,7 @@ export default defineConfig({
 })
 ```
 
-Create `server/console-authorize.ts` with your host session policy as shown in [host-managed Console access](/docs/development/console#protect-the-console-route). Every Console data route calls this function before it reads data.
+Create `server/console-authorize.ts` with your host session policy as shown in [Use another authentication library](/docs/development/console#use-another-authentication-library). Every Console data route calls this function before it reads data.
 
 The worker records and recovers Invocations under `<discovered-agent-name>-worker`, for example `babysitter-worker`. Each discovered Babysitter Agent has its own recovery scope. Other Agents can keep using the same journal without having their active Invocations failed. A standalone process host without an assigned journal keeps its private `dataDir/invocations.sqlite` file.
 
