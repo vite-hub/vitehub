@@ -239,7 +239,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "",
     ].join("\n")),
     writeFileIfChanged(middleware, [
-      'import { createAuthForRequest, requireAuthAccessRoutes, withAuthorization } from "#vitehub/auth/server"',
+      'import { createAuthForRequest, requireAuthAccessRoutes, toAuthRequest, withAuthorization } from "#vitehub/auth/server"',
       'import { consoleAuthPageResponse, readConsoleSessionUser } from "vite-hub/console/auth"',
       'import { definition, input, prepare } from "./auth-definition.mjs"',
       "const authorizeConsoleAccess = withAuthorization(input.authorize, () => undefined, definition)",
@@ -250,7 +250,8 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "}",
       "// The signed-in Console Auth user, for console.authorize and Connections activity.",
       "export function readConsoleUser(event) {",
-      "  return readConsoleSessionUser(createAuthForRequest(definition, event.req, undefined, event), event.req)",
+      "  const request = toAuthRequest(event)",
+      "  return readConsoleSessionUser(createAuthForRequest(definition, request, undefined, event), request)",
       "}",
       "export default async function viteHubConsoleAuthMiddleware(event) {",
       `  const mountBase = ${JSON.stringify(mountBase)}`,
