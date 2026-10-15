@@ -2,7 +2,7 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { consoleRequestError, consoleRequestURL, type ConsoleRequestEvent } from "./request.ts"
 
-import type { ConsoleAuthorize, ConsoleAuthorizeContext } from "../../auth.ts"
+import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
 import type { ConsoleSectionId } from "../sections.ts"
 
 /**
@@ -15,7 +15,7 @@ import type { ConsoleSectionId } from "../sections.ts"
 export type ConsoleAccessPolicy =
   | { mode: "local" }
   | { mode: "open", authorize?: ConsoleAuthorize }
-  | { mode: "auth" | "cloudflare-access", check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleAuthorizeContext["user"]> }
+  | { mode: "auth" | "cloudflare-access", check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
   | { mode: "host-managed", authorize?: ConsoleAuthorize }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
@@ -24,7 +24,8 @@ export const consoleOpenAccessWarning = "[vitehub] Console access is open. Confi
 /** The checked Console access that a guarded handler receives. Only `withConsoleAccess()` creates it. */
 export interface ConsoleAccess {
   readonly mode: ConsoleAccessMode
-  readonly sections?: readonly ConsoleSectionId[]
+  readonly sections: "all" | readonly ConsoleSectionId[]
+  readonly user?: ConsoleUser
 }
 
 export type ConsoleRouteScope =
@@ -207,18 +208,19 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
   }
   else if (policy.mode === "host-managed" || policy.mode === "open") {
     if (!policy.authorize) {
-      if (policy.mode === "open") return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
+      if (policy.mode === "open") return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: "all" })
       return rejection(500, "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize. Set it to a server file that default-exports defineConsoleAuthorize().")
     }
     if (policy.authorize) {
-      const result = await policy.authorize({ request: webRequest(event), user: "user" in policy && policy.user ? await policy.user(event) : undefined })
+      const user = "user" in policy && policy.user ? await policy.user(event) : undefined
+      const result = await policy.authorize({ request: webRequest(event), user })
       if (result instanceof Response || isResponseLike(result)) return result
-      if (result === true) return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
+      if (result === true) return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: "all", ...(user ? { user } : {}) })
       if (result && typeof result === "object" && Array.isArray(result.sections)) {
         if (!result.sections.every((section): section is ConsoleSectionId => typeof section === "string" && section.length > 0)) {
           return rejection(500, "[vitehub] console.authorize returned an invalid section list.")
         }
-        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: result.sections })
+        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: result.sections, ...(user ? { user } : {}) })
       }
       return rejection(403, "Forbidden.")
     }
@@ -232,19 +234,20 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
     const response = await policy.check(event)
     if (response) return response
     if (policy.authorize) {
-      const result = await policy.authorize({ request: webRequest(event), user: "user" in policy && policy.user ? await policy.user(event) : undefined })
+      const user = "user" in policy && policy.user ? await policy.user(event) : undefined
+      const result = await policy.authorize({ request: webRequest(event), user })
       if (result instanceof Response || isResponseLike(result)) return result
-      if (result === true) return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
+      if (result === true) return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: "all", ...(user ? { user } : {}) })
       if (result && typeof result === "object" && Array.isArray(result.sections)) {
         if (!result.sections.every((section): section is ConsoleSectionId => typeof section === "string" && section.length > 0)) {
           return rejection(500, "[vitehub] console.authorize returned an invalid section list.")
         }
-        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: result.sections })
+        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: result.sections, ...(user ? { user } : {}) })
       }
       return rejection(403, "Forbidden.")
     }
   }
-  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
+  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: "all" })
 }
 
 /**
@@ -267,12 +270,12 @@ export async function consoleConnectionsActor(
 
 /** Return whether a checked access may use a Console section. */
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
-  return !access.sections || (section !== undefined && access.sections.includes(section))
+  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
 }
 
 /** Return the sections visible to a checked access. */
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
-  return access.sections ? available.filter(section => access.sections?.includes(section)) : [...available]
+  return access.sections === "all" ? [...available] : available.filter(section => access.sections.includes(section))
 }
 
 /**
