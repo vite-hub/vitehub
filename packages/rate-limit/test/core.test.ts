@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createRateLimiter } from "../src/index.ts"
 import { memoryRateLimitDriver } from "../src/drivers/memory.ts"
+import { rateLimitErrorDiagnostics } from "../src/error-diagnostics.ts"
 
 import type { RateLimitDriver, RateLimitDriverCapabilities } from "../src/index.ts"
 
@@ -13,6 +14,14 @@ const strictCapabilities = {
 } satisfies RateLimitDriverCapabilities
 
 describe("Rate Limit core", () => {
+  it("preserves Rate Limit diagnostics thrown during option inspection", () => {
+    const diagnostic = rateLimitErrorDiagnostics.RATE_LIMIT_R0031({ message: "provider failure" })
+    const driver = memoryRateLimitDriver()
+    Object.defineProperty(driver, "capabilities", { get: () => { throw diagnostic } })
+
+    expect(() => createRateLimiter({ driver, limit: 1, window: "1m" })).toThrow(diagnostic)
+  })
+
   it("accepts callable driver objects", async () => {
     const memory = memoryRateLimitDriver()
     const driver = Object.assign(() => undefined, { capabilities: memory.capabilities, consume: memory.consume })

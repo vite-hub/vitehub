@@ -222,7 +222,8 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
   try {
     inspected = inspectRateLimiterOptions(options)
   }
-  catch {
+  catch (error) {
+    if (isRateLimitDiagnostic(error)) throw error
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0029({ message: "[vitehub] createRateLimiter() requires inspectable Rate Limit options." })
   }
   let policy: ResolvedRateLimitPolicy
