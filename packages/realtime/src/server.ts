@@ -483,6 +483,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         const nativeGetterSource = /^function\s+get\s+[^\s(]+\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
         if (!nativeGetterSource.test(Function.prototype.toString.call(getter))) return undefined
       }
+      if ("value" in sqlDescriptor) return undefined
       const sql = Reflect.get(carrier, "sql")
       return hasCloudflareSqlExec(sql) ? sql : undefined
     }
