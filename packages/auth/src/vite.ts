@@ -253,7 +253,10 @@ function splitSetCookieHeader(value: string): string[] {
   let inQuotes = false
   for (let index = 0; index < value.length; index++) {
     const character = value[index]
-    if (character === '"' && value[index - 1] !== "\\") {
+    // Only cookie-pair values have quoted-string semantics. Quotes in
+    // attributes (for example a literal quote in Path) are ordinary data and
+    // must not suppress a following cookie boundary.
+    if (!inAttributes && character === '"' && value[index - 1] !== "\\") {
       inQuotes = !inQuotes
       continue
     }
@@ -278,6 +281,8 @@ function splitSetCookieHeader(value: string): string[] {
         deferredCookieBoundary = index
         continue
       }
+      // Keep the deferred comma inside the extension value and split at this
+      // later candidate, which confirms that a new cookie follows.
     }
     values.push(value.slice(start, index).trim())
     start = index + 1
@@ -285,10 +290,6 @@ function splitSetCookieHeader(value: string): string[] {
     unknownAttribute = false
     unknownAttributeHasValue = false
     deferredCookieBoundary = undefined
-  }
-  if (deferredCookieBoundary !== undefined) {
-    values.push(value.slice(start, deferredCookieBoundary).trim())
-    start = deferredCookieBoundary + 1
   }
   values.push(value.slice(start).trim())
   return values.filter(Boolean)
