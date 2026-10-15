@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { findContentEntry, inspectContentEntry } from "@vite-hub/source/vite"
 
@@ -109,4 +111,75 @@ export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentC
     kind: "document-editor",
     notice: "Saves commit to the draft ref of the Content Workspace. Publishing copies documents to the published ref, which /api/content serves. content.can() decides what each user may read, write, and publish.",
   },
+}
+
+/** Where ViteHub generates the Content Realtime Definition. Realtime calls it only when the build has a room authority. */
+export interface ContentRealtimeContributionOptions {
+  /** The room authority: Durable Objects on Cloudflare, or one process. */
+  authority: "cloudflare" | "memory"
+  /** Directory for the generated files, such as `.vitehub/nitro/realtime`. */
+  directory: string
+  projectRoot: string
+  serverDirs?: string[]
+  /** Module that exports `contentRealtime` and `installContentLive`, such as `vite-hub/content/realtime`. */
+  contentImport: string
+  /** Module that exports `refreshRealtimeDocument`, such as `vite-hub/realtime/server`. */
+  realtimeImport: string
+  /** The identity and access of the Console, when the Console edits Content: a module and its `consoleRealtimeAccess` export. */
+  console?: { module: string, section: string }
+}
+
+/** The name of the Realtime Definition that serves Content documents. */
+export const contentRealtimeDefinitionName = "content"
+
+/**
+ * The Realtime Definition and Nitro plugin of Content live editing, when the project defines Content collections and
+ * does not set `live: false`. The definition serves rooms `<collection>/<id>` with `contentRealtime()`; the plugin
+ * installs live editing in each server process, so Content writes from outside a room refresh it and the Console
+ * knows to join rooms. Returns undefined when Content has nothing to edit live.
+ */
+export async function contributeContentRealtime(options: ContentRealtimeContributionOptions): Promise<{ definitions: Array<{ handler: string, name: string }>, plugins: string[] } | undefined> {
+  const file = await findContentEntry(options)
+  if (!file) return
+  const features = await inspectContentEntry(file)
+  if (!features.collections || !features.live) return
+  const definition = join(options.directory, "content.mjs")
+  const plugin = join(options.directory, "content-live.mjs")
+  const name = JSON.stringify(contentRealtimeDefinitionName)
+  await mkdir(options.directory, { recursive: true })
+  await Promise.all([
+    writeFile(definition, [
+      `import { content } from ${JSON.stringify(pathToFileURL(file).href)}`,
+      `import { contentRealtime } from ${JSON.stringify(options.contentImport)}`,
+      ...(options.console
+        ? [
+            `import { consoleRealtimeAccess } from ${JSON.stringify(options.console.module)}`,
+            "",
+            "// The Console session names the people in a room, and Console section access gates it before content.can().",
+            `export default contentRealtime(content, consoleRealtimeAccess(${JSON.stringify(options.console.section)}))`,
+          ]
+        : ["", "export default contentRealtime(content)"]),
+      "",
+    ].join("\n")),
+    writeFile(plugin, [
+      `import { installContentLive } from ${JSON.stringify(options.contentImport)}`,
+      `import { refreshRealtimeDocument } from ${JSON.stringify(options.realtimeImport)}`,
+      ...(options.authority === "cloudflare"
+        ? [
+            'import { env } from "cloudflare:workers"',
+            "",
+            "export default function viteHubContentLive() {",
+            `  installContentLive({ definition: ${name}, refresh: documentId => refreshRealtimeDocument(${name}, documentId, { durableObjects: env.$DurableObject }) })`,
+            "}",
+          ]
+        : [
+            "",
+            "export default function viteHubContentLive() {",
+            `  installContentLive({ definition: ${name}, refresh: documentId => refreshRealtimeDocument(${name}, documentId) })`,
+            "}",
+          ]),
+      "",
+    ].join("\n")),
+  ])
+  return { definitions: [{ handler: definition, name: contentRealtimeDefinitionName }], plugins: [plugin] }
 }

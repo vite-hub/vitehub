@@ -21,6 +21,7 @@ import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
+import { contributeContentRealtime } from "@vite-hub/content/vite"
 import { hubSandbox } from "@vite-hub/sandbox/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubSource } from "@vite-hub/source/vite"
@@ -1060,6 +1061,13 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     plugins.push(hubRealtime({
       ...(options.realtime === true ? {} : options.realtime),
       importBase: "vite-hub/realtime",
+      // Content edits Markdown documents live where Realtime has a room authority. Other hosts keep one editor at a time.
+      contribute: context => contributeContentRealtime({
+        ...context,
+        contentImport: "vite-hub/content/realtime",
+        realtimeImport: "vite-hub/realtime/server",
+        ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+      }),
     }))
   }
   if (options.schedule) {

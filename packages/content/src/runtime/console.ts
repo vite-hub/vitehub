@@ -300,6 +300,22 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     }
   }
 
+  /**
+   * A restore or delete from a tab in the live room of the document. The room holds the lease for everyone in it, so
+   * the write passes that lease, and only that one: a single editor's lease still refuses it. The room then reloads.
+   */
+  async function liveWrite(input: Record<string, unknown>, collection: AnyContentCollection, id: string): Promise<{ lease?: "override" }> {
+    if (input.live !== true || !content.sessions) return {}
+    try {
+      const holder = (await content.sessions.list(collection.name)).find(entry => entry.id === id && entry.kind !== "view")
+      return holder?.kind === "live" ? { lease: "override" } : {}
+    }
+    catch {
+      // Without the sessions table nobody holds a lease.
+      return {}
+    }
+  }
+
   /** Every document status of a collection, or the one status of a singleton. */
   async function statusesOf(collection: AnyContentCollection): Promise<ContentDocumentStatus[]> {
     if (collection.kind === "documents") return await collection.status()
@@ -497,7 +513,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const id = text(input.id, "id")
       await allow(context, collection, "write", id)
       const ifDigest = text(input.ifDigest, "ifDigest")
-      await attempt(async () => await collection.remove(id, { ifDigest, metadata: writeMetadata(context), ...writeSession(input) }))
+      await attempt(async () => await collection.remove(id, { ifDigest, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id) }))
     },
 
     async publish(input, context) {
@@ -587,7 +603,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       await allow(context, collection, "write", id)
       const revision = text(input.revision, "revision")
       const ifDigest = digest(input.ifDigest)
-      return await attempt(async () => await view(collection, await collection.restore(id, revision, { ifDigest, metadata: writeMetadata(context), ...writeSession(input) })))
+      return await attempt(async () => await view(collection, await collection.restore(id, revision, { ifDigest, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id) })))
     },
 
     async session(input, context): Promise<ViteHubConsoleDocumentPresence> {

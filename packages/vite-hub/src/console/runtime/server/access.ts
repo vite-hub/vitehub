@@ -187,6 +187,76 @@ export async function consoleConnectionsActor(event: ConsoleRequestEvent): Promi
   return `user:${access.mode}`
 }
 
+/** The person in a Realtime room that the Console opened. */
+export interface ConsoleRealtimeUser {
+  id: string
+  name?: string
+  email?: string
+  image?: string
+}
+
+/** Identity and access of Realtime rooms that a Console section opens, such as Content live editing. */
+export interface ConsoleRealtimeAccess {
+  /** The signed-in Console user, a Cloudflare Access email, or a guest of an open Console. Null without Console access. */
+  identify(context: { event: unknown }): Promise<ConsoleRealtimeUser | null>
+  /** Whether the request has Console access that includes the section. */
+  authorize(context: { event: unknown }): Promise<boolean>
+  /** The Console user that owner policies, such as `content.can()`, get: the same user as Console actions, or null. */
+  user(context: { event: unknown }): Promise<ConsoleUser | null>
+}
+
+function text(value: unknown): string | undefined {
+  return String(value) === value && value ? value : undefined
+}
+
+/**
+ * Identity and access of the Realtime rooms that one Console section opens, from the installed Console access policy.
+ * Content live editing uses it, so a room trusts the same session, Cloudflare Access token, or open mode as the
+ * Console, and checks the same section access.
+ */
+export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtimeAccess {
+  const checked = new WeakMap<object, Promise<ConsoleAccess | undefined>>()
+  function access(event: unknown): Promise<ConsoleAccess | undefined> {
+    if (!(event instanceof Object)) return Promise.resolve(undefined)
+    let pending = checked.get(event)
+    if (!pending) {
+      // SAFETY: Realtime passes the H3 event of the WebSocket or HTTP request, which has the members the check reads.
+      const consoleEvent = event as ConsoleRequestEvent
+      pending = checkConsoleAccess(consoleEvent, { user: true }).then(result => result instanceof Response || !consoleAccessAllows(result, section) ? undefined : result)
+      checked.set(event, pending)
+    }
+    return pending
+  }
+  return {
+    async identify({ event }) {
+      const allowed = await access(event)
+      if (!allowed) return null
+      const user = await readConsoleAccessUser(allowed)
+      const id = text(user?.id) ?? text(user?.email)
+      if (user && id) {
+        const person: ConsoleRealtimeUser = { id }
+        const name = text(user.name) ?? text(user.email)
+        if (name) person.name = name
+        if (text(user.email)) person.email = text(user.email)
+        if (text(user.image)) person.image = text(user.image)
+        return person
+      }
+      // Cloudflare Access names the person in a header after it checked the token.
+      const email = allowed.mode === "cloudflare-access" ? text(webRequest(event as ConsoleRequestEvent).headers.get("cf-access-authenticated-user-email")) : undefined
+      if (email) return { id: email, email, name: email }
+      // An open Console has no accounts: each connection is a guest.
+      return { id: `guest-${crypto.randomUUID()}`, name: "Guest" }
+    },
+    async authorize({ event }) {
+      return Boolean(await access(event))
+    },
+    async user({ event }) {
+      const allowed = await access(event)
+      return allowed ? await readConsoleAccessUser(allowed) ?? null : null
+    },
+  }
+}
+
 function resolveRouteSection(routeScope: ConsoleRouteScope, event: ConsoleRequestEvent): { section: ConsoleSectionId | undefined } | undefined {
   if (!("section" in routeScope)) return
   return { section: routeScope.section instanceof Function ? routeScope.section(event) : routeScope.section }

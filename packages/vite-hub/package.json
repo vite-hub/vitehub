@@ -133,6 +133,8 @@
     "./content": "./dist/content.js",
     "./content/client": "./dist/content/client.js",
     "./content/database": "./dist/content/database.js",
+    "./content/editor": "./dist/content/editor.js",
+    "./content/realtime": "./dist/content/realtime.js",
     "./database": "./dist/database.js",
     "./database/drizzle": "./dist/database/drizzle.js",
     "./doctor": "./dist/doctor.js",
