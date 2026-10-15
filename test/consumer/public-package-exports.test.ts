@@ -145,10 +145,42 @@ async function packPublicPackages(packDir: string) {
       expect(tarballs, `${info.packageName} should produce one tarball`).toHaveLength(1)
       return join(packDir, tarballs[0]!)
     })
+    await assertPackedTargets(info.packageName, tarball)
     specs[info.packageName] = `file:${tarball}`
   }
   if (releaseTarballs) expect(releaseTarballs.size).toBe(packageInfos.length)
   return specs
+}
+
+function packageExportTargets(value: unknown): string[] {
+  if (typeof value === "string") return [value]
+  if (Array.isArray(value)) return value.flatMap(packageExportTargets)
+  if (value && typeof value === "object") return Object.values(value).flatMap(packageExportTargets)
+  return []
+}
+
+async function assertPackedTargets(packageName: string, tarball: string) {
+  const [{ stdout: listing }, { stdout: manifestSource }] = await Promise.all([
+    run("tar", ["-tzf", tarball], repoRoot),
+    run("tar", ["-xOf", tarball, "package/package.json"], repoRoot),
+  ])
+  const files = new Set(listing.split("\n").filter(Boolean))
+  const manifest = JSON.parse(manifestSource) as {
+    bin?: Record<string, string>
+    exports?: Record<string, unknown>
+  }
+
+  for (const [subpath, value] of Object.entries(manifest.exports || {})) {
+    for (const target of packageExportTargets(value)) {
+      const packedPath = `package/${target.replace(/^\.\//, "")}`
+      expect(files, `${packageName} ${subpath} is missing packed export ${target}`).toContain(packedPath)
+    }
+  }
+
+  for (const [binName, target] of Object.entries(manifest.bin || {})) {
+    const packedPath = `package/${target.replace(/^\.\//, "")}`
+    expect(files, `${packageName} ${binName} is missing packed binary ${target}`).toContain(packedPath)
+  }
 }
 
 async function writeConsumer(appDir: string, specs: Record<string, string>) {
