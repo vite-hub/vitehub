@@ -407,12 +407,13 @@ function errorMessage(error: unknown): string {
 
 /** Refreshes the open room of one document in this process. Resolves whether the room re-seeded. */
 type LocalRefresh = (definitionName: string, documentId: string) => Promise<boolean>
+type LocalRefreshRef = WeakRef<LocalRefresh>
 
 const localRefreshKey: unique symbol = Symbol.for("vitehub.realtime.local-refresh")
 // SAFETY: This module owns the process slot shared by separately bundled handlers and callers.
-const refreshScope = globalThis as typeof globalThis & { [localRefreshKey]?: Set<LocalRefresh> }
+const refreshScope = globalThis as typeof globalThis & { [localRefreshKey]?: Set<LocalRefreshRef> }
 
-function localRefreshers(): Set<LocalRefresh> {
+function localRefreshers(): Set<LocalRefreshRef> {
   refreshScope[localRefreshKey] ??= new Set()
   return refreshScope[localRefreshKey]
 }
@@ -436,7 +437,12 @@ export interface RealtimeRefreshOptions {
  */
 export async function refreshRealtimeDocument(definition: string, documentId: string, options: RealtimeRefreshOptions = {}): Promise<boolean> {
   let reseeded = false
-  for (const refresh of localRefreshers()) {
+  for (const reference of localRefreshers()) {
+    const refresh = reference.deref()
+    if (!refresh) {
+      localRefreshers().delete(reference)
+      continue
+    }
     try {
       if (await refresh(definition, documentId)) reseeded = true
     }
@@ -985,7 +991,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (!room || room.kind !== "document" || room.destroyed) return false
     return await enqueue(room, async () => !room.dirty && (await refreshRoom(room)).reseeded)
   }
-  localRefreshers().add(refreshOpenRoom)
+  localRefreshers().add(new WeakRef(refreshOpenRoom))
 
   async function checkpointRoom(room: DocumentRoom, user: RealtimeUser | null): Promise<RealtimeCheckpoint> {
     const { adapter, definition } = room.resolved
