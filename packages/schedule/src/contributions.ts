@@ -59,14 +59,18 @@ export interface CollectedScheduleContribution extends ScheduleContribution {
 
 const scheduleNamePattern = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i
 
-function flattenPluginOptions(value: unknown, plugins: object[], seen: Set<unknown>): void {
-  if (Array.isArray(value)) {
-    for (const item of value) flattenPluginOptions(item, plugins, seen)
+async function flattenPluginOptions(value: unknown, plugins: object[], seen: Set<unknown>): Promise<void> {
+  if (value && (typeof value === "object" || typeof value === "function") && "then" in value) {
+    if (seen.has(value)) return
+    seen.add(value)
+    await flattenPluginOptions(await value, plugins, seen)
     return
   }
-  // Vite resolves promised plugin options before `configResolved`. The `config` hook sees the raw user list, so only
-  // synchronous plugin objects can contribute there.
-  if (!isPlainObject(value) || seen.has(value) || value.then instanceof Function) return
+  if (Array.isArray(value)) {
+    for (const item of value) await flattenPluginOptions(item, plugins, seen)
+    return
+  }
+  if (!isPlainObject(value) || seen.has(value)) return
   seen.add(value)
   plugins.push(value)
 }
@@ -118,17 +122,18 @@ export async function collectScheduleContributions(
   context: ScheduleContributionContext,
 ): Promise<CollectedScheduleContribution[]> {
   const candidates: object[] = []
-  flattenPluginOptions(plugins ?? [], candidates, new Set())
+  await flattenPluginOptions(plugins ?? [], candidates, new Set())
   const contributions = new Map<string, CollectedScheduleContribution>()
   for (const plugin of candidates) {
     if (!Object.hasOwn(plugin, "vitehub")) continue
     const metadata: unknown = Reflect.get(plugin, "vitehub")
-    const value: unknown = isPlainObject(metadata) ? metadata.schedules : undefined
-    if (!value) continue
+    const hasSchedules = isPlainObject(metadata) && Object.hasOwn(metadata, "schedules")
+    if (!hasSchedules) continue
+    const value: unknown = Reflect.get(metadata, "schedules")
     const pluginName: unknown = Reflect.get(plugin, "name")
     const contributor = isNonEmptyString(pluginName) ? pluginName : "unnamed plugin"
     const entries: unknown = value instanceof Function ? await Reflect.apply(value, undefined, [context]) : value
-    if (!entries) continue
+    if (entries === undefined && value instanceof Function) continue
     if (!Array.isArray(entries)) throw invalidContribution(contributor, "`vitehub.schedules` must be an array or return one.")
     for (const entry of entries) {
       const contribution = validateContribution(entry, contributor)

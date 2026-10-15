@@ -88,6 +88,14 @@ describe("collectScheduleContributions", () => {
     ])
   })
 
+  it("collects contributions from promised and nested promised plugin options", async () => {
+    const plugin = contributor([{ definition: "/abs/promised.ts", name: "promised" }], "promised/vite")
+
+    await expect(collectScheduleContributions([Promise.resolve([Promise.resolve(plugin)])], context)).resolves.toEqual([
+      { contributor: "promised/vite", definition: "/abs/promised.ts", name: "promised" },
+    ])
+  })
+
   it("keeps one copy of the same contribution from two plugin instances", async () => {
     const plugin = contributor([{ definition: "/abs/publish.ts", name: "content/publish" }])
 
@@ -126,6 +134,13 @@ describe("collectScheduleContributions", () => {
 
   it("rejects contributions that are not an array", async () => {
     await expect(collectScheduleContributions([contributor(() => ({}) as never)], context)).rejects.toMatchObject({
+      code: "SCHEDULE_B0007",
+      message: expect.stringContaining("`vitehub.schedules` must be an array or return one."),
+    })
+  })
+
+  it.each([null, false, 0, "", undefined])("rejects an explicitly invalid schedules value: %p", async (schedules) => {
+    await expect(collectScheduleContributions([{ name: contentPlugin, vitehub: { schedules: schedules as never } }], context)).rejects.toMatchObject({
       code: "SCHEDULE_B0007",
       message: expect.stringContaining("`vitehub.schedules` must be an array or return one."),
     })
