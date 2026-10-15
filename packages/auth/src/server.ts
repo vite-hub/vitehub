@@ -467,7 +467,12 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
-      if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, value)
+      if (key.toLowerCase() !== "set-cookie") {
+        normalizedHeaders.append(key, value)
+        return
+      }
+      if (cookies.length > 0) return
+      for (const cookie of splitSetCookieHeader(value)) normalizedHeaders.append("set-cookie", cookie)
     }])
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
@@ -488,6 +493,36 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
   catch {
     return
   }
+}
+
+function splitSetCookieHeader(value: string): string[] {
+  const cookies: string[] = []
+  let start = 0
+  let quoted = false
+  let escaped = false
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (quoted && character === "\\") {
+      escaped = true
+      continue
+    }
+    if (character === '"') {
+      quoted = !quoted
+      continue
+    }
+    if (quoted || character !== ",") continue
+    const remainder = value.slice(index + 1)
+    if (/^\s*[^;,\s=]+\s*=/.test(remainder)) {
+      cookies.push(value.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+  cookies.push(value.slice(start).trim())
+  return cookies.filter(Boolean)
 }
 
 async function checkAuthRequest(
