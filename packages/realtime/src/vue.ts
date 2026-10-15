@@ -124,7 +124,15 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     for (const controller of requestControllers) {
       if (!preserveRefresh || !refreshControllers.has(controller)) controller.abort()
     }
-    requestControllers.clear()
+    if (preserveRefresh) {
+      for (const controller of requestControllers) {
+        if (!refreshControllers.has(controller)) requestControllers.delete(controller)
+      }
+    }
+    else {
+      requestControllers.clear()
+      refreshControllers.clear()
+    }
     connectedDocumentId = undefined
     provider.value?.destroy()
     if (!keepDocument) document.value?.destroy()

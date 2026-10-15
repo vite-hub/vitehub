@@ -526,7 +526,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       inactive
       && inactiveMemoryRoomKeys.has(inactive.key)
       && inactive.peers.size === 0
-      && (inactive.kind === "events" || (inactive.operations === 0 && (!inactive.dirty || !inactive.resolved.persistence)))
+      && (inactive.kind === "events" || (inactive.operations === 0 && !inactive.dirty))
     ) {
       destroyRoom(inactive)
     }
@@ -753,10 +753,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       destroyRoom(room)
       return
     }
-    // A memory-only room has no durable destination for unsaved edits. Once its
-    // clients leave, allow the authority to reclaim it instead of exhausting the
-    // room limit forever. Durable persistence keeps dirty rooms for retry.
-    if (room.dirty && room.resolved.persistence) return
+    // Keep dirty memory-only rooms resident: there is no durable destination
+    // from which their unsaved edits could be recovered after eviction.
+    if (room.dirty) return
     inactiveMemoryRoomKeys.delete(room.key)
     inactiveMemoryRoomKeys.add(room.key)
   }
@@ -969,7 +968,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   }
 
   async function refreshRoom(room: DocumentRoom): Promise<{ digest: string | null, reseeded: boolean }> {
+    const revision = room.revision
     const loaded = await room.resolved.adapter.load(room.context)
+    // A client may edit while the adapter is loading. Preserve that live edit
+    // and let the normal save path reconcile the external change.
+    if (room.dirty || room.revision !== revision) return { digest: room.digest, reseeded: false }
     if (loaded.digest === room.digest) return { digest: room.digest, reseeded: false }
     await reseedRoom(room, "source-changed", loaded)
     return { digest: room.digest, reseeded: true }
