@@ -341,9 +341,9 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const readerObject = reader as object
     let releaseLock: unknown
     try {
-      releaseLock = Reflect.get(readerObject, "releaseLock")
-      const read = Reflect.get(readerObject, "read")
-      const cancel = Reflect.get(readerObject, "cancel")
+      releaseLock = nativeReaderMethod(readerObject, "releaseLock")
+      const read = nativeReaderMethod(readerObject, "read")
+      const cancel = nativeReaderMethod(readerObject, "cancel")
       if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") return false
       return true
     }
@@ -407,6 +407,23 @@ function nativeStreamMethod<T extends keyof ReadableStream<Uint8Array>>(body: ob
   return undefined
 }
 
+function nativeReaderMethod<T extends "read" | "cancel" | "releaseLock">(reader: object, key: T): Function | undefined {
+  if (Object.prototype.hasOwnProperty.call(reader, key)) return undefined
+  let current: object | null = reader
+  const seen = new Set<object>()
+  for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(current)) return undefined
+    seen.add(current)
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor && typeof descriptor.value === "function" && isNativeIntrinsic(descriptor.value)) {
+      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+      if (typeof constructor?.name === "string" && constructor.name.includes("Reader")) return descriptor.value
+    }
+    current = Object.getPrototypeOf(current)
+  }
+  return undefined
+}
+
 function isNativeIntrinsic(value: Function): boolean {
   try {
     return Function.prototype.toString.call(value).includes("[native code]")
@@ -422,9 +439,9 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const getReader = nativeStreamMethod(body, "getReader") as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
   try {
-    const read = Reflect.get(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
-    const cancel = Reflect.get(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
-    const releaseLock = Reflect.get(reader, "releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+    const read = nativeReaderMethod(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
+    const cancel = nativeReaderMethod(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+    const releaseLock = nativeReaderMethod(reader, "releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
     let released = false
     const release = () => {
       if (released) return
@@ -459,7 +476,8 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   }
   catch (error) {
     try {
-      Reflect.apply(Reflect.get(reader, "releaseLock"), reader, [])
+      const releaseLock = nativeReaderMethod(reader, "releaseLock")
+      if (releaseLock) Reflect.apply(releaseLock, reader, [])
     }
     catch {
       // The original error is the useful failure at this boundary.
