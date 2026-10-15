@@ -2,7 +2,6 @@
 import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
 import {
   docsManifest,
-  getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
@@ -15,21 +14,13 @@ import {
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
 const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
-const pageGroups = computed(() => {
-  if (!section.value) return [];
-  const groups = getDocsSidebarGroups(section.value);
-  const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
-  if (section.value.id !== "ui" || !perspective) return groups;
-  return groups.map((group) =>
-    group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
-  );
-});
-const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
+const pageGroups = computed(() => section.value ? getDocsSidebarGroups(section.value) : []);
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
+const platformSections = computed(() => catalog.find(group => group.category === "Platform")?.sections ?? []);
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
