@@ -320,6 +320,15 @@ function hasResponsePrototype(value: unknown): boolean {
       const accessors = authorizationResponseProperties.map(key =>
         Object.getOwnPropertyDescriptor(current, key)?.get)
       if (accessors.every(accessor => typeof accessor === "function")) {
+        // Native Web Response accessors perform an internal brand check. Require
+        // that the candidate accessors are native functions before invoking them;
+        // caller-created getters can otherwise imitate the full prototype shape.
+        const nativeAccessorSource = accessors.every(accessor =>
+          Function.prototype.toString.call(accessor).includes("[native code]"))
+        if (!nativeAccessorSource) {
+          current = Object.getPrototypeOf(current)
+          continue
+        }
         const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
         // A Response subclass may override accessors; keep walking until a
         // complete Response prototype provides the brand-checked accessors.
