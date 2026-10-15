@@ -846,6 +846,14 @@ function isResponseLike(value: unknown): value is Response {
     // without relying on the current realm's Response constructor.
     const constructorDescriptor = tagOwner && Object.getOwnPropertyDescriptor(tagOwner, "constructor")
     if (!constructorDescriptor || !hasRuntimeType(constructorDescriptor.value, "function") || constructorDescriptor.value.prototype !== tagOwner) return false
+    // Fetch constructors expose their prototype as a fixed, non-configurable
+    // function property. A caller-created self-linked constructor has to
+    // assign its prototype, leaving this descriptor writable/configurable.
+    const constructorPrototypeDescriptor = Object.getOwnPropertyDescriptor(constructorDescriptor.value, "prototype")
+    if (!constructorPrototypeDescriptor
+      || constructorPrototypeDescriptor.value !== tagOwner
+      || constructorPrototypeDescriptor.writable
+      || constructorPrototypeDescriptor.configurable) return false
     // A self-linked constructor is easy to manufacture on a caller-owned
     // prototype. Real Fetch implementations expose the Response constructor
     // under this stable name; reject arbitrary constructor names before the
