@@ -122,8 +122,11 @@ describe("agent public types", () => {
       policy: ({ name }) => name === "content_publish" ? "require-approval" : "allow",
       user: actor => actor.kind === "anonymous" ? null : { id: actor.id, role: actor.meta?.role },
     })
+    content({ lease: "override" })
     // @ts-expect-error Content tools are read, write, and publish. Removal is not available.
     content({ operations: ["remove"] })
+    // @ts-expect-error `lease` only opts in to override edit leases.
+    content({ lease: "honour" })
   })
 
   it("types Connection-backed capabilities", () => {

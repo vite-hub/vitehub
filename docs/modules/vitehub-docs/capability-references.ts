@@ -64,6 +64,9 @@ export async function createCapabilityReferences(): Promise<CapabilityReferences
     collections() {
       return [{
         fields: ["title", "date", "tags"],
+        format: "markdown",
+        kind: "documents",
+        label: "Posts",
         name: "posts",
         path: "posts/**/*.md",
         schema: {
@@ -76,10 +79,20 @@ export async function createCapabilityReferences(): Promise<CapabilityReferences
           required: ["title", "date"],
           type: "object",
         },
+        titleField: "title",
       }];
     },
     publish() {
       throw new Error("Documentation references must not publish Content.");
+    },
+    schedule() {
+      throw new Error("Documentation references must not schedule Content.");
+    },
+    schedules() {
+      throw new Error("Documentation references must not read Content schedules.");
+    },
+    unschedule() {
+      throw new Error("Documentation references must not cancel Content schedules.");
     },
   };
   const emailOptions = {

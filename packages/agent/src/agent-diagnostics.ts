@@ -1578,8 +1578,8 @@ export const agentDiagnostics = defineDiagnostics({
       fix: "Use mode write for write operations and policy. Use repository names or owner/* patterns.",
     },
     AGENT_C0012: {
-      why: "[vitehub] content() requires { collections?: string[], operations?: Array<\"read\" | \"write\" | \"publish\">, policy?, user? }.",
-      fix: "Name each collection once, enable at least one operation, and pass policy as a decision or function and user as a function.",
+      why: "[vitehub] content() requires { collections?: string[], operations?: Array<\"read\" | \"write\" | \"publish\">, policy?, user?, lease?: \"override\" }.",
+      fix: "Name each collection once, enable at least one operation, pass policy as a decision or function and user as a function, and omit lease or set it to \"override\".",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,

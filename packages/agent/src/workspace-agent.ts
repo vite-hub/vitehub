@@ -566,13 +566,13 @@ function capabilityMetadataTool(capability: NormalizedCapability, options: { dri
     return {
       category: "capability",
       commands: [
-        ...(operations.has("read") ? ["content_list_collections", "content_list_documents", "content_get_document", "content_status"] : []),
+        ...(operations.has("read") ? ["content_list_collections", "content_list_documents", "content_get_document", "content_status", "content_list_schedules"] : []),
         ...(operations.has("write") ? ["content_save_draft"] : []),
-        ...(operations.has("publish") ? ["content_publish"] : []),
+        ...(operations.has("publish") ? ["content_publish", "content_schedule", "content_unschedule"] : []),
       ],
       description: Array.isArray(metadata?.collections)
-        ? `Read, draft, and publish documents in the ${metadata.collections.join(", ")} Content collections.`
-        : "Read, draft, and publish documents in Content collections.",
+        ? `Read, draft, publish, and schedule documents in the ${metadata.collections.join(", ")} Content collections.`
+        : "Read, draft, publish, and schedule documents in Content collections.",
       icon: "i-lucide-file-pen-line",
       name: "content",
       status: "available",

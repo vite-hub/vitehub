@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 
-import { defineContent, documents } from "../../content/src/index.ts"
+import { defineContent, documents, singleton } from "../../content/src/index.ts"
 import { historyWorkspace } from "../../content/test/history-workspace.ts"
 import { content } from "../src/capabilities.ts"
 import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
@@ -34,7 +34,7 @@ const auth = {
   },
 }
 
-/** Editors may do anything. Other signed-in users may read drafts. */
+/** Editors may do anything. Other signed-in users may read. */
 const editorsOnly: ContentAuthorize = ({ user, action }) => user?.role === "editor" || (action === "read" && Boolean(user))
 
 const fields = {
@@ -43,8 +43,8 @@ const fields = {
   tags: z.array(z.string()).default([]),
 }
 
-async function setup({ authorize = editorsOnly, workspace }: { authorize?: ContentAuthorize | null, workspace?: string } = {}) {
-  workspace ??= await historyWorkspace(cleanup)
+async function setup({ authorize = editorsOnly, sessions = false, workspace }: { authorize?: ContentAuthorize | null, sessions?: boolean, workspace?: string } = {}) {
+  workspace ??= await historyWorkspace(cleanup, { sessions })
   const runtime = defineContent({
     workspace,
     collections: {
@@ -52,6 +52,22 @@ async function setup({ authorize = editorsOnly, workspace }: { authorize?: Conte
       pages: documents({ path: "pages/*.md", fields: { title: z.string() } }),
     },
     ...(authorize ? { authorize } : {}),
+    logger: false,
+  })
+  cleanup.push(() => runtime.dispose())
+  return runtime
+}
+
+/** A Markdown collection, a YAML collection, and a JSON singleton. */
+async function setupMixed() {
+  const runtime = defineContent({
+    workspace: await historyWorkspace(cleanup),
+    collections: {
+      posts: documents({ path: "posts/*.md", fields: { title: z.string().min(1) } }),
+      authors: documents({ path: "authors/*.yaml", fields: { name: z.string().min(1) }, label: { singular: "Author", plural: "People" } }),
+      settings: singleton({ path: "settings.json", fields: { title: z.string().min(1), tagline: z.string().optional() } }),
+    },
+    authorize: editorsOnly,
     logger: false,
   })
   cleanup.push(() => runtime.dispose())
@@ -90,15 +106,18 @@ async function rejection(promise: Promise<unknown>): Promise<any> {
 }
 
 const hello = { title: "Hello", date: "2026-10-14", tags: ["vue"] }
+const inAnHour = () => new Date(Date.now() + 3_600_000).toISOString()
 
 describe("content capability", () => {
   it("defines a write Capability over the content primitive and rejects invalid options", () => {
     expect(content()).toMatchObject({
       id: "content",
-      metadata: { approval: ["content_publish"], collections: "all", operations: ["read", "write", "publish"] },
+      metadata: { approval: ["content_publish", "content_schedule", "content_unschedule"], collections: "all", operations: ["read", "write", "publish"] },
       mode: "write",
       requires: [{ primitive: "content" }],
     })
+    expect(content().metadata).not.toHaveProperty("lease")
+    expect(content({ lease: "override" }).metadata).toMatchObject({ lease: "override" })
     expect(content({ operations: ["read"] })).toMatchObject({ metadata: { approval: [], operations: ["read"] }, mode: "read" })
     expect(content({ collections: ["posts"], policy: "allow" })).toMatchObject({ metadata: { approval: "allow", collections: ["posts"] } })
     expect(content({ policy: () => "deny" }).metadata).toMatchObject({ approval: "custom" })
@@ -109,6 +128,7 @@ describe("content capability", () => {
       { collections: ["posts", "posts"] },
       { policy: "maybe" },
       { user: "editor" },
+      { lease: "always" },
       { mode: "write" },
     ]) {
       expect(() => content(options as ContentCapabilityOptions), JSON.stringify(options)).toThrow(expect.objectContaining({ code: "AGENT_C0012" }))
@@ -122,11 +142,16 @@ describe("content capability", () => {
       "content_get_document",
       "content_list_collections",
       "content_list_documents",
+      "content_list_schedules",
       "content_publish",
       "content_save_draft",
+      "content_schedule",
       "content_status",
+      "content_unschedule",
     ])
     const save = all.content_save_draft!.inputSchema as any
+    expect(save.type).toBe("object")
+    expect(save.anyOf).toBeUndefined()
     expect(save.required).toEqual(["collection", "id", "data", "body", "ifDigest"])
     expect(save.properties.collection.enum).toEqual(["posts", "pages"])
     expect(save.properties.data.anyOf.map((schema: any) => schema.title)).toEqual(["posts", "pages"])
@@ -135,6 +160,9 @@ describe("content capability", () => {
       required: ["title", "date"],
       type: "object",
     })
+    expect((all.content_publish!.inputSchema as any).properties.documents.items.required).toEqual(["collection", "id", "digest"])
+    expect((all.content_schedule!.inputSchema as any).required).toEqual(["at", "documents"])
+    expect((all.content_unschedule!.inputSchema as any).required).toEqual(["schedule"])
 
     const posts = await tools(content({ collections: ["posts"] }), runtime)
     const postsSave = posts.content_save_draft!.inputSchema as any
@@ -146,6 +174,7 @@ describe("content capability", () => {
       "content_get_document",
       "content_list_collections",
       "content_list_documents",
+      "content_list_schedules",
       "content_status",
     ])
     expect(await rejection(tools(content({ collections: ["drafts"] }), runtime))).toMatchObject({ code: "AGENT_R1006" })
@@ -153,19 +182,25 @@ describe("content capability", () => {
     expect(await rejection(tools(content(), undefined))).toMatchObject({ code: "AGENT_R0104" })
   })
 
-  it("requires approval to publish by default and lets policy replace the defaults", async () => {
+  it("requires approval to publish, schedule, and unschedule by default and lets policy replace the defaults", async () => {
     const runtime = await setup()
     const guarded = applyAgentToolPolicies(await tools(content(), runtime))!
     const saved = await run(guarded.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "# Hello\n", ifDigest: null })
     expect(saved).toMatchObject({ ok: true, document: { collection: "posts", id: "hello" } })
     const reviewed = { documents: [{ collection: "posts", digest: saved.document.digest, id: "hello" }] }
     expect(await rejection(run(guarded.content_publish, reviewed))).toMatchObject({ code: "APPROVAL_REQUIRED" })
+    expect(await rejection(run(guarded.content_schedule, { ...reviewed, at: inAnHour() }))).toMatchObject({ code: "APPROVAL_REQUIRED" })
     expect(await runtime.collection("posts").get("hello")).toBeNull()
+    expect(await runtime.schedules()).toEqual([])
+    const scheduled = await runtime.schedule({ at: inAnHour(), expect: [{ collection: "posts", id: "hello", digest: saved.document.digest }] })
+    expect(await rejection(run(guarded.content_unschedule, { schedule: scheduled.id }))).toMatchObject({ code: "APPROVAL_REQUIRED" })
+    expect(await runtime.schedules()).toHaveLength(1)
 
     const approving = applyAgentToolPolicies(await tools(content({ policy: "require-approval" }), runtime))!
     expect(await rejection(run(approving.content_save_draft, { collection: "posts", id: "next", data: hello, body: "", ifDigest: null }))).toMatchObject({ code: "APPROVAL_REQUIRED" })
 
     const unattended = applyAgentToolPolicies(await tools(content({ policy: "allow" }), runtime))!
+    expect(await run(unattended.content_unschedule, { schedule: scheduled.id })).toEqual({ ok: true, schedule: scheduled.id })
     expect(await run(unattended.content_publish, reviewed)).toMatchObject({
       ok: true,
       documents: [{ change: "add", collection: "posts", id: "hello" }],
@@ -178,11 +213,21 @@ describe("content capability", () => {
     const editorTools = await tools(content({ collections: ["posts"] }), runtime)
 
     expect(await run(editorTools.content_list_collections, {})).toEqual({
-      collections: [{ access: { publish: true, read: true, write: true }, fields: ["title", "date", "tags"], name: "posts", path: "posts/**/*.md" }],
+      collections: [{
+        access: { publish: true, read: true, write: true },
+        fields: ["title", "date", "tags"],
+        format: "markdown",
+        kind: "documents",
+        label: "Posts",
+        name: "posts",
+        path: "posts/**/*.md",
+        titleField: "title",
+      }],
     })
     const created = await run(editorTools.content_save_draft, { collection: "posts", id: "2026/hello", data: hello, body: "# Hello\n", ifDigest: null })
     expect(created).toMatchObject({ ok: true, document: { collection: "posts", id: "2026/hello", path: "posts/2026/hello.md", data: { tags: ["vue"], title: "Hello" } } })
     expect(created.document.body).toBeUndefined()
+    expect(created.issues).toBeUndefined()
 
     expect(await run(editorTools.content_get_document, { collection: "posts", id: "2026/hello" })).toMatchObject({ ok: false, error: { code: "CONTENT_NOT_FOUND" } })
     const draft = await run(editorTools.content_get_document, { collection: "posts", id: "2026/hello", ref: "draft" })
@@ -208,15 +253,47 @@ describe("content capability", () => {
 
     const revisions = await runtime.revisions("posts", "2026/hello")
     expect(revisions.revisions[0]!.metadata).toMatchObject({ agent: { actor: "user_1", name: "editor" } })
+    expect(revisions.revisions[1]!.metadata).toMatchObject({ agent: { actor: "user_1", name: "editor" } })
   })
 
-  it("returns validation issues and conflicts as results the model can act on", async () => {
+  it("saves drafts with field issues and refuses to publish or schedule them", async () => {
     const runtime = await setup()
     const editorTools = await tools(content({ policy: "allow" }), runtime)
 
     const invalid = await run(editorTools.content_save_draft, { collection: "posts", id: "hello", data: { title: "", tags: "vue" }, body: "", ifDigest: null })
-    expect(invalid).toMatchObject({ ok: false, error: { code: "CONTENT_INVALID", hint: expect.stringContaining("Fix the listed fields") } })
-    expect(invalid.error.issues.map((issue: { field: string }) => issue.field).sort()).toEqual(["date", "tags", "title"])
+    expect(invalid).toMatchObject({ ok: true, document: { id: "hello" }, hint: expect.stringContaining("cannot be published") })
+    expect(invalid.issues.map((issue: { field: string }) => issue.field).sort()).toEqual(["date", "tags", "title"])
+    expect(await run(editorTools.content_status, { collection: "posts", id: "hello" })).toMatchObject({ documents: [{ id: "hello", issues: 3 }] })
+    expect(await run(editorTools.content_get_document, { collection: "posts", id: "hello", ref: "draft" })).toMatchObject({
+      ok: true, document: { issues: expect.any(Array) }, hint: expect.stringContaining("field issues"),
+    })
+
+    const pinned = { documents: [{ collection: "posts", digest: invalid.document.digest, id: "hello" }] }
+    const refused = await run(editorTools.content_publish, pinned)
+    expect(refused).toMatchObject({
+      ok: false,
+      error: { code: "CONTENT_INVALID", documents: [{ collection: "posts", id: "hello", path: "posts/hello.md", issues: expect.any(Array) }], hint: expect.stringContaining("content_save_draft") },
+    })
+    expect(await run(editorTools.content_schedule, { ...pinned, at: inAnHour() })).toMatchObject({
+      ok: false, error: { code: "CONTENT_INVALID", documents: [{ collection: "posts", id: "hello" }] },
+    })
+    expect(await runtime.collection("posts").get("hello")).toBeNull()
+    expect(await runtime.schedules()).toEqual([])
+
+    const fixed = await run(editorTools.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "", ifDigest: invalid.document.digest })
+    expect(fixed).toMatchObject({ ok: true })
+    expect(fixed.issues).toBeUndefined()
+    expect(await run(editorTools.content_publish, { documents: [{ collection: "posts", digest: fixed.document.digest, id: "hello" }] })).toMatchObject({ ok: true })
+
+    // Data that cannot be stored at all is still an input error.
+    expect(await run(editorTools.content_save_draft, { collection: "posts", id: "broken", data: "title", body: "", ifDigest: null })).toMatchObject({
+      ok: false, error: { code: "CONTENT_INVALID" },
+    })
+  })
+
+  it("returns conflicts as results the model can act on", async () => {
+    const runtime = await setup()
+    const editorTools = await tools(content({ policy: "allow" }), runtime)
 
     const first = await run(editorTools.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "One\n", ifDigest: null })
     await runtime.collection("posts").save("hello", { data: hello, body: "Edited by someone else\n" })
@@ -226,6 +303,9 @@ describe("content capability", () => {
     expect(await run(editorTools.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "Two\n", ifDigest: conflict.error.currentDigest })).toMatchObject({ ok: true })
     expect(await run(editorTools.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "Three\n", ifDigest: null })).toMatchObject({
       ok: false, error: { code: "WORKSPACE_CONFLICT" },
+    })
+    expect(await run(editorTools.content_save_draft, { collection: "posts", id: "hello", data: hello, ifDigest: null })).toMatchObject({
+      ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["body"] }] },
     })
 
     // The publish call names the reviewed digest. A save after the call publishes nothing and names the changed draft.
@@ -241,22 +321,29 @@ describe("content capability", () => {
         hint: expect.stringContaining("content_status"),
       },
     })
+    expect(await run(editorTools.content_schedule, { at: inAnHour(), documents: [{ collection: "posts", digest: reviewed.draft, id: "hello" }] })).toMatchObject({
+      ok: false, error: { code: "WORKSPACE_CONFLICT", documents: [{ collection: "posts", id: "hello" }] },
+    })
     expect(await runtime.collection("posts").get("hello")).toBeNull()
     expect(await run(editorTools.content_publish, { documents: [{ collection: "posts", digest: latest!.digest, id: "hello" }] })).toMatchObject({
       ok: true, documents: [{ change: "add", id: "hello" }],
     })
     expect(await run(editorTools.content_publish, { documents: [{ collection: "posts", digest: null, id: "missing" }] })).toMatchObject({ ok: true, documents: [] })
     expect(await run(editorTools.content_publish, { documents: [] })).toMatchObject({ ok: false, error: { code: "CONTENT_INVALID" } })
+    expect(await run(editorTools.content_publish, { documents: [{ collection: "posts", digest: null }] })).toMatchObject({
+      ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["documents.0.id"] }] },
+    })
     expect(await run(editorTools.content_publish, {
       documents: [{ collection: "posts", digest: null, id: "hello" }, { collection: "posts", digest: null, id: "hello" }],
     })).toMatchObject({ ok: false, error: { code: "CONTENT_R0009" } })
   })
 
-  it("returns a stored document that no longer validates as text the model can repair", async () => {
+  it("returns a published document that no longer validates as text the model can repair", async () => {
     const workspace = await historyWorkspace(cleanup)
     const runtime = await setup({ workspace })
     await runtime.collection("posts").save("untagged", { data: { title: "Untagged", date: "2026-01-01" }, body: "Body\n" })
-    // The field schema became stricter after the document was saved.
+    await runtime.publish()
+    // The field schema became stricter after the document was published.
     const stricter = defineContent({
       workspace,
       collections: { posts: documents({ path: "posts/**/*.md", fields: { ...fields, tags: z.array(z.string()).min(1) } }) },
@@ -266,21 +353,178 @@ describe("content capability", () => {
     cleanup.push(() => stricter.dispose())
     const editorTools = await tools(content({ collections: ["posts"], policy: "allow" }), stricter)
 
-    const invalid = await run(editorTools.content_get_document, { collection: "posts", id: "untagged", ref: "draft" })
+    const invalid = await run(editorTools.content_get_document, { collection: "posts", id: "untagged" })
     const { draft } = (await stricter.collection("posts").status("untagged"))!
     expect(invalid).toMatchObject({
       ok: false,
       error: { code: "CONTENT_INVALID", digest: draft, hint: expect.stringContaining("ifDigest"), text: expect.stringContaining("title: Untagged") },
-    })
-    expect(await run(editorTools.content_publish, { documents: [{ collection: "posts", digest: draft, id: "untagged" }] })).toMatchObject({
-      ok: false, error: { code: "CONTENT_INVALID", hint: expect.stringContaining("content_save_draft") },
     })
     expect(await run(editorTools.content_save_draft, {
       collection: "posts", id: "untagged", data: { title: "Untagged", date: "2026-01-01", tags: ["fixed"] }, body: "Body\n", ifDigest: invalid.error.digest,
     })).toMatchObject({ ok: true })
   })
 
-  it("denies non-public actions through content.can() with the Auth user behind the Actor", async () => {
+  it("reads, saves, publishes, and schedules singletons and data collections without a body", async () => {
+    const runtime = await setupMixed()
+    const editorTools = await tools(content({ policy: "allow" }), runtime)
+
+    expect((await run(editorTools.content_list_collections, {})).collections).toEqual([
+      expect.objectContaining({ format: "markdown", kind: "documents", label: "Posts", name: "posts", titleField: "title" }),
+      expect.objectContaining({ fields: ["name"], format: "yaml", kind: "documents", label: "People", name: "authors", titleField: "name" }),
+      { access: { publish: true, read: true, write: true }, fields: ["title", "tagline"], format: "json", id: "settings", kind: "singleton", label: "Settings", name: "settings", path: "settings.json", titleField: "title" },
+    ])
+    const save = editorTools.content_save_draft!.inputSchema as any
+    expect(save.type).toBe("object")
+    expect(save.required).toEqual(["collection", "data", "ifDigest"])
+    expect(save.properties.body.description).toContain("Omit it for a JSON or YAML collection")
+    expect((editorTools.content_get_document!.inputSchema as any).required).toEqual(["collection"])
+    expect((editorTools.content_publish!.inputSchema as any).properties.documents.items.required).toEqual(["collection", "digest"])
+
+    // A singleton takes no id. Its own id works too; any other id is an input error.
+    expect(await run(editorTools.content_save_draft, { collection: "settings", data: { title: "Site" }, body: "Text", ifDigest: null })).toMatchObject({
+      ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["body"] }] },
+    })
+    expect(await run(editorTools.content_save_draft, { collection: "settings", id: "other", data: { title: "Site" }, ifDigest: null })).toMatchObject({
+      ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["id"] }] },
+    })
+    expect(await run(editorTools.content_save_draft, { collection: "posts", data: { title: "Post" }, body: "", ifDigest: null })).toMatchObject({
+      ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["id"] }] },
+    })
+    const saved = await run(editorTools.content_save_draft, { collection: "settings", data: { title: "Site" }, body: "", ifDigest: null })
+    expect(saved).toMatchObject({ ok: true, document: { collection: "settings", id: "settings", path: "settings.json", data: { title: "Site" } } })
+    expect(await run(editorTools.content_get_document, { collection: "settings", ref: "draft" })).toMatchObject({ ok: true, document: { id: "settings", body: "" } })
+    expect(await run(editorTools.content_get_document, { collection: "settings", id: "settings", ref: "draft" })).toMatchObject({ ok: true })
+    expect(await run(editorTools.content_status, { collection: "settings" })).toMatchObject({ documents: [{ id: "settings", state: "draft", draft: saved.document.digest }] })
+    expect(await run(editorTools.content_list_documents, { collection: "settings", ref: "draft" })).toMatchObject({ items: [{ id: "settings" }], total: 1 })
+
+    const author = await run(editorTools.content_save_draft, { collection: "authors", id: "ana", data: { name: "Ana" }, ifDigest: null })
+    expect(author).toMatchObject({ ok: true, document: { path: "authors/ana.yaml" } })
+    expect(await run(editorTools.content_save_draft, { collection: "authors", id: "ben", data: { name: "Ben" }, body: "Bio", ifDigest: null })).toMatchObject({
+      ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["body"] }] },
+    })
+
+    expect(await run(editorTools.content_publish, { documents: [{ collection: "settings", digest: saved.document.digest }] })).toMatchObject({
+      ok: true, documents: [{ change: "add", collection: "settings", id: "settings" }],
+    })
+    expect(await runtime.collection("settings").get()).toMatchObject({ data: { title: "Site" } })
+
+    const next = await run(editorTools.content_save_draft, { collection: "settings", data: { title: "Site", tagline: "Fast" }, ifDigest: saved.document.digest })
+    const scheduled = await run(editorTools.content_schedule, {
+      at: inAnHour(),
+      documents: [{ collection: "settings", digest: next.document.digest }, { collection: "authors", id: "ana", digest: author.document.digest }],
+    })
+    expect(scheduled).toMatchObject({
+      ok: true,
+      schedule: { documents: [{ collection: "settings", id: "settings", digest: next.document.digest }, { collection: "authors", id: "ana" }], status: "pending" },
+    })
+    expect(await run(editorTools.content_status, { collection: "settings" })).toMatchObject({ documents: [{ schedule: { id: scheduled.schedule.id, status: "pending" } }] })
+  })
+
+  it("schedules reviewed drafts, lists schedules, and cancels them", async () => {
+    const runtime = await setup()
+    const editorTools = await tools(content({ policy: "allow" }), runtime)
+    const saved = await run(editorTools.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "Hello\n", ifDigest: null })
+    const documents = [{ collection: "posts", digest: saved.document.digest, id: "hello" }]
+
+    expect(await run(editorTools.content_schedule, { at: "2000-01-01T00:00:00Z", documents })).toMatchObject({
+      ok: false, error: { code: "CONTENT_R0011", hint: expect.stringContaining("future ISO timestamp"), message: expect.stringContaining("must be in the future") },
+    })
+    const at = inAnHour()
+    const scheduled = await run(editorTools.content_schedule, { at, documents, message: "Launch" })
+    expect(scheduled).toEqual({
+      ok: true,
+      schedule: { at: expect.any(String), createdAt: expect.any(String), documents, id: expect.any(String), message: "Launch", status: "pending" },
+    })
+    expect(new Date(scheduled.schedule.at).getTime()).toBe(new Date(at).getTime())
+    expect((await runtime.schedules())[0]!.metadata).toMatchObject({ agent: { actor: "user_1", name: "editor" } })
+    expect(await run(editorTools.content_list_schedules, {})).toEqual({ schedules: [scheduled.schedule] })
+    expect(await run(editorTools.content_list_schedules, { collection: "posts", id: "hello", status: "pending" })).toEqual({ schedules: [scheduled.schedule] })
+    expect(await run(editorTools.content_list_schedules, { collection: "pages" })).toEqual({ schedules: [] })
+    expect(await run(editorTools.content_status, { collection: "posts", id: "hello" })).toMatchObject({
+      documents: [{ schedule: { digest: saved.document.digest, id: scheduled.schedule.id, status: "pending" } }],
+    })
+
+    // A viewer may see the schedule but not cancel it, and is denied before any approval.
+    const viewerTools = applyAgentToolPolicies(await tools(content(), runtime, viewer))!
+    expect(await run(viewerTools.content_list_schedules, {})).toEqual({ schedules: [scheduled.schedule] })
+    expect(await rejection(run(viewerTools.content_unschedule, { schedule: scheduled.schedule.id }))).toMatchObject({ code: "CAPABILITY_DENIED" })
+    expect(await rejection(run(viewerTools.content_schedule, { at, documents }))).toMatchObject({ code: "CAPABILITY_DENIED" })
+
+    // A Capability scoped to other collections may not cancel a schedule that publishes posts.
+    const pagesOnly = await tools(content({ collections: ["pages"], policy: "allow" }), runtime)
+    expect(await run(pagesOnly.content_list_schedules, {})).toEqual({ schedules: [] })
+    expect(await rejection(run(pagesOnly.content_unschedule, { schedule: scheduled.schedule.id }))).toMatchObject({ code: "CAPABILITY_DENIED" })
+
+    expect(await run(editorTools.content_unschedule, { schedule: scheduled.schedule.id })).toEqual({ ok: true, schedule: scheduled.schedule.id })
+    expect(await runtime.schedules()).toEqual([])
+    expect(await run(editorTools.content_unschedule, { schedule: scheduled.schedule.id })).toMatchObject({ ok: false, error: { code: "CONTENT_NOT_FOUND" } })
+  })
+
+  it("honours edit leases unless the definition opts in to override them", async () => {
+    const runtime = await setup({ sessions: true })
+    const saved = await runtime.collection("posts").save("hello", { data: hello, body: "Hello\n" })
+    const lease = await runtime.sessions.acquire("posts", "hello", { session: "tab-ana-0001", user: { id: "ana", name: "Ana" } })
+    expect(lease.editing).toBe(true)
+
+    const honouring = await tools(content({ policy: "allow" }), runtime)
+    const held = await run(honouring.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "Agent\n", ifDigest: saved.digest })
+    expect(held).toEqual({
+      ok: false,
+      error: {
+        code: "CONTENT_LEASE_HELD",
+        hint: expect.stringContaining("wait until the lease expires"),
+        holder: { expiresAt: expect.any(String), kind: "edit", name: "Ana", since: expect.any(String) },
+        message: expect.stringContaining("Ana"),
+      },
+    })
+    expect((await runtime.collection("posts").get("hello", { ref: "draft" }))!.body).toBe("Hello\n")
+    // The model cannot pass the override itself.
+    expect(await run(honouring.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "Agent\n", ifDigest: saved.digest, lease: "override" })).toMatchObject({
+      ok: false, error: { code: "CONTENT_LEASE_HELD" },
+    })
+
+    const overriding = await tools(content({ lease: "override", policy: "allow" }), runtime)
+    expect(await run(overriding.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "Agent\n", ifDigest: saved.digest })).toMatchObject({ ok: true })
+    expect((await runtime.collection("posts").get("hello", { ref: "draft" }))!.body).toBe("Agent\n")
+  })
+
+  it("never shows a document that authorize hides from the user", async () => {
+    // Everyone signed in may read, except the `secret` post, which only editors may read.
+    const runtime = await setup({
+      authorize: ({ user, action, id }) => user?.role === "editor" || (action === "read" && Boolean(user) && id !== "secret"),
+    })
+    const posts = runtime.collection("posts")
+    await posts.save("hello", { data: { ...hello, title: "Hello launch" }, body: "Hello\n" })
+    await posts.save("secret", { data: { ...hello, title: "Secret launch" }, body: "Secret\n" })
+    await runtime.publish()
+    const visible = await posts.save("hello", { data: { ...hello, title: "Hello launch" }, body: "Hello again\n" })
+    const secret = await posts.save("secret", { data: { ...hello, title: "Secret launch" }, body: "Secret again\n" })
+    const extra = await runtime.collection("pages").save("about", { data: { title: "About" } })
+    const both = await runtime.schedule({ at: inAnHour(), expect: [{ collection: "posts", id: "hello", digest: visible.digest }, { collection: "posts", id: "secret", digest: secret.digest }] })
+    const alone = await runtime.schedule({ at: inAnHour(), expect: [{ collection: "pages", id: "about", digest: extra.digest }] })
+    expect((await runtime.schedules()).map(schedule => schedule.id).sort()).toEqual([alone.id, both.id].sort())
+
+    const viewerTools = await tools(content({ operations: ["read"] }), runtime, viewer)
+    for (const ref of ["draft", "published"]) {
+      const listed = await run(viewerTools.content_list_documents, { collection: "posts", ref })
+      expect(listed, ref).toMatchObject({ items: [{ id: "hello" }], total: 1 })
+      expect(await run(viewerTools.content_list_documents, { collection: "posts", ref, search: "launch" }), ref).toMatchObject({ items: [{ id: "hello" }], total: 1 })
+      expect(await run(viewerTools.content_list_documents, { collection: "posts", ref, search: "secret" }), ref).toMatchObject({ items: [], total: 0 })
+      expect(await run(viewerTools.content_list_documents, { collection: "posts", ref, filter: { id: ["secret"] } }), ref).toMatchObject({ items: [], total: 0 })
+      expect(await rejection(run(viewerTools.content_get_document, { collection: "posts", id: "secret", ref })), ref).toMatchObject({ code: "CAPABILITY_DENIED" })
+    }
+    expect((await run(viewerTools.content_status, { collection: "posts" })).documents.map((status: { id: string }) => status.id)).toEqual(["hello"])
+    expect(await rejection(run(viewerTools.content_status, { collection: "posts", id: "secret" }))).toMatchObject({ code: "CAPABILITY_DENIED" })
+    expect((await run(viewerTools.content_list_schedules, {})).schedules.map((schedule: { id: string }) => schedule.id)).toEqual([alone.id])
+    expect(await run(viewerTools.content_list_schedules, { collection: "posts", id: "secret" })).toEqual({ schedules: [] })
+    expect(JSON.stringify(await run(viewerTools.content_list_schedules, {}))).not.toContain("secret")
+
+    const editorTools = await tools(content({ operations: ["read"] }), runtime)
+    expect(await run(editorTools.content_list_documents, { collection: "posts" })).toMatchObject({ total: 2 })
+    expect((await run(editorTools.content_list_schedules, {})).schedules).toHaveLength(2)
+  })
+
+  it("denies actions through content.can() with the Auth user behind the Actor", async () => {
     const runtime = await setup()
     await runtime.collection("posts").save("hello", { data: hello, body: "Draft\n" })
     await runtime.publish()
@@ -301,12 +545,13 @@ describe("content capability", () => {
       collections: [{ access: { publish: false, read: true, write: false }, name: "posts" }, { name: "pages" }],
     })
 
-    // Anonymous Actors reach authorize as user: null, so they read only what the site already serves.
+    // Anonymous Actors reach authorize as user: null. This policy lets them read nothing, published documents included.
     const anonymousTools = await tools(content(), runtime, anonymous)
-    expect(await run(anonymousTools.content_get_document, { collection: "posts", id: "hello" })).toMatchObject({ document: { data: { title: "Hello" } } })
+    expect(await rejection(run(anonymousTools.content_get_document, { collection: "posts", id: "hello" }))).toMatchObject({ code: "CAPABILITY_DENIED" })
     expect(await rejection(run(anonymousTools.content_get_document, { collection: "posts", id: "hello", ref: "draft" }))).toMatchObject({ code: "CAPABILITY_DENIED" })
-    expect(await rejection(run(anonymousTools.content_list_documents, { collection: "posts", ref: "draft" }))).toMatchObject({ code: "CAPABILITY_DENIED" })
+    expect(await rejection(run(anonymousTools.content_list_documents, { collection: "posts" }))).toMatchObject({ code: "CAPABILITY_DENIED" })
     expect(await rejection(run(anonymousTools.content_status, { collection: "posts" }))).toMatchObject({ code: "CAPABILITY_DENIED" })
+    expect(await run(anonymousTools.content_list_schedules, {})).toEqual({ schedules: [] })
 
     // Without Auth, there is no user behind the Actor.
     const withoutAuth = await tools(content({ policy: "allow" }), runtime, editor, {})
@@ -325,28 +570,35 @@ describe("content capability", () => {
         return context.actor?.kind === "authUser"
       },
     })
+    await runtime.collection("pages").save("about", { data: { title: "About" } })
     const editorTools = await tools(content({ policy: "allow" }), runtime)
     await run(editorTools.content_status, { collection: "posts", id: "hello" })
     await run(editorTools.content_status, { collection: "pages" })
     expect(decisions).toEqual([
       { action: "read", actor: editor, collection: "posts", id: "hello", user: authUsers.user_1 },
       { action: "read", actor: editor, collection: "pages", user: authUsers.user_1 },
+      { action: "read", actor: editor, collection: "pages", id: "about", user: authUsers.user_1 },
     ])
   })
 
-  it("denies every non-public action without an authorize policy", async () => {
+  it("denies every action without an authorize policy", async () => {
     const runtime = await setup({ authorize: null })
+    const saved = await runtime.collection("posts").save("hello", { data: hello })
+    const scheduled = await runtime.schedule({ at: inAnHour(), expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
     const editorTools = await tools(content({ policy: "allow" }), runtime)
     expect(await run(editorTools.content_list_collections, {})).toMatchObject({
       collections: [{ access: { publish: false, read: false, write: false } }, { access: { publish: false, read: false, write: false } }],
     })
-    expect(await run(editorTools.content_list_documents, { collection: "posts" })).toMatchObject({ total: 0 })
+    expect(await run(editorTools.content_list_schedules, {})).toEqual({ schedules: [] })
     for (const [name, input] of [
+      ["content_list_documents", { collection: "posts" }],
       ["content_list_documents", { collection: "posts", ref: "draft" }],
-      ["content_get_document", { collection: "posts", id: "hello", ref: "draft" }],
+      ["content_get_document", { collection: "posts", id: "hello" }],
       ["content_status", { collection: "posts" }],
       ["content_save_draft", { collection: "posts", id: "hello", data: hello, body: "", ifDigest: null }],
       ["content_publish", { documents: [{ collection: "posts", digest: null, id: "hello" }] }],
+      ["content_schedule", { at: inAnHour(), documents: [{ collection: "posts", digest: null, id: "hello" }] }],
+      ["content_unschedule", { schedule: scheduled.id }],
     ] as const) {
       expect(await rejection(run(editorTools[name], input)), name).toMatchObject({ code: "CAPABILITY_DENIED" })
     }
@@ -359,8 +611,8 @@ describe("content capability", () => {
       workspace: { mode: "write" },
     }))
     expect(inspected.tools).toContainEqual(expect.objectContaining({
-      commands: ["content_list_collections", "content_list_documents", "content_get_document", "content_status", "content_save_draft"],
-      description: "Read, draft, and publish documents in the posts Content collections.",
+      commands: ["content_list_collections", "content_list_documents", "content_get_document", "content_status", "content_list_schedules", "content_save_draft"],
+      description: "Read, draft, publish, and schedule documents in the posts Content collections.",
       name: "content",
     }))
   })
