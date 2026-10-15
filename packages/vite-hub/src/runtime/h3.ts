@@ -61,7 +61,7 @@ function isRequest(value: unknown): value is Request {
       const headers = headersGetter.call(value)
       urlGetter.call(value)
       methodGetter.call(value)
-      bodyUsedGetter.call(value)
+      const bodyUsed = bodyUsedGetter.call(value)
       signalGetter.call(value)
       let headersPrototype: object | null = headers
       let headersGet: unknown
@@ -76,6 +76,13 @@ function isRequest(value: unknown): value is Request {
       }
       if (typeof headersGet !== "function") continue
       headersGet.call(headers, "x-vite-hub-request-check")
+      // Request methods perform an internal-slot brand check on their receiver.
+      // Cancel the clone immediately so validation does not retain an unread body.
+      if (!bodyUsed) {
+        const clone = methods[0]?.call(value) as { body?: { cancel?: () => unknown } } | undefined
+        const cancel = clone?.body?.cancel
+        if (typeof cancel === "function") cancel.call(clone.body)
+      }
       return true
     }
     return false

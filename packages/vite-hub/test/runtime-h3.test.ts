@@ -87,6 +87,28 @@ describe("H3 Runtime Context", () => {
     await context.flushWaitUntil()
   })
 
+  it("rejects a forged Request prototype with copied methods", async () => {
+    const requestPrototype = Object.getPrototypeOf(new Request("https://example.test"))
+    const prototype = Object.create(requestPrototype, {
+      constructor: { value: Object.assign(function Request() {}, { prototype: undefined }) },
+      headers: { get: () => new Headers() },
+      url: { get: () => "https://example.test" },
+      method: { get: () => "GET" },
+      bodyUsed: { get: () => false },
+      signal: { get: () => new AbortController().signal },
+      clone: { value: requestPrototype.clone },
+      arrayBuffer: { value: requestPrototype.arrayBuffer },
+      blob: { value: requestPrototype.blob },
+      formData: { value: requestPrototype.formData },
+      json: { value: requestPrototype.json },
+      text: { value: requestPrototype.text },
+    })
+    prototype.constructor.prototype = prototype
+    const context = getRuntimeContext({ context: {}, req: Object.create(prototype) })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
   it("rejects a Request-shaped custom prototype", async () => {
     const prototype = {
       headers: new Headers(),
