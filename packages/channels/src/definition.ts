@@ -15,6 +15,15 @@ function isConnector(value: unknown): value is { send: unknown } {
   }
 }
 
+function formatDiagnosticValue(value: unknown): string {
+  try {
+    return String(value)
+  }
+  catch {
+    return "<unrepresentable>"
+  }
+}
+
 function validateChannelDefinition(value: unknown): asserts value is ChannelDefinition {
   const definition = value as ChannelDefinition
   if (!definition || typeof definition !== "object") {
@@ -76,7 +85,7 @@ function validateChannelDefinition(value: unknown): asserts value is ChannelDefi
     throw channelsErrorDiagnostics.CHANNELS_C0005({ message: "Channel default connector could not be read." })
   }
   if (defaultConnector !== undefined && !connectorNames.includes(defaultConnector)) {
-    throw channelsErrorDiagnostics.CHANNELS_C0005({ message: `Channel default connector "${defaultConnector}" is not configured.` })
+    throw channelsErrorDiagnostics.CHANNELS_C0005({ message: `Channel default connector "${formatDiagnosticValue(defaultConnector)}" is not configured.` })
   }
 }
 

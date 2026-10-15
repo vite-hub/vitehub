@@ -50,6 +50,15 @@ describe("defineOutboundChannel", () => {
   })
 
   it.each([
+    Symbol("missing"),
+    { toString() { throw new Error("default connector formatting failed") } },
+  ])("turns an unrepresentable default connector into the default connector diagnostic", (defaultConnector) => {
+    expect(() => defineOutboundChannel({ connectors: { fixture: connector }, defaultConnector } as never)).toThrowError(expect.objectContaining({
+      code: "CHANNELS_C0005",
+    }))
+  })
+
+  it.each([
     [{ connectors: { "": connector }, defaultConnector: "" }, "CHANNELS_C0006"],
     [{ connectors: { fixture: {} } }, "CHANNELS_C0004"],
   ])("distinguishes connector name and implementation diagnostics", (definition, code) => {
