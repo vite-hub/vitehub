@@ -394,12 +394,27 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 function authorizationHeaderMethods(headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
   // Header methods perform a realm-specific brand check. Capture the methods
   // from this carrier's verified native prototype and invoke them on the carrier.
-  const forEach = responsePropertyDescriptor(headers, "forEach")?.value
-  const getSetCookie = responsePropertyDescriptor(headers, "getSetCookie")?.value
-  if (!isNativeFunction(forEach, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value, "forEach")
-    || forEach.name !== "forEach") return
-  if (getSetCookie !== undefined && (!isNativeFunction(getSetCookie, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie")
-    || getSetCookie.name !== "getSetCookie")) return
+  const findMethod = (key: string) => {
+    let owner: object | null = Object(headers)
+    const seen = new Set<object>()
+    for (let depth = 0; owner && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(owner)) return
+      seen.add(owner)
+      const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+      if (descriptor) return { owner, value: descriptor.value }
+      owner = Object.getPrototypeOf(owner)
+    }
+  }
+  const forEachEntry = findMethod("forEach")
+  const cookieEntry = findMethod("getSetCookie")
+  if (!forEachEntry || typeof forEachEntry.value !== "function" || forEachEntry.value.name !== "forEach") return
+  if (cookieEntry && (typeof cookieEntry.value !== "function" || cookieEntry.value.name !== "getSetCookie")) return
+  if (cookieEntry && cookieEntry.owner !== forEachEntry.owner) return
+  const owner = forEachEntry.owner
+  const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
+  if (owner === headers || typeof constructor !== "function" || constructor.name !== "Headers" || constructor.prototype !== owner) return
+  const forEach = forEachEntry.value
+  const getSetCookie = cookieEntry?.value
   return { forEach: forEach as (...args: never[]) => unknown, getSetCookie: getSetCookie as (...args: never[]) => unknown | undefined }
 }
 
