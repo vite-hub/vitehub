@@ -97,7 +97,7 @@ const runs = computed(() => deriveTraceRuns(events.value));
 | Prop          | Type      | Default     | Description                                                     |
 | ------------- | --------- | ----------- | --------------------------------------------------------------- |
 | `defaultOpen` | `boolean` | `false`     | Opens the line on the first render.                             |
-| `open`        | `boolean` | —       | The controlled open state. Omit it for uncontrolled usage; the effective initial state is closed unless `defaultOpen` is true. |
+| `open`        | `boolean` | `false` | The effective initial state is closed. Omit it for uncontrolled usage; use `v-model:open` to control it.                 |
 
 #### Events
 
