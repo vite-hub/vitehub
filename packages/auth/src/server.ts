@@ -349,7 +349,7 @@ function hasResponsePrototype(value: unknown): boolean {
 }
 
 // doctor-disable-next-line typescript/evidence/no-object-parameters -- The carrier must retain its native response methods across realms.
-async function copyAuthorizationBody(response: object, body: unknown): Promise<Uint8Array | null | undefined> {
+async function copyAuthorizationBody(body: unknown): Promise<ReadableStream<Uint8Array> | null | undefined> {
   if (body === null) return null
   if (Object(body) !== body) return
   try {
@@ -359,31 +359,7 @@ async function copyAuthorizationBody(response: object, body: unknown): Promise<U
     const clone = (globalThis.structuredClone as unknown as (value: unknown, options: { transfer: object[] }) => unknown)(body, { transfer: [body as object] })
     const getReader = Reflect.get(clone as object, "getReader")
     if (typeof getReader !== "function") return
-    const reader = Reflect.apply(getReader, clone, []) as object
-    const read = Reflect.get(reader, "read")
-    const releaseLock = Reflect.get(reader, "releaseLock")
-    if (typeof read !== "function" || typeof releaseLock !== "function") return
-    const chunks: Uint8Array[] = []
-    try {
-      while (true) {
-        const result = await Reflect.apply(read, reader, []) as { done?: unknown, value?: unknown }
-        if (result?.done) break
-        if (Object.prototype.toString.call(result?.value) !== "[object Uint8Array]") return
-        const chunk = result.value as Uint8Array
-        chunks.push(new Uint8Array(chunk))
-      }
-    }
-    finally {
-      Reflect.apply(releaseLock, reader, [])
-    }
-    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
-    const bytes = new Uint8Array(length)
-    let offset = 0
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset)
-      offset += chunk.byteLength
-    }
-    return bytes
+    return clone as ReadableStream<Uint8Array>
   }
   catch {
     return
@@ -427,7 +403,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
-    const normalizedBody = await copyAuthorizationBody(candidate, body)
+    const normalizedBody = await copyAuthorizationBody(body)
     if (normalizedBody === undefined) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
