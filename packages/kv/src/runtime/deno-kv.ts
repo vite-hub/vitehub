@@ -115,14 +115,19 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
           const key = fromDenoKey(entry.key)
           if (key?.startsWith(prefix)) keys.push(key)
         }
-        if (!iterator.cursor) return { keys }
+        if (!iterator.cursor) {
+          cursorHistories.complete(cursor)
+          return { keys }
+        }
         if (cursors.has(iterator.cursor)) {
           throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
         }
         if (!recordCursor(cursors, iterator.cursor)) {
           throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV rejected pagination after the cursor history limit was reached." })
         }
-        return { keys, cursor: cursorHistories.store(iterator.cursor, cursors) }
+        const nextCursor = cursorHistories.store(iterator.cursor, cursors)
+        cursorHistories.complete(cursor)
+        return { keys, cursor: nextCursor }
       } catch (error) {
         if (cursor) cursorHistories.restore(cursor, continuation)
         throw error

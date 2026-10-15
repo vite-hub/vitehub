@@ -73,6 +73,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
         }
         result.cursor = cursorHistories.store(page.cursor!, cursors)
       }
+      cursorHistories.complete(cursor)
       return result
     } catch (error) {
       if (cursor) cursorHistories.restore(cursor, continuation)

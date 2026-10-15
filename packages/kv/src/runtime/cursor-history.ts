@@ -3,7 +3,7 @@ const MAX_CURSORS_PER_HISTORY = 1_024
 const MAX_CURSOR_LENGTH = 8 * 1_024
 const MAX_CONTINUATION_LENGTH = 128 * 1_024
 type CursorHistory = Set<string>
-interface Continuation { providerCursor: string | undefined, history: CursorHistory }
+interface Continuation { providerCursor: string | undefined, history: CursorHistory, epoch?: number }
 
 function continuationTag(value: string): string {
   const hashes = [2166136261, 2246822519, 3266489917, 668265263]
@@ -33,6 +33,8 @@ const continuations = new Map<string, Continuation>()
 /** Keeps continuation history tied to an opaque, traversal-owned token. */
 export function createCursorHistory() {
   const ownedContinuations = new Set<string>()
+  const consumedContinuations = new Map<string, Continuation>()
+  let epoch = 0
   function take(cursor: string): Continuation {
     const continuation = continuations.get(cursor)
     if (!continuation) {
@@ -40,15 +42,19 @@ export function createCursorHistory() {
       if (cursor.length > MAX_CURSOR_LENGTH) {
         throw new Error("ViteHub continuation cursor is invalid or exceeds the maximum size.")
       }
-      return { providerCursor: cursor, history: new Set([cursor]) }
+      // A competing request for the same token invalidates any in-flight
+      // restoration owned by the previous request.
+      consumedContinuations.delete(cursor)
+      return { providerCursor: cursor, history: new Set([cursor]), epoch }
     }
     continuations.delete(cursor)
     ownedContinuations.delete(cursor)
+    consumedContinuations.set(cursor, continuation)
     return continuation
   }
   function store(providerCursor: string, history: CursorHistory): string {
     const token = encodeContinuation(providerCursor, history)
-    continuations.set(token, { providerCursor, history })
+    continuations.set(token, { providerCursor, history, epoch })
     ownedContinuations.add(token)
     while (continuations.size > MAX_CURSOR_HISTORIES) {
       const oldest = continuations.keys().next().value as string | undefined
@@ -59,14 +65,21 @@ export function createCursorHistory() {
     return token
   }
   function restore(cursor: string, continuation: Continuation): void {
+    if (continuation.epoch !== epoch || consumedContinuations.get(cursor) !== continuation) return
     continuations.set(cursor, continuation)
     ownedContinuations.add(cursor)
+    consumedContinuations.delete(cursor)
+  }
+  function complete(cursor: string | undefined): void {
+    if (cursor) consumedContinuations.delete(cursor)
   }
   function clear(): void {
+    epoch++
     for (const token of ownedContinuations) continuations.delete(token)
     ownedContinuations.clear()
+    consumedContinuations.clear()
   }
-  return { take, store, restore, clear }
+  return { take, store, restore, complete, clear }
 }
 
 /** Records a provider cursor, refusing to weaken repeat detection at the bound. */
