@@ -153,10 +153,13 @@ describe("Blob reference schemas", () => {
     expect(contentType.test("Image/SVG+XML; charset=utf-8")).toBe(true)
     expect(contentType.test("  IMAGE/PNG  ")).toBe(true)
     expect(contentType.test("image/png ; charset=utf-8")).toBe(true)
+    expect(contentType.test("image/png; parameter=one\nparameter=two")).toBe(true)
+    expect(contentType.test("image/\n")).toBe(true)
     expect(contentType.test("application/pdf")).toBe(false)
     const svg = file({ accept: "image/svg+xml" })
     const svgPattern = (svg["~standard"].jsonSchema.input({ target: "draft-07" }) as { properties: { contentType: { pattern: string } } }).properties.contentType.pattern
     expect(new RegExp(svgPattern).test("image/svg+xml; charset=utf-8")).toBe(true)
+    expect(new RegExp(svgPattern).test("image/svg+xml; charset=\nutf-8")).toBe(true)
     expect(new RegExp(svgPattern).test("image/svgxml")).toBe(false)
   })
 
