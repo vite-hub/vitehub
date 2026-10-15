@@ -14,7 +14,7 @@ import {
 import { describeWorkspaceContribution } from "./contributions.ts"
 import { workspaceAgentPattern, workspaceConfigFileNames, workspaceConfigPattern, workspaceSuffixPattern } from "./workspace-config.ts"
 
-import type { CollectedWorkspaceContribution, WorkspaceContribution } from "./contributions.ts"
+import type { CollectedWorkspaceContribution } from "./contributions.ts"
 
 import type { DefinitionCatalogSource } from "@vite-hub/internal/definition-catalog"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
@@ -28,6 +28,8 @@ export interface DiscoveredWorkspaceDefinition {
   name: string
   /** Absolute file path, or the package specifier of a contributed definition. */
   path: string
+  /** Why the plugin contributed the definition. Only set for contributed definitions. */
+  reason?: string
   source?: string
   sourceRootDir?: string
 }
@@ -163,26 +165,28 @@ export function discoverServerWorkspaceDefinitions(rootDir: string): DiscoveredW
 
 export interface ViteWorkspaceDiscoveryOptions {
   /** Workspace Definitions that Vite plugins contribute. See `collectWorkspaceContributions()`. */
-  contributions?: readonly (WorkspaceContribution | CollectedWorkspaceContribution)[]
+  contributions?: readonly CollectedWorkspaceContribution[]
   serverDirs?: string[]
   serverRootDir?: string
 }
 
-function createContributedWorkspaceDefinition(contribution: WorkspaceContribution & { contributor?: string }): DiscoveredWorkspaceDefinition {
+function createContributedWorkspaceDefinition(contribution: CollectedWorkspaceContribution): DiscoveredWorkspaceDefinition {
+  const { export: exportName, module } = contribution.definition
   const definition: DiscoveredWorkspaceDefinition = {
-    handler: contribution.module,
+    contributor: contribution.plugin,
+    handler: module,
     name: contribution.name,
-    path: contribution.module,
+    path: module,
     source: contributedWorkspaceSource,
   }
-  if (contribution.contributor) definition.contributor = contribution.contributor
-  if (contribution.export && contribution.export !== "default") definition.export = contribution.export
+  if (exportName !== "default") definition.export = exportName
+  if (contribution.reason) definition.reason = contribution.reason
   return definition
 }
 
 function mergeContributedWorkspaceDefinitions(
   discovered: DiscoveredWorkspaceDefinition[],
-  contributions: readonly (WorkspaceContribution & { contributor?: string })[] | undefined,
+  contributions: readonly CollectedWorkspaceContribution[] | undefined,
 ): DiscoveredWorkspaceDefinition[] {
   if (!contributions?.length) return discovered
   const definitions = new Map(discovered.map(definition => [definition.name, definition]))
@@ -190,7 +194,7 @@ function mergeContributedWorkspaceDefinitions(
     const existing = definitions.get(contribution.name)
     if (existing) {
       const first = existing.source === contributedWorkspaceSource
-        ? describeWorkspaceContribution({ contributor: existing.contributor, export: existing.export, module: existing.handler, name: existing.name })
+        ? describeWorkspaceContribution({ definition: { export: existing.export ?? "default", module: existing.handler }, plugin: existing.contributor ?? "unnamed plugin" })
         : existing.handler
       throw workspaceErrorDiagnostics.WORKSPACE_B0003({ message: `[vitehub] Workspace "${contribution.name}" is defined more than once:\n  - ${first}\n  - ${describeWorkspaceContribution(contribution)}\nRename or remove one definition. Each Workspace name must have one definition.` })
     }

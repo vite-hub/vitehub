@@ -87,7 +87,7 @@ describe("Definition inspection parity", () => {
     await writeProjectFile(root, "server/workspaces/docs.ts", "export default defineWorkspace({ store: { provider: 'memory' } })\n")
     const contentOwner = {
       name: "content-owner/vite",
-      vitehub: { workspaces: () => [{ export: "contentWorkspace", module: "content-owner/workspace", name: "content" }] },
+      vitehub: { workspaces: () => [{ definition: { export: "contentWorkspace", module: "content-owner/workspace" }, name: "content" }] },
     }
 
     const config = await resolveConfig({

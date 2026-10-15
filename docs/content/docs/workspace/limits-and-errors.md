@@ -10,7 +10,7 @@ These limits and recovery steps apply to Workspace Stores.
 
 ## Workspace discovery
 
-Each Workspace name has one definition. A discovered file and a [contributed Workspace](/docs/workspace/configure#contribute-workspace-definitions-from-a-package) with the same name, or two different contributions with one name, fail the build with `WORKSPACE_B0003`. A contribution without a `name` or `module` string, with a relative `module`, or with an empty `export` fails with `WORKSPACE_B0004`.
+Each Workspace name has one definition. A discovered file and a [contributed Workspace](/docs/workspace/configure#contribute-workspace-definitions-from-a-package) with the same name, or two different contributions with one name, fail the build with `WORKSPACE_B0003`. A contribution that is not `{ name, definition: { module, export? }, reason? }`, or that has a relative `definition.module`, fails with `WORKSPACE_B0004`.
 
 ## Retained history
 
