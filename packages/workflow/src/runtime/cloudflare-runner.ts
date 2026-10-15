@@ -26,29 +26,23 @@ export interface RunCloudflareWorkflowOptions {
 function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
   if (!hasRuntimeType(error, "object") || error === null) return false
   try {
-    if (error instanceof Error) return Reflect.get(error, "isRetryable") === false
-    const nativeIsError: unknown = Reflect.get(Error, "isError")
-    const branded = hasRuntimeType(nativeIsError, "function") ? (nativeIsError as (value: unknown) => unknown)(error) === true : (() => {
-      const tag = typeof Symbol === "function" ? Symbol.toStringTag : undefined
-      if (tag === undefined) return false
-      const ownTag = Object.getOwnPropertyDescriptor(error as object, tag)
-      if (ownTag && !ownTag.configurable) {
-        if (ownTag.value !== "Error") return false
-        return hasNativeErrorSlots(error as object)
-      }
-      if (!ownTag && !Object.isExtensible(error as object)) return hasNativeErrorSlots(error as object)
-      Object.defineProperty(error as object, tag, { configurable: true, enumerable: false, value: undefined, writable: true })
-      try { return Object.prototype.toString.call(error) === "[object Error]" }
-      finally { if (ownTag) Object.defineProperty(error as object, tag, ownTag); else Reflect.deleteProperty(error as object, tag) }
-    })()
-    return branded && Reflect.get(error as object, "isRetryable") === false
-  } catch { return false }
-}
+    const retryable = Reflect.get(error, "isRetryable")
+    if (retryable !== false) return false
+    if (error instanceof Error) return true
 
-function hasNativeErrorSlots(error: object): boolean {
-  const stack = Object.getOwnPropertyDescriptor(error, "stack")
-  const message = Object.getOwnPropertyDescriptor(error, "message")
-  return stack?.configurable === true || message?.configurable === true
+    const nativeIsError: unknown = Reflect.get(Error, "isError")
+    if (hasRuntimeType(nativeIsError, "function")) {
+      return (nativeIsError as (value: unknown) => unknown)(error) === true
+    }
+
+    const clone = Reflect.get(globalThis, "structuredClone")
+    if (!hasRuntimeType(clone, "function")) return false
+    const cloned = (clone as (value: unknown) => unknown)(error)
+    return cloned instanceof Error
+  }
+  catch {
+    return false
+  }
 }
 function translateNonRetryableError(
   error: unknown,
