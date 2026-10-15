@@ -17,14 +17,18 @@ import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createContentCliContributor, runContentCli } from "../src/cli.ts"
 import { contentDevHeader, contentDevHeaderValue, contentDevRoute, contentDevRuntimeRoute } from "../src/dev.ts"
-import { defineContent, documents } from "../src/index.ts"
+import { contentSessionsSchema } from "../src/database.ts"
+import { defineContent, documents, singleton } from "../src/index.ts"
 import { handleContentDevRequest } from "../src/runtime/dev.ts"
 import { contentDevRuntimeUnavailableMessage, hubContent } from "../src/vite.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { ContentCliOptions } from "../src/cli.ts"
 
-const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
+const migration = [
+  await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8"),
+  await readFile(new URL("./fixtures/sessions.sql", import.meta.url), "utf8"),
+].join(";\n")
 const cleanup: Array<() => Promise<void> | void> = []
 let workspaces = 0
 const rootDir = "/app"
@@ -45,7 +49,7 @@ async function historyWorkspace(): Promise<string> {
   const root = await tempDir("vitehub-content-cli-")
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
-  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const database = drizzle(client, { schema: { ...workspaceHistorySchema, ...contentSessionsSchema } })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const workspace = `site-cli-${++workspaces}`
@@ -127,8 +131,8 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     const json = await run("collections", "--json")
     expect(JSON.parse(json.stdout)).toEqual({
       collections: [
-        { name: "posts", path: "posts/**/*.md", fields: ["title", "tags"], documents: 2, states: { draft: 1, published: 1, changed: 0, deleted: 0 } },
-        { name: "pages", path: "pages/*.md", fields: ["title"], documents: 0, states: { draft: 0, published: 0, changed: 0, deleted: 0 } },
+        { name: "posts", kind: "documents", label: "Posts", path: "posts/**/*.md", format: "markdown", fields: ["title", "tags"], titleField: "title", documents: 2, states: { draft: 1, published: 1, changed: 0, deleted: 0 } },
+        { name: "pages", kind: "documents", label: "Pages", path: "pages/*.md", format: "markdown", fields: ["title"], titleField: "title", documents: 0, states: { draft: 0, published: 0, changed: 0, deleted: 0 } },
       ],
     })
   })
@@ -217,7 +221,7 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(await run("diff", "posts", "hello")).toEqual({ code: 0, stderr: "No changes: posts/hello is published as drafted.\n", stdout: "" })
     const missing = await run("diff", "posts")
     expect(missing.code).toBe(1)
-    expect(missing.stderr).toContain("Missing id.")
+    expect(missing.stderr).toContain("The diff operation requires a document id.")
   })
 
   it("diffs documents whose frontmatter no longer validates", async () => {
@@ -226,9 +230,10 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     await content.publish()
     await posts.save("hello", { ...hello, data: { title: "Renamed", tags: [] } })
     await content.dispose()
-    // The field changed after the documents were written, so get() rejects both versions.
+    // The field changed after the documents were written: the draft reads with issues, and the published version throws.
     const drifted = contentOn(workspace, z.literal("Only this title"))
-    await expect(drifted.collection("posts").get("hello", { ref: "draft" })).rejects.toMatchObject({ code: "CONTENT_INVALID" })
+    expect(await drifted.collection("posts").get("hello", { ref: "draft" })).toMatchObject({ issues: [expect.objectContaining({ field: "title" })] })
+    await expect(drifted.collection("posts").get("hello", { ref: "published" })).rejects.toMatchObject({ code: "CONTENT_INVALID" })
 
     const diff = await cli(drifted).run("diff", "posts", "hello")
     expect(diff.code).toBe(0)
@@ -340,6 +345,231 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(JSON.parse(retried.stdout)).toMatchObject({ dryRun: false, documents: [{ collection: "posts", id: "hello", change: "add" }, { collection: "pages", id: "about", change: "add" }] })
   })
 
+  it("lists and shows documents with titles and field issues", async () => {
+    const { content, posts } = await setup()
+    await posts.save("hello", hello)
+    await posts.save("broken", { data: { title: "", tags: [] } })
+    await content.publish({ collection: "posts", ids: ["hello"] })
+    const { run } = cli(content)
+
+    expect(await run("list", "posts")).toEqual({
+      code: 0,
+      stderr: "",
+      stdout: "draft      broken  (1 issue)\npublished  hello   Hello\n",
+    })
+    expect(JSON.parse((await run("list", "posts", "--ref", "published", "--json")).stdout)).toMatchObject({
+      collection: "posts", ref: "published", total: 1, items: [{ id: "hello", title: "Hello", state: "published" }],
+    })
+    expect((await run("list", "posts", "--search", "hel")).stdout).toBe("published  hello  Hello\n")
+
+    const shown = await run("show", "posts", "broken")
+    expect(shown.code).toBe(0)
+    expect(shown.stdout).toBe("---\ntitle: \"\"\ntags: []\n---\n")
+    expect(shown.stderr).toBe("posts/broken has 1 field issue on draft:\n  title: Too small: expected string to have >=1 characters\n")
+    expect(JSON.parse((await run("show", "posts", "hello", "--ref", "published", "--json")).stdout)).toMatchObject({
+      collection: "posts", id: "hello", path: "posts/hello.md", ref: "published", digest: expect.any(String), text: expect.stringContaining("title: Hello\n"), status: { state: "published" },
+    })
+    expect(JSON.parse((await run("show", "posts", "nope", "--json")).stdout)).toMatchObject({ error: { code: "CONTENT_NOT_FOUND" } })
+    expect(JSON.parse((await run("status", "posts", "broken", "--json")).stdout)).toMatchObject({ documents: [{ id: "broken", issues: 1 }] })
+    expect((await run("status", "posts")).stdout).toContain("draft      posts/broken  (1 issue)\n")
+  })
+
+  it("saves drafts from a file or an editor and reports field issues", async () => {
+    const { content, posts } = await setup()
+    const root = await tempDir("vitehub-content-edit-")
+    const file = join(root, "hello.md")
+    await writeFile(file, "---\ntitle: Hello\ntags: [vue]\n---\n\nFrom a file.\n")
+    const { run } = cli(content)
+
+    const created = await run("edit", "posts", "hello", "--file", file, "--message", "Write hello")
+    expect(created.code).toBe(0)
+    const saved = (await posts.get("hello", { ref: "draft" }))!
+    expect(saved).toMatchObject({ data: { title: "Hello", tags: ["vue"] }, body: "From a file.\n" })
+    expect(created).toEqual({ code: 0, stderr: "", stdout: `Saved posts/hello to the draft as ${saved.digest.slice(0, 12)}.\n` })
+    const [revision] = (await content.revisions("posts", "hello")).revisions
+    expect(revision).toMatchObject({ message: "Write hello", metadata: { source: "cli" } })
+
+    // Drafts accept invalid fields; the CLI saves them and names each issue.
+    await writeFile(file, "---\ntitle: \"\"\n---\n")
+    const invalid = await run("edit", "posts", "hello", "--file", file)
+    expect(invalid.code).toBe(0)
+    expect(invalid.stderr).toBe("The draft has 1 field issue. Publishing refuses it until they are fixed:\n  title: Too small: expected string to have >=1 characters\n")
+    expect(JSON.parse((await run("edit", "posts", "hello", "--file", file, "--json")).stdout)).toMatchObject({ collection: "posts", id: "hello", issues: [{ field: "title" }] })
+
+    const stale = await run("edit", "posts", "hello", "--file", file, "--if-digest", saved.digest)
+    expect(stale.code).toBe(1)
+    expect(stale.stderr).toContain("Nothing was saved. posts/hello changed after you opened it")
+    expect((await run("edit", "posts", "hello", "--if-digest", saved.digest)).stderr).toContain("--if-digest requires --file.")
+
+    // The editor gets the stored file; the save pins the digest it opened.
+    const editor = vi.fn(async (path: string) => {
+      expect(path.endsWith("hello.md")).toBe(true)
+      await writeFile(path, (await readFile(path, "utf8")).replace("title: \"\"", "title: Edited"))
+    })
+    const edited = await cli(content, { editor }).run("edit", "posts", "hello")
+    expect(edited.code).toBe(0)
+    expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Edited" } })
+    expect(await cli(content, { editor: async () => {} }).run("edit", "posts", "hello")).toEqual({ code: 0, stderr: "No changes: posts/hello was not saved.\n", stdout: "" })
+
+    // A new document starts from a template with every field.
+    const fresh = vi.fn(async (path: string) => {
+      expect(await readFile(path, "utf8")).toBe("---\ntitle: null\ntags: null\n---\n")
+      await writeFile(path, "---\ntitle: Fresh\n---\n")
+    })
+    expect((await cli(content, { editor: fresh }).run("edit", "posts", "fresh")).code).toBe(0)
+    expect(await posts.get("fresh", { ref: "draft" })).toMatchObject({ data: { title: "Fresh", tags: [] } })
+
+    // A save during the edit keeps the edit in a file and names it.
+    const late = await cli(content, {
+      editor: async (path) => {
+        await posts.save("hello", { data: { title: "Elsewhere" } })
+        await writeFile(path, "---\ntitle: Mine\n---\n")
+      },
+    }).run("edit", "posts", "hello")
+    expect(late.code).toBe(1)
+    const kept = /Your edit is kept in (\S+)\. Save it with `vitehub content edit posts hello --file \1`\./.exec(late.stderr)?.[1]
+    expect(await readFile(kept!, "utf8")).toBe("---\ntitle: Mine\n---\n")
+    await rm(join(kept!, ".."), { recursive: true, force: true })
+    expect((await cli(undefined).run("edit", "posts", "hello")).stderr).toContain("needs --file <path> or an interactive terminal")
+  })
+
+  it("honours edit leases unless --override-lease", async () => {
+    const { content, posts } = await setup()
+    await posts.save("hello", hello)
+    await content.sessions.acquire("posts", "hello", { session: "tab-ana-0001", user: { id: "ana", name: "Ana" } })
+    const root = await tempDir("vitehub-content-lease-")
+    const file = join(root, "hello.md")
+    await writeFile(file, "---\ntitle: From the CLI\n---\n")
+    const { run } = cli(content)
+
+    const held = await run("edit", "posts", "hello", "--file", file)
+    expect(held.code).toBe(1)
+    expect(held.stderr).toMatch(/^Nothing was saved\. Ana holds the edit lease since \S+ on posts\/hello\.\nWait until they finish, or pass --override-lease to save anyway\.\n$/)
+    expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Hello" } })
+    expect(JSON.parse((await run("edit", "posts", "hello", "--file", file, "--json")).stdout)).toMatchObject({
+      error: { code: "CONTENT_LEASE_HELD", details: { collection: "posts", id: "hello", holder: { kind: "edit", user: { id: "ana", name: "Ana" } } } },
+    })
+
+    expect((await run("edit", "posts", "hello", "--file", file, "--override-lease")).code).toBe(0)
+    expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "From the CLI" } })
+  })
+
+  it("works with singletons", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      workspace,
+      collections: {
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() } }),
+        settings: singleton({ path: "settings.json", label: "Site settings", fields: { title: z.string().min(1), social: z.array(z.string()).default([]) } }),
+      },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const settings = content.collection("settings")
+    const root = await tempDir("vitehub-content-singleton-")
+    const file = join(root, "settings.json")
+    await writeFile(file, `${JSON.stringify({ title: "ViteHub" })}\n`)
+    const { run } = cli(content)
+
+    expect((await run("edit", "settings", "--file", file)).code).toBe(0)
+    expect(await settings.get({ ref: "draft" })).toMatchObject({ data: { title: "ViteHub", social: [] } })
+    expect((await run("collections")).stdout).toContain("settings  settings.json  singleton\n  Fields: title, social\n  Documents: 1 (1 draft)\n")
+    expect(JSON.parse((await run("collections", "--json")).stdout).collections[1]).toMatchObject({ name: "settings", kind: "singleton", label: "Site settings", format: "json", id: "settings" })
+    expect(await run("list", "settings")).toMatchObject({ code: 0, stdout: "draft  settings  Site settings\n" })
+    expect((await run("show", "settings")).stdout).toBe("{\n  \"title\": \"ViteHub\"\n}\n")
+    expect((await run("status", "settings")).stdout).toBe("draft  settings/settings\n")
+    expect((await run("diff", "settings")).stdout).toContain("--- /dev/null\n+++ draft/settings.json\n")
+
+    const published = await cli(content, { confirm: async () => true }).run("publish", "--collection", "settings")
+    expect(published.code).toBe(0)
+    expect(published.stdout).toContain("  add     settings/settings\n")
+    expect(await settings.get()).toMatchObject({ data: { title: "ViteHub" } })
+    expect(JSON.parse((await run("revisions", "settings", "--ref", "published", "--json")).stdout)).toMatchObject({ collection: "settings", id: "settings", revisions: [{ ref: "published" }] })
+  })
+
+  it("refuses to publish drafts with field issues and names each issue", async () => {
+    const { content, posts } = await setup()
+    await posts.save("hello", hello)
+    await posts.save("broken", { data: { title: "", tags: [] } })
+    const confirm = vi.fn(async () => true)
+
+    expect((await cli(content).run("publish", "--dry-run")).stdout).toContain("  add     posts/broken  ")
+    expect((await cli(content).run("publish", "--dry-run")).stdout).toContain("  (1 issue)\n")
+    const refused = await cli(content, { confirm }).run("publish")
+    expect(confirm).not.toHaveBeenCalled()
+    expect(refused).toEqual({
+      code: 1,
+      stderr: [
+        "Nothing was published. 1 draft has invalid fields:",
+        "  posts/broken",
+        "    title: Too small: expected string to have >=1 characters",
+        "Fix them with `vitehub content edit <collection> <id>`, then run the command again.",
+        "",
+      ].join("\n"),
+      stdout: "",
+    })
+    expect(await posts.status("hello")).toMatchObject({ state: "draft" })
+    expect(JSON.parse((await cli(content).run("publish", "--json")).stdout)).toMatchObject({
+      error: { code: "CONTENT_INVALID", details: { documents: [{ collection: "posts", id: "broken", issues: [{ field: "title" }] }] } },
+    })
+  })
+
+  it("schedules reviewed drafts, lists schedules, and unschedules them", async () => {
+    const { content, pages, posts } = await setup()
+    const listed = await posts.save("hello", hello)
+    await pages.save("about", { data: { title: "About" } })
+    const at = new Date(Date.now() + 3_600_000).toISOString()
+    const { run } = cli(content, { confirm: async () => true })
+
+    expect((await run("schedule", "--collection", "posts")).stderr).toContain("Missing --at.")
+    expect(await run("schedule", "--collection", "posts", "--dry-run", "--at", at)).toEqual({
+      code: 0, stderr: "", stdout: `Would schedule 1 document at ${at}:\n  add     posts/hello  ${listed.digest.slice(0, 12)}\n`,
+    })
+    const scheduled = await run("schedule", "--collection", "posts", "--at", at, "--message", "Launch")
+    expect(scheduled.code).toBe(0)
+    const [schedule] = await content.schedules()
+    expect(schedule).toMatchObject({ at, message: "Launch", metadata: { source: "cli" }, expect: [{ collection: "posts", id: "hello", digest: listed.digest }] })
+    expect(scheduled.stdout).toBe(`Scheduled 1 document for ${at} as ${schedule!.id}.\nCancel it with \`vitehub content unschedule ${schedule!.id}\`.\n`)
+    expect((await run("status", "posts")).stdout).toBe(`draft  posts/hello  (scheduled ${at})\n`)
+
+    expect(await run("scheduled")).toEqual({ code: 0, stderr: "", stdout: `pending  ${at}  ${schedule!.id}  posts/hello\n` })
+    expect(JSON.parse((await run("scheduled", "pages", "--json")).stdout)).toEqual({ schedules: [] })
+    expect((await run("scheduled", "--status", "failed")).stderr).toBe("No schedules.\n")
+    const past = await run("schedule", "--collection", "pages", "--at", "2020-01-01T00:00:00Z", "--json")
+    expect(JSON.parse(past.stdout)).toMatchObject({ error: { code: "CONTENT_R0011" } })
+
+    // A save after scheduling makes the run fail; the list shows why.
+    await posts.save("hello", { ...hello, body: "Changed after review.\n" })
+    await content.publishDue({ now: new Date(Date.parse(at) + 1_000) })
+    const failed = await run("scheduled", "--status", "failed")
+    expect(failed.stdout).toBe(`failed  ${at}  ${schedule!.id}  posts/hello\n  WORKSPACE_CONFLICT: Content changed on the draft after it was reviewed, so publish() published nothing:\n`)
+
+    expect(await run("unschedule", schedule!.id)).toEqual({ code: 0, stderr: "", stdout: `Removed schedule ${schedule!.id}. Nothing it named was published.\n` })
+    expect(await content.schedules()).toEqual([])
+    expect(JSON.parse((await run("unschedule", schedule!.id, "--json")).stdout)).toMatchObject({ error: { code: "CONTENT_NOT_FOUND" } })
+  })
+
+  it("prints the sitemap", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      workspace,
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }) },
+      seo: { site: "https://example.com" },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const { run } = cli(content)
+    expect(await run("sitemap")).toMatchObject({ code: 0, stdout: "" })
+    await content.collection("posts").save("hello", { data: { title: "Hello" } })
+    await content.publish()
+
+    const urls = await run("sitemap")
+    expect(urls.stdout).toMatch(/^https:\/\/example\.com\/blog\/hello  \S+\n$/)
+    expect((await run("sitemap", "--site", "https://vitehub.dev")).stdout).toMatch(/^https:\/\/vitehub\.dev\/blog\/hello/)
+    expect((await run("sitemap", "--xml")).stdout).toContain("<loc>https://example.com/blog/hello</loc>")
+    expect(JSON.parse((await run("sitemap", "--json")).stdout)).toMatchObject({ entries: [{ collection: "posts", id: "hello", loc: "https://example.com/blog/hello" }] })
+  })
+
   it("explains when no Vite + Nitro Development Server is reachable", async () => {
     const run = async (fetch: typeof globalThis.fetch, ...args: string[]) => {
       const stdout = stream()
@@ -365,10 +595,10 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(help.code).toBe(0)
     expect(help.stdout).toContain("Usage: vitehub content publish [--collection <name>] [--id <id>...] [--message <text>] [--dry-run] [--yes] [--json] [--url <url>]")
     expect(help.stdout).toContain("It does not reach a deployed app.")
-    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, status, diff, revisions, publish\n")
+    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, publish, schedule, scheduled, unschedule, sitemap\n")
     const [namespace] = createContentCliContributor().namespaces
     expect(namespace?.name).toBe("content")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "status", "diff", "revisions", "publish"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "publish", "schedule", "scheduled", "unschedule", "sitemap"])
   })
 })
 

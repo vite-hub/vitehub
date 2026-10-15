@@ -94,8 +94,8 @@ icon: i-lucide-file-text
   Presence and edit leases in the history Database. Writes from anyone else fail with `CONTENT_LEASE_HELD`.
   :::
 
-  :::product-feature-item{title="Check and publish drafts from the terminal" icon="i-lucide-terminal-square" to="/docs/content/cli"}
-  `vitehub content` shows status, diffs drafts against published documents, and publishes through the running dev server.
+  :::product-feature-item{title="Edit, publish, and schedule from the terminal" icon="i-lucide-terminal-square" to="/docs/content/cli"}
+  `vitehub content` lists, edits, and diffs drafts, then publishes or schedules exactly what you reviewed through the running dev server.
   :::
 
   :::product-feature-item{title="Documents, navigation, and search from server code" icon="i-lucide-code-2" to="/docs/content/server-api"}

@@ -103,7 +103,7 @@ export default defineEventHandler(async (event) => {
 | `content.sitemap(options?)` | The [sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents with a URL. |
 | `content.robots(options?)` | The robots.txt text for `defineContent({ seo: { robots } })`. |
 
-To inspect or publish collections from a terminal during development, use [`vitehub content`](/docs/content/cli).
+To read, edit, publish, or schedule documents from a terminal during development, use [`vitehub content`](/docs/content/cli).
 
 A document is `{ collection, id, path, data, body, digest, revision, updatedAt }`. `path` is the Workspace file, `data` holds each field's validated output, and `digest` is the SHA-256 of the file bytes. `body` is the Markdown body, always empty for JSON and YAML documents. `revision` is the history revision the document was read from. A collection with a [`url`](/docs/content/seo#document-urls) adds `url`, the document's public path or `null`.
 

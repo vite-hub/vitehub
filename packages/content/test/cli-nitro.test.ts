@@ -124,6 +124,10 @@ describe("vitehub content against a Vite + Nitro Development Server", () => {
       expect(published.stdout).toMatch(/^Published 1 document in revision \S+:\n {2}add {5}posts\/hello\n$/)
       expect(await run("status")).toEqual({ code: 0, stderr: "", stdout: "published  posts/hello\n" })
       expect((await run("revisions", "posts", "hello", "--ref", "published")).stdout).toContain("  publish  Publish 1 Content document\n")
+      await writeFile(join(root, "edit.md"), "---\ntitle: Edited\n---\n\nFrom the CLI.\n")
+      expect((await run("edit", "posts", "hello", "--file", "edit.md")).stdout).toMatch(/^Saved posts\/hello to the draft as \S+\.\n$/)
+      expect(await run("list", "posts")).toEqual({ code: 0, stderr: "", stdout: "changed  hello  Edited\n" })
+      expect((await run("show", "posts", "hello")).stdout).toBe("---\ntitle: Edited\n---\n\nFrom the CLI.\n")
     }
     finally {
       await server.close()
