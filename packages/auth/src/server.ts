@@ -395,6 +395,16 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
       const descriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
       if (descriptor) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        // A name-only constructor is easy to spoof and does not establish a
+        // native stream brand. Genuine stream prototypes own this link.
+        if (typeof constructor !== "function" || constructor.prototype !== prototype) return
+        const locked = Object.getOwnPropertyDescriptor(prototype, "locked")
+        const nativeShape = locked?.get
+          && Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
+          && Object.getOwnPropertyDescriptor(prototype, "tee")?.value
+          && Object.getOwnPropertyDescriptor(prototype, "pipeTo")?.value
+          && Object.getOwnPropertyDescriptor(prototype, "pipeThrough")?.value
+        if (typeof nativeShape !== "function") return
         // A reader on an intermediate prototype can shadow the stream
         // implementation. Genuine stream prototypes have no second reader
         // further up their chain, so reject shadowed methods before invoking.
