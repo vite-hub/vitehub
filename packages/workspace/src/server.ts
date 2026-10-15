@@ -117,15 +117,17 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
 type WorkspaceDevHeaders = Headers | Record<string, string | string[] | undefined> | { get(name: string): string | null }
 
 function headerValue(headers: WorkspaceDevHeaders, name: string): string | undefined {
-  const tag = Object.prototype.toString.call(headers)
   const prototype = Object.getPrototypeOf(headers)
-  const constructor = prototype && Reflect.get(prototype, "constructor")
+  const constructor = prototype
+    ? Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    : undefined
   // `Symbol.toStringTag` is user-controllable, so it cannot establish the
   // Headers brand on its own. A genuine cross-realm Headers instance exposes
   // its own constructor on the prototype; use that signal before invoking any
   // inherited getter.
   const isCrossRealmHeaders = hasRuntimeType(constructor, "function")
     && Reflect.get(constructor, "name") === "Headers"
+    && /^function\s+Headers\(\)\s*\{\s*\[native code\]\s*\}$/.test(Function.prototype.toString.call(constructor))
     && Reflect.get(constructor, "prototype") === prototype
   if (isCrossRealmHeaders) {
     const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
