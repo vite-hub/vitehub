@@ -1,4 +1,5 @@
 import { isStandardSchema, standardIssuePath, standardJsonSchema, standardJsonSchemaDateOptions } from "@vite-hub/internal/standard-schema"
+import { withValibotJsonSchema } from "@vite-hub/internal/valibot"
 import { ViteHubError } from "@vite-hub/runtime"
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml"
 
@@ -7,7 +8,10 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { JsonSchema } from "comark-content"
 
-/** One frontmatter field: any Standard Schema validator, such as Zod, Valibot, ArkType, or a ViteHub Blob `image()`. */
+/**
+ * One frontmatter field: any Standard Schema validator, such as Zod, Valibot, ArkType, or `image()`. Plain Valibot
+ * schemas need no wrapper: Content adds the JSON Schema that forms and tools read.
+ */
 export type ContentField = StandardSchemaV1
 
 /** Frontmatter fields keyed by name. Each value validates one field, so validators from different libraries mix. */
@@ -178,15 +182,20 @@ export interface SingletonDefinition<TFields extends ContentFields = ContentFiel
 /** Any entry of `defineContent({ collections })`. */
 export type ContentCollectionDefinition<TFields extends ContentFields = ContentFields> = DocumentsDefinition<TFields> | SingletonDefinition<TFields>
 
-function assertFields(helper: string, path: string, fields: unknown): void {
+/** Check the fields and give plain Valibot schemas the JSON Schema they lack, so forms and tools see their shape. */
+function definitionFields<TFields extends ContentFields>(helper: string, path: string, fields: TFields): TFields {
   if (Object(fields) !== fields || Array.isArray(fields)) {
     throw invalidDefinition(`${helper}(${JSON.stringify(path)}) requires fields: a record of Standard Schema validators.`)
   }
-  for (const [name, field] of Object.entries(fields as Record<string, unknown>)) {
+  const checked: Record<string, ContentField> = {}
+  for (const [name, field] of Object.entries(fields)) {
     if (!isStandardSchema(field)) {
-      throw invalidDefinition(`${helper}(${JSON.stringify(path)}) field ${JSON.stringify(name)} must be a Standard Schema validator, such as z.string().`)
+      throw invalidDefinition(`${helper}(${JSON.stringify(path)}) field ${JSON.stringify(name)} must be a Standard Schema validator, such as z.string() or v.string().`)
     }
+    checked[name] = withValibotJsonSchema(field)
   }
+  // SAFETY: Each field keeps its validator and types; plain Valibot schemas only gain JSON Schema conversion.
+  return checked as TFields
 }
 
 /**
@@ -206,7 +215,7 @@ export function documents<const TFields extends ContentFields>(options: Document
     throw invalidDefinition(`documents() path ${JSON.stringify(options.path)} has no wildcard. Use singleton({ path: ${JSON.stringify(options.path)} }) for one document, or a glob such as 'posts/*.md'.`)
   }
   const compiled = compileDocumentsPath(options.path)
-  assertFields("documents", options.path, options.fields)
+  const fields = definitionFields("documents", options.path, options.fields)
   if (options.search !== undefined && (!Array.isArray(options.search) || options.search.some(field => String(field) !== field))) {
     throw invalidDefinition(`documents(${JSON.stringify(options.path)}) search must be a list of field names.`)
   }
@@ -214,7 +223,7 @@ export function documents<const TFields extends ContentFields>(options: Document
   const definition: { -readonly [K in keyof DocumentsDefinition<TFields>]: DocumentsDefinition<TFields>[K] } = {
     [collectionDefinition]: true,
     kind: "documents",
-    fields: options.fields,
+    fields,
     format: compiled.format,
     path: options.path,
     editing: editingOptions("documents", options.path, options.editing),
@@ -303,12 +312,12 @@ export function singleton<const TFields extends ContentFields>(options: Singleto
   if (Object(options) !== options) throw invalidDefinition("singleton() requires { path, fields }.")
   if (String(options.path) !== options.path || !options.path) throw invalidDefinition("singleton() requires a file path such as 'settings.json'.")
   const compiled = compileSingletonPath(options.path)
-  assertFields("singleton", options.path, options.fields)
+  const fields = definitionFields("singleton", options.path, options.fields)
   assertUrl("singleton", options.path, options.url, options.fields)
   const definition: { -readonly [K in keyof SingletonDefinition<TFields>]: SingletonDefinition<TFields>[K] } = {
     [collectionDefinition]: true,
     kind: "singleton",
-    fields: options.fields,
+    fields,
     format: compiled.format,
     path: compiled.path,
     editing: editingOptions("singleton", options.path, options.editing),
@@ -381,9 +390,10 @@ export function isContentCollectionDefinition(value: unknown): value is ContentC
  * fields: { cover: optional(image()) }
  */
 export function optional<TSchema extends StandardSchemaV1>(
-  schema: TSchema,
+  input: TSchema,
 ): StandardSchemaV1<StandardSchemaV1.InferInput<TSchema> | undefined, StandardSchemaV1.InferOutput<TSchema> | undefined> & StandardJSONSchemaV1 {
-  if (!isStandardSchema(schema)) throw invalidDefinition("optional() requires a Standard Schema validator.")
+  if (!isStandardSchema(input)) throw invalidDefinition("optional() requires a Standard Schema validator.")
+  const schema = withValibotJsonSchema(input)
   const inner = schema["~standard"]
   const project = (direction: "input" | "output") => (options: StandardJSONSchemaV1.Options) => standardJsonSchema(schema, direction, options.target, options.libraryOptions) ?? {}
   return {
@@ -565,19 +575,16 @@ export function untypedFields(schema: Record<string, unknown>): string[] {
 
 /**
  * Warn once per process for each collection field whose JSON Schema is empty, because forms and tools then get no
- * hint for it. Valibot schemas are the usual cause: they need `toStandardJsonSchema()` from `@valibot/to-json-schema`.
+ * hint for it, such as an async Valibot schema or a library without Standard JSON Schema.
  */
-export function warnUntypedFields(collection: string, fields: ContentFields, schema: Record<string, unknown>): void {
+export function warnUntypedFields(collection: string, schema: Record<string, unknown>): void {
   for (const field of untypedFields(schema)) {
     const key = `${collection}\0${field}`
     if (warnedUntypedFields.has(key)) continue
     warnedUntypedFields.add(key)
-    const fix = fields[field]?.["~standard"].vendor === "valibot"
-      ? "Wrap the Valibot schema in toStandardJsonSchema() from @valibot/to-json-schema"
-      : "Use a validator that has a Standard JSON Schema"
     console.warn(
       `[vitehub] Content collection ${JSON.stringify(collection)} field ${JSON.stringify(field)} has no JSON Schema, so forms and tools get no hint for it. `
-      + `${fix}. See https://vitehub.dev/docs/content/configure#json-schema`,
+      + "Use a synchronous validator that has a Standard JSON Schema, such as Zod or Valibot. See https://vitehub.dev/docs/content/configure#json-schema",
     )
   }
 }

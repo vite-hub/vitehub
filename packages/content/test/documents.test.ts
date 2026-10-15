@@ -5,7 +5,6 @@ import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { H3 } from "h3"
-import { toStandardJsonSchema } from "@valibot/to-json-schema"
 import * as v from "valibot"
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 import { z } from "zod"
@@ -17,7 +16,8 @@ import { defineCollectionHandler } from "@vite-hub/source/server"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
-import { defineContent, documents, optional } from "../src/index.ts"
+import { file as blobFile, image as blobImage } from "@vite-hub/blob/reference"
+import { defineContent, documents, file, image, optional, seo } from "../src/index.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { ContentAuthorize, ContentDocument } from "../src/index.ts"
@@ -541,18 +541,19 @@ describe("document collections", { timeout: 30_000 }, () => {
         title: { type: "string", minLength: 1 },
         date: { type: "string", format: "date-time" },
         tags: { type: "array", items: { type: "string" }, default: [] },
-        summary: {},
+        // A plain Valibot field projects without a wrapper.
+        summary: { type: "string" },
       },
       required: ["title", "date"],
     })
     expect(content.getSource("posts")?.schema).toEqual({
       type: "object",
-      properties: { title: { type: "string" }, date: { type: "string" }, tags: { type: "array", items: { type: "string" } }, summary: {} },
+      properties: { title: { type: "string" }, date: { type: "string" }, tags: { type: "array", items: { type: "string" } }, summary: { type: "string" } },
       required: ["title", "date"],
     })
   })
 
-  it("projects Valibot fields through toStandardJsonSchema() and warns once per untyped field", async () => {
+  it("projects plain Valibot fields without a wrapper and warns once per untyped field", async () => {
     const workspace = await historyWorkspace()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const define = () => defineContent({
@@ -561,10 +562,11 @@ describe("document collections", { timeout: 30_000 }, () => {
         events: documents({
           path: "events/*.md",
           fields: {
-            title: toStandardJsonSchema(v.string()),
-            day: optional(toStandardJsonSchema(v.pipe(v.string(), v.isoDate()))),
-            venue: v.string(),
+            title: v.pipe(v.string(), v.minLength(1)),
+            day: v.optional(v.pipe(v.string(), v.isoDate())),
+            venue: optional(v.string()),
             ends: optional(z.coerce.date()),
+            seats: v.pipeAsync(v.number(), v.checkAsync(async seats => seats > 0)),
             extra: z.unknown(),
           },
         }),
@@ -576,20 +578,35 @@ describe("document collections", { timeout: 30_000 }, () => {
     const events = content.collection("events")
     expect(events.schema).toEqual({
       type: "object",
-      properties: { title: { type: "string" }, day: { type: "string", format: "date" }, venue: {}, ends: { type: "string", format: "date-time" }, extra: {} },
-      required: ["title", "venue"],
+      properties: {
+        title: { type: "string", minLength: 1 },
+        day: { type: "string", format: "date" },
+        venue: { type: "string" },
+        ends: { type: "string", format: "date-time" },
+        seats: {},
+        extra: {},
+      },
+      required: ["title", "seats"],
     })
-    expect((await events.save("launch", { data: { title: "Launch", day: "2026-10-14", venue: "Online" } })).data).toEqual({ title: "Launch", day: "2026-10-14", venue: "Online" })
+    const saved = await events.save("launch", { data: { title: "Launch", day: "2026-10-14", venue: "Online", seats: 3 } })
+    expect(saved.data).toEqual({ title: "Launch", day: "2026-10-14", venue: "Online", seats: 3 })
+    expect((await events.save("empty", { data: { title: "", seats: 0 } })).issues?.map(issue => issue.field)).toEqual(["title", "seats"])
     const warnings = () => warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes("\"events\""))
     expect(warnings()).toEqual([
-      expect.stringContaining("field \"venue\" has no JSON Schema"),
+      expect.stringContaining("field \"seats\" has no JSON Schema"),
       expect.stringContaining("field \"extra\" has no JSON Schema"),
     ])
-    expect(warnings()[0]).toContain("toStandardJsonSchema() from @valibot/to-json-schema")
     expect(warnings()[1]).toContain("https://vitehub.dev/docs/content/configure#json-schema")
     const again = define()
     cleanup.push(() => again.dispose())
     expect(warnings()).toHaveLength(2)
+  })
+
+  it("covers every field helper with one import", () => {
+    expect(image).toBe(blobImage)
+    expect(file).toBe(blobFile)
+    const fields = documents({ path: "posts/*.md", fields: { cover: optional(image()), attachment: optional(file({ accept: "application/pdf" })), seo: seo({ image: image() }) } }).fields
+    expect(Object.keys(fields)).toEqual(["cover", "attachment", "seo"])
   })
 
   it("treats optional() fields as absent and accepts Standard Schemas from different libraries", async () => {

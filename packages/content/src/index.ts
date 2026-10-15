@@ -71,6 +71,9 @@ export type {
 } from "./sessions.ts"
 export { documents, optional, singleton } from "./documents.ts"
 export { contentSeoLengths, seo } from "./seo.ts"
+// Blob owns the reference schemas. Content re-exports them so one import covers every field helper.
+export { file, image } from "@vite-hub/blob/reference"
+export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob/reference"
 export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
 export { contentHead, defaultContentImageUrl } from "./head.ts"
 export type {

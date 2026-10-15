@@ -755,7 +755,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     const format = compiled.format
     const fieldNames = new Set(Object.keys(definition.fields))
     const schema = fieldsJsonSchema(definition.fields)
-    warnUntypedFields(name, definition.fields, schema)
+    warnUntypedFields(name, schema)
     const comarkSchema: JsonSchema = comarkJsonSchema(schema)
     const parsedTexts = new BoundedCache<Promise<ParsedText>>(10_000)
     const sessionCollection: SessionCollection = {
