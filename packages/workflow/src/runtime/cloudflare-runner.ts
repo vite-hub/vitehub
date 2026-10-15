@@ -26,16 +26,17 @@ export interface RunCloudflareWorkflowOptions {
 function isNonRetryableError(error: unknown): error is Error & { isRetryable: false } {
   if (!hasRuntimeType(error, "object") || error === null) return false
   try {
-    const retryable = Reflect.get(error, "isRetryable")
+    const candidate = error as object
+    const retryable = Reflect.get(candidate, "isRetryable")
     if (retryable !== false) return false
     const nativeIsError: unknown = Reflect.get(Error, "isError")
     if (hasRuntimeType(nativeIsError, "function")) {
-      return (nativeIsError as (value: unknown) => unknown)(error) === true
+      return (nativeIsError as (value: unknown) => unknown)(candidate) === true
     }
 
     const clone = Reflect.get(globalThis, "structuredClone")
     if (!hasRuntimeType(clone, "function")) return false
-    const cloned = (clone as (value: unknown) => unknown)(error)
+    const cloned = (clone as (value: unknown) => unknown)(candidate)
     return cloned instanceof Error
   }
   catch {
