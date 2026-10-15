@@ -15,7 +15,7 @@ import type { ConsoleSectionId } from "../sections.ts"
 export type ConsoleAccessPolicy =
   | { mode: "local" }
   | { mode: "open", authorize?: ConsoleAuthorize }
-  | { mode: "auth" | "cloudflare-access", check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
+  | { mode: "auth" | "cloudflare-access", check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, authorize?: ConsoleAuthorize, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
   | { mode: "host-managed", authorize?: ConsoleAuthorize }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
