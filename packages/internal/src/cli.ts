@@ -63,16 +63,21 @@ export interface ViteHubCliContributingPlugin {
 
 type StdoutWriteCallback = (error?: Error | null) => void
 
-let stdoutRedirectQueue = Promise.resolve()
+const stdoutRedirectQueueKey = Symbol.for("vite-hub.internal.stdout-redirect-queue")
+type StdoutRedirectGlobal = typeof globalThis & {
+  [stdoutRedirectQueueKey]?: Promise<void>
+}
+
+const stdoutRedirectGlobal = globalThis as StdoutRedirectGlobal
 
 /**
  * Sends `process.stdout` writes to stderr while `run` loads project config.
  * Vite, Nitro, Nuxt, and their plugins log info lines to stdout. Those lines must not mix with JSON or raw command output.
  */
 export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteHubCliStreams["stderr"] = process.stderr): Promise<T> {
-  const previous = stdoutRedirectQueue
+  const previous = stdoutRedirectGlobal[stdoutRedirectQueueKey] ?? Promise.resolve()
   let release!: () => void
-  stdoutRedirectQueue = new Promise<void>(resolve => { release = resolve })
+  stdoutRedirectGlobal[stdoutRedirectQueueKey] = new Promise<void>(resolve => { release = resolve })
   await previous
 
   const write = process.stdout.write
