@@ -67,7 +67,7 @@ export interface BabysitterRuntimeOptions {
 }
 
 /** Bound policy hooks inside an owner slot, never in the scheduler wait scan. */
-export async function boundedMergeReady(read: () => true | string | Promise<true | string>, signal: AbortSignal, timeoutMs = 10_000) {
+export async function boundedMergeReady(read: () => true | string | Promise<true | string>, signal: AbortSignal, timeoutMs = 10_000): Promise<true | string> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let abort: () => void = () => {};
   try {
