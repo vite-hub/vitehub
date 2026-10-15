@@ -24,11 +24,12 @@ Each route checks access itself before it reads or changes a Connection. With th
 
 | Console access | Check | Manager |
 | --- | --- | --- |
-| Console Auth | The Console Auth session and its `authorize` callback. | The signed-in user. |
-| `access: 'auth'` with an Auth Definition | The app Auth access routes that protect the Console. | The signed-in user. |
-| Cloudflare Access | The Cloudflare Access token. | `user:cloudflare-access` |
-| `exposure: 'host-managed'` | The host `console.authorize` function. | `user:host-managed` |
-| `console: true` | Development server only. | `user:local` |
+| `auth: { ... }` (Console Auth) | The Console Auth session and its `authorize` callback. | The signed-in user. |
+| `auth: 'app'` | The app Auth session and the access routes that protect the Console. | The signed-in user. |
+| `auth: { provider: 'cloudflare-access' }` | The Cloudflare Access token. | `user:cloudflare-access` |
+| `auth: false` | No sign-in. | `user:open` |
+
+`console.authorize` runs after each of these checks. When it returns `{ sections }`, the routes also need the `connections` section.
 
 A rejected request returns `403` with `CONNECTION_FORBIDDEN`. With the Console, the route returns the Console access rejection instead. For example, a Console Auth session without a user id returns `403` with `CONSOLE_MANAGER_REQUIRED`. See [Console error codes](/docs/development/console#console-error-codes). With `createConnectionsHandler()`, pass `actor`: a function that returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTION_FORBIDDEN`, or a `Response` to reject it with that response. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTION_AUTH_REQUIRED` elsewhere.
 
