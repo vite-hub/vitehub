@@ -7,11 +7,24 @@ export function hasStaticIndex(clientDir: string): boolean {
   return existsSync(resolve(clientDir, "index.html"))
 }
 
-export async function copyClientOutput(clientDir: string, targetDir: string): Promise<void> {
+export async function copyClientOutput(clientDir: string, targetDir: string, excludedDirs: string[] = []): Promise<void> {
   const resolvedClientDir = resolve(clientDir)
   const resolvedTargetDir = resolve(targetDir)
   if (resolvedClientDir === resolvedTargetDir) {
     return
+  }
+  // Exclude only provider directories inside the copied source tree. An output root
+  // can contain the client directory and must not exclude that ancestor.
+  const excluded = new Set<string>()
+  for (const dir of excludedDirs) {
+    const resolved = resolve(dir)
+    if (resolved !== resolvedClientDir && resolved.startsWith(`${resolvedClientDir}/`)) {
+      excluded.add(resolved)
+    }
+  }
+  const filter = (source: string) => {
+    const resolved = resolve(source)
+    return ![...excluded].some(dir => resolved === dir || resolved.startsWith(`${dir}/`))
   }
 
   await rm(resolvedTargetDir, { force: true, recursive: true })
@@ -23,9 +36,9 @@ export async function copyClientOutput(clientDir: string, targetDir: string): Pr
     await mkdir(resolvedTargetDir, { recursive: true })
     await Promise.all((await readdir(resolvedClientDir))
       .filter(entry => entry !== targetRootEntry)
-      .map(entry => cp(resolve(resolvedClientDir, entry), resolve(resolvedTargetDir, entry), { recursive: true })))
+      .map(entry => cp(resolve(resolvedClientDir, entry), resolve(resolvedTargetDir, entry), { recursive: true, filter })))
     return
   }
 
-  await cp(resolvedClientDir, resolvedTargetDir, { recursive: true })
+  await cp(resolvedClientDir, resolvedTargetDir, { recursive: true, filter })
 }
