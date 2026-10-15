@@ -180,7 +180,8 @@ export async function consoleConnectionsActor(
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | Response> {
   const access = await checkConsoleAccess(event, { user: true })
-  if (access instanceof Response || !consoleAccessAllows(access, "connections")) return access instanceof Response ? access : rejection(403, "CONSOLE_MANAGER_REQUIRED")
+  if (access instanceof Response) return access
+  if (!consoleAccessAllows(access, "connections")) return rejection(403, "CONSOLE_ACCESS_DENIED")
   if (access.mode === "auth") {
     const actor = sessionActor ? await sessionActor() : (await readConsoleAccessUser(access))?.id
     return actor ? (actor.startsWith("user:") ? actor : `user:${actor}`) : rejection(403, "CONSOLE_MANAGER_REQUIRED")

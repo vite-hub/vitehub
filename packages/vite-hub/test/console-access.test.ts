@@ -256,6 +256,14 @@ describe("Connections manager from Console access", () => {
     await expect(consoleConnectionsActor(connectionsEvent(), async () => "user:ada")).resolves.toBe(denied)
   })
 
+  it("reports section-scoped access denial separately from missing manager identity", async () => {
+    installConsoleAccess({ mode: "host-managed", authorize: () => ({ sections: ["agents"] }) })
+    await expect(rejection(await consoleConnectionsActor(connectionsEvent()))).resolves.toMatchObject({
+      code: "CONSOLE_ACCESS_DENIED",
+      status: 403,
+    })
+  })
+
   it("denies the local Console policy in production and without an installed policy", async () => {
     vi.stubEnv("NODE_ENV", "production")
     installConsoleAccess({ mode: "local" })
