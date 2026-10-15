@@ -262,13 +262,13 @@ describe("Vercel Blob workspace store", () => {
     }, "docs")
 
     await store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
-    expect(blobMock.put).toHaveBeenCalledWith("workspace/e2e/docs/files/docs/readme.md", expect.any(Blob), expect.objectContaining({
+    expect(blobMock.put).toHaveBeenCalledWith("_vitehub/workspaces/workspace/e2e/docs/files/docs/readme.md", expect.any(Blob), expect.objectContaining({
       access: "private",
       allowOverwrite: true,
       token: "token",
     }))
     expect(await store.readFile("docs/readme.md")).toMatchObject({ path: "docs/readme.md" })
-    expect(blobMock.get).toHaveBeenCalledWith("workspace/e2e/docs/files/docs/readme.md", expect.objectContaining({
+    expect(blobMock.get).toHaveBeenCalledWith("_vitehub/workspaces/workspace/e2e/docs/files/docs/readme.md", expect.objectContaining({
       access: "private",
       token: "token",
       useCache: false,
@@ -325,5 +325,27 @@ describe("Vercel Blob workspace store", () => {
       expect.objectContaining({ path: "docs/guides/a.md", type: "file" }),
     ])
     await expect(store.list("docs", { exclude: ["docs/guides"] })).resolves.toEqual([])
+  })
+
+  it("keeps every object under the ViteHub-owned Workspace root", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { isVitehubOwnedPath } = await import("@vite-hub/internal/owned-paths")
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "********" }, "docs")
+
+    await store.writeFile("readme.md", { path: "readme.md", content: "hello" })
+    await store.setMeta!("loader", { digest: "abc" })
+    await store.snapshot({ name: "baseline" })
+
+    const keys = blobMock.put.mock.calls.map(([key]) => key)
+    expect(keys).toContain("_vitehub/workspaces/docs/files/readme.md")
+    expect(keys.length).toBeGreaterThan(2)
+    expect(keys.every(key => key.startsWith("_vitehub/workspaces/docs/") && isVitehubOwnedPath(key))).toBe(true)
+  })
+
+  it.each(["", "/handbook", "handbook/", "../handbook", "hand//book", "hand.book", ".vitehub/workspaces"])("rejects prefix %j", async (prefix) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    expect(() => createVercelBlobWorkspaceStore({ prefix, provider: "vercel-blob", token: "********" }, "docs")).toThrow("Workspace Blob prefix")
   })
 })
