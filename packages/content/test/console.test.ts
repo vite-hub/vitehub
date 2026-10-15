@@ -402,8 +402,9 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     const workspace = await historyWorkspace()
     const cover = { pathname: "heroes/launch.jpg" }
     const fields = { title: z.string(), cover: z.object({ pathname: z.string() }).optional() }
-    // Readers may read every document but `secret`, which uses the file in a field, and `aside`, which uses it in the body.
-    const hidden = new Set(["secret", "aside"])
+    // Readers may read every document but `secret`, which uses the file in a field, `aside`, which uses it in the body,
+    // and `gone`, which keeps the reference only on the published ref after its draft is deleted.
+    const hidden = new Set(["secret", "aside", "gone"])
     const content = defineContent({
       workspace,
       collections: { posts: documents({ path: "posts/*.md", fields }) },
@@ -415,13 +416,16 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     await actions.save({ collection: "posts", id: "launch", data: { title: "Launch", cover }, body: "", ifDigest: null }, editor)
     await actions.save({ collection: "posts", id: "secret", data: { title: "Secret plan", cover }, body: "", ifDigest: null }, editor)
     await actions.save({ collection: "posts", id: "aside", data: { title: "Hidden aside" }, body: "![Launch](heroes/launch.jpg)\n", ifDigest: null }, editor)
+    await actions.save({ collection: "posts", id: "gone", data: { title: "Deleted document", cover }, body: "", ifDigest: null }, editor)
     await publishAll(actions, editor)
+    const gone = await actions.get({ collection: "posts", id: "gone" }, editor)
+    await actions.remove({ collection: "posts", id: "gone", ifDigest: gone!.digest }, editor)
 
     const all = await actions.references({ pathnames: ["heroes/launch.jpg"] }, editor)
-    expect(all.references["heroes/launch.jpg"]!.map(reference => reference.id).sort()).toEqual(["aside", "launch", "secret"])
+    expect(all.references["heroes/launch.jpg"]!.map(reference => reference.id).sort()).toEqual(["aside", "gone", "launch", "secret"])
     const found = await actions.references({ pathnames: ["heroes/launch.jpg"] }, reader)
     expect(found.references["heroes/launch.jpg"]).toEqual([{ collection: "posts", id: "launch", title: "Launch", refs: ["draft", "published"] }])
-    expect(JSON.stringify(found)).not.toMatch(/secret|aside/i)
+    expect(JSON.stringify(found)).not.toMatch(/secret|aside|gone/i)
   })
 
   it("gives media access from the widest collection access", async () => {
