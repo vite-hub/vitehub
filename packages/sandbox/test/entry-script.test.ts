@@ -91,7 +91,7 @@ describe("package entry result transport", () => {
     const foreignResponseModule = pathToFileURL(join(workspaceRoot, "node_modules/.pnpm", undiciDirectory, "node_modules/undici/index.js")).href
     const execution = await executePackageEntry([
       `import { Response as ForeignResponse } from ${JSON.stringify(foreignResponseModule)}`,
-      `export default () => new ForeignResponse(new Uint8Array([0, 127, 255]), { status: 201, statusText: 'Created', headers: { 'x-result': 'preserved' } })`,
+      `export default () => { const response = new ForeignResponse(new Uint8Array([0, 127, 255]), { status: 201, statusText: 'Created', headers: { 'x-result': 'preserved' } }); response.requestId = 'request-1'; return response }`,
     ].join("\n"))
 
     expect(execution.code).toBe(0)
