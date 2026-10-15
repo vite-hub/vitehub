@@ -61,7 +61,7 @@ async function projectedUsageIds() {
 
 async function generatedInstallation(retention: AgentInvocationRetentionOptions) {
   const plugin = consoleVitePlugin({
-    console: { exposure: "host-managed", authorize: hostManagedAuthorize, databaseUrl: url, retention },
+    console: { auth: false, authorize: hostManagedAuthorize, databaseUrl: url, retention },
     sections: ["agents"],
   })
   const configHook = plugin.config

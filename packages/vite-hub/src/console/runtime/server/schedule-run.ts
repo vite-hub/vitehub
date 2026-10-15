@@ -65,7 +65,7 @@ async function runScheduleOperation(event: ConsoleRequestEvent): Promise<{ run: 
 }
 
 /** Console RPC operation behind the Schedules page "Run now" button. */
-export const consoleScheduleRunHandler: ConsoleAccessRoute<typeof runScheduleOperation> = withConsoleAccess(runScheduleOperation)
+export const consoleScheduleRunHandler: ConsoleAccessRoute<typeof runScheduleOperation> = withConsoleAccess(runScheduleOperation, { section: "schedules" })
 
 function failure(message: string, status: number): Response {
   return Response.json({ message }, { headers: responseHeaders, status })
@@ -96,5 +96,5 @@ export async function handleConsoleScheduleRunRequest(request: Request): Promise
     : failure(outcome.message, outcome.status)
 }
 
-const guardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(event.req))
+const guardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(event.req), { section: "schedules" })
 export default guardedHandler
