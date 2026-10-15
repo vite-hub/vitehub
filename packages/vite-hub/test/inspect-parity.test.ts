@@ -88,7 +88,7 @@ describe("Definition inspection parity", () => {
     await writeProjectFile(root, ".vitehub/content/publish-schedule.ts", "export default defineSchedule({ cron: '*/5 * * * *', manual: true, handler() {} })\n")
     const contentOwner = {
       name: "content-owner/vite",
-      vitehub: { schedules: () => [{ definition: join(root, ".vitehub/content/publish-schedule.ts"), name: "content/publish", reason: "The cms preset publishes due documents." }] },
+      vitehub: { schedules: () => [{ definition: { module: join(root, ".vitehub/content/publish-schedule.ts") }, name: "content/publish", reason: "The cms preset publishes due documents." }] },
     }
 
     const config = await resolveConfig({

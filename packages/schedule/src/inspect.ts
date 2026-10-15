@@ -59,7 +59,7 @@ function summarizeScheduleDefinition(
 export async function inspectScheduleDefinitions(options: ScheduleInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
   const contributions = await collectScheduleContributions(options.plugins, {
     projectRoot: options.projectRoot,
-    rootDir: options.rootDir,
+    root: options.rootDir,
     serverDirs: options.serverDirs,
   })
   const definitions = discoverScheduleDefinitions({

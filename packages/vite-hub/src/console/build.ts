@@ -50,7 +50,7 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     ? discoverScheduleDefinitions({
         contributions: await collectScheduleContributions(options.plugins, {
           projectRoot: options.scheduleDiscoveryRoot ?? projectRoot,
-          rootDir: options.discoveryRoot,
+          root: options.discoveryRoot,
           serverDirs,
         }),
         rootDir: options.discoveryRoot,

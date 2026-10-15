@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -12,7 +13,7 @@ import { discoverScheduleDefinitions } from "../src/discovery.ts"
 import { inspectScheduleDefinitions } from "../src/inspect.ts"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
 
-import type { ScheduleContributingPlugin, ScheduleContribution } from "../src/vite.ts"
+import type { CollectedScheduleContribution, ScheduleContributingPlugin } from "../src/vite.ts"
 
 const tempDirs: string[] = []
 const contentPlugin = "@vite-hub/content/vite"
@@ -49,8 +50,12 @@ function contributor(schedules: NonNullable<ScheduleContributingPlugin["vitehub"
   return { name, vitehub: { schedules } }
 }
 
-function publishContributor(definition: string) {
-  return contributor([{ definition, name: "content/publish", reason }])
+function publishContributor(module: string) {
+  return contributor([{ definition: { module }, name: "content/publish", reason }])
+}
+
+function collected(name: string, module: string, plugin = contentPlugin): CollectedScheduleContribution {
+  return { definition: { export: "default", module }, name, plugin }
 }
 
 type ConfigHook = (config: Record<PropertyKey, unknown>, env: { command: "build" | "serve", mode: string }) => unknown
@@ -70,79 +75,88 @@ async function resolvePlugin(plugin: ReturnType<typeof hubSchedule>, root: strin
   })
 }
 
-const context = { projectRoot: "/app", rootDir: "/app" }
+const context = { projectRoot: "/app", root: "/app" }
 
 describe("collectScheduleContributions", () => {
   it("collects static and factory contributions from nested plugin options", async () => {
-    const factory = vi.fn(() => [{ definition: "/app/.vitehub/content/publish.ts", name: "content/publish", reason }])
+    const factory = vi.fn(() => [{ definition: { module: "/app/.vitehub/content/publish.ts" }, name: "content/publish", reason }])
     const contributions = await collectScheduleContributions([
       { name: "unrelated" },
-      [contributor([{ definition: "/abs/digest.ts", name: "digest" }], "digest/vite"), [contributor(factory)]],
+      [contributor([{ definition: { module: "/abs/digest.ts" }, name: "digest" }], "digest/vite"), [contributor(factory)]],
       false,
     ], { ...context, serverDirs: ["/app/server"] })
 
-    expect(factory).toHaveBeenCalledWith({ projectRoot: "/app", rootDir: "/app", serverDirs: ["/app/server"] })
+    expect(factory).toHaveBeenCalledWith({ projectRoot: "/app", root: "/app", serverDirs: ["/app/server"] })
     expect(contributions).toEqual([
-      { contributor: "digest/vite", definition: "/abs/digest.ts", name: "digest" },
-      { contributor: contentPlugin, definition: "/app/.vitehub/content/publish.ts", name: "content/publish", reason },
+      { ...collected("content/publish", "/app/.vitehub/content/publish.ts"), reason },
+      collected("digest", "/abs/digest.ts", "digest/vite"),
     ])
   })
 
   it("collects contributions from promised and nested promised plugin options", async () => {
-    const plugin = contributor([{ definition: "/abs/promised.ts", name: "promised" }], "promised/vite")
+    const plugin = contributor([{ definition: { module: "/abs/promised.ts" }, name: "promised" }], "promised/vite")
 
     await expect(collectScheduleContributions([Promise.resolve([Promise.resolve(plugin)])], context)).resolves.toEqual([
-      { contributor: "promised/vite", definition: "/abs/promised.ts", name: "promised" },
+      collected("promised", "/abs/promised.ts", "promised/vite"),
     ])
   })
 
-  it("keeps one copy of the same contribution from two plugin instances", async () => {
-    const plugin = contributor([{ definition: "/abs/publish.ts", name: "content/publish" }])
+  it("keeps one copy of the same contribution from two instances of one plugin", async () => {
+    const plugin = () => contributor([{ definition: { module: "/abs/publish.ts" }, name: "content/publish" }])
 
-    await expect(collectScheduleContributions([plugin, plugin, contributor([{ definition: "/abs/publish.ts", name: "content/publish" }], "other/vite")], context))
-      .resolves.toEqual([{ contributor: contentPlugin, definition: "/abs/publish.ts", name: "content/publish" }])
+    await expect(collectScheduleContributions([plugin(), plugin()], context))
+      .resolves.toEqual([collected("content/publish", "/abs/publish.ts")])
+  })
+
+  it("accepts a file: URL as the Definition module", async () => {
+    await expect(collectScheduleContributions([contributor([{ definition: { module: pathToFileURL("/abs/publish.ts").href }, name: "content/publish" }])], context))
+      .resolves.toEqual([collected("content/publish", "/abs/publish.ts")])
   })
 
   it("rejects two plugins that contribute different Definitions with one name", async () => {
     await expect(collectScheduleContributions([
-      contributor([{ definition: "/abs/a.ts", name: "content/publish" }], "a/vite"),
-      contributor([{ definition: "/abs/b.ts", name: "content/publish" }], "b/vite"),
+      contributor([{ definition: { module: "/abs/a.ts" }, name: "content/publish" }], "a/vite"),
+      contributor([{ definition: { module: "/abs/b.ts" }, name: "content/publish" }], "b/vite"),
     ], context)).rejects.toMatchObject({
       code: "SCHEDULE_B0006",
       message: expect.stringContaining([
-        "Schedule \"content/publish\" is defined more than once:",
-        "  - /abs/a.ts (contributed by \"a/vite\")",
-        "  - /abs/b.ts (contributed by \"b/vite\")",
+        "Schedule \"content/publish\" is contributed more than once:",
+        "  - /abs/a.ts from plugin \"a/vite\"",
+        "  - /abs/b.ts from plugin \"b/vite\"",
       ].join("\n")),
     })
   })
 
   it.each([
-    [{ definition: "./publish.ts", name: "content/publish" }, "Schedule \"content/publish\" needs `definition`, the absolute path"],
-    [{ name: "content/publish" }, "Schedule \"content/publish\" needs `definition`, the absolute path"],
-    [{ definition: "/abs/publish.ts", name: "" }, "`name` must be letters"],
-    [{ definition: "/abs/publish.ts", name: "content publish" }, "`name` must be letters"],
-    [{ definition: "/abs/publish.ts", name: "content/publish", reason: "" }, "`reason` of Schedule \"content/publish\" must be a non-empty string"],
-    [{ export: "publish", module: "@vite-hub/content/schedule", name: "content/publish" }, "Schedule \"content/publish\" uses `module`/`export`. Schedule contributions take { name, definition, reason? }"],
-    ["content/publish", "expected { name, definition, reason? }"],
+    [{ definition: { module: "./publish.ts" }, name: "content/publish" }, "`definition.module` of Schedule \"content/publish\" is relative"],
+    [{ definition: { module: "@vite-hub/content/schedule" }, name: "content/publish" }, "`definition.module` of Schedule \"content/publish\" must be an absolute file path or a file: URL"],
+    [{ definition: { export: "publish", module: "/abs/publish.ts" }, name: "content/publish" }, "Schedule \"content/publish\" uses `definition.export: \"publish\"`. Schedule Definitions must be the default export"],
+    [{ name: "content/publish" }, "Schedule \"content/publish\" needs `definition: { module, export? }`"],
+    [{ definition: "/abs/publish.ts", name: "content/publish" }, "Schedule \"content/publish\" needs `definition: { module, export? }`"],
+    [{ definition: { module: "/abs/publish.ts" }, name: "" }, "`name` must be a non-empty string"],
+    [{ definition: { module: "/abs/publish.ts" }, name: "content publish" }, "Schedule \"content publish\": `name` must be letters"],
+    [{ definition: { module: "/abs/publish.ts" }, name: "content/publish", reason: "" }, "`reason` of Schedule \"content/publish\" must be a non-empty string"],
+    ["content/publish", "expected { name, definition: { module, export? }, reason? }"],
   ])("rejects an invalid contribution %#", async (contribution, message) => {
-    await expect(collectScheduleContributions([contributor([contribution as unknown as ScheduleContribution])], context)).rejects.toMatchObject({
+    // SAFETY: Each case passes invalid input that the collector must reject at runtime.
+    const invalid = contribution as unknown as CollectedScheduleContribution
+    await expect(collectScheduleContributions([contributor([invalid])], context)).rejects.toMatchObject({
       code: "SCHEDULE_B0007",
-      message: expect.stringContaining(`Plugin "${contentPlugin}" contributed an invalid Schedule Definition: ${message}`),
+      message: expect.stringContaining(`Plugin "${contentPlugin}" contributed an invalid Schedule: ${message}`),
     })
   })
 
   it("rejects contributions that are not an array", async () => {
     await expect(collectScheduleContributions([contributor(() => ({}) as never)], context)).rejects.toMatchObject({
       code: "SCHEDULE_B0007",
-      message: expect.stringContaining("`vitehub.schedules` must be an array or return one."),
+      message: expect.stringContaining("`vitehub.schedules` must be an array or a function that returns one."),
     })
   })
 
   it.each([null, false, 0, "", undefined])("rejects an explicitly invalid schedules value: %p", async (schedules) => {
     await expect(collectScheduleContributions([{ name: contentPlugin, vitehub: { schedules: schedules as never } }], context)).rejects.toMatchObject({
       code: "SCHEDULE_B0007",
-      message: expect.stringContaining("`vitehub.schedules` must be an array or return one."),
+      message: expect.stringContaining("`vitehub.schedules` must be an array or a function that returns one."),
     })
   })
 })
@@ -152,7 +166,7 @@ describe("discoverScheduleDefinitions contributions", () => {
     const { definition, root } = await createRoot()
 
     expect(discoverScheduleDefinitions({
-      contributions: [{ contributor: contentPlugin, definition, name: "content/publish", reason }],
+      contributions: [{ ...collected("content/publish", definition), reason }],
       rootDir: root,
     })).toEqual([
       {
@@ -172,14 +186,14 @@ describe("discoverScheduleDefinitions contributions", () => {
     const { definition, root } = await createRoot()
 
     expect(() => discoverScheduleDefinitions({
-      contributions: [{ contributor: contentPlugin, definition, name: "report" }],
+      contributions: [collected("report", definition)],
       rootDir: root,
     })).toThrow(expect.objectContaining({
       code: "SCHEDULE_B0006",
       message: expect.stringContaining([
         "Schedule \"report\" is defined more than once:",
         `  - ${join(root, "server", "schedules", "report.ts")}`,
-        `  - ${definition} (contributed by "${contentPlugin}")`,
+        `  - ${definition} from plugin "${contentPlugin}"`,
         "Rename or remove one definition.",
       ].join("\n")),
     }))
@@ -189,14 +203,14 @@ describe("discoverScheduleDefinitions contributions", () => {
     const { root } = await createRoot()
     const definition = join(root, ".vitehub", "content", "missing.ts")
 
-    expect(() => discoverScheduleDefinitions({ contributions: [{ contributor: contentPlugin, definition, name: "content/publish" }], rootDir: root }))
-      .toThrow(expect.objectContaining({ code: "SCHEDULE_B0007", message: expect.stringContaining(`${definition} (contributed by "${contentPlugin}") adds Schedule "content/publish", but the Definition module does not exist.`) }))
+    expect(() => discoverScheduleDefinitions({ contributions: [collected("content/publish", definition)], rootDir: root }))
+      .toThrow(expect.objectContaining({ code: "SCHEDULE_B0007", message: expect.stringContaining(`${definition} from plugin "${contentPlugin}" adds Schedule "content/publish", but the Definition module does not exist.`) }))
   })
 
   it("fails when the contributed module has no default export of defineSchedule()", async () => {
     const { definition, root } = await createRoot({ definition: "export const publish = { cron: '* * * * *' }\n" })
 
-    expect(() => discoverScheduleDefinitions({ contributions: [{ contributor: contentPlugin, definition, name: "content/publish" }], rootDir: root }))
+    expect(() => discoverScheduleDefinitions({ contributions: [collected("content/publish", definition)], rootDir: root }))
       .toThrow(expect.objectContaining({ code: "SCHEDULE_B0005", message: expect.stringContaining("has no default export of defineSchedule() or defineScheduleTarget()") }))
   })
 })

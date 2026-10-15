@@ -39,7 +39,6 @@ export type {
   ScheduleContribution,
   ScheduleContributionContext,
   ScheduleContributionFactory,
-  ScheduleContributionPluginMetadata,
 } from "./contributions.ts"
 export { contributedScheduleSource, discoverScheduleDefinitions, type ScheduleDiscoveryOptions } from "./discovery.ts"
 export { inspectScheduleDefinitions, type ScheduleInspectionOptions, scheduleConsoleSection } from "./inspect.ts"
@@ -508,7 +507,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   const roots = resolveSchedulePluginRoots(options.root || process.cwd(), options)
   // SAFETY: Only `hubSchedule()` passes the internal `contributions` field; public callers leave it undefined.
   const contributions = (options as InternalScheduleNitroConfigOptions).contributions
-    ?? await collectScheduleContributions(options.plugins, { projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs: options.serverDirs })
+    ?? await collectScheduleContributions(options.plugins, { projectRoot: roots.projectRoot, root: roots.viteRoot, serverDirs: options.serverDirs })
   const definitions = discoverScheduleDefinitions({
     contributions,
     rootDir: roots.viteRoot,
@@ -584,7 +583,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   let contributions: CollectedScheduleContribution[] = []
 
   async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {
-    return await collectScheduleContributions(plugins, { projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs })
+    return await collectScheduleContributions(plugins, { projectRoot: roots.projectRoot, root: roots.viteRoot, serverDirs })
   }
 
   function discoverViteSchedules() {
@@ -710,7 +709,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       const serverSchedule = scheduleRoots.some(directory =>
         file.startsWith(directory) && /\.(?:c|m)?[jt]s$/i.test(file.slice(directory.length)),
       )
-      const contributedSchedule = contributions.some(contribution => normalize(contribution.definition).replace(/\\/g, "/") === file)
+      const contributedSchedule = contributions.some(contribution => normalize(contribution.definition.module).replace(/\\/g, "/") === file)
       if (!/\.schedule\.(?:c|m)?[jt]s$/i.test(file) && !serverSchedule && !contributedSchedule) {
         return
       }

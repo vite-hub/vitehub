@@ -14,7 +14,7 @@ import { createSourceScanner } from "@vite-hub/internal/source-scanner"
 
 import { describeScheduleContribution, duplicateScheduleError } from "./contributions.ts"
 
-import type { CollectedScheduleContribution, ScheduleContribution } from "./contributions.ts"
+import type { CollectedScheduleContribution } from "./contributions.ts"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -99,33 +99,33 @@ function normalizeDirectoryScheduleName(directory: string, file: string) {
   return normalizePathDefinitionName(directory, file)
 }
 
-function createContributedScheduleDefinition(contribution: ScheduleContribution & { contributor?: string }): DiscoveredScheduleDefinition {
-  if (!existsSync(contribution.definition)) {
+function createContributedScheduleDefinition(contribution: CollectedScheduleContribution): DiscoveredScheduleDefinition {
+  const file = contribution.definition.module
+  if (!existsSync(file)) {
     throw scheduleErrorDiagnostics.SCHEDULE_B0007({ message: `[vitehub] ${describeScheduleContribution(contribution)} adds Schedule "${contribution.name}", but the Definition module does not exist.` })
   }
   const definition: DiscoveredScheduleDefinition = {
-    ...readScheduleDiscoveryMetadata(contribution.definition, describeScheduleContribution(contribution)),
-    handler: contribution.definition,
+    ...readScheduleDiscoveryMetadata(file, describeScheduleContribution(contribution)),
+    contributor: contribution.plugin,
+    handler: file,
     name: contribution.name,
     source: contributedScheduleSource,
   }
-  if (contribution.contributor) definition.contributor = contribution.contributor
   if (contribution.reason) definition.reason = contribution.reason
   return definition
 }
 
 function mergeContributedScheduleDefinitions(
   discovered: DiscoveredScheduleDefinition[],
-  contributions: readonly (ScheduleContribution & { contributor?: string })[] | undefined,
+  contributions: readonly CollectedScheduleContribution[] | undefined,
 ): DiscoveredScheduleDefinition[] {
   if (!contributions?.length) return discovered
   const definitions = new Map(discovered.map(definition => [definition.name, definition]))
   for (const contribution of contributions) {
     const existing = definitions.get(contribution.name)
     if (existing) {
-      if (existing.source === contributedScheduleSource && existing.handler === contribution.definition) continue
       const first = existing.source === contributedScheduleSource
-        ? describeScheduleContribution({ contributor: existing.contributor, definition: existing.handler })
+        ? describeScheduleContribution({ definition: { export: "default", module: existing.handler }, plugin: existing.contributor ?? "unnamed plugin" })
         : existing.handler
       throw duplicateScheduleError(contribution.name, first, describeScheduleContribution(contribution))
     }
@@ -136,7 +136,7 @@ function mergeContributedScheduleDefinitions(
 
 export interface ScheduleDiscoveryOptions {
   /** Schedule Definitions that Vite plugins contribute. See `collectScheduleContributions()`. */
-  contributions?: readonly (ScheduleContribution | CollectedScheduleContribution)[]
+  contributions?: readonly CollectedScheduleContribution[]
   mode?: "vite-suffix"
   rootDir: string
   scanDirs?: string[]

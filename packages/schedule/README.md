@@ -113,7 +113,7 @@ Applications that use the framework distribution register Schedule through `vite
 
 Direct Nuxt projects can register `@vite-hub/schedule/nuxt` instead of `hubSchedule()`. The module installs the Vite integration and merges Schedule output into Nitro config.
 
-Packages can contribute a Schedule from their own Vite plugin with `vitehub.schedules`. Each entry gives the Schedule `name`, the absolute path of its `definition` module, and an optional `reason`:
+Packages can contribute a Schedule from their own Vite plugin with `vitehub.schedules`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`:
 
 ```ts
 const plugin = {
@@ -121,14 +121,14 @@ const plugin = {
   vitehub: {
     schedules: ({ projectRoot }) => [{
       name: "my-package/publish",
-      definition: join(projectRoot, ".vitehub/my-package/publish-schedule.ts"),
+      definition: { module: join(projectRoot, ".vitehub/my-package/publish-schedule.ts"), export: "default" },
       reason: "Publishes scheduled documents.",
     }],
   },
 }
 ```
 
-The module follows the file rules: `export default defineSchedule({ cron: "...", handler })` with literal options, because the build reads it from source. Contributed Schedules get the same provider output, Process Runtime registration, `vitehub schedule run` support, types, inspection, and Console records as `server/schedules/` files. A name used by both a file and a contribution fails the build with `SCHEDULE_B0006`.
+The module must be an absolute file path or `file:` URL, and the export must be `default`. The module follows the file rules: `export default defineSchedule({ cron: "...", handler })` with literal options, because the build reads it from source. Contributed Schedules get the same provider output, Process Runtime registration, `vitehub schedule run` support, types, inspection, and Console records as `server/schedules/` files. A name used by both a file and a contribution fails the build with `SCHEDULE_B0006`.
 
 ## Create a Runtime Schedule
 
