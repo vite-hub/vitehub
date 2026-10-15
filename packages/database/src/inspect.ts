@@ -30,5 +30,5 @@ export function inspectDatabaseDefinitions(options: DatabaseInspectionOptions): 
     file: relativeDefinitionFile(options.projectRoot, definition.handler),
     name: definition.name,
     source: definition.source || "database",
-  })))
+  }))
 }

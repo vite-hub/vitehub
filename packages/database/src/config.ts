@@ -459,12 +459,29 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   }
 }
 
-export function discoverDatabaseDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
+export function discoverDatabaseDefinitions(rootDir: string, options: { definitions?: readonly CollectedDatabaseDefinitionContribution[], serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
   const serverDirs = options.serverDirs ?? [resolve(rootDir, "server")]
   const found = [
     ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
     ...discoverViteDatabases(rootDir).map(definition => ({ definition, layer: 0 })),
   ].filter((entry, index, all) => all.findIndex(item => item.definition.handler === entry.definition.handler) === index)
+  for (const contribution of options.definitions ?? []) {
+    const existing = found.find(entry => entry.definition.name === contribution.name)
+    if (existing) {
+      throw databaseErrorDiagnostics.DATABASE_B0013({ message: `[vitehub] Database "${contribution.name}" is defined by the app in ${JSON.stringify(existing.definition.handler)}, but is also contributed by ${JSON.stringify(contribution.contributor)}.` })
+    }
+    found.push({
+      definition: {
+        contributor: contribution.contributor,
+        handler: contribution.definition,
+        mode: contribution.name === "default" ? "default" : "named",
+        name: contribution.name,
+        reason: contribution.reason,
+        source: "vite-plugin-contribution",
+      } as FoundDatabaseDefinition,
+      layer: 0,
+    })
+  }
   const defaults = found.filter(entry => entry.definition.mode === "default")
   const named = found.filter(entry => entry.definition.mode === "named")
   if (defaults.length && named.length) {
