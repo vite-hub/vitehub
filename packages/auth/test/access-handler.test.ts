@@ -519,6 +519,18 @@ describe("Auth access handlers", () => {
     expect(getReader).not.toHaveBeenCalled()
   })
 
+  it("rejects a reader missing cancellation or lock-release methods", async () => {
+    const foreign = new ForeignResponse("Policy rejected", { status: 409 })
+    const getReader = vi.fn(() => ({ read: vi.fn(), releaseLock: vi.fn() }))
+    Object.defineProperty(foreign.body, "getReader", { value: getReader })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    expect(getReader).toHaveBeenCalledOnce()
+  })
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))
