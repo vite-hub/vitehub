@@ -289,6 +289,7 @@ function runAccessAuthorize(
   }
   const directResponse = thenable ? undefined : normalizeAuthorizationResponse(result)
   if (directResponse) return Promise.resolve({ response: directResponse })
+  if (!thenable) return Promise.resolve({ response: result !== true ? createForbiddenResponse(context.request) : undefined })
   return Promise.resolve(result).then(resolved => {
     const response = normalizeAuthorizationResponse(resolved)
     if (response) return { response }
