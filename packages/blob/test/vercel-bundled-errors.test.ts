@@ -68,6 +68,18 @@ describe("Vercel Blob missing errors", () => {
     await withoutNativeErrorCheck(() => expect(driver[operation]("missing.txt")).rejects.toBe(error))
   })
 
+  it.each(["head", "get", "getArrayBuffer"] as const)("preserves a copied native stack accessor spoof in %s", async operation => {
+    const source = new Error()
+    const descriptor = Object.getOwnPropertyDescriptor(source, "stack")!
+    const error = Object.create(Error.prototype) as { name: string }
+    Object.defineProperty(error, "name", { value: "BlobNotFoundError", configurable: true })
+    Object.defineProperty(error, "stack", { ...descriptor, configurable: true })
+    vercel.head.mockRejectedValue(error)
+    const driver = createDriver(options)
+
+    await withoutNativeErrorCheck(() => expect(driver[operation]("missing.txt")).rejects.toBe(error))
+  })
+
   it.each(["head", "get", "getArrayBuffer"] as const)("preserves a candidate-sensitive native stack getter proxy in %s", async operation => {
     const source = new Error()
     const nativeGetter = Object.getOwnPropertyDescriptor(source, "stack")?.get

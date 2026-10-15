@@ -94,20 +94,15 @@ function isMissingBlobError(error: unknown) {
           const NativeError = nativeErrorConstructor as new () => object
           const nativeStackGetter = Object.getOwnPropertyDescriptor(new NativeError(), "stack")?.get
           if (typeof nativeStackGetter !== "function" || stack.get !== nativeStackGetter) return false
-          // Native Error proxies do not expose their target's internal stack state
-          // through the getter, but retain the native accessor and Error prototype.
-          // Accept that shape so SDK instrumentation proxies preserve missing errors.
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter result is the legacy brand check.
+          // A native stack accessor must expose a stack for the candidate itself.
+          // Accepting an undefined result would also accept an Error.prototype spoof
+          // that copied both native accessors without carrying Error internal state.
           const stackValue = stack.get.call(candidate)
-          if (typeof stackValue !== "string" && !(stackValue === undefined && Object.getPrototypeOf(candidate) === prototype && typeof stack.set === "function")) return false
+          if (typeof stackValue !== "string") return false
           // A genuine native getter returns no stack for an object which merely shares
           // the Error prototype. Bound and forged getters instead return their captured
           // or fabricated value, so they cannot establish the candidate's Error brand.
           if (stack.get.call(Object.create(prototype)) !== undefined) return false
-          // A proxy around the candidate itself does not expose the intrinsic
-          // Error state to the native stack accessor, so do not use that shape
-          // as a brand probe: genuine provider errors may be proxied by SDKs.
-          // The accessor identity check above rejects forged getter proxies.
           // Probe an independent Error to reject receiver-sensitive accessors.
           if (typeof stack.get.call(new Error()) !== "string") return false
           return true
