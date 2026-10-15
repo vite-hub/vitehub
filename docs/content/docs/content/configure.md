@@ -96,6 +96,7 @@ export const content = defineContent({
 | `path` | `string` | Workspace glob for the collection's Markdown files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md`. The folder before the first wildcard is the collection folder. |
 | `fields` | `Record<string, StandardSchema>` | One validator per frontmatter field. |
 | `search` | `string[]` | Fields that `list({ search })` matches. Defaults to every string field plus the body. |
+| `components` | `Record<string, DocumentComponent>` | Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json', default? }`. Content stores the Markdown as written and does not check component use. |
 
 A document id is the file path below the collection folder, without the extension. `posts/hello.md` is `hello`, and `posts/2026/launch.md` is `2026/launch`. The Markdown body after the frontmatter is the document `body`.
 
