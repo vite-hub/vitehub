@@ -297,6 +297,8 @@ const functionToString = Function.prototype.toString
 function isNativeReaderMethod(value: unknown, key: string): value is (...args: unknown[]) => unknown {
   if (value === nativeReaderMethods[key]) return true
   if (typeof value !== "function") return false
+  // Bound functions stringify as native code but are caller-created wrappers.
+  if (value.name.startsWith("bound ")) return false
   try { return functionToString.call(value).includes("[native code]") }
   catch { return false }
 }
@@ -439,9 +441,21 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
     }
     throw new Error("Malformed authorization response reader")
   }
-  const read = nativeReaderMethod("read") as ReadableStreamDefaultReader<Uint8Array>["read"]
-  const cancel = nativeReaderMethod("cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
-  const releaseLock = nativeReaderMethod("releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+  let read: ReadableStreamDefaultReader<Uint8Array>["read"]
+  let cancel: ReadableStreamDefaultReader<Uint8Array>["cancel"]
+  let releaseLock: ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+  try {
+    read = nativeReaderMethod("read") as ReadableStreamDefaultReader<Uint8Array>["read"]
+    cancel = nativeReaderMethod("cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+    releaseLock = nativeReaderMethod("releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+  }
+  catch (error) {
+    // Validation happens after getReader acquires the source lock. Always try
+    // the captured intrinsic so malformed readers cannot leave that lock held.
+    try { Reflect.apply(nativeReaderMethods.releaseLock as (...args: unknown[]) => unknown, reader, []) }
+    catch { /* preserve the original validation failure */ }
+    throw error
+  }
   let released = false
   const release = () => {
     if (released) return
