@@ -69,7 +69,8 @@ function isMissingBlobError(error: unknown) {
           if (!stack || typeof stack.get !== "function") return false
           let nativeErrorConstructor: unknown
           const seen = new Set<object>()
-          let prototype = Object.getPrototypeOf(candidate)
+          const candidatePrototype = Object.getPrototypeOf(candidate)
+          let prototype = candidatePrototype
           for (let depth = 0; depth < 64 && prototype !== null && prototype !== Object.prototype; depth++) {
             if (seen.has(prototype)) return false
             seen.add(prototype)
@@ -98,7 +99,7 @@ function isMissingBlobError(error: unknown) {
           // Accept that shape so SDK instrumentation proxies preserve missing errors.
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter result is the legacy brand check.
           const stackValue = stack.get.call(candidate)
-          if (typeof stackValue !== "string" && !(stackValue === undefined && Object.getPrototypeOf(candidate) === prototype)) return false
+          if (typeof stackValue !== "string" && !(stackValue === undefined && Object.getPrototypeOf(candidate) === prototype && typeof stack.set === "function")) return false
           // A genuine native getter returns no stack for an object which merely shares
           // the Error prototype. Bound and forged getters instead return their captured
           // or fabricated value, so they cannot establish the candidate's Error brand.
