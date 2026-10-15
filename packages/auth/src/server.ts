@@ -368,12 +368,32 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
   }
 }
 
+function getNativeAuthorizationReaderMethods(reader: object) {
+  let prototype: object | null = Object.getPrototypeOf(reader)
+  const seen = new Set<object>()
+  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(prototype)) return
+    seen.add(prototype)
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    if (constructor?.name === "ReadableStreamDefaultReader") {
+      const read = Object.getOwnPropertyDescriptor(prototype, "read")?.value
+      const cancel = Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
+      const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
+      if (typeof read === "function" && typeof cancel === "function" && typeof releaseLock === "function") {
+        return { read, cancel, releaseLock }
+      }
+      return
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
+
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>) {
   // Invoke the source stream's native operations so separate realms retain their brand.
   const reader = Reflect.apply(getReader, body, [])
-  const read = Reflect.get(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
-  const cancel = Reflect.get(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
-  const releaseLock = Reflect.get(reader, "releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+  const methods = getNativeAuthorizationReaderMethods(reader)
+  if (!methods) throw new TypeError("Invalid ReadableStreamDefaultReader")
+  const { read, cancel, releaseLock } = methods
   let released = false
   const release = () => {
     if (released) return
