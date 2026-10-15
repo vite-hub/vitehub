@@ -690,7 +690,9 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           serverDirs,
         } as InternalScheduleNitroConfigOptions)
         if (nitro) {
-          ;(config as unknown as ViteConfigWithNitro).nitro = config.command === "serve"
+          // SAFETY: Nitro integrations attach their generated config to the resolved Vite config at runtime.
+          const configWithNitro = config as ResolvedConfig & { nitro?: NitroConfig }
+          configWithNitro.nitro = config.command === "serve"
             ? await addNitroScheduleDevHandler(nitro, roots, devServerId, internalOptions.importBase)
             : nitro
         }
