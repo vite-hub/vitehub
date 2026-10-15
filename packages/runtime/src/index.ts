@@ -568,6 +568,13 @@ function isSharedArrayBuffer(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
   if (sharedBufferByteLength) {
     try {
+      // When the native ordinary-buffer probes are available, prove the value
+      // has a genuine buffer internal slot before consulting the shared getter.
+      // This prevents a receiver-aware forged getter from branding arbitrary
+      // objects as shared memory.
+      if (ordinaryBufferOperations) {
+        Reflect.construct(ordinaryBufferOperations.dataView, [value, 0, 0])
+      }
       return hasRuntimeType(sharedBufferByteLength.call(value), "number")
     }
     catch {
