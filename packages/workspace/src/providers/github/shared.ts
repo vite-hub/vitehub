@@ -178,10 +178,14 @@ export function githubBranchMovedConflict(input: {
   actualHead?: string;
   branch: string;
   expectedHead: string;
+  kind?: "publisher" | "store";
   repository: string;
 }): ReturnType<typeof workspaceConflict> {
+  const message = input.kind === "publisher"
+    ? `[vitehub] GitHub branch update conflict for ${input.repository}@${input.branch}: the branch moved after this update started. Retry against the current branch head.`
+    : `[vitehub] GitHub Workspace Store conflict for ${input.repository}@${input.branch}: the branch moved after this Workspace Store loaded. Rebase from the current branch head and retry.`;
   return workspaceConflict(
-    `[vitehub] GitHub Workspace Store conflict for ${input.repository}@${input.branch}: the branch moved after this Workspace Store loaded. Rebase from the current branch head and retry.`,
+    message,
     {
       details: {
         actualHead: input.actualHead,
@@ -634,6 +638,7 @@ export async function commitGitHubChanges(input: {
         throw githubBranchMovedConflict({
           branch: input.branch,
           expectedHead: input.parentSha,
+          kind,
           repository: input.repository,
         });
       }
