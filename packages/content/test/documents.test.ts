@@ -163,6 +163,42 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(await posts.get("raw", { ref: "draft" })).toMatchObject({ data: { title: "Raw", tags: [] }, body: "Body" })
   })
 
+  it("deletes published documents only through publish()", async () => {
+    const { content, posts, workspace } = await setup()
+    const facade = useWorkspace(workspace as never, { mode: "write" })
+    const saved = await posts.save("hello", hello)
+    await content.publish({ expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
+    const published = await facade.history.head({ ref: "published" })
+    await expect(facade.history.commit({ ref: "published", ifHead: published!.id, changes: { delete: ["posts/hello.md"] } }))
+      .rejects.toMatchObject({ code: "CONTENT_R0013", message: expect.stringContaining("only through content.publish()") })
+    expect(await posts.get("hello")).toMatchObject({ id: "hello" })
+    // A deletion on the draft is remove(): it stays published until publish() publishes it.
+    const draft = await facade.history.head({ ref: "draft" })
+    await facade.history.commit({ ref: "draft", ifHead: draft!.id, changes: { delete: ["posts/hello.md"] } })
+    expect(await posts.status("hello")).toMatchObject({ state: "deleted" })
+    await expect(content.publish({ expect: [{ collection: "posts", id: "hello", digest: null }] })).resolves.toMatchObject({ documents: [{ id: "hello", change: "delete" }] })
+    expect(await posts.get("hello")).toBeNull()
+  })
+
+  it("refuses directories and non-text writes at document paths", async () => {
+    const { posts, workspace } = await setup()
+    const facade = useWorkspace(workspace as never, { mode: "write" })
+    await expect(facade.fs.mkdir("posts/folder.md" as never)).rejects.toMatchObject({ code: "CONTENT_INVALID", details: { id: "folder" } })
+    // Folders that hold documents are not documents themselves.
+    await facade.fs.mkdir("posts/2026" as never, { recursive: true })
+    const binary = new Uint8Array([0xff, 0xfe, 0x00, 0x80])
+    await expect(facade.fs.writeFile("posts/blob.md" as never, binary)).rejects.toMatchObject({ code: "CONTENT_INVALID", message: expect.stringContaining("not UTF-8 text") })
+    await expect(facade.history.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/blob.md": binary } } }))
+      .rejects.toMatchObject({ code: "CONTENT_INVALID", details: { id: "blob" } })
+    // UTF-8 bytes are text: a valid document passes, and the draft still takes fields in progress.
+    const bytes = new TextEncoder().encode("---\ntitle: Bytes\ndate: 2026-01-01\n---\nBody")
+    await facade.history.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/bytes.md": bytes } } })
+    expect(await posts.get("bytes", { ref: "draft" })).toMatchObject({ data: { title: "Bytes" } })
+    const head = await facade.history.head({ ref: "draft" })
+    await facade.history.commit({ ref: "draft", ifHead: head!.id, changes: { put: { "posts/wip.md": new TextEncoder().encode("---\ntitle: 3\n---\n") } } })
+    expect(await posts.get("wip", { ref: "draft" })).toMatchObject({ issues: expect.any(Array) })
+  })
+
   it("rejects stale and duplicate ifDigest values with WORKSPACE_CONFLICT", async () => {
     const { posts } = await setup()
     const first = await posts.save("hello", hello, { ifDigest: null })
