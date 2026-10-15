@@ -295,6 +295,8 @@
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
+    "@fontsource-variable/geist": "catalog:ui",
+    "@fontsource-variable/geist-mono": "catalog:ui",
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/ph": "catalog:ui",
     "@iconify/vue": "catalog:ui",
