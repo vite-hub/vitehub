@@ -248,7 +248,7 @@ export function array<TItem, const TFilter extends string = never>(
   const signatureFields = JSON.stringify({ search: [...searchFields].sort(), sort: options.sort ? { direction: options.sort.direction ?? "asc", field: options.sort.field } : null })
 
   async function snapshot(signal: AbortSignal | undefined): Promise<{ digest: string, items: readonly TItem[] }> {
-    const result = load instanceof Function ? await load({ signal }) : load
+    const result = typeof load === "function" ? await load({ signal }) : load
     signal?.throwIfAborted()
     const items: unknown = Array.isArray(result) ? result : Reflect.get(Object(result), "items")
     if (!Array.isArray(items)) {
