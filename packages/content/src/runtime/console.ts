@@ -199,9 +199,19 @@ function writeMetadata(context: ViteHubConsoleDocumentActionContext): Record<str
   return by ? { author: by, source: "console" } : { source: "console" }
 }
 
+/**
+ * Why a schedule run published nothing. The runtime message names every document of the schedule that failed, and
+ * the user may not read all of them, so the Console says it without document ids.
+ */
+function scheduleFailure(code: string): string {
+  if (code === "WORKSPACE_CONFLICT") return "A document changed after it was scheduled, so nothing was published."
+  if (code === "CONTENT_INVALID") return "A document has invalid fields, so nothing was published."
+  return "Nothing was published."
+}
+
 function scheduleView(schedule: ContentDocumentSchedule | ContentSchedule): ViteHubConsoleDocumentSchedule {
   const result: ViteHubConsoleDocumentSchedule = { id: schedule.id, at: schedule.at, status: schedule.status }
-  if (schedule.failure) result.failure = schedule.failure.message
+  if (schedule.failure) result.failure = scheduleFailure(schedule.failure.code)
   return result
 }
 

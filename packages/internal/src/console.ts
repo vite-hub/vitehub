@@ -259,7 +259,7 @@ export interface ViteHubConsoleDocumentSchedule {
   /** When it publishes, as an ISO timestamp. */
   at: string
   status: ViteHubConsoleDocumentScheduleStatus
-  /** Why the run published nothing, when `status` is `failed`. */
+  /** Why the run published nothing, when `status` is `failed`. It names no documents: the schedule can hold some that the user may not read. */
   failure?: string
 }
 
