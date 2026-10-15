@@ -66,6 +66,21 @@ const hasPanel = computed(
   }
 
   .vh-docs-shell > .vh-docs-desktop-nav {
+    display: flex;
+    position: sticky;
+    top: var(--ui-header-height);
+    height: calc(100dvh - var(--ui-header-height));
+    max-height: calc(100dvh - var(--ui-header-height));
+    min-height: calc(100dvh - var(--ui-header-height));
+    flex: 0 0 auto;
+  }
+
+  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-sidebars) {
+    width: max-content;
+    height: 100%;
+  }
+
+  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-aside) {
     position: sticky;
     top: var(--ui-header-height);
     display: flex;
@@ -75,6 +90,10 @@ const hasPanel = computed(
     flex-direction: column;
     overflow: visible;
     border-right: 1px solid var(--ui-border);
+  }
+
+  .vh-docs-content {
+    flex: 1;
   }
 }
 </style>
