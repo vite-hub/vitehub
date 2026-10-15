@@ -8,7 +8,7 @@ describe("Agent invocation RegExp boundaries", () => {
     const timestamp = "2026-01-01T00:00:00.000Z"
     await store.create({ id: "fixture", observations: [], status: "completed", createdAt: timestamp, updatedAt: timestamp, traceId: "trace" })
     const invocations = defineAgentInvocations({ content: "content", store })
-    const expression = runInNewContext("Object.assign(/a+/gi, { lastIndex: 2, source: 'wrong', flags: 'wrong' })")
+    const expression = runInNewContext("Object.defineProperties(/a+/gi, { lastIndex: { value: 2 }, source: { value: 'wrong' }, flags: { value: 'wrong' } })")
     await invocations.appendObservation("fixture", {
       name: "report", type: "capability", timestamp,
       attributes: { expression },
