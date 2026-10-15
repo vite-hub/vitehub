@@ -25,7 +25,7 @@ import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
-import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
+import type { DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
 export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
@@ -143,6 +143,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
   function databaseServerDirs() {
     const database = resolvedOptions()
+    // The Database Nuxt bridge pins `projectRoot` and forwards the server directories of the application and its layers.
+    if (database && "nuxtServerDirs" in database) {
+      // SAFETY: Only the Database Nuxt bridge sets `nuxtServerDirs`, and it always sets a string array.
+      return (database as NuxtDatabaseViteOptions).nuxtServerDirs
+    }
     return database && "projectRoot" in database && database.projectRoot !== undefined
       ? [resolve(databaseRoot(), "server")]
       : serverDirs
@@ -268,7 +273,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (!runtimeConfig) return
 
       const changedFile = normalize(context.file)
-      const isDatabaseUpdate = runtimeConfig.definitions.some(definition => normalize(definition.handler) === changedFile)
+      const isDatabaseUpdate = runtimeConfig.definitions.some(definition => definition.schemaSources.some(source => normalize(source.handler) === changedFile))
         || Object.values(runtimeConfig.schemaExtensionsByDatabase).some(files => files.some(file => normalize(file) === changedFile))
       if (!isDatabaseUpdate) return
 
@@ -302,7 +307,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const retainedSources = await retainProviderOutputSources({
           artifactDir: resolve(contributionArtifactDir, "sources"),
           paths: [
-            ...contributionRuntimeConfig.definitions.map(definition => definition.handler),
+            ...contributionRuntimeConfig.definitions.flatMap(definition => [definition.handler, ...definition.schemaSources.map(source => source.handler)]),
             ...Object.values(contributionRuntimeConfig.generatedSchemaFilesByDatabase),
             ...Object.values(contributionRuntimeConfig.schemaExtensionsByDatabase).flat(),
           ],
@@ -313,6 +318,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           definitions: contributionRuntimeConfig.definitions.map(definition => ({
             ...definition,
             handler: retainedSources.resolve(definition.handler),
+            schemaSources: definition.schemaSources.map(source => ({ ...source, handler: retainedSources.resolve(source.handler) })),
           })),
           generatedSchemaFilesByDatabase: Object.fromEntries(Object.entries(contributionRuntimeConfig.generatedSchemaFilesByDatabase)
             .map(([name, file]) => [name, retainedSources.resolve(file)])),

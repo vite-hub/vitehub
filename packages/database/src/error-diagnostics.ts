@@ -16,6 +16,8 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     DATABASE_C0006: dynamicError,
     DATABASE_C0007: dynamicError,
     DATABASE_C0008: dynamicError,
+    DATABASE_C0009: dynamicError,
+    DATABASE_C0010: dynamicError,
     DATABASE_R0001: dynamicError,
     DATABASE_R0002: dynamicError,
     DATABASE_R0003: dynamicError,

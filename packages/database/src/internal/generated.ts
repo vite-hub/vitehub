@@ -9,8 +9,28 @@ import { renderConfigValueExpression } from "../config-value.ts"
 
 import type { DiscoveredDatabaseDefinition, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
-function createTableExports(definition: DiscoveredDatabaseDefinition, definitionVariable: string) {
-  return definition.tableNames.map(tableName => `export const ${tableName} = ${definitionVariable}.schema[${JSON.stringify(tableName)}]`)
+/** Exports each table key from the source that wins it, so Drizzle Kit sees every table once. */
+function createTableExports(definition: DiscoveredDatabaseDefinition, sourceVariables: string[]) {
+  const winners = new Map<string, string>()
+  definition.schemaSources.forEach((source, index) => {
+    for (const tableName of source.tableNames) winners.set(tableName, sourceVariables[index]!)
+  })
+  return definition.tableNames.map(tableName => `export const ${tableName} = ${winners.get(tableName)}.schema[${JSON.stringify(tableName)}]`)
+}
+
+function schemaSourceVariables(definition: DiscoveredDatabaseDefinition, single: string, prefix: string) {
+  return definition.schemaSources.length === 1 ? [single] : definition.schemaSources.map((_, index) => `${prefix}${index}`)
+}
+
+function renderSchemaExpression(sourceVariables: string[]) {
+  return sourceVariables.length === 1
+    ? `${sourceVariables[0]}.schema`
+    : `{ ${sourceVariables.map(variable => `...${variable}.schema`).join(", ")} }`
+}
+
+function renderSchemaType(variables: string[]) {
+  const [first, ...rest] = variables.map(variable => `typeof ${variable}.schema`)
+  return rest.reduce((merged, next) => `Omit<${merged}, keyof ${next}> & ${next}`, first!)
 }
 
 function displayPath(rootDir: string, file: string) {
@@ -23,14 +43,14 @@ function extensionSchemaType(variable: string) {
 }
 
 function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, extensions: string[], rootDir: string) {
-  const definitionVariable = "databaseDefinition"
-  const definitionImport = `import ${definitionVariable} from ${JSON.stringify(createImportPath(file, definition.handler))}`
+  const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
+  const sourceImports = definition.schemaSources.map((source, index) => `import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`)
   if (!extensions.length) {
     return [
-      definitionImport,
+      ...sourceImports,
       "",
-      ...createTableExports(definition, definitionVariable),
-      `export const schema = ${definitionVariable}.schema`,
+      ...createTableExports(definition, sourceVariables),
+      `export const schema = ${renderSchemaExpression(sourceVariables)}`,
       "export default schema",
       "",
     ].join("\n")
@@ -39,17 +59,18 @@ function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDataba
   // Drizzle Kit reads tables from named exports, so extension files are re-exported as well as merged.
   const extensionImports = extensions.map(extension => JSON.stringify(createImportPath(file, extension)))
   const schemaType = [
-    `typeof ${definitionVariable}.schema`,
+    renderSchemaType(sourceVariables),
     ...extensions.map((_extension, index) => extensionSchemaType(`extension_${index}`)),
   ].join(" & ")
+  const definitionOwner = definition.schemaSources.map(source => displayPath(rootDir, source.handler)).join(", ")
   return [
-    definitionImport,
+    ...sourceImports,
     ...extensionImports.map((path, index) => `import * as extension_${index} from ${path}`),
     "",
     ...extensionImports.map(path => `export * from ${path}`),
-    ...createTableExports(definition, definitionVariable),
+    ...createTableExports(definition, sourceVariables),
     `export const schema = mergeDatabaseSchema(${JSON.stringify(definition.name)}, [`,
-    `  [${JSON.stringify(displayPath(rootDir, definition.handler))}, ${definitionVariable}.schema, false],`,
+    `  [${JSON.stringify(definitionOwner)}, ${renderSchemaExpression(sourceVariables)}, false],`,
     ...extensions.map((extension, index) => `  [${JSON.stringify(displayPath(rootDir, extension))}, extension_${index}, true],`),
     `]) as ${schemaType}`,
     "export default schema",
@@ -117,20 +138,22 @@ function renderGeneratedDrizzleConfig(config: ResolvedDBViteConfig, databaseName
 }
 
 function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatabaseDefinition[], extensionsByDatabase: Record<string, string[]>) {
-  const extensionsOf = (definition: DiscoveredDatabaseDefinition | undefined) => (definition && extensionsByDatabase[definition.name]) || []
+  const extensionsOf = (definition: DiscoveredDatabaseDefinition) => extensionsByDatabase[definition.name] ?? []
+  const variables = definitions.map((definition, index) => schemaSourceVariables(definition, `database_${index}`, `database_${index}_`))
   const imports = definitions.flatMap((definition, index) => [
-    `import type database_${index} from ${JSON.stringify(createImportPath(file, definition.handler))}`,
+    ...definition.schemaSources.map((source, sourceIndex) =>
+      `import type ${variables[index]![sourceIndex]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
     ...extensionsOf(definition).map((extension, extensionIndex) =>
       `import type * as database_${index}_extension_${extensionIndex} from ${JSON.stringify(createImportPath(file, extension))}`),
   ])
-  const schemaType = (index: number) => [
-    `typeof database_${index}.schema`,
-    ...extensionsOf(definitions[index]).map((_extension, extensionIndex) => extensionSchemaType(`database_${index}_extension_${extensionIndex}`)),
-  ].join(" & ")
+  const schemaTypes = definitions.map((definition, index) => [
+    renderSchemaType(variables[index]!),
+    ...extensionsOf(definition).map((_extension, extensionIndex) => extensionSchemaType(`database_${index}_extension_${extensionIndex}`)),
+  ].join(" & "))
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
   const registryEntries = definitions.flatMap((definition, index) => [
     `    ${JSON.stringify(definition.name)}: {`,
-    `      schema: ${schemaType(index)}`,
+    `      schema: ${schemaTypes[index]}`,
     "    },",
   ])
   const registryDeclarations = ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(moduleName => [
@@ -145,7 +168,7 @@ function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatab
   return [
     ...imports,
     "",
-    `type DefaultDatabaseSchema = ${schemaType(schemaDefinitionIndex)}`,
+    `type DefaultDatabaseSchema = ${schemaTypes[schemaDefinitionIndex]}`,
     "",
     'declare module "#vitehub/database/schema" {',
     "  interface DatabaseSchema extends DefaultDatabaseSchema {}",

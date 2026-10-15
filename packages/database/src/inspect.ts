@@ -12,12 +12,15 @@ export interface DatabaseInspectionOptions {
   serverDirs?: string[]
 }
 
-/** Lists Database Definitions with their mode, discovered tables, and extension schema files. */
+/** Lists Database Definitions with their mode, discovered tables, and the files that add tables to them. */
 export function inspectDatabaseDefinitions(options: DatabaseInspectionOptions): ViteHubDefinitionSummary[] {
   return discoverDatabaseDefinitions(options.rootDir, { serverDirs: options.serverDirs }).map(definition => ({
     fields: [
       { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },
       { label: "Tables", value: definition.tableNames.length ? definition.tableNames.join(", ") : "None discovered" },
+      ...definition.schemaSources.length > 1
+        ? [{ label: "Schema sources", value: definition.schemaSources.map(source => relativeDefinitionFile(options.projectRoot, source.handler)).join(", ") }]
+        : [],
       ...(options.schemaExtensionsByDatabase?.[definition.name]?.length
         ? [{ label: "Schema extensions", value: options.schemaExtensionsByDatabase[definition.name]!.map(file => relativeDefinitionFile(options.projectRoot, file)).join(", ") }]
         : []),

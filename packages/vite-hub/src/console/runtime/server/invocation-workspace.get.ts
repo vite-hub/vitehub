@@ -65,5 +65,5 @@ async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Pr
   return { paths, repository: name, revision }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof consoleInvocationWorkspaceHandler> = withConsoleAccess(consoleInvocationWorkspaceHandler)
+const guardedHandler: ConsoleAccessRoute<typeof consoleInvocationWorkspaceHandler> = withConsoleAccess(consoleInvocationWorkspaceHandler, { section: "agents" })
 export default guardedHandler

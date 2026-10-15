@@ -161,6 +161,7 @@ function createRuntimeConfig(rootDir: string, database: Pick<RuntimeDrizzleDatab
       handler,
       mode: "named",
       name: "primary",
+      schemaSources: [{ handler, tableNames: [] }],
       source: handler,
       tableNames: [],
     }],

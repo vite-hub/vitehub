@@ -3,7 +3,7 @@ import { dirname, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
+import { resolveNuxtServerDirs, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -20,7 +20,7 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { collectDatabaseExtendHooks, extendDatabaseSchema } from "./internal/extend.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 
-import type { DatabaseExtendContext, DatabaseExtendingPlugin, DatabaseNuxtIntegrationOptions, DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
+import type { DatabaseExtendContext, DatabaseExtendingPlugin, DatabaseNuxtIntegrationOptions, DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 import type { Plugin } from "vite"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -62,6 +62,7 @@ type NuxtLike = {
     (name: "close", callback: () => Promise<void> | void): void
   }
   options: Record<string, unknown> & {
+    _layers?: NuxtServerDirOptions["_layers"]
     buildDir?: string
     dev?: boolean
     modules?: unknown[]
@@ -107,7 +108,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     })
     const serverDirs = resolvedOptions.projectRoot
       ? [resolve(root, "server")]
-      : nuxtOptions.serverDir ? [nuxtOptions.serverDir] : undefined
+      : resolveNuxtServerDirs(nuxtOptions)
     const databaseConfig = resolvedOptions.driver === "d1"
       ? resolveDBViteConfig(resolvedOptions, root, { provisionRoot, serverDirs })
       : undefined
@@ -130,12 +131,12 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           databaseId: withConfigValueFallback(resolvedOptions.databaseId, d1.d1Database.database_id),
         }
       : effectiveOptions
-    const viteOptions = resolveDatabaseViteOptions({ ...runtimeOptions, projectRoot: root })
+    const viteOptions = resolveDatabaseViteOptions({ ...runtimeOptions, projectRoot: root }, serverDirs)
     if (viteOptions) {
       const configuredDatabase = isRecord(viteConfig.database) ? viteConfig.database : undefined
       viteConfig.database = { ...configuredDatabase, ...viteOptions }
     }
-    installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root })
+    installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root }, serverDirs)
     // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the hook this integration calls.
     installNuxtExtendPlugin(viteConfig, nuxt as NuxtLike)
     // Other Nuxt modules extend Databases through the Nuxt hook or Vite plugins, after every module has run setup.
@@ -157,9 +158,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         const refresh = async () => {
           if (!localNitroConfig) return
           const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, generatedRoot, resolveRuntime, d1)
-          for (const definition of runtime?.definitions ?? []) {
-            definitionFiles.add(definition.handler)
-            definitionDirectories.add(dirname(definition.handler))
+          for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
+            definitionFiles.add(source.handler)
+            definitionDirectories.add(dirname(source.handler))
           }
           // Schema files from other modules can live outside the Definition directories.
           for (const file of Object.values(runtime?.schemaExtensionsByDatabase ?? {}).flat()) definitionFiles.add(file)
@@ -276,6 +277,7 @@ async function installNitroLocalDatabaseRuntime(
     `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
     `import schema_${index} from ${JSON.stringify(pathToFileURL(runtime.generatedSchemaFilesByDatabase[definition.name]!).href)}`,
   ])
+  // The generated schema merges Nuxt layer tables and module schema files.
   const entries = runtime.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
     `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`,
@@ -331,10 +333,13 @@ function resolveDatabaseNuxtOptions(
   } as ResolvedDatabaseNuxtIntegrationOptions
 }
 
-function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions): DBModulePublicOptions | undefined {
-  const viteOptions: Exclude<DBModulePublicOptions, false> & { nuxtHostResource?: true } = { nuxtHostResource: true }
+function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]): DBModulePublicOptions | undefined {
+  const viteOptions: Exclude<DBModulePublicOptions, false> & NuxtDatabaseViteOptions = { nuxtHostResource: true }
   if (options.projectRoot) {
     viteOptions.projectRoot = options.projectRoot
+  }
+  if (serverDirs) {
+    viteOptions.nuxtServerDirs = serverDirs
   }
   if ("cli" in options) {
     viteOptions.cli = options.cli
@@ -418,10 +423,10 @@ function installNuxtExtendPlugin(viteConfig: Record<string, unknown>, nuxt: Nuxt
   viteConfig.plugins = [...plugins, plugin]
 }
 
-function installVitePlugin(viteConfig: Record<string, unknown>, options: ResolvedDatabaseNuxtIntegrationOptions) {
+function installVitePlugin(viteConfig: Record<string, unknown>, options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]) {
   const plugins = Array.isArray(viteConfig.plugins) ? viteConfig.plugins : []
   if (!plugins.some(plugin => isRecord(plugin) && plugin.name === "@vite-hub/database/vite")) {
-    viteConfig.plugins = [hubDbVite(resolveDatabaseViteOptions(options)), ...plugins] satisfies Plugin[]
+    viteConfig.plugins = [hubDbVite(resolveDatabaseViteOptions(options, serverDirs)), ...plugins] satisfies Plugin[]
   }
 }
 

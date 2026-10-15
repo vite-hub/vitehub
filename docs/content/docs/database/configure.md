@@ -64,6 +64,36 @@ export default defineDatabase({
 })
 ```
 
+## Tables from Nuxt layers
+
+In a Nuxt application, ViteHub also discovers Database Definitions in the server
+directory of each layer. Definitions with the same name join one database. The
+database has the tables of all of them, and `vitehub db generate` writes one set
+of migrations for it.
+
+```ts [layers/blog/server/databases/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    posts: sqliteTable('posts', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+    }),
+  },
+})
+```
+
+These rules apply:
+
+- `connection`, `cloudflare`, and `drizzle` come from one Definition. When the application Definition sets one of them, it replaces all layer options, so it must also set each option that a layer sets. The application and each layer that sets options must then pass an object literal to `defineDatabase()`, so that ViteHub can read their options. Otherwise one layer can set them. Two layers that set them fail discovery until the application sets them.
+- An application table replaces a layer table with the same key. Use this to add columns to a layer table. Two layers that declare the same table key fail discovery.
+- Migrations go to the application, in `server/databases/migrations` or `server/databases/<name>/migrations`, also when only layers define the database.
+- A project still uses either one Default Database or Named Databases. A layer with a Default Database and another layer with Named Databases fail discovery.
+
+ViteHub finds duplicate table keys when `schema` is an object literal. Query the merged database with `useDatabase()` or the `db` server auto-import. A layer that queries its own `defineDatabase()` object directly sees only its own tables.
+
 ## Add tables from a module
 
 A Nuxt module or Vite plugin can add its own tables to a Database that the app defines. The app does not import or list those tables. The added tables join the queries from `useDatabase()`, the generated types, and the migrations from `vitehub db generate`.
@@ -124,7 +154,7 @@ The hook runs once for each discovered Database, each time ViteHub resolves its 
 | `dialect` | `DatabaseDialect` | SQL dialect of the Database. Use it to select a dialect-specific schema file. |
 | `schemaFiles` | `string[]` | Schema files to add. Relative paths resolve from the Database project root. |
 
-Every named export of a schema file joins the Database schema. The default export does not. Drizzle relations in the file also apply to relational queries. A schema file that does not exist fails with `DATABASE_C0008`. An added export with the same key as another table fails when the schema loads, unless both keys refer to the same table object.
+Every named export of a schema file joins the Database schema. The default export does not. Drizzle relations in the file also apply to relational queries. A schema file that does not exist fails with `DATABASE_C0010`. An added export with the same key as another table fails when the schema loads, unless both keys refer to the same table object.
 
 A module adds tables only to a Database that the app defines. When no Database Definition is discovered, the hook does not run. `vitehub inspect definitions --kind database` lists the added schema files of each Database under `Schema extensions`. The Definition object that `defineDatabase()` returns keeps only the Definition schema. Use `useDatabase()` to query added tables.
 
