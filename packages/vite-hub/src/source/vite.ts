@@ -18,6 +18,7 @@ export {
   toTypeModuleSpecifier,
 } from "@vite-hub/source/vite"
 export type {
+  ContentDefinitionFile,
   GeneratedSourceHandler,
   GeneratedSourceHandlersListener,
   GeneratedSourceHandlersListenerOptions,

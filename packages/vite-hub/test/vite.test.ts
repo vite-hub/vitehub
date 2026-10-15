@@ -658,6 +658,7 @@ describe("vitehub", () => {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
       runtimeCapabilityImports: {
+        auth: "vite-hub/auth/agent",
         blob: "vite-hub/_internal/blob",
         connections: false,
         console: false,

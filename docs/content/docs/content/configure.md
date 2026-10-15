@@ -260,7 +260,7 @@ A runtime can combine read-only `sources` with `collections`. Names share one na
 
 ## Access
 
-`authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The [Console content editor](/docs/content/console) and the Content Agent Capability use it.
+`authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The [Console content editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. The Agent Capability passes the Auth user behind the Invocation's Actor as `user`, and the Actor as `actor`.
 
 ```ts [server/content.ts]
 export const content = defineContent({
@@ -287,7 +287,7 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. The Console then shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`; `read` covers drafts.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. The Console then shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`; `read` covers drafts. The [Agent Capability](/docs/content/agent-capability#access-and-approval) checks `read` for published documents too, for each document it shows.
 
 The runtime methods, such as `save()` and `publish()`, are trusted server API. They do not call `authorize`. Check `content.can()` yourself before you call them from a route that acts for a user.
 

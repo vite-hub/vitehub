@@ -37,6 +37,15 @@ export {
   title,
 } from "./title.ts"
 export {
+  content,
+} from "./content.ts"
+export type {
+  ContentCapabilityOperation,
+  ContentCapabilityOptions,
+  ContentCapabilityToolPolicy,
+  ContentCapabilityUser,
+} from "./content.ts"
+export {
   fetch,
 } from "./fetch.ts"
 export {

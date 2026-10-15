@@ -1559,6 +1559,8 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R1002: dynamicError,
     AGENT_R1003: dynamicError,
     AGENT_R1004: dynamicError,
+    AGENT_R1005: dynamicError,
+    AGENT_R1006: dynamicError,
     AGENT_R0928: {
       why: "[vitehub] Provider Agent Drivers are not included in Worker builds. They start local Codex or Claude Code processes, which require a Node.js host.",
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",
@@ -1574,6 +1576,10 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_C0011: {
       why: "[vitehub] codeHost() requires valid host, repositories, output limit and operations for its mode.",
       fix: "Use mode write for write operations and policy. Use repository names or owner/* patterns.",
+    },
+    AGENT_C0012: {
+      why: "[vitehub] content() requires { collections?: string[], operations?: Array<\"read\" | \"write\" | \"publish\">, policy?, user?, lease?: \"override\" }.",
+      fix: "Name each collection once, enable at least one operation, pass policy as a decision or function and user as a function, and omit lease or set it to \"override\".",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,

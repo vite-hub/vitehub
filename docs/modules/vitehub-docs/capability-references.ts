@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { inspectAgentTools } from "@vite-hub/agent";
-import { blob, db, email, gmail, kv, papercuts, sandbox } from "@vite-hub/agent/capabilities";
+import { blob, content, db, email, gmail, kv, papercuts, sandbox } from "@vite-hub/agent/capabilities";
 import type { AgentCapabilityDefinition, AgentToolInspection } from "@vite-hub/agent";
 
 export interface CapabilityReference {
@@ -57,6 +57,44 @@ export async function createCapabilityReferences(): Promise<CapabilityReferences
     capabilities: { connections: connectionsPrimitive },
     context: new Map<string, unknown>(),
   };
+  const contentPrimitive = {
+    can() {
+      throw new Error("Documentation references must not evaluate Content access.");
+    },
+    collections() {
+      return [{
+        fields: ["title", "date", "tags"],
+        format: "markdown",
+        kind: "documents",
+        label: "Posts",
+        name: "posts",
+        path: "posts/**/*.md",
+        schema: {
+          properties: {
+            // The schema that `z.coerce.date()` and `z.array(z.string()).default([])` project to.
+            date: { format: "date-time", type: "string" },
+            tags: { default: [], items: { type: "string" }, type: "array" },
+            title: { minLength: 1, type: "string" },
+          },
+          required: ["title", "date"],
+          type: "object",
+        },
+        titleField: "title",
+      }];
+    },
+    publish() {
+      throw new Error("Documentation references must not publish Content.");
+    },
+    schedule() {
+      throw new Error("Documentation references must not schedule Content.");
+    },
+    schedules() {
+      throw new Error("Documentation references must not read Content schedules.");
+    },
+    unschedule() {
+      throw new Error("Documentation references must not cancel Content schedules.");
+    },
+  };
   const emailOptions = {
     from: "support@example.com",
     policy: "require-approval" as const,
@@ -73,6 +111,10 @@ export async function createCapabilityReferences(): Promise<CapabilityReferences
         await resolveReference(db({ mode: "write", schemaMode: "write" }), {
           capabilities: { db: dbPrimitive },
         }),
+      ],
+      [
+        "content.default",
+        await resolveReference(content(), { capabilities: { content: contentPrimitive }, context: new Map<string, unknown>() }),
       ],
       [
         "email.default",

@@ -13,7 +13,7 @@ import { rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, re
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
-import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { validateWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
@@ -212,10 +212,33 @@ interface GeneratedAgentRuntimeCapability {
   pluginName: string
 }
 
-const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapability[] = [
+interface GeneratedAgentRuntimeCapabilityDefinition extends GeneratedAgentRuntimeCapability {
+  /** Reads the module from the owning plugin, for primitives that an application file defines. Undefined omits the primitive. */
+  modulePath?: (plugin: Plugin, projectRoot: string | undefined) => string | undefined
+}
+
+/** The project root that ViteHub plugins key generated state by. Nuxt sets it explicitly. */
+function viteHubProjectRoot(config: { root?: string }): string {
+  const configured: unknown = Reflect.get(config, VITEHUB_PROJECT_ROOT)
+  return hasRuntimeType(configured, "string") && configured ? resolve(configured) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
+}
+
+/** The Content runtime is the `content` export of the `server/content.ts` file that the Source plugin discovered. */
+function contentDefinitionPath(plugin: Plugin, projectRoot: string | undefined): string | undefined {
+  const api: unknown = Reflect.get(Object(plugin), "api")
+  const getContentDefinition: unknown = Reflect.get(Object(api), "getContentDefinition")
+  if (!(getContentDefinition instanceof Function)) return
+  const definition: unknown = getContentDefinition(projectRoot)
+  const handler: unknown = Reflect.get(Object(definition), "handler")
+  return hasRuntimeType(handler, "string") && handler ? handler.replace(/\\/g, "/") : undefined
+}
+
+const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilityDefinition[] = [
+  { importName: "agentAuth", name: "auth", packageName: "@vite-hub/auth/agent", pluginName: "@vite-hub/auth/vite" },
   { importName: "blob", name: "blob", packageName: "@vite-hub/blob", pluginName: "@vite-hub/blob/vite" },
   { importName: "connections", name: "connections", packageName: "@vite-hub/connections/server", pluginName: "@vite-hub/connections/vite" },
   { importName: "console", name: "console", packageName: "vite-hub/console/server", pluginName: "vite-hub/console" },
+  { importName: "content", modulePath: contentDefinitionPath, name: "content", packageName: false, pluginName: "@vite-hub/source/vite" },
   { importName: "agentDb", name: "db", packageName: "@vite-hub/database/drizzle", pluginName: "@vite-hub/database/vite" },
   { importName: "email", name: "email", packageName: "@vite-hub/email/server", pluginName: "@vite-hub/email/vite" },
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
@@ -224,23 +247,31 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
 function configuredGeneratedAgentRuntimeCapabilities(
   plugins: readonly Plugin[],
   packageImports: Record<string, false | string> = {},
+  projectRoot?: string,
 ): GeneratedAgentRuntimeCapability[] {
   const pluginNames = new Set(plugins.map(plugin => plugin.name))
-  return generatedAgentRuntimeCapabilityDefinitions
-    .filter(capability => pluginNames.has(capability.pluginName) || packageImports[capability.name] === false)
-    .map(capability => ({
+  return generatedAgentRuntimeCapabilityDefinitions.flatMap(({ modulePath, ...capability }) => {
+    if (modulePath) {
+      // An application-defined primitive exists only when its plugin found the file. `false` disables it.
+      const plugin = plugins.find(candidate => candidate.name === capability.pluginName)
+      const packageName = packageImports[capability.name] ?? (plugin ? modulePath(plugin, projectRoot) : undefined)
+      return packageName ? [{ ...capability, packageName }] : []
+    }
+    if (!pluginNames.has(capability.pluginName) && packageImports[capability.name] !== false) return []
+    return [{
       ...capability,
       packageName: packageImports[capability.name] === false && pluginNames.has(capability.pluginName)
         ? capability.packageName
         : packageImports[capability.name] ?? capability.packageName,
-    }))
+    }]
+  })
 }
 
 async function resolveGeneratedAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root"> & Partial<Pick<ResolvedConfig, "createResolver">>,
   packageImports: Record<string, false | string> = {},
 ): Promise<GeneratedAgentRuntimeCapability[]> {
-  const candidates = configuredGeneratedAgentRuntimeCapabilities(config.plugins || [], packageImports)
+  const candidates = configuredGeneratedAgentRuntimeCapabilities(config.plugins || [], packageImports, viteHubProjectRoot(config))
   const resolveImport = config.createResolver?.()
   if (!resolveImport) return candidates
   const importer = join(resolveViteHubGeneratedRoot(config), "agent", "runtime-capabilities.js")
@@ -276,8 +307,9 @@ async function writeStandaloneAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root">,
   capabilities: GeneratedAgentRuntimeCapability[],
 ): Promise<GeneratedAgentRuntimeCapability[]> {
-  // Database-backed primitives need the host runtime.
-  const standaloneCapabilities = capabilities.filter(capability => capability.name !== "db" && capability.name !== "connections")
+  // Database-backed primitives need the host runtime. Auth users and Content collections live in a Database.
+  const hostOnly = new Set(["auth", "connections", "content", "db"])
+  const standaloneCapabilities = capabilities.filter(capability => !hostOnly.has(capability.name))
   const emailCapability = standaloneCapabilities.find(capability =>
     capability.name === "email" && capability.packageName !== false
   )
@@ -3267,6 +3299,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         runtimeCapabilities = configuredGeneratedAgentRuntimeCapabilities(
           (config.plugins || []).filter(Boolean) as Plugin[],
           getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,
+          viteHubProjectRoot(config),
         )
       }
       const generatedRoot = resolveViteHubGeneratedRoot(config)
