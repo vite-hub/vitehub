@@ -376,6 +376,21 @@ describe("resolveDBViteConfig", () => {
     }
   })
 
+  it("does not synthesize a native binding for unresolved opaque resources", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "declare const cloudflare: unknown",
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
+  })
+
   it.each(["reference", "spread"] as const)("checks opaque %s definitions that inherit native D1 resources", async (form) => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {
