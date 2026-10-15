@@ -31,7 +31,10 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
   return isRuntimeRecord(value) && hasRuntimeType(value.toUIMessageStream, "function")
 }
 
-const responseSnapshotProperties = ["status", "statusText", "headers", "body"] as const
+// `type` is an additional intrinsic-slot accessor. Requiring it keeps the
+// compatibility boundary from accepting a class that merely copies the
+// stream-facing getters while retaining support for genuine foreign realms.
+const responseSnapshotProperties = ["status", "statusText", "headers", "body", "type"] as const
 const responsePrototypeLimit = 32
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
@@ -55,8 +58,13 @@ function hasResponsePrototype(value: unknown): boolean {
     seen.add(prototype)
     const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
     const owner = prototype
+    const clone = Object.getOwnPropertyDescriptor(owner, "clone")?.value
     if (constructor?.name === "Response"
-      && responseSnapshotProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
+      && responseSnapshotProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)
+      // A native Response prototype also exposes its complete body API. The
+      // clone method is selected from the same prototype so a class that only
+      // copies the stream-facing getters cannot cross this boundary.
+      && hasRuntimeType(clone, "function")) return true
     prototype = Object.getPrototypeOf(prototype)
   }
   return false
