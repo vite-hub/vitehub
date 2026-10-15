@@ -3,7 +3,8 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { consoleRequestError, consoleRequestURL, type ConsoleRequestEvent } from "./request.ts"
 
-import type { ConsoleAuthorize } from "../../auth.ts"
+import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
+import type { ConsoleSectionId } from "../sections.ts"
 
 /**
  * How the Console checks each request. Generated host output installs one policy for each server process.
@@ -13,8 +14,9 @@ import type { ConsoleAuthorize } from "../../auth.ts"
  * - `host-managed`: the host-supplied `console.authorize` function.
  */
 export type ConsoleAccessPolicy =
+  | { mode: "open", authorize?: ConsoleAuthorize }
   | { mode: "local" }
-  | { mode: "auth" | "cloudflare-access", check?: (event: ConsoleRequestEvent) => Promise<Response | undefined> }
+  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
   | { mode: "host-managed", authorize?: ConsoleAuthorize }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
@@ -22,7 +24,13 @@ export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 /** The checked Console access that a guarded handler receives. Only `withConsoleAccess()` creates it. */
 export interface ConsoleAccess {
   readonly mode: ConsoleAccessMode
+  readonly sections: "all" | readonly ConsoleSectionId[]
+  readonly user?: ConsoleUser
 }
+
+export type ConsoleRouteScope =
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined) }
+  | { anySection: true }
 
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
 export type ConsoleGuardedHandler<TEvent, TResult> = (event: TEvent, access: ConsoleAccess) => TResult | Promise<TResult>
@@ -35,7 +43,11 @@ const policyKey: unique symbol = Symbol.for("vitehub.console.access")
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
-const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local"])
+const routeScopes = new WeakMap<object, ConsoleRouteScope>()
+const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
+const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local", "open"])
+
+export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
 
 /** A JSON rejection with the Console diagnostic fields: `code`, `message` (the why), `fix`, and `docs`. */
 function rejection(status: number, code: ConsoleDiagnosticCode, message?: string): Response {
@@ -72,11 +84,29 @@ function webRequest(event: ConsoleRequestEvent): Request {
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
 }
 
-async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAccess | Response> {
+function isSectionId(value: unknown): value is ConsoleSectionId {
+  return typeof value === "string" && value.length > 0
+}
+
+function authorizedSections(result: unknown): readonly ConsoleSectionId[] | undefined {
+  if (!(result instanceof Object)) return
+  const sectionsValue = Reflect.get(result, "sections")
+  if (!Array.isArray(sectionsValue)) return
+  const sections: unknown[] = sectionsValue
+  if (!sections.every(isSectionId)) return
+  return Object.freeze([...new Set(sections)])
+}
+
+async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: boolean } = {}): Promise<ConsoleAccess | Response> {
   const policy = scope[policyKey]
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
+  let user: ConsoleUser | undefined
+  let authorization: unknown = true
   if (policy.mode === "local") {
     if (productionRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
+  }
+  else if (policy.mode === "open") {
+    // open access intentionally performs no authentication
   }
   else if (policy.mode === "host-managed") {
     if (!policy.authorize) {
@@ -84,7 +114,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
     }
     const result = await policy.authorize({ request: webRequest(event) })
     if (result instanceof Response) return result
-    if (result !== true) return rejection(403, "CONSOLE_ACCESS_DENIED")
+    authorization = result
   }
   else {
     if (!policy.check) {
@@ -94,8 +124,44 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
     }
     const response = await policy.check(event)
     if (response) return response
+    if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
-  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
+  let sections: ConsoleAccess["sections"] = "all"
+  if (policy.mode !== "host-managed" && policy.mode !== "local" && policy.authorize) {
+    const result: unknown = await policy.authorize(user ? { request: webRequest(event), user } : { request: webRequest(event) })
+    if (result instanceof Response) return result
+    if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
+    if (result !== true) {
+      const allowed = authorizedSections(result)
+      if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")
+      if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
+      sections = allowed
+    }
+  }
+  else if (authorization !== true) {
+    if (authorization === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
+    const allowed = authorizedSections(authorization)
+    if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")
+    if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
+    sections = allowed
+  }
+  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}) })
+  if (policy.mode === "auth" && !user && policy.user) deferredUsers.set(access, () => policy.user!(event))
+  return access
+}
+
+export async function readConsoleAccessUser(access: ConsoleAccess): Promise<ConsoleUser | undefined> {
+  if (!consoleAccessGrant.isValid(access)) return undefined
+  return access.user ?? await deferredUsers.get(access)?.()
+}
+
+export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
+  if (!consoleAccessGrant.isValid(access)) return false
+  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
+}
+
+export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
+  return available.filter(section => consoleAccessAllows(access, section))
 }
 
 /**
@@ -110,10 +176,13 @@ export async function consoleConnectionsActor(
   event: ConsoleRequestEvent,
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | Response> {
-  const access = await checkConsoleAccess(event)
-  if (access instanceof Response) return access
-  if (access.mode !== "auth") return `user:${access.mode}`
-  return (sessionActor ? await sessionActor() : undefined) ?? rejection(403, "CONSOLE_MANAGER_REQUIRED")
+  const access = await checkConsoleAccess(event, { user: true })
+  if (access instanceof Response || !consoleAccessAllows(access, "connections")) return access instanceof Response ? access : rejection(403, "CONSOLE_MANAGER_REQUIRED")
+  if (access.mode === "auth") {
+    const actor = sessionActor ? await sessionActor() : (await readConsoleAccessUser(access))?.id
+    return actor ? (actor.startsWith("user:") ? actor : `user:${actor}`) : rejection(403, "CONSOLE_MANAGER_REQUIRED")
+  }
+  return `user:${access.mode}`
 }
 
 /**
@@ -122,16 +191,29 @@ export async function consoleConnectionsActor(
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
+  routeScope: ConsoleRouteScope = { anySection: true },
 ): (event: TEvent) => Promise<TResult | Response> {
   if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
-  return async (event) => {
-    const bound = checkedEvents.get(event)
-    if (bound && consoleAccessGrant.isValid(bound)) return handler(event, bound)
-    const access = await checkConsoleAccess(event)
-    if (access instanceof Response) return access
-    checkedEvents.set(event, access)
+  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  const declared = Object.freeze({ ...routeScope }) as ConsoleRouteScope
+  const route = async (event: TEvent) => {
+    let access = checkedEvents.get(event)
+    if (!access || !consoleAccessGrant.isValid(access)) {
+      const checked = await checkConsoleAccess(event)
+      if (checked instanceof Response) return checked
+      access = checked
+      checkedEvents.set(event, access)
+    }
+    const section = "section" in declared ? (declared.section instanceof Function ? declared.section(event) : declared.section) : undefined
+    if (section !== undefined && !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
     return handler(event, access)
   }
+  routeScopes.set(route, declared)
+  return route
+}
+
+export function consoleRouteScope(route: unknown): ConsoleRouteScope | undefined {
+  return route instanceof Function ? routeScopes.get(route) : undefined
 }
 
 /**
