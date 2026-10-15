@@ -134,6 +134,12 @@ describe("Console access policies", () => {
     expect(handler).toHaveBeenCalledOnce()
     expect(result).toEqual({ mode: "host-managed", sections: ["kv"] })
   })
+  it("accepts sections returned from another runtime realm", async () => {
+    const authorize = runInNewContext("() => ({ sections: ['kv'] })")
+    const { handler, result } = await run({ mode: "host-managed", authorize })
+    expect(handler).toHaveBeenCalledOnce()
+    expect(result).toEqual({ mode: "host-managed", sections: ["kv"] })
+  })
   it("returns a custom Response created in another runtime realm", async () => {
     const window = new Window()
     try {

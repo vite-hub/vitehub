@@ -166,7 +166,11 @@ function webRequest(event: ConsoleRequestEvent): Request {
 const isSectionId = (value: unknown): value is ConsoleSectionId => typeof value === "string" && value.length > 0
 
 function authorizedSections(result: unknown): readonly ConsoleSectionId[] | undefined {
-  if (!(result instanceof Object) || !("sections" in result) || !Array.isArray(result.sections)) return
+  // Authorization results may come from a different JavaScript realm.
+  // `instanceof Object` rejects those objects, while a null/type guard is
+  // sufficient before reading the documented `sections` property.
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization results cross the JavaScript module boundary.
+  if (!result || typeof result !== "object" || !("sections" in result) || !Array.isArray(result.sections)) return
   const sections: unknown[] = result.sections
   if (!sections.every(isSectionId)) return
   return Object.freeze([...new Set(sections)])
