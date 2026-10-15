@@ -717,6 +717,11 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     // value from property access. Reject that inconsistent shape before the
     // structural fallback can mistake it for an Error.
     if (!hasToStringTag && Reflect.get(error, Symbol.toStringTag) === "Error") return
+    const nativeBranded = hasRuntimeType(currentIsError, "function")
+      ? currentIsError(error) === true
+      : hasRuntimeType(intrinsicIsError, "function")
+        ? intrinsicIsError(error) === true
+        : undefined
     // structuredClone preserves the intrinsic Error brand but does not copy
     // user-defined symbol tags or an Error prototype chain onto plain objects.
     // Prefer it when available so configurable stack descriptors cannot forge
@@ -726,7 +731,7 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     if (hasRuntimeType(structuredClone, "function")) {
       try {
         const clone = Reflect.apply(structuredClone, globalThis, [error])
-        if (Object.prototype.toString.call(clone) !== "[object Error]") return
+        if (Object.prototype.toString.call(clone) !== "[object Error]" && nativeBranded !== true) return
         // A successful clone carries the engine's intrinsic Error brand. Keep
         // this result so Firefox-style configurable data `stack` properties
         // do not need to resemble V8's accessor descriptor.
@@ -737,11 +742,7 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
         // supported for this value or runtime.
       }
     }
-    const branded = cloneBranded || (hasRuntimeType(currentIsError, "function")
-      ? currentIsError(error) === true
-      : hasRuntimeType(intrinsicIsError, "function")
-        ? intrinsicIsError(error) === true
-        : (() => {
+    const branded = cloneBranded || nativeBranded === true || (nativeBranded === undefined && (() => {
           const hasIntrinsicStack = () => {
             const stack = Object.getOwnPropertyDescriptor(error, "stack")
             // Native Errors expose stack through the engine's intrinsic
