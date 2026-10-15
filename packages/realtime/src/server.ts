@@ -187,17 +187,11 @@ function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName
       if (owner !== value) {
         const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")
         if (!constructor || !("value" in constructor) || typeof constructor.value !== "function" || constructor.value.prototype !== owner) return false
-        let source: string
-        try {
-          source = Function.prototype.toString.call(constructor.value)
-        }
-        catch {
-          return false
-        }
-        // Cloudflare's host-provided namespace uses native prototype methods,
-        // while user-created object prototypes do not. Keep supporting
-        // JavaScript class doubles for tests and local adapters.
-        if (!/^class\s/.test(source) && !/\[native code\]/.test(source)) return false
+        // A JavaScript class prototype is user-controlled metadata: an
+        // attacker can create `Object.create(FakeNamespace.prototype)` and
+        // make it look like a namespace without ever constructing the host
+        // binding. Only the host binding's branded constructor is trusted.
+        if (constructor.value.name !== "$DurableObject") return false
       }
       if ("value" in descriptor) return typeof descriptor.value === "function"
       try {

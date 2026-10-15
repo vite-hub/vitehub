@@ -273,7 +273,7 @@ describe("realtime server handler", () => {
 
   it("forwards through class-backed Durable Object bindings", async () => {
     const fetch = vi.fn(async () => new Response("forwarded"))
-    class Namespace {
+    class $DurableObject {
       get() {
         return { fetch }
       }
@@ -285,13 +285,37 @@ describe("realtime server handler", () => {
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       method: "POST",
     }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { env: { $DurableObject: new Namespace() } } }
+    request.runtime = { cloudflare: { env: { $DurableObject: new $DurableObject() } } }
 
     const handler = createRealtimeHandler(realtimeRegistry())
     const response = await handler.fetch(request)
 
     expect(response.status).toBe(200)
     expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it("does not forward through an unbranded class prototype", async () => {
+    const get = vi.fn(() => ({ fetch: vi.fn(async () => new Response("forwarded")) }))
+    const idFromName = vi.fn((name: string) => name)
+    class FakeNamespace {
+      get() {
+        return get()
+      }
+
+      idFromName(name: string) {
+        return idFromName(name)
+      }
+    }
+    const binding = Object.create(FakeNamespace.prototype)
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", { method: "POST" }) as Request & { runtime?: unknown }
+    request.runtime = { cloudflare: { env: { $DurableObject: binding } } }
+
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(request)
+
+    expect(response.status).toBe(405)
+    expect(get).not.toHaveBeenCalled()
+    expect(idFromName).not.toHaveBeenCalled()
   })
 
   it("rate-limits workspace changes from each peer", async () => {
