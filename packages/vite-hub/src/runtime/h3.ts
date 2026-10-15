@@ -58,7 +58,19 @@ function isRequest(value: unknown): value is Request {
       urlGetter.call(value)
       methodGetter.call(value)
       bodyUsedGetter.call(value)
-      Headers.prototype.get.call(headers, "x-vite-hub-request-check")
+      let headersPrototype: object | null = headers
+      let headersGet: unknown
+      while ((headersPrototype = Object.getPrototypeOf(headersPrototype)) !== null) {
+        const constructor = Object.getOwnPropertyDescriptor(headersPrototype, "constructor")?.value
+        const descriptor = Object.getOwnPropertyDescriptor(headersPrototype, "get")
+        if (typeof constructor === "function" && constructor.name === "Headers"
+          && constructor.prototype === headersPrototype && typeof descriptor?.value === "function") {
+          headersGet = descriptor.value
+          break
+        }
+      }
+      if (typeof headersGet !== "function") continue
+      headersGet.call(headers, "x-vite-hub-request-check")
       return true
     }
     return false
