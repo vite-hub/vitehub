@@ -15,5 +15,5 @@ async function consoleSearchHandler(event: ConsoleRequestEvent): Promise<unknown
   return await consoleSearchCollectionHandler(event as never)
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof consoleSearchHandler> = withConsoleAccess(consoleSearchHandler)
+const guardedHandler: ConsoleAccessRoute<typeof consoleSearchHandler> = withConsoleAccess(consoleSearchHandler, { section: "agents" })
 export default guardedHandler
