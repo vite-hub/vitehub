@@ -146,7 +146,7 @@ function assertFieldList(label: string, fields: readonly string[] | undefined): 
 
 // Server code may filter on any field path; parseQuery() limits HTTP callers to the declared filters.
 function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQuery {
-  const normalized: NormalizedQuery = { empty: [], filters: {}, search: "" }
+  const normalized: NormalizedQuery = { empty: [], filters: Object.create(null) as Record<string, string[]>, search: "" }
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null) continue
     if (key === "search") {
@@ -279,7 +279,7 @@ export function array<TItem, const TFilter extends string = never>(
       vendor: "vite-hub",
       validate(value) {
         if (!isRecord(value)) return { issues: [{ message: "Collection query must be an object." }] }
-        const filterValues: { [TKey in TFilter]?: string[] } = {}
+        const filterValues: { [TKey in TFilter]?: string[] } = Object.create(null) as { [TKey in TFilter]?: string[] }
         let empty: TFilter[] | undefined
         let search: string | undefined
         for (const [key, raw] of Object.entries(value)) {

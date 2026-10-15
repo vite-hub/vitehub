@@ -140,6 +140,14 @@ describe("array()", () => {
     expect(() => array(records, { filters: ["limit"] })).toThrow("reserved query key")
   })
 
+  it("preserves a declared __proto__ filter", async () => {
+    const collection = defineCollection({
+      source: array([{ ["__proto__"]: "secret" }, { ["__proto__"]: "other" }], { filters: ["__proto__"] }),
+    })
+    const query = await collection.parseQuery({ ["__proto__"]: "secret" })
+    expect((await collection.page({ query })).items).toEqual([{ ["__proto__"]: "secret" }])
+  })
+
   it("validates and parses items with a schema", async () => {
     const collection = defineCollection({
       source: array(async () => [{ rank: "2" }, { rank: "1" }], {
