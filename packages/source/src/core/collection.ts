@@ -419,7 +419,8 @@ export function defineCollection<
   const cursorDefinition = "cursorSchema" in definition ? definition : undefined
   const cursorCodec = cursorDefinition ? createCollectionCursorCodec(cursorDefinition.cursorSchema) : undefined
   const authorize = definition.authorize
-  if (authorize !== undefined && authorize !== true && !(authorize instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection authorizers are callable callbacks; constructor identity differs across JavaScript realms.
+  if (authorize !== undefined && authorize !== true && typeof authorize !== "function") {
     throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true or a function." })
   }
 
@@ -495,7 +496,8 @@ function isCollectionFacets(value: unknown): value is CollectionFacets {
   return Object(value) === value && !Array.isArray(value) && Object.values(Object(value)).every(entries =>
     Array.isArray(entries) && entries.every(entry => Object(entry) === entry
       && String(Reflect.get(entry, "value")) === Reflect.get(entry, "value")
-      && Number.isSafeInteger(Reflect.get(entry, "count"))))
+      && Number.isSafeInteger(Reflect.get(entry, "count"))
+      && Reflect.get(entry, "count") >= 0))
 }
 
 function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue, TCursorOutput extends CollectionCursorValue, TItem>(
