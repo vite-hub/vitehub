@@ -18,6 +18,7 @@ export default defineConfig({
       "src/http-request.ts",
       "src/inspect.ts",
       "src/object.ts",
+      "src/owned-paths.ts",
       "src/provision.ts",
       "src/provision-state.ts",
       "src/secret.ts",

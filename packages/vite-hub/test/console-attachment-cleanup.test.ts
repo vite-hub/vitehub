@@ -2,14 +2,14 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
-import { consoleAttachmentPrefix, isConsoleAttachmentPendingCleanup, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "../src/console/runtime/server/attachment-cleanup.ts"
+import { consoleAttachmentCleanupPrefix, consoleAttachmentPrefix, consoleAttachmentQuarantinePrefix, isConsoleAttachmentPendingCleanup, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "../src/console/runtime/server/attachment-cleanup.ts"
 import type { BlobObject, BlobStorage } from "@vite-hub/blob"
 
 const dirs: string[] = []
 afterEach(async () => {
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
-const cleanupPrefix = "vitehub-console-attachment-cleanup/"
+const cleanupPrefix = consoleAttachmentCleanupPrefix
 const path = () => `${consoleAttachmentPrefix}${crypto.randomUUID()}`
 const marker = (path: string) => path.replace(consoleAttachmentPrefix, cleanupPrefix)
 
@@ -195,7 +195,7 @@ it.each(["{", "{}", "[]", '["not-an-id"]'])("rejects reuse when a batch record i
   await expect(retryConsoleAttachmentCleanup(storage)).resolves.toBeUndefined()
   await expect(retryConsoleAttachmentCleanup(storage)).resolves.toBeUndefined()
   expect((await storage.list({ prefix: cleanupPrefix }))[1]?.blobs).toEqual([])
-  const quarantined = (await storage.list({ prefix: "vitehub-console-attachment-quarantine/" }))[1]!.blobs[0]!
+  const quarantined = (await storage.list({ prefix: consoleAttachmentQuarantinePrefix }))[1]!.blobs[0]!
   expect(await (await storage.get(quarantined.pathname))[1]!.text()).toBe(body)
   await expect(isConsoleAttachmentPendingCleanup(storage, abandoned.slice(consoleAttachmentPrefix.length))).rejects.toThrow("quarantined")
   expect((await storage.list())[1]?.blobs).toHaveLength(2)
@@ -221,4 +221,9 @@ it("rejects reuse when another request quarantines a record during the ownership
       return storage.list(options)
     },
   }, crypto.randomUUID())).rejects.toThrow("quarantined")
+})
+
+it("keeps every attachment record under the ViteHub-owned Blob prefix", () => {
+  expect([consoleAttachmentPrefix, consoleAttachmentCleanupPrefix, consoleAttachmentQuarantinePrefix])
+    .toEqual(["_vitehub/console/attachments/", "_vitehub/console/cleanup/", "_vitehub/console/quarantine/"])
 })

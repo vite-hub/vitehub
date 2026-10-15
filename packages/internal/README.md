@@ -31,6 +31,8 @@ Source readers use `createSourceScanner(file)` from `@vite-hub/internal/source-s
 
 Packages use it for definition discovery, generated runtime registries, Provider Output, hosted runtime helpers, and hosting normalization.
 
+ViteHub writes its own Blob objects, such as Workspace history, Console attachments, and derived caches, under one prefix. `vitehubOwnedPrefix` from `@vite-hub/internal/owned-paths` is `_vitehub/`. Build every ViteHub-owned Blob path from it. `isVitehubOwnedPath(pathname)` returns true for those paths, so a UI that lists a Blob store can hide them and refuse to move or delete them.
+
 Owner packages expose inspection data through `vitehub.inspect` on their Vite plugin. The contributor returns `definitions` inspectors and `providerOutput` entries from `@vite-hub/internal/inspect`. `vitehub inspect` and the Console render that data. They do not own it.
 
 Owner packages read Definitions that other Vite plugins add with `collectContributions` from `@vite-hub/internal/contributions`. A plugin sets `vitehub.<key>`, for example `vitehub.workspaces`, to an array or a factory of `{ name, definition: { module, export }, reason? }`. `module` is an absolute path, a `file:` URL, or a package specifier. `export` defaults to `default`. A factory receives `{ root, projectRoot, serverDirs }`, where `root` is always the Vite root. The collector returns the entries sorted by name with the contributing `plugin` name. It fails with the owner's diagnostic when two contributions use one name, and the message names both plugins. Owners add their own fields, such as the target `database`, and their own name rules.
