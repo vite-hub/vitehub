@@ -252,6 +252,8 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-comark-component.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-media-dialog.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-property-row.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-page-header.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-page-toolbar.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },

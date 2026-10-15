@@ -2,6 +2,7 @@
 import { computed, ref, shallowRef, watch } from "vue";
 
 import { useConsoleMediaPicker } from "../client/media";
+import { consoleFocalCropPosition } from "../client/media-library";
 import { useConsoleToast } from "../client/toast";
 
 import type { ConsoleMediaDetails, ConsoleMediaReference } from "../client/media";
@@ -98,7 +99,7 @@ const meta = computed(() => {
 </script>
 
 <template>
-  <div v-if="!picker" class="flex h-8 min-w-0 items-center gap-2 px-2.5 text-[13px]">
+  <div v-if="!picker" class="flex h-8 min-w-0 items-center gap-2 px-2.5 text-base md:text-sm">
     <span v-if="reference" class="truncate font-mono text-xs text-highlighted">{{ reference.pathname }}</span>
     <span v-else class="text-dimmed">Empty</span>
     <span v-if="reference?.contentType" class="truncate text-xs text-dimmed">{{ reference.contentType }}</span>
@@ -117,11 +118,11 @@ const meta = computed(() => {
   <div v-else class="grid gap-1 py-1">
     <div class="group flex min-w-0 items-center gap-2.5 rounded-md px-2.5 py-1 hover:bg-elevated/50">
       <span class="vitehub-media-field__thumb" :style="{ background: details?.color }">
-        <img v-if="details?.thumbnail && kind === 'image'" :src="details.thumbnail" :alt="alt" class="size-full object-cover">
+        <img v-if="details?.thumbnail && kind === 'image'" :src="details.thumbnail" :alt="alt" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(details.focal, details, 1) }">
         <UIcon v-else :name="missing ? 'i-lucide-triangle-alert' : kind === 'image' ? 'i-lucide-image' : 'i-lucide-file'" class="size-4" :class="missing ? 'text-warning' : 'text-dimmed'" aria-hidden="true" />
       </span>
       <span class="grid min-w-0 flex-1">
-        <span class="truncate text-[13px] text-highlighted" :title="reference.pathname">{{ name }}</span>
+        <span class="truncate text-sm text-highlighted" :title="reference.pathname">{{ name }}</span>
         <span class="truncate text-xs tabular-nums" :class="missing ? 'text-warning' : 'text-dimmed'">{{ meta }}</span>
       </span>
       <span v-if="!disabled" class="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
@@ -151,7 +152,7 @@ const meta = computed(() => {
   border-radius: 0.375rem;
   color: var(--ui-text-dimmed);
   display: flex;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   gap: 0.5rem;
   height: 2rem;
   padding-inline: 0.625rem;

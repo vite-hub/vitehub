@@ -5,6 +5,7 @@ import { consoleErrorMessage } from "../client/documents";
 import {
   consoleBytes,
   consoleFolderName,
+  consoleFocalCropPosition,
   consoleFolderTrail,
   consoleMediaAccepts,
   consoleMediaDate,
@@ -19,6 +20,7 @@ import { useConsoleMediaUploads } from "../client/media-uploads";
 import { useConsoleToast } from "../client/toast";
 import ConsoleMediaMove from "./console-media-move.vue";
 import ConsoleMediaUploads from "./console-media-uploads.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaReferenceDocument, ConsoleMediaType, ConsoleMediaUploadResult } from "../client/media-library";
 
@@ -36,6 +38,10 @@ const props = defineProps<{
   mode: "page" | "picker";
   /** The picker may pick more than one file. */
   multiple?: boolean;
+  /** Where the Media page shows New folder and Upload: its page header. Without it, they stay in the toolbar. */
+  actionsTarget?: HTMLElement | null;
+  /** The name of the root folder, such as Media. */
+  rootLabel?: string;
 }>();
 
 const emit = defineEmits<{
@@ -84,6 +90,8 @@ const typeItems = [
   { label: "Other", value: "other" },
 ];
 const trail = computed(() => consoleFolderTrail(folder.value));
+/** A folder's name, or the root's name, such as Media. */
+const folderLabel = (path: string) => (path ? consoleFolderName(path) : props.rootLabel ?? consoleFolderName(path));
 const searching = computed(() => Boolean(query.value));
 const selectedSet = computed(() => new Set(selected.value));
 const selecting = computed(() => selected.value.length > 0);
@@ -481,8 +489,9 @@ defineExpose({
     @drop="drop"
     @keydown="keydown"
   >
-    <div class="flex flex-wrap items-center gap-2 border-b border-default px-4 py-2">
-      <nav class="flex min-w-0 flex-1 items-center gap-0.5 text-[13px]" aria-label="Folders">
+    <ConsolePageToolbar>
+      <!-- On the Media page the header shows the folder trail; the picker shows it here. -->
+      <nav v-if="mode === 'picker'" class="flex min-w-0 basis-full items-center gap-0.5 text-[13px] sm:basis-auto sm:flex-1" aria-label="Folders">
         <template v-for="(path, index) in trail" :key="path || '/'">
           <UIcon v-if="index" name="i-lucide-chevron-right" class="size-3.5 shrink-0 text-dimmed" aria-hidden="true" />
           <button
@@ -491,34 +500,41 @@ defineExpose({
             :aria-current="index === trail.length - 1 && !searching ? 'page' : undefined"
             @click="open(path)"
           >
-            {{ consoleFolderName(path) }}
+            {{ folderLabel(path) }}
           </button>
         </template>
       </nav>
-      <UInput v-model="search" class="w-full sm:w-52" icon="i-lucide-search" size="sm" placeholder="Search file names…" aria-label="Search file names" />
+      <UInput v-model="search" class="w-full sm:w-56" icon="i-lucide-search" size="sm" placeholder="Search file names…" aria-label="Search file names" />
       <USelect v-model="type" class="w-32" size="sm" :items="typeItems" aria-label="Filter by type" />
-      <div class="flex rounded-md ring-1 ring-(--ui-border) ring-inset" role="group" aria-label="View">
-        <UButton size="sm" variant="ghost" icon="i-lucide-layout-grid" aria-label="Grid" :aria-pressed="view === 'grid'" :class="view === 'grid' ? 'bg-elevated text-highlighted' : 'text-dimmed'" @click="view = 'grid'" />
-        <UButton size="sm" variant="ghost" icon="i-lucide-list" aria-label="List" :aria-pressed="view === 'list'" :class="view === 'list' ? 'bg-elevated text-highlighted' : 'text-dimmed'" @click="view = 'list'" />
-      </div>
-      <template v-if="access.write">
-        <UPopover v-model:open="folderOpen" :content="{ align: 'end' }">
-          <UButton size="sm" variant="outline" icon="i-lucide-folder-plus" aria-label="New folder" />
-          <template #content>
-            <form class="grid w-64 gap-2 p-3" @submit.prevent="createFolder">
-              <UInput v-model="folderName" size="sm" placeholder="Folder name" aria-label="Folder name" autofocus />
-              <p class="text-xs text-dimmed">In {{ consoleFolderName(folder) }}</p>
-              <div class="flex justify-end gap-2">
-                <UButton size="xs" variant="ghost" label="Cancel" @click="folderOpen = false" />
-                <UButton type="submit" size="xs" label="Create" :loading="creatingFolder" :disabled="!folderName.trim()" />
-              </div>
-            </form>
-          </template>
-        </UPopover>
-        <UButton size="sm" icon="i-lucide-upload" label="Upload" @click="fileInput?.click()" />
+      <div class="ms-auto flex items-center gap-1.5">
+        <div class="flex rounded-md ring-1 ring-(--ui-border) ring-inset" role="group" aria-label="View">
+          <UTooltip text="Grid">
+            <UButton size="sm" variant="ghost" icon="i-lucide-layout-grid" aria-label="Grid" :aria-pressed="view === 'grid'" :class="view === 'grid' ? 'bg-elevated text-highlighted' : 'text-dimmed'" @click="view = 'grid'" />
+          </UTooltip>
+          <UTooltip text="List">
+            <UButton size="sm" variant="ghost" icon="i-lucide-list" aria-label="List" :aria-pressed="view === 'list'" :class="view === 'list' ? 'bg-elevated text-highlighted' : 'text-dimmed'" @click="view = 'list'" />
+          </UTooltip>
+        </div>
+        <!-- The Media page moves its actions into the page header, next to the title, like New on a collection. -->
+        <Teleport v-if="access.write" :to="actionsTarget ?? 'body'" :disabled="!actionsTarget">
+          <UPopover v-model:open="folderOpen" :content="{ align: 'end' }">
+            <UButton size="sm" variant="outline" icon="i-lucide-folder-plus" :label="actionsTarget ? 'New folder' : undefined" aria-label="New folder" />
+            <template #content>
+              <form class="grid w-64 gap-2 p-3" @submit.prevent="createFolder">
+                <UInput v-model="folderName" size="sm" placeholder="Folder name" aria-label="Folder name" autofocus />
+                <p class="text-xs text-dimmed">In {{ folderLabel(folder) }}</p>
+                <div class="flex justify-end gap-2">
+                  <UButton size="xs" variant="ghost" label="Cancel" @click="folderOpen = false" />
+                  <UButton type="submit" size="xs" label="Create" :loading="creatingFolder" :disabled="!folderName.trim()" />
+                </div>
+              </form>
+            </template>
+          </UPopover>
+          <UButton size="sm" icon="i-lucide-upload" label="Upload" @click="fileInput?.click()" />
+        </Teleport>
         <input ref="fileInput" type="file" multiple class="hidden" :accept="mode === 'picker' && accept?.length ? accept.join(',') : undefined" aria-label="Files to upload" @change="chooseFiles">
-      </template>
-    </div>
+      </div>
+    </ConsolePageToolbar>
 
     <div class="min-h-0 flex-1 overflow-y-auto" :class="mode === 'page' ? 'p-4' : 'p-3'">
       <UAlert
@@ -535,7 +551,7 @@ defineExpose({
       </div>
       <template v-else>
         <p v-if="searching" class="mb-3 text-xs text-muted">
-          {{ items.length ? `${items.length} ${items.length === 1 ? "file" : "files"} in ${consoleFolderName(folder)} and its folders` : `No file names match “${query}”` }}{{ truncated ? ". Search stopped early; open a folder to narrow it." : "" }}
+          {{ items.length ? `${items.length} ${items.length === 1 ? "file" : "files"} in ${folderLabel(folder)} and its folders` : `No file names match “${query}”` }}{{ truncated ? ". Search stopped early; open a folder to narrow it." : "" }}
         </p>
 
         <div v-if="!searching && folders.length" class="vitehub-media-folders mb-4" :class="view === 'list' ? 'is-list' : ''">
@@ -564,7 +580,7 @@ defineExpose({
           :actions="access.write ? [{ label: 'Upload files', icon: 'i-lucide-upload', color: 'neutral', variant: 'outline', onClick: () => fileInput?.click() }] : []"
         />
 
-        <ul v-else-if="view === 'grid' && items.length" class="vitehub-media-grid" :aria-label="`Files in ${consoleFolderName(folder)}`" :aria-multiselectable="canSelect ? 'true' : undefined" role="listbox">
+        <ul v-else-if="view === 'grid' && items.length" class="vitehub-media-grid" :aria-label="`Files in ${folderLabel(folder)}`" :aria-multiselectable="canSelect ? 'true' : undefined" role="listbox">
           <li
             v-for="file in items"
             :key="file.pathname"
@@ -584,7 +600,7 @@ defineExpose({
               @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)"
             >
               <span class="vitehub-media-tile__thumb" :style="{ background: file.color }">
-                <img v-if="thumbnail(file)" :src="thumbnail(file)" :alt="file.alt ?? ''" loading="lazy" decoding="async" class="vitehub-media-tile__image" @load="loaded">
+                <img v-if="thumbnail(file)" :src="thumbnail(file)" :alt="file.alt ?? ''" loading="lazy" decoding="async" class="vitehub-media-tile__image" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }" @load="loaded">
                 <span v-else class="flex size-full flex-col items-center justify-center gap-1 text-dimmed">
                   <UIcon :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-6" aria-hidden="true" />
                   <span class="text-[11px] font-medium">{{ consoleMediaFormat(file) }}</span>
@@ -631,7 +647,7 @@ defineExpose({
               <td>
                 <button type="button" class="flex min-w-0 items-center gap-2.5 text-start" :disabled="!pickable(file)" @click.stop="click(file, $event)" @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)">
                   <span class="vitehub-media-row-thumb" :style="{ background: file.color }">
-                    <img v-if="thumbnail(file, 64)" :src="thumbnail(file, 64)" alt="" loading="lazy" class="size-full object-cover">
+                    <img v-if="thumbnail(file, 64)" :src="thumbnail(file, 64)" alt="" loading="lazy" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }">
                     <UIcon v-else :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-4 text-dimmed" aria-hidden="true" />
                   </span>
                   <span class="grid min-w-0">
@@ -667,7 +683,7 @@ defineExpose({
     <div v-if="dragDepth > 0" class="vitehub-media-drop" aria-hidden="true">
       <div class="flex flex-col items-center gap-2 text-center">
         <UIcon name="i-lucide-upload" class="size-6 text-highlighted" />
-        <p class="text-sm font-medium text-highlighted">Drop to upload to {{ consoleFolderName(folder) }}</p>
+        <p class="text-sm font-medium text-highlighted">Drop to upload to {{ folderLabel(folder) }}</p>
       </div>
     </div>
 
@@ -743,7 +759,13 @@ defineExpose({
 .vitehub-media-grid {
   display: grid;
   gap: 1rem 0.75rem;
-  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(8rem, 100%), 1fr));
+}
+
+@media (min-width: 640px) {
+  .vitehub-media-grid {
+    grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  }
 }
 
 .vitehub-media-folders {
@@ -899,13 +921,13 @@ defineExpose({
   width: 1.75rem;
 }
 
+/* Floating bars use the Geist menu material: a 12px radius, a hairline ring, and a layered shadow. */
 .vitehub-media-bulk {
   align-items: center;
   background: var(--ui-bg);
-  border: 1px solid var(--ui-border);
-  border-radius: 0.5rem;
+  border-radius: 0.75rem;
   bottom: 1rem;
-  box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.18);
+  box-shadow: 0 0 0 1px var(--ui-border), 0 1px 1px rgb(0 0 0 / 2%), 0 4px 8px -4px rgb(0 0 0 / 4%), 0 16px 24px -8px rgb(0 0 0 / 8%);
   display: flex;
   gap: 0.25rem;
   left: 50%;
