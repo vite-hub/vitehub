@@ -722,17 +722,22 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     // Prefer it when available so configurable stack descriptors cannot forge
     // the fallback brand.
     const structuredClone = Reflect.get(globalThis, "structuredClone")
+    let cloneBranded = false
     if (hasRuntimeType(structuredClone, "function")) {
       try {
         const clone = Reflect.apply(structuredClone, globalThis, [error])
         if (Object.prototype.toString.call(clone) !== "[object Error]") return
+        // A successful clone carries the engine's intrinsic Error brand. Keep
+        // this result so Firefox-style configurable data `stack` properties
+        // do not need to resemble V8's accessor descriptor.
+        cloneBranded = true
       }
       catch {
         // Continue with the guarded structural fallback when cloning is not
         // supported for this value or runtime.
       }
     }
-    const branded = hasRuntimeType(currentIsError, "function")
+    const branded = cloneBranded || (hasRuntimeType(currentIsError, "function")
       ? currentIsError(error) === true
       : hasRuntimeType(intrinsicIsError, "function")
         ? intrinsicIsError(error) === true
@@ -762,7 +767,7 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
           return hasRuntimeType(constructor, "function")
             && Reflect.get(constructor, "prototype") === prototype
             && hasIntrinsicStack()
-        })()
+        })())
     if (!branded) return
     return { message: String(Reflect.get(error, "message")), value: error }
   }
