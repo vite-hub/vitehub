@@ -607,6 +607,17 @@ describe("agent output helpers", () => {
       const spoofed = { message: "spoofed", [Symbol.toStringTag]: "Error" }
       const spoofedEvent = toAgentStreamEvent({ error: spoofed, type: "error" })
       expect(Object.getOwnPropertySymbols(spoofedEvent!)).not.toContain(agentStreamErrorSymbol)
+
+      const proxySpoof = new Proxy(Object.create(Error.prototype), {
+        get(target, property, receiver) {
+          return property === Symbol.toStringTag ? "Error" : Reflect.get(target, property, receiver)
+        },
+        has(target, property) {
+          return property === Symbol.toStringTag ? false : Reflect.has(target, property)
+        },
+      })
+      const proxyEvent = toAgentStreamEvent({ error: proxySpoof, type: "error" })
+      expect(Object.getOwnPropertySymbols(proxyEvent!)).not.toContain(agentStreamErrorSymbol)
     }
     finally {
       errorConstructor.isError = nativeIsError

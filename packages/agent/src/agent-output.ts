@@ -712,6 +712,11 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     const intrinsicIsError = isRecord(nativeIsError)
       ? Reflect.get(nativeIsError, "isNativeError")
       : undefined
+    const hasToStringTag = Symbol.toStringTag in error
+    // A proxy can hide the tag from the `in` check while returning a forged
+    // value from property access. Reject that inconsistent shape before the
+    // structural fallback can mistake it for an Error.
+    if (!hasToStringTag && Reflect.get(error, Symbol.toStringTag) === "Error") return
     const branded = hasRuntimeType(currentIsError, "function")
       ? currentIsError(error) === true
       : hasRuntimeType(intrinsicIsError, "function")
@@ -726,7 +731,7 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
           }
           // Without a native brand check, require the Error's intrinsic stack
           // slot for tagged cross-realm values. A tag alone is user-controllable.
-          if (!(Symbol.toStringTag in error)) {
+          if (!hasToStringTag) {
             if (Object.getPrototypeOf(error) !== Error.prototype) {
               return hasIntrinsicStack() && Object.prototype.toString.call(error) === "[object Error]"
             }
