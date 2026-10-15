@@ -46,6 +46,7 @@ async function toRequest(event: {
     sameRealmRequest = false
   }
   if (sameRealmRequest) {
+    // SAFETY: The guarded instanceof check confirms the value is a Request from this realm.
     return event.request as Request
   }
   if (isRequestLike(event.request)) {
