@@ -21,3 +21,14 @@ it.each([true, false])("forwards response bodies and separate cookies with getSe
   expect(Buffer.concat(write.mock.calls.map(([chunk]) => Buffer.from(chunk))).toString()).toBe("Policy rejected")
   expect(end).toHaveBeenCalledOnce()
 })
+
+it("splits fallback cookies with flag-only attributes", async () => {
+  const response = new Response(null, { status: 204 })
+  Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
+  response.headers.set("set-cookie", "first=1; HttpOnly, second=2; Secure")
+  const target = new ServerResponse(new IncomingMessage(new Socket()))
+
+  await sendWebResponse(response, target)
+
+  expect(target.getHeader("set-cookie")).toEqual(["first=1; HttpOnly", "second=2; Secure"])
+})

@@ -45,8 +45,11 @@ function splitCombinedSetCookie(value: string | null): string[] {
     if (inExpires && value[index] === ";") inExpires = false
     if (value[index] !== "," || inExpires) continue
     const prefix = value.slice(start, index)
-    const hasCookieAttribute = /;\s*(?:expires|path|domain|max-age|samesite|secure|httponly|partitioned)\s*=/i.test(prefix)
-    if (hasCookieAttribute && /^\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+=/.test(value.slice(index + 1))) {
+    const hasCookieAttribute = /;\s*(?:expires|path|domain|max-age|samesite)\s*=/i.test(prefix)
+    const hasFlagAttribute = /;\s*(?:secure|httponly|partitioned)\b/i.test(prefix)
+    // Combined values conventionally separate cookies with comma+whitespace;
+    // requiring it avoids splitting commas inside extension values.
+    if (/^\s+[!#$%&'*+.^_`|~0-9A-Za-z-]+=/.test(value.slice(index + 1)) && (hasCookieAttribute || hasFlagAttribute || !prefix.includes(";"))) {
       result.push(prefix.trim())
       start = index + 1
     }
