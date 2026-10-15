@@ -47,6 +47,15 @@ function parseNamespace(value: unknown): CloudflareKVNamespace {
   return value as CloudflareKVNamespace
 }
 
+function parseCreatedNamespace(value: unknown): { id: string } {
+  if (!value || Object(value) !== value) throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
+  const id = Reflect.get(value, "id")
+  if (!Object.hasOwn(value, "id") || typeof id !== "string") {
+    throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
+  }
+  return { id }
+}
+
 async function listNamespaceIds(request: CloudflareProvisionRequest): Promise<Map<string, string>> {
   const ids = new Map<string, string>()
   for (let page = 1; ; page++) {
@@ -75,7 +84,7 @@ async function listNamespaceIds(request: CloudflareProvisionRequest): Promise<Ma
 
 async function createNamespace(request: CloudflareProvisionRequest, title: string): Promise<string | undefined> {
   try {
-    const created = await request("/storage/kv/namespaces", { method: "POST", body: { title }, parse: parseNamespace })
+    const created = await request("/storage/kv/namespaces", { method: "POST", body: { title }, parse: parseCreatedNamespace })
     return created.result?.id
   }
   catch (error) {
