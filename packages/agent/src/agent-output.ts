@@ -832,12 +832,20 @@ function isResponseLike(value: unknown): value is Response {
     // caller-controlled Symbol.toStringTag getter can otherwise spoof the
     // intrinsic tag while exposing a response-shaped object.
     let tagDescriptor: PropertyDescriptor | undefined
+    let tagOwner: object | null = null
     let tagPrototype: object | null = Object.getPrototypeOf(value) as object | null
     while (tagPrototype && !tagDescriptor) {
       tagDescriptor = Object.getOwnPropertyDescriptor(tagPrototype, Symbol.toStringTag)
+      if (tagDescriptor) tagOwner = tagPrototype
       tagPrototype = Object.getPrototypeOf(tagPrototype) as object | null
     }
     if (!tagDescriptor || tagDescriptor.value !== "Response" || tagDescriptor.get || tagDescriptor.set) return false
+    // A caller can copy the data tag onto an arbitrary prototype. Platform
+    // Response implementations own a constructor on the same prototype that
+    // carries the tag; requiring that link rejects Object.create spoof shapes
+    // without relying on the current realm's Response constructor.
+    const constructorDescriptor = tagOwner && Object.getOwnPropertyDescriptor(tagOwner, "constructor")
+    if (!constructorDescriptor || !hasRuntimeType(constructorDescriptor.value, "function") || constructorDescriptor.value.prototype !== tagOwner) return false
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     // The foreign implementation owns its getters. Require the full Response
     // accessor contract before accepting an output as a byte stream.

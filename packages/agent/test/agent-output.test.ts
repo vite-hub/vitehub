@@ -1247,6 +1247,21 @@ describe("agent output helpers", () => {
     expect(events).toEqual([])
   })
 
+  it("does not trust a prototype data Response tag over a genuine stream", async () => {
+    const body = new Response("spoofed").body
+    const prototype = {
+      [Symbol.toStringTag]: "Response",
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+    }
+    const value = Object.create(prototype)
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
   it("does not trust an own Response tag over a prototype response shape", async () => {
     const value = Object.create({
       get status() { return 200 },
