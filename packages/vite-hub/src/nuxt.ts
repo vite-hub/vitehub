@@ -1256,7 +1256,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         // The Connections management handler records the signed-in Console user as the actor.
         // SAFETY: Nitro aliases map virtual module names to generated module paths.
         const consoleAlias = (config.alias ??= {}) as Record<string, string>
-        consoleAlias[consoleConnectionsActorId] = await writeConsoleConnectionsActor(viteRoot)
+        consoleAlias[consoleConnectionsActorId] = await writeConsoleConnectionsActor(
+          viteRoot,
+          consoleAuthMode ? consoleAuthMiddlewareFile(viteRoot) : undefined,
+        )
       }
       const consoleCatalog = await discoverConsoleBuildCatalog({
         databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot

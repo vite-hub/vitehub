@@ -3,6 +3,7 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { consoleRequestError, consoleRequestURL, type ConsoleRequestEvent } from "./request.ts"
 
 import type { ConsoleAuthorize } from "../../auth.ts"
+import type { ConsoleSectionId } from "../sections.ts"
 
 /**
  * How the Console checks each request. Generated host output installs one policy for each server process.
@@ -13,10 +14,12 @@ import type { ConsoleAuthorize } from "../../auth.ts"
  */
 export type ConsoleAccessPolicy =
   | { mode: "local" }
+  | { mode: "open", authorize?: ConsoleAuthorize }
   | { mode: "auth" | "cloudflare-access", check?: (event: ConsoleRequestEvent) => Promise<Response | undefined> }
   | { mode: "host-managed", authorize?: ConsoleAuthorize }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
+export const consoleOpenAccessWarning = "[vitehub] Console access is open. Configure authentication or console.authorize."
 
 /** The checked Console access that a guarded handler receives. Only `withConsoleAccess()` creates it. */
 export interface ConsoleAccess {
@@ -34,7 +37,7 @@ const policyKey: unique symbol = Symbol.for("vitehub.console.access")
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
-const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local"])
+const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local", "open"])
 
 function rejection(status: number, message: string): Response {
   return Response.json({ message, ok: false, status }, {
@@ -196,13 +199,15 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
   if (policy.mode === "local") {
     if (productionRuntime()) return rejection(403, "[vitehub] console: true is development-only. Configure console: { access: \"auth\" } or console: { exposure: \"host-managed\", authorize } for production.")
   }
-  else if (policy.mode === "host-managed") {
+  else if (policy.mode === "host-managed" || policy.mode === "open") {
     if (!policy.authorize) {
       return rejection(500, "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize. Set it to a server file that default-exports defineConsoleAuthorize().")
     }
-    const result = await policy.authorize({ request: webRequest(event) })
-    if (result instanceof Response || isResponseLike(result)) return result
-    if (result !== true) return rejection(403, "Forbidden.")
+    if (policy.authorize) {
+      const result = await policy.authorize({ request: webRequest(event) })
+      if (result instanceof Response || isResponseLike(result)) return result
+      if (result !== true) return rejection(403, "Forbidden.")
+    }
   }
   else {
     if (!policy.check) {
@@ -212,6 +217,11 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
     }
     const response = await policy.check(event)
     if (response) return response
+    if (policy.authorize) {
+      const result = await policy.authorize({ request: webRequest(event) })
+      if (result instanceof Response || isResponseLike(result)) return result
+      if (result !== true) return rejection(403, "Forbidden.")
+    }
   }
   return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
 }
@@ -233,12 +243,23 @@ export async function consoleConnectionsActor(
   return `user:${access.mode}`
 }
 
+/** Return whether a checked access may use a Console section. */
+export function consoleAccessAllows(_access: ConsoleAccess, _section: ConsoleSectionId | undefined): boolean {
+  return true
+}
+
+/** Return the sections visible to a checked access. */
+export function allowedConsoleSections(_access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
+  return [...available]
+}
+
 /**
  * Wraps a Console server handler so it runs only after the installed access policy accepts the request.
  * Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
+  _routeScope?: unknown,
 ): (event: TEvent) => Promise<TResult | Response> {
   if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
   return async (event) => {
