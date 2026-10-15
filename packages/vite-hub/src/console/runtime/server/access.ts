@@ -61,10 +61,10 @@ const objectToString = Object.prototype.toString
 const invalidAuthorizationResponse = Symbol("invalid authorization response")
 
 async function authorizationResponse(value: unknown): Promise<Response | typeof invalidAuthorizationResponse | undefined> {
-  if (value instanceof Response) return value
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates foreign Fetch fields before constructing a local Response.
-  if (!value || typeof value !== "object") return undefined
   try {
+    if (value instanceof Response) return value
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates foreign Fetch fields before constructing a local Response.
+    if (!value || typeof value !== "object") return undefined
     if (objectToString.call(value) !== "[object Response]") return undefined
     // A foreign Response cannot be branded by this realm's constructor. Validate
     // its transferable fields and let Fetch construct the route's actual Response.
