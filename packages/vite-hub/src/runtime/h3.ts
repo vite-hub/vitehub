@@ -49,9 +49,11 @@ function isRequest(value: unknown): value is Request {
       const accessors = ["headers", "url", "method", "bodyUsed"].map(key =>
         Object.getOwnPropertyDescriptor(prototype, key)?.get,
       )
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Accessors cross a foreign realm boundary as unknown values.
       if (!accessors.every((accessor): accessor is () => unknown => typeof accessor === "function")) continue
       const [headers, url, method, bodyUsed] = accessors.map(accessor => accessor.call(value))
-      Headers.prototype.get.call(headers, "")
+      Headers.prototype.get.call(headers, "x-vite-hub-request-check")
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Fetch accessors cross a foreign realm boundary as unknown values.
       if (typeof url === "string" && typeof method === "string" && typeof bodyUsed === "boolean") return true
     }
     return false
