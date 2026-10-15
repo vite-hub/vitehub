@@ -161,6 +161,8 @@ defaultChannel.send("Build finished.", { chatId: "chat-1", slient: true })
 
 // @ts-expect-error Connector options remain specific to the selected connector.
 channel.send("Build finished.", { connector: "telegram", channelId: "channel-1" })
+// @ts-expect-error Connector options must not mix fields from different connectors.
+channel.send("Build finished.", { connector: "telegram", chatId: "chat-1", channelId: "channel-1" })
 
 const discovered = useChannel("alerts")
 discovered.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
