@@ -276,30 +276,6 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
-function isResponse(value: unknown): value is Response {
-  if (value instanceof Response) return true
-  if (value === null || typeof value !== "object") return false
-  try {
-    // Use the candidate realm's native Web IDL getter. A host-realm getter
-    // rejects otherwise valid Responses from another realm, while a getter
-    // supplied by an ordinary object is not a Web IDL brand check.
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype) {
-      const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
-      if (typeof bodyGetter === "function") {
-        const source = Function.prototype.toString.call(bodyGetter)
-        if (!source.includes("[native code]") && !source.includes("brandCheck")) return false
-        bodyGetter.call(value)
-        return true
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    return false
-  } catch {
-    return false
-  }
-}
-
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
@@ -342,8 +318,13 @@ function hasResponsePrototype(value: unknown): boolean {
       seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       const owner = prototype
+      const bodyGetter = Object.getOwnPropertyDescriptor(owner, "body")?.get
       if (constructor?.name === "Response"
-        && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
+        && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reflection returns an unknown accessor; validate it before accepting the candidate response prototype.
+        && typeof bodyGetter === "function") {
+        return true
+      }
       prototype = Object.getPrototypeOf(prototype)
     }
   }
