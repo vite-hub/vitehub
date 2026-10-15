@@ -16,8 +16,6 @@ import {
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
 const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
-const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
-
 const pageGroups = computed(() => {
   if (!section.value) return [];
   const groups = getDocsSidebarGroups(section.value);
@@ -32,6 +30,7 @@ const related = computed(() =>
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
+const platformSections = computed(() => catalog.find(group => group.category === "Platform")?.sections ?? []);
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
