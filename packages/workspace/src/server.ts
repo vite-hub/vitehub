@@ -125,13 +125,17 @@ function headerValue(headers: WorkspaceDevHeaders, name: string): string | undef
   // Headers brand on its own. A genuine cross-realm Headers instance exposes
   // its own constructor on the prototype; use that signal before invoking any
   // inherited getter.
+  const constructorSource = hasRuntimeType(constructor, "function")
+    ? Function.prototype.toString.call(constructor)
+    : ""
   const isCrossRealmHeaders = hasRuntimeType(constructor, "function")
     && Reflect.get(constructor, "name") === "Headers"
-    && /^function\s+Headers\(\)\s*\{\s*\[native code\]\s*\}$/.test(Function.prototype.toString.call(constructor))
+    && (/^function\s+Headers\(\)\s*\{\s*\[native code\]\s*\}$/.test(constructorSource)
+      || constructorSource.includes("webidl.brandCheck"))
     && Reflect.get(constructor, "prototype") === prototype
   if (isCrossRealmHeaders) {
     const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
-    const crossRealmGet = Reflect.get(headers, "get")
+    const crossRealmGet = Object.getOwnPropertyDescriptor(prototype, "get")?.value
     for (const getter of [get, crossRealmGet]) {
       if (!hasRuntimeType(getter, "function")) continue
       try {
