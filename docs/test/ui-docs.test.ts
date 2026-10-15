@@ -162,7 +162,7 @@ describe("UI documentation", () => {
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toContain("flex: 1;");
+    expect(layout).toContain("lg:!flex-1");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {

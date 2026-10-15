@@ -1,10 +1,10 @@
-import { and, desc, eq, lt, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { ViteHubError } from "@vite-hub/runtime"
 
-import { workspaceConflict, workspaceError } from "../core/errors.ts"
+import { workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "../core/file-metadata.ts"
-import { normalizeHistoryPath, validateHistoryMessage } from "../core/history.ts"
+import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, validateHistoryMessage } from "../core/history.ts"
 import { contentToBytes, decodeFile, isExcludedWorkspacePath, isWorkspaceBytes, normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
 import { createMemoryWorkspaceStore, forkMemoryWorkspaceStore } from "./memory.ts"
 import { workspaceStoreTarget } from "./target.ts"
@@ -14,11 +14,10 @@ import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
-import type { DiffOptions, GlobOptions, ListOptions, MkdirOptions, RmOptions, SnapshotOptions, WorkspaceFile, WorkspaceHistoryListOptions, WorkspaceHistoryListResult, WorkspaceRevision, WorkspaceRevisionView, WorkspaceSnapshot, WorkspaceStore, WorkspaceStoreHistory } from "../core/types.ts"
+import type { DiffOptions, GlobOptions, ListOptions, MkdirOptions, RmOptions, SnapshotOptions, WorkspaceFile, WorkspaceHistoryListOptions, WorkspaceHistoryListResult, WorkspaceHistoryRef, WorkspaceRevision, WorkspaceRevisionView, WorkspaceSnapshot, WorkspaceStore, WorkspaceStoreHistory, WorkspaceStoreHistoryCommitOptions } from "../core/types.ts"
 
-const { workspaceHistoryRefs: refs, workspaceHistoryRevisions: revisions, workspaceHistoryObjects: objects, workspaceHistoryMetadata: metadata } = workspaceHistorySchema
+const { workspaceHistoryWorkspaces: workspaces, workspaceHistoryRefs: refs, workspaceHistoryRevisions: revisions, workspaceHistoryObjects: objects, workspaceHistoryMetadata: metadata } = workspaceHistorySchema
 type RevisionRow = typeof revisions.$inferSelect
-type CommitOptions = Parameters<WorkspaceStoreHistory["commit"]>[0]
 
 export interface BlobDatabaseWorkspaceStoreOptions {
   blob: BlobStorage
@@ -38,6 +37,7 @@ export interface BlobDatabaseWorkspaceStore extends WorkspaceStore {
 function publicRevision(row: RevisionRow): WorkspaceRevision {
   const revision: WorkspaceRevision = {
     id: row.id,
+    ref: row.ref,
     parentId: row.parentId,
     createdAt: row.createdAt,
     files: row.files,
@@ -51,6 +51,7 @@ function publicRevision(row: RevisionRow): WorkspaceRevision {
 class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   #namespace: Promise<string>
   #ready?: Promise<void>
+  // The working tree follows the default ref and lives only in this instance.
   #draft?: Promise<{ store: WorkspaceStore, head: WorkspaceRevision | null }>
   #dirty = false
   #baseline?: WorkspaceSnapshot
@@ -68,11 +69,9 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   }
 
   history: WorkspaceStoreHistory = {
-    head: async () => {
-      const ref = await this.#ref()
-      return ref.deleted || !ref.head ? null : publicRevision(await this.#revision(ref.head))
-    },
+    head: async options => await this.#head(normalizeHistoryRef(options?.ref)),
     list: async options => await this.#listHistory(options),
+    refs: async () => await this.#refs(),
     open: async id => await this.#open(id),
     usage: async () => {
       const workspace = await this.#key()
@@ -81,24 +80,26 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           select distinct json_extract(file.value, '$.digest') as digest,
             json_extract(file.value, '$.size') as size
           from ${revisions}, json_each(${revisions.entries}) as file
-          where ${revisions.workspace} = ${workspace} and ${revisions.published} = 1
-            and exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.deleted} = 0)
+          where ${revisions.workspace} = ${workspace} and ${revisions.committed} = 1
+            and ${this.#active(workspace)}
         )
       `)
       return { bytes: result?.[0] ?? 0, objects: result?.[1] ?? 0 }
     },
     commit: async options => await this.#mutate(async () => {
       const revision = await this.#commit(options)
-      this.#draft = undefined
-      this.#dirty = false
-      this.#baseline = undefined
+      if (revision.ref === defaultWorkspaceHistoryRef) {
+        this.#draft = undefined
+        this.#dirty = false
+        this.#baseline = undefined
+      }
       return revision
     }),
   }
 
   async #key() {
     const workspace = await this.#namespace
-    this.#ready ??= this.options.database.insert(refs).values({ workspace }).onConflictDoNothing().then(() => {}, error => {
+    this.#ready ??= this.options.database.insert(workspaces).values({ workspace }).onConflictDoNothing().then(() => {}, error => {
       this.#ready = undefined
       throw error
     })
@@ -106,11 +107,41 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     return workspace
   }
 
-  async #ref() {
+  #active(workspace: string) {
+    return sql`exists (select 1 from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0)`
+  }
+
+  async #isDeleted() {
     const workspace = await this.#key()
-    const [ref] = await this.options.database.select().from(refs).where(eq(refs.workspace, workspace))
-    if (!ref) throw workspaceError("[vitehub] Workspace history ref is missing.")
-    return ref
+    const [row] = await this.options.database.select({ deleted: workspaces.deleted }).from(workspaces).where(eq(workspaces.workspace, workspace))
+    if (!row) throw workspaceError("[vitehub] Workspace history identity is missing.")
+    return row.deleted
+  }
+
+  async #ref(workspace: string, ref: string) {
+    const [row] = await this.options.database.select().from(refs).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), this.#active(workspace)))
+    return row
+  }
+
+  async #head(ref: string) {
+    const workspace = await this.#key()
+    const row = await this.#ref(workspace, ref)
+    return row?.head ? publicRevision(await this.#revision(row.head)) : null
+  }
+
+  async #refs(): Promise<WorkspaceHistoryRef[]> {
+    const workspace = await this.#key()
+    const heads = await this.options.database.select({ ref: refs.ref, head: refs.head }).from(refs)
+      .where(and(eq(refs.workspace, workspace), isNotNull(refs.head), this.#active(workspace)))
+    if (!heads.length) return []
+    const rows = await this.options.database.select().from(revisions).where(and(
+      eq(revisions.workspace, workspace), eq(revisions.committed, true), inArray(revisions.id, heads.map(row => row.head!)), this.#active(workspace),
+    ))
+    const byId = new Map(rows.map(row => [row.id, row]))
+    return heads.flatMap(({ ref, head }) => {
+      const row = byId.get(head!)
+      return row ? [{ name: ref, head: publicRevision(row) }] : []
+    }).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
   }
 
   #deleted(): never {
@@ -118,14 +149,13 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   }
 
   async #assertActive() {
-    if ((await this.#ref()).deleted) this.#deleted()
+    if (await this.#isDeleted()) this.#deleted()
   }
 
   async #revision(id: string): Promise<RevisionRow> {
     const workspace = await this.#key()
     const [row] = await this.options.database.select().from(revisions).where(and(
-      eq(revisions.workspace, workspace), eq(revisions.id, id), eq(revisions.published, true),
-      sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.deleted} = 0)`,
+      eq(revisions.workspace, workspace), eq(revisions.id, id), eq(revisions.committed, true), this.#active(workspace),
     ))
     if (!row) throw new ViteHubError("WORKSPACE_NOT_FOUND", `[vitehub] Workspace revision does not exist: ${id}.`)
     return row
@@ -134,12 +164,14 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   async #listHistory(options: WorkspaceHistoryListOptions = {}) {
     const limit = options.limit ?? 20
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: "[vitehub] History list limit must be an integer from 1 to 100." })
+    const ref = normalizeHistoryRef(options.ref)
     const workspace = await this.#key()
     const cursor = options.cursor ? await this.#revision(options.cursor) : undefined
+    if (cursor && cursor.ref !== ref) throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: `[vitehub] History cursor belongs to ref "${cursor.ref}". Pass it with the ref that returned it.` })
     const rows = await this.options.database.select().from(revisions).where(and(
-      eq(revisions.workspace, workspace), eq(revisions.published, true),
+      eq(revisions.workspace, workspace), eq(revisions.ref, ref), eq(revisions.committed, true),
       cursor ? lt(revisions.sequence, cursor.sequence) : undefined,
-      sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.deleted} = 0)`,
+      this.#active(workspace),
     )).orderBy(desc(revisions.sequence)).limit(limit + 1)
     const result: WorkspaceHistoryListResult = { revisions: rows.slice(0, limit).map(publicRevision) }
     if (rows.length > limit) result.cursor = rows[limit - 1]!.id
@@ -193,17 +225,30 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     })
   }
 
-  async #commit(options: CommitOptions): Promise<WorkspaceRevision> {
+  async #commit(options: WorkspaceStoreHistoryCommitOptions): Promise<WorkspaceRevision> {
     validateHistoryMessage(options.message)
+    const ref = normalizeHistoryRef(options.ref)
+    if ((options.files === undefined) === (options.changes === undefined)) throw workspaceError("[vitehub] History commit requires exactly one of files or changes.")
     const workspace = await this.#key()
-    const ref = await this.#ref()
-    if (ref.deleted) this.#deleted()
-    if (ref.head !== options.ifHead) throw this.#conflict(options.ifHead, ref.head)
+    await this.#assertActive()
+    const current = await this.#ref(workspace, ref)
+    if ((current?.head ?? null) !== options.ifHead) throw this.#conflict(ref, options.ifHead, current?.head ?? null)
+    // A change commit starts from the head manifest. Unchanged objects are already registered and uploaded.
     const entries: Record<string, HistoryManifestFile> = Object.create(null)
-    const contents = new Map<string, Uint8Array>()
-    for (const [path, file] of Object.entries(options.files).sort(([left], [right]) => left.localeCompare(right))) {
+    const removed = new Set<string>()
+    if (options.changes && current?.head) Object.assign(entries, (await this.#revision(current.head)).entries)
+    for (const path of options.changes?.delete ?? []) {
       const normalized = normalizeHistoryPath(path)
-      if (Object.hasOwn(entries, normalized)) throw workspaceError(`[vitehub] Duplicate history file path: ${normalized}.`)
+      if (!Object.hasOwn(entries, normalized)) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+      delete entries[normalized]
+      removed.add(normalized)
+    }
+    const puts = new Set<string>()
+    const contents = new Map<string, Uint8Array>()
+    for (const [path, file] of Object.entries(options.files ?? options.changes?.put ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
+      const normalized = normalizeHistoryPath(path)
+      if (puts.has(normalized) || removed.has(normalized)) throw workspaceError(`[vitehub] Duplicate history file path: ${normalized}.`)
+      puts.add(normalized)
       if (!hasRuntimeType(file.content, "string") && !isWorkspaceBytes(file.content)) throw workspaceError(`[vitehub] Invalid history file content: ${normalized}.`)
       const bytes = new Uint8Array(contentToBytes(file.content))
       const digest = await sha256(bytes)
@@ -218,19 +263,22 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
         if (Object.hasOwn(entries, parts.slice(0, index).join("/"))) throw workspaceError(`[vitehub] History path is both a file and a directory: ${path}.`)
       }
     }
+    const sorted: Record<string, HistoryManifestFile> = Object.create(null)
+    for (const path of Object.keys(entries).sort((left, right) => left.localeCompare(right))) sorted[path] = entries[path]!
     const manifest = {
+      ref,
       parentId: options.ifHead,
       createdAt: new Date().toISOString(),
       message: options.message ?? null,
       metadata: copyJsonWorkspaceMetadata("history revision", options.metadata) ?? null,
-      entries,
+      entries: sorted,
     }
     const id = await sha256(manifest)
     const registry = [...contents].map(([digest, bytes]) => ({ digest, size: bytes.byteLength }))
     await this.options.database.insert(objects).select(sql`
-      select ${refs.workspace}, json_extract(object.value, '$.digest'), json_extract(object.value, '$.size')
-      from ${refs}, json_each(${JSON.stringify(registry)}) as object
-      where ${refs.workspace} = ${workspace} and ${refs.deleted} = 0
+      select ${workspaces.workspace}, json_extract(object.value, '$.digest'), json_extract(object.value, '$.size')
+      from ${workspaces}, json_each(${JSON.stringify(registry)}) as object
+      where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
     `).onConflictDoNothing()
     await this.#assertActive()
     const upload = async ([digest, bytes]: [string, Uint8Array]) => {
@@ -245,7 +293,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           if (concurrentError || !concurrentObject) throw uploadError
         }
       }
-      if ((await this.#ref()).deleted) {
+      if (await this.#isDeleted()) {
         await this.#removeObject(key)
         this.#deleted()
       }
@@ -255,28 +303,31 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       const results = await Promise.allSettled(uploads.slice(offset, offset + 8).map(upload))
       for (const result of results) if (result.status === "rejected") throw result.reason
     }
-    const row = { ...manifest, entries: { ...entries }, workspace, id, sequence: ref.sequence + 1, files: Object.keys(entries).length, bytes: Object.values(entries).reduce((total, entry) => total + entry.size, 0) }
+    const row = { ...manifest, entries: { ...sorted }, workspace, id, sequence: (current?.sequence ?? 0) + 1, files: Object.keys(sorted).length, bytes: Object.values(sorted).reduce((total, entry) => total + entry.size, 0) }
     // All supported Database drivers execute batch atomically. No interactive transaction is needed.
-    const [, changed] = await this.options.database.batch([
+    const [, , changed] = await this.options.database.batch([
+      this.options.database.insert(refs).select(sql`
+        select ${workspaces.workspace}, ${ref}, null, 0
+        from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
+      `).onConflictDoNothing(),
       this.options.database.insert(revisions).select(sql`
-        select ${row.workspace}, ${row.id}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
+        select ${row.workspace}, ${row.id}, ${row.ref}, ${row.parentId}, ${row.sequence}, ${row.createdAt},
           ${row.message}, ${row.metadata === null ? null : JSON.stringify(row.metadata)},
           ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
-        from ${refs} where ${refs.workspace} = ${workspace} and ${refs.deleted} = 0
+        from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
       `).onConflictDoNothing(),
-      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(eq(refs.workspace, workspace), eq(refs.deleted, false), sql`${refs.head} is ${options.ifHead}`)).returning({ head: refs.head }),
-      this.options.database.update(revisions).set({ published: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.head} = ${id} and ${refs.deleted} = 0)`)),
+      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), sql`${refs.head} is ${options.ifHead}`, this.#active(workspace))).returning({ head: refs.head }),
+      this.options.database.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
     ])
     if (!changed.length) {
-      const actual = await this.#ref()
-      if (actual.deleted) this.#deleted()
-      throw this.#conflict(options.ifHead, actual.head)
+      if (await this.#isDeleted()) this.#deleted()
+      throw this.#conflict(ref, options.ifHead, (await this.#ref(workspace, ref))?.head ?? null)
     }
-    return publicRevision({ ...row, published: true })
+    return publicRevision({ ...row, committed: true })
   }
 
-  #conflict(expected: string | null, actual: string | null) {
-    return workspaceConflict("[vitehub] Workspace head changed before the history commit.", { details: { expected, actual, workspace: this.options.workspace } })
+  #conflict(ref: string, expected: string | null, actual: string | null) {
+    return historyConflict(ref, expected, actual, { workspace: this.options.workspace })
   }
 
   async #removeObject(key: string) {
@@ -294,7 +345,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   async #delete(): Promise<void> {
     const workspace = await this.#key()
-    await this.options.database.update(refs).set({ deleted: true, head: null }).where(eq(refs.workspace, workspace))
+    await this.options.database.batch([
+      this.options.database.update(workspaces).set({ deleted: true }).where(eq(workspaces.workspace, workspace)),
+      this.options.database.delete(refs).where(eq(refs.workspace, workspace)),
+    ])
     // The tombstone fences publishers before cleanup. Keep it after cleanup so late writers cannot resurrect this namespace.
     const catalog = await this.options.database.select().from(objects).where(eq(objects.workspace, workspace))
     for (const object of catalog) {
@@ -405,7 +459,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const workspace = await this.#key()
     const [row] = await this.options.database.select().from(metadata).where(and(
       eq(metadata.workspace, workspace), eq(metadata.key, key),
-      sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.deleted} = 0)`,
+      this.#active(workspace),
     ))
     return row?.value
   }
@@ -419,7 +473,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     }
     await this.options.database.insert(metadata).select(this.options.database.select({
       workspace: sql<string>`${workspace}`.as("workspace"), key: sql<string>`${key}`.as("key"), value: sql<unknown>`${JSON.stringify(value)}`.as("value"),
-    }).from(refs).where(and(eq(refs.workspace, workspace), eq(refs.deleted, false)))).onConflictDoUpdate({ target: [metadata.workspace, metadata.key], set: { value: sql`${JSON.stringify(value)}` } })
+    }).from(workspaces).where(and(eq(workspaces.workspace, workspace), eq(workspaces.deleted, false)))).onConflictDoUpdate({ target: [metadata.workspace, metadata.key], set: { value: sql`${JSON.stringify(value)}` } })
   }
 }
 
