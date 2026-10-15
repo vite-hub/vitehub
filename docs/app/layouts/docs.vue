@@ -59,34 +59,37 @@ const hasPanel = computed(
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;
-    align-items: flex-start;
-    /* Clip the expanded rail horizontally without creating a vertical scroll ancestor for sticky navigation. */
-    overflow-x: clip;
   }
 
-  .vh-docs-desktop-nav {
+  .vh-docs-shell > .vh-docs-desktop-nav {
     display: flex;
-    min-width: 0;
+    position: sticky;
+    top: var(--ui-header-height);
+    height: calc(100dvh - var(--ui-header-height));
+    max-height: calc(100dvh - var(--ui-header-height));
+    min-height: calc(100dvh - var(--ui-header-height));
     flex: 0 0 auto;
   }
 
-  .vh-docs-content {
-    display: flex;
-    min-width: 0;
-    flex: 1 1 auto;
-    flex-direction: column;
+  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-sidebars) {
+    width: max-content;
+    height: 100%;
   }
 
-  .vh-docs-desktop-nav :deep(.vh-docs-sidebars) {
+  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-aside) {
     position: sticky;
     top: var(--ui-header-height);
     display: flex;
     height: calc(100dvh - var(--ui-header-height));
     max-height: calc(100dvh - var(--ui-header-height));
     min-height: calc(100dvh - var(--ui-header-height));
-    flex-direction: row;
+    flex-direction: column;
     overflow: hidden;
+    border-right: 1px solid var(--ui-border);
   }
 
+  .vh-docs-content {
+    flex: 1;
+  }
 }
 </style>

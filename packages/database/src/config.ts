@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
-import { dirname, relative, resolve } from "pathe"
+import { dirname, isAbsolute, relative, resolve } from "pathe"
 
 import {
   createDirectoryDefinitionSource,
@@ -284,7 +284,9 @@ function readDefinitionConnectionConfig(file: string) {
   return Object.values(value).some(item => typeof item !== "undefined") ? value : undefined
 }
 
-function createDatabaseDefinition(source: string, file: string, name: string, mode: "default" | "named"): DiscoveredDatabaseDefinition {
+type FoundDatabaseDefinition = Omit<DiscoveredDatabaseDefinition, "schemaSources">
+
+function createDatabaseDefinition(source: string, file: string, name: string, mode: "default" | "named"): FoundDatabaseDefinition {
   const configuredName = readStringValue(readDefinitionObjectBody(file), "name")?.trim() || "default"
   if (configuredName !== name) {
     throw databaseErrorDiagnostics.DATABASE_C0001({ message: `[vitehub] Database definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its discovered identity.` })
@@ -298,16 +300,16 @@ function createDatabaseDefinition(source: string, file: string, name: string, mo
   }
 }
 
-function discoverServerDatabases(rootDir: string, serverDirs = [resolve(rootDir, "server")]) {
-  return discoverDefinitions<DiscoveredDatabaseDefinition>("database", [
-    createDirectoryDefinitionSource("server-database-default", serverDirs, "databases", {
+function discoverServerDatabases(serverDir: string) {
+  return discoverDefinitions<FoundDatabaseDefinition>("database", [
+    createDirectoryDefinitionSource("server-database-default", [serverDir], "databases", {
       normalizeName(directory, file) {
         if (!configFilePattern.test(file.split(/[\\/]/).pop() || "")) return
         return dirname(file).replace(/\\/g, "/") === directory.replace(/\\/g, "/") ? "default" : undefined
       },
       createDefinition: ({ file, name }) => createDatabaseDefinition("server-database-default", file, name, "default"),
     }),
-    createDirectoryDefinitionSource("server-databases-named", serverDirs, "databases", {
+    createDirectoryDefinitionSource("server-databases-named", [serverDir], "databases", {
       normalizeName(directory, file) {
         if (!configFilePattern.test(file.split(/[\\/]/).pop() || "")) return
         const name = relative(directory, dirname(file)).replace(/\\/g, "/")
@@ -323,7 +325,7 @@ function discoverViteDatabases(rootDir: string) {
   const defaultDefinitions = existsSync(defaultFile)
     ? [createDatabaseDefinition("vite-database-default", defaultFile, "default", "default")]
     : []
-  const suffixDefinitions = discoverDefinitions<DiscoveredDatabaseDefinition>("database", [
+  const suffixDefinitions = discoverDefinitions<FoundDatabaseDefinition>("database", [
     createSuffixDefinitionSource("vite-database-suffix", [rootDir], viteDatabaseSuffixPattern, (root, file) => {
       const name = normalizeSuffixDefinitionName(root, file, viteDatabaseSuffixPattern, { stripPrefix: "src/" })
       return name === "database" ? undefined : name
@@ -334,22 +336,151 @@ function discoverViteDatabases(rootDir: string) {
   return [...defaultDefinitions, ...suffixDefinitions]
 }
 
-export function discoverDatabaseDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
-  const definitions = [...discoverServerDatabases(rootDir, options.serverDirs), ...discoverViteDatabases(rootDir)]
-    .filter((definition, index, all) => all.findIndex(item => item.handler === definition.handler) === index)
-  const hasDefault = definitions.some(definition => definition.mode === "default")
-  const hasNamed = definitions.some(definition => definition.mode === "named")
-  if (hasDefault && hasNamed) {
-    throw databaseErrorDiagnostics.DATABASE_C0002({ message: "[vitehub] Database definitions must use either one default database or all named databases, not both." })
+const schemaOnlyDefinitionKeys = new Set(["name", "schema"])
+
+/** Lists the database options that a Definition sets, or returns `undefined` when ViteHub cannot read them. */
+function readDefinitionOptionKeys(file: string): Set<string> | undefined {
+  const body = readDefinitionObjectBody(file)
+  if (body === undefined) return
+  const keys = new Set<string>()
+  for (const entry of splitTopLevel(body)) {
+    const normalized = stripLeadingEntryComments(entry)
+    if (!normalized.trim()) continue
+    const key = readEntryKey(normalized)
+    if (normalized.trimStart().startsWith("...") || !key) return
+    if (!schemaOnlyDefinitionKeys.has(key)) keys.add(key)
   }
-  if (definitions.filter(definition => definition.mode === "default").length > 1) {
-    throw databaseErrorDiagnostics.DATABASE_C0003({ message: "[vitehub] Only one default database definition is allowed." })
-  }
-  return definitions.sort((left, right) => left.name.localeCompare(right.name))
+  return keys
 }
 
-function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition) {
-  return relative(rootDir, resolve(dirname(definition.handler), "migrations"))
+/** Reports whether a Definition can set database options. Opaque Definitions count because ViteHub cannot read them. */
+function configuresDatabase(file: string) {
+  const keys = readDefinitionOptionKeys(file)
+  return keys === undefined || keys.size > 0
+}
+
+function listDefinitionFiles(definitions: Array<{ handler: string }>) {
+  return definitions.map(definition => `  - ${definition.handler}`)
+}
+
+/**
+ * Merges the Definitions of one database. Layer 0 is the application. Higher layers are Nuxt layers in priority order.
+ * Options come from the application when it sets them, and otherwise from the one layer that sets them.
+ * An application table replaces a layer table with the same key. Two layers cannot declare the same table.
+ */
+function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundDatabaseDefinition, layer: number }>): DiscoveredDatabaseDefinition {
+  const ordered = [...entries].sort((left, right) => left.layer - right.layer)
+  const sameLayer = ordered.find((entry, index) => index > 0 && entry.layer === ordered[index - 1]!.layer)
+  if (sameLayer) {
+    const duplicates = ordered.filter(entry => entry.layer === sameLayer.layer).map(entry => entry.definition)
+    throw databaseErrorDiagnostics.DATABASE_C0003({ message: [
+      name === "default"
+        ? "[vitehub] Only one default database definition is allowed."
+        : `[vitehub] Only one definition is allowed for database "${name}".`,
+      ...listDefinitionFiles(duplicates),
+    ].join("\n") })
+  }
+
+  const app = ordered[0]!.layer === 0 ? ordered[0]!.definition : undefined
+  const appConfigures = app !== undefined && configuresDatabase(app.handler)
+  const layers = ordered.filter(entry => entry.layer > 0).map(entry => entry.definition)
+  const configuringLayers = layers.filter(definition => configuresDatabase(definition.handler))
+  // The application Definition supplies every option when it sets one, so a layer option that it does not repeat would be lost.
+  if (app && appConfigures) {
+    const appOptions = readDefinitionOptionKeys(app.handler)
+    for (const layer of configuringLayers) {
+      const layerOptions = readDefinitionOptionKeys(layer.handler)
+      if (!appOptions || !layerOptions) {
+        throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
+          `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
+          "ViteHub cannot read the options of these definitions:",
+          ...listDefinitionFiles([app, layer]),
+          "Pass an object literal to defineDatabase() in both files, or keep every option in one of them.",
+        ].join("\n") })
+      }
+      const missing = [...layerOptions].filter(key => !appOptions.has(key))
+      if (!missing.length) continue
+      const options = missing.map(key => `\`${key}\``).join(", ")
+      throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
+        `[vitehub] The application definition of database "${name}" sets options, so it replaces the options of its Nuxt layers.`,
+        `It does not set ${options}, which a layer sets:`,
+        ...listDefinitionFiles([app, layer]),
+        `Set ${options} in the application definition too, or move all options to the layer.`,
+      ].join("\n") })
+    }
+  }
+  if (!appConfigures && configuringLayers.length > 1) {
+    throw databaseErrorDiagnostics.DATABASE_C0008({ message: [
+      `[vitehub] More than one Nuxt layer sets options for database "${name}":`,
+      ...listDefinitionFiles(configuringLayers),
+      `Keep the options in one layer, or set them in the application definition of database "${name}".`,
+    ].join("\n") })
+  }
+
+  const appTables = new Set(app?.tableNames)
+  const tableOwners = new Map<string, FoundDatabaseDefinition>()
+  for (const definition of layers) {
+    for (const tableName of definition.tableNames) {
+      const owner = tableOwners.get(tableName)
+      if (owner && !appTables.has(tableName)) {
+        throw databaseErrorDiagnostics.DATABASE_C0009({ message: [
+          `[vitehub] More than one Nuxt layer declares table "${tableName}" in database "${name}":`,
+          ...listDefinitionFiles([owner, definition]),
+          `Rename one table, or declare "${tableName}" in the application definition to replace both.`,
+        ].join("\n") })
+      }
+      tableOwners.set(tableName, definition)
+    }
+  }
+
+  const owner = (appConfigures ? app : configuringLayers[0]) ?? app ?? layers[0]!
+  // Later sources take precedence, so the application comes last.
+  const schemaSources = [...ordered].reverse().map(({ definition }) => ({ handler: definition.handler, tableNames: definition.tableNames }))
+  return {
+    ...owner,
+    schemaSources,
+    tableNames: [...new Set(ordered.flatMap(({ definition }) => definition.tableNames))],
+  }
+}
+
+export function discoverDatabaseDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
+  const serverDirs = options.serverDirs ?? [resolve(rootDir, "server")]
+  const found = [
+    ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
+    ...discoverViteDatabases(rootDir).map(definition => ({ definition, layer: 0 })),
+  ].filter((entry, index, all) => all.findIndex(item => item.definition.handler === entry.definition.handler) === index)
+  const defaults = found.filter(entry => entry.definition.mode === "default")
+  const named = found.filter(entry => entry.definition.mode === "named")
+  if (defaults.length && named.length) {
+    throw databaseErrorDiagnostics.DATABASE_C0002({ message: [
+      "[vitehub] Database definitions must use either one default database or all named databases, not both.",
+      ...listDefinitionFiles(found.map(entry => entry.definition)),
+    ].join("\n") })
+  }
+  const byName = new Map<string, typeof found>()
+  for (const entry of found) {
+    const entries = byName.get(entry.definition.name) ?? []
+    entries.push(entry)
+    byName.set(entry.definition.name, entries)
+  }
+  return [...byName].map(([name, entries]) => mergeLayerDefinitions(name, entries))
+    .sort((left, right) => left.name.localeCompare(right.name))
+}
+
+function isWithinDirectory(directory: string, file: string) {
+  const path = relative(directory, file)
+  return Boolean(path) && !path.startsWith("..") && !isAbsolute(path)
+}
+
+/** Keeps migrations in the application, also when a Nuxt layer owns the database options. */
+function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
+  const [appServerDir, ...layerServerDirs] = serverDirs ?? []
+  const ownedByLayer = appServerDir !== undefined && !isWithinDirectory(appServerDir, definition.handler)
+    && layerServerDirs.some(directory => isWithinDirectory(directory, definition.handler))
+  const directory = ownedByLayer
+    ? resolve(appServerDir, "databases", ...(definition.mode === "named" ? [definition.name] : []))
+    : dirname(definition.handler)
+  return relative(rootDir, resolve(directory, "migrations"))
 }
 
 function normalizeCloudflareConfig(
@@ -426,7 +557,7 @@ export function resolveDBViteConfig(
   const generatedSchemaFilesByDatabase: Record<string, string> = Object.create(null)
   const provisionState = readProvisionStateSync(context.provisionRoot ?? rootDir)
   for (const definition of definitions) {
-    const migrationsDir = getDefaultMigrationsDir(rootDir, definition)
+    const migrationsDir = getDefaultMigrationsDir(rootDir, definition, context.serverDirs)
     const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
     const projection: CloudflareD1Projection = { resource: definitionCloudflare.resource }
     cloudflareProjections[definition.name] = projection
