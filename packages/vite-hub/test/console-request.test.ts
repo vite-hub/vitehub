@@ -101,6 +101,15 @@ describe("Console requests", () => {
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 
+  it("preserves aborted fetch requests", async () => {
+    const aborted = new DOMException("The operation was aborted.", "AbortError")
+    fetchMock.mockRejectedValueOnce(aborted)
+
+    const error = await requestConsole("/aborted/api/_vitehub/console/sections").catch(error => error)
+    expect(error).toBe(aborted)
+    expect(isRetryableConsoleRequestError(error)).toBe(false)
+  })
+
   it("does not replay a submitted invocation when its connection drops", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("connection dropped"))
     await expect(requestConsole("/no-replay/api/_vitehub/console/agents/support/invocations", {

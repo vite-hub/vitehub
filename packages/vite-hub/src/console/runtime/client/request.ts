@@ -173,6 +173,9 @@ export async function requestConsole(
     })
   }
   catch (error) {
+    // Aborted requests are intentional (for example when a view unmounts); preserve
+    // the original error so callers that ignore AbortError can do so reliably.
+    if (error instanceof Error && error.name === "AbortError") throw error
     throw new ConsoleNetworkError(error)
   }
   if (!response.ok) throw await consoleResponseError(response)
