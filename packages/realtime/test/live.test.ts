@@ -7,7 +7,7 @@ import { RealtimeDocumentConflict } from "../src/conflict.ts"
 import { defineRealtimeEditor } from "../src/editor.ts"
 import { createRealtimeYDoc, readRealtimeYDoc } from "../src/document.ts"
 import { readRealtimeStatus } from "../src/layout.ts"
-import { createRealtimeHandler, realtimeRoomKey } from "../src/server.ts"
+import { createRealtimeHandler, realtimeRoomKey, refreshRealtimeDocument } from "../src/server.ts"
 import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, createTestServer, paragraphs, registryOf, sendAwareness, settle } from "./harness.ts"
 
 const serverMocks = vi.hoisted(() => ({
@@ -628,5 +628,153 @@ describe("room authorities", () => {
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toMatchObject({ data: { code: "REALTIME_SOURCE_CHANGED" } })
     expect(client.controls.at(-1)).toMatchObject({ type: "reset", reason: "source-changed" })
+  })
+})
+
+describe("adapter seams for live documents", () => {
+  it("picks the editor codec of each document from an editor function", async () => {
+    const memory = createMemoryAdapter({ "notes/a": { body: "One" }, "posts/b": { body: "Two" } })
+    const notes = createStubEditor()
+    const posts = createStubEditor()
+    const pick = vi.fn(({ documentId }: { documentId: string }) => documentId.startsWith("notes/") ? notes.editor : posts.editor)
+    const server = createTestServer({ document: memory.adapter, editor: pick })
+    const first = await server.connect("notes/a")
+    const second = await server.connect("posts/b")
+    await settle()
+
+    expect(paragraphs(first.doc)).toEqual(["One"])
+    expect(paragraphs(second.doc)).toEqual(["Two"])
+    expect(notes.calls.fromMarkdown).toBe(1)
+    expect(posts.calls.fromMarkdown).toBe(1)
+    expect(pick).toHaveBeenCalledWith({ authority: "memory", definition: "docs", documentId: "notes/a" })
+    first.close()
+    second.close()
+  })
+
+  it("holds a writable room while clients stay, then saves and releases after the last one leaves", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const hold = vi.fn(async () => {})
+    const release = vi.fn(async () => {})
+    const adapter = Object.assign(memory.adapter, { hold, release })
+    const server = createTestServer(liveDefinition(adapter, {
+      identify: ({ request }) => {
+        const id = request.headers.get("x-user")
+        return id ? { id, name: id.toUpperCase() } : null
+      },
+      authorize: ({ mode, user }) => mode === "read" || user?.id !== "viewer",
+    }))
+
+    const ana = await server.connect("page", { headers: { "x-user": "ana" } })
+    await settle()
+    expect(hold).toHaveBeenLastCalledWith({ authority: "memory", definition: "docs", documentId: "page" }, { users: [{ id: "ana", name: "ANA" }] })
+    const viewer = await server.connect("page", { headers: { "x-user": "viewer" } })
+    const ben = await server.connect("page", { headers: { "x-user": "ben" } })
+    await settle()
+    // A read-only client does not hold the room.
+    expect(hold).toHaveBeenLastCalledWith(expect.anything(), { users: [{ id: "ana", name: "ANA" }, { id: "ben", name: "BEN" }] })
+    await vi.advanceTimersByTimeAsync(60_000)
+    await settle()
+    expect(hold).toHaveBeenCalledTimes(3)
+
+    await pace()
+    appendParagraph(ben.doc, "Ben")
+    ana.close()
+    await settle()
+    expect(hold).toHaveBeenLastCalledWith(expect.anything(), { users: [{ id: "ben", name: "BEN" }] })
+    expect(release).not.toHaveBeenCalled()
+    ben.close()
+    await settle()
+    // The last writer leaving saves the room first, then releases it.
+    expect(memory.store.get("page")!.body).toBe("Start\n\nBen")
+    expect(release).toHaveBeenCalledOnce()
+    expect(memory.adapter.save.mock.invocationCallOrder[0]!).toBeLessThan(release.mock.invocationCallOrder[0]!)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(hold).toHaveBeenCalledTimes(4)
+    viewer.close()
+  })
+
+  it("shows a failed hold in the room status until a later hold succeeds", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const hold = vi.fn<() => Promise<void>>().mockRejectedValueOnce(new Error("Ana is editing this page alone.")).mockResolvedValue(undefined)
+    const server = createTestServer(liveDefinition(Object.assign(memory.adapter, { hold })))
+    const client = await server.connect("page")
+    await settle()
+    expect(readRealtimeStatus(client.doc).error).toBe("Ana is editing this page alone.")
+    await vi.advanceTimersByTimeAsync(60_000)
+    await settle()
+    expect(readRealtimeStatus(client.doc).error).toBeNull()
+    client.close()
+  })
+
+  it("never holds a room that the codec opened read-only", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const hold = vi.fn(async () => {})
+    const editor = { ...createStubEditor().editor, verify: () => ({ writable: false }) }
+    const server = createTestServer({ document: Object.assign(memory.adapter, { hold }), editor })
+    const client = await server.connect("page")
+    await settle()
+    expect(client.controls[0]).toMatchObject({ type: "session", access: "read", reason: "document" })
+    expect(hold).not.toHaveBeenCalled()
+    client.close()
+  })
+
+  it("refreshes an open clean room from the server and leaves a dirty one to its next save", async () => {
+    // Rooms of earlier tests stay registered in this process.
+    Reflect.get(globalThis, Symbol.for("vitehub.realtime.local-refresh"))?.clear()
+    const memory = createMemoryAdapter({ page: { body: "Original" } })
+    const server = createTestServer(liveDefinition(memory.adapter))
+    const client = await server.connect("page")
+    await settle()
+
+    await expect(refreshRealtimeDocument("docs", "missing")).resolves.toBe(false)
+    await expect(refreshRealtimeDocument("docs", "page")).resolves.toBe(false)
+    memory.write("page", "Agent")
+    await expect(refreshRealtimeDocument("docs", "page")).resolves.toBe(true)
+    expect(client.controls.at(-1)).toMatchObject({ type: "reset", reason: "source-changed" })
+
+    const fresh = await server.connect("page")
+    await settle()
+    expect(paragraphs(fresh.doc)).toEqual(["Agent"])
+    await pace()
+    appendParagraph(fresh.doc, "Unsaved")
+    memory.write("page", "Agent again")
+    await expect(refreshRealtimeDocument("docs", "page")).resolves.toBe(false)
+    expect(fresh.closed).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(2_000)
+    await settle()
+    // The save conflicts with the outside write, which wins and re-seeds the room.
+    expect(fresh.controls.at(-1)).toMatchObject({ type: "reset", reason: "source-changed" })
+    expect(memory.store.get("page")!.body).toBe("Agent again")
+  })
+
+  it("asks the Durable Object of a document to refresh, and strips the internal header from client requests", async () => {
+    const fetch = vi.fn(async (_request: Request) => Response.json({ reseeded: true }))
+    const idFromName = vi.fn((name: string) => ({ name }))
+    await expect(refreshRealtimeDocument("content", "posts/2026/hello", { durableObjects: { get: () => ({ fetch }), idFromName } })).resolves.toBe(true)
+    expect(idFromName).toHaveBeenCalledWith(realtimeRoomKey("content", "posts/2026/hello"))
+    const sent = fetch.mock.calls[0]![0]
+    expect(sent.method).toBe("POST")
+    expect(new URL(sent.url).pathname).toBe("/api/_vitehub/realtime/content/posts/2026/hello")
+    expect(sent.headers.get("x-vitehub-realtime-refresh")).toBe("1")
+
+    const forward = vi.fn(async (_request: Request) => new Response("forwarded"))
+    const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
+    Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch: forward }), idFromName } } } } })
+    await handler.fetch(request)
+    expect(forward.mock.calls[0]![0].headers.has("x-vitehub-realtime-refresh")).toBe(false)
+  })
+
+  it("refreshes inside the Durable Object without identity, only for a room it has open", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Original" } })
+    const sql = new FakeSql()
+    const server = createTestServer(liveDefinition(memory.adapter, { auth: true, identify: () => null }), { durable: sql })
+    const internal = (path: string) => {
+      const request = new Request(`https://vitehub.internal/api/_vitehub/realtime/docs/${path}?document=refresh`, { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
+      Object.assign(request, { runtime: { cloudflare: { context: { storage: { sql } } } } })
+      return server.handler.fetch(request)
+    }
+    await expect((await internal("page")).json()).resolves.toEqual({ reseeded: false })
+    expect(memory.adapter.load).not.toHaveBeenCalled()
   })
 })

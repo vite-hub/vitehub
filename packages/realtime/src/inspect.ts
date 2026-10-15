@@ -87,17 +87,24 @@ function describePersistence(node: ESTree.Node | undefined): string {
 /** Reads the static shape of one Realtime Definition file without executing it. */
 export function describeRealtimeDefinitionSource(parse: typeof parseSync, file: string, source: string): ViteHubDefinitionField[] {
   let object: ESTree.ObjectExpression | undefined
+  let builder: string | undefined
   try {
-    object = findDefinitionObject(parse(file, source).program)
+    const program = parse(file, source).program
+    object = findDefinitionObject(program)
+    const exported = program.body.find(statement => statement.type === "ExportDefaultDeclaration")
+    builder = exported?.type === "ExportDefaultDeclaration" ? calleeName(exported.declaration) : undefined
   }
   catch {}
-  if (!object) return [{ label: "Document", value: "dynamic definition (not statically inspectable)" }]
+  if (!object) {
+    return [{ label: "Document", value: builder && builder !== "defineRealtime" ? `built by ${builder}() (not statically inspectable)` : "dynamic definition (not statically inspectable)" }]
+  }
   const values = properties(object)
   const editor = values.get("editor")
   const auth = literal(values.get("auth")) === true
+  const perDocument = editor?.type === "ArrowFunctionExpression" || editor?.type === "FunctionExpression"
   return [
     { label: "Document", value: describeDocument(values.get("document")) },
-    { label: "Editor", value: editor ? `custom codec${editor.type === "Identifier" ? ` (${editor.name})` : ""}` : "built-in Markdown kit" },
+    { label: "Editor", value: editor ? perDocument ? "custom codec per document" : `custom codec${editor.type === "Identifier" ? ` (${editor.name})` : ""}` : "built-in Markdown kit" },
     {
       label: "Identity",
       value: values.has("identify")
