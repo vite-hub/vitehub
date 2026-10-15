@@ -8,7 +8,7 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
   if (isHeadersLike(headers)) {
     try {
       const descriptor = getPrototypeDescriptor(headers, "get")
-      if (!isBrandedMethod(descriptor?.value, headers, descriptor?.owner, name)) return
+      if (!isBrandedMethod(descriptor?.value, headers, descriptor?.owner)) return
       const value = descriptor.value.call(headers, name)
       return typeof value === "string" && value ? value : undefined
     }
@@ -43,7 +43,7 @@ function isHeadersLike(value: unknown): value is Headers {
     // region for the actual object.
     if (Object.prototype.hasOwnProperty.call(value, "get")) return false
     const descriptor = getPrototypeDescriptor(value, "get")
-    if (!isBrandedMethod(descriptor?.value, value, descriptor?.owner, "ce-vqsregion")) return false
+    if (!isBrandedMethod(descriptor?.value, value, descriptor?.owner)) return false
     return true
   }
   catch {
@@ -51,50 +51,20 @@ function isHeadersLike(value: unknown): value is Headers {
   }
 }
 
-function isBrandedMethod(value: unknown, receiver: object, owner: object | undefined, ...args: unknown[]): value is (this: unknown, ...args: unknown[]) => unknown {
+function isBrandedMethod(value: unknown, receiver: object, owner: object | undefined): value is (this: unknown, ...args: unknown[]) => unknown {
   if (typeof value !== "function") return false
   try {
     if (!owner || Object.getPrototypeOf(owner) === null) return false
     const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
     if (typeof constructor !== "function" || constructor.prototype !== owner) return false
-    // Probe the callable on genuine instances and an unrelated receiver below.
-    // This works across realms without relying on source-text heuristics.
-    // Exercise the method with a fresh instance from the same realm. Genuine
-    // Web IDL methods return the missing-header value for an unknown name;
-    // this rejects proxies that only throw for an unrelated probe receiver
-    // and return an attacker-controlled value for the real object.
-    const prototype = Object.getPrototypeOf(receiver)
-    const realmConstructor = prototype && (Object.getOwnPropertyDescriptor(prototype, "constructor")?.value as unknown)
-    if (typeof realmConstructor === "function") {
-      try {
-        const sibling = new realmConstructor()
-        const siblingResult = value.call(sibling, "x-vitehub-brand-probe")
-        if (siblingResult !== undefined && siblingResult !== null) return false
-        const siblingArgumentResult = value.call(sibling, ...args)
-        if (siblingArgumentResult !== undefined && siblingArgumentResult !== null) return false
-        // Probe a second genuine instance as well. A receiver-sensitive proxy
-        // must behave like the real Web IDL method for every branded receiver.
-        const secondSibling = new realmConstructor()
-        const secondResult = value.call(secondSibling, "x-vitehub-brand-probe")
-        if (secondResult !== undefined && secondResult !== null) return false
-        const secondArgumentResult = value.call(secondSibling, ...args)
-        if (secondArgumentResult !== undefined && secondArgumentResult !== null) return false
-      }
-      catch {
-        return false
-      }
-    }
-    const receiverResult = value.call(receiver, "x-vitehub-brand-probe")
-    if (receiverResult !== undefined && receiverResult !== null) return false
-    const receiverArgumentResult = value.call(receiver, ...args)
-    if (receiverArgumentResult !== undefined && receiverArgumentResult !== null) return false
-    // Genuine Web IDL methods reject an unrelated receiver. This also rejects
-    // a Proxy around an ordinary function whose source is reported as native.
-    value.call(Object.create(null), ...args)
-    return false
+    // `instanceof` uses the candidate realm's constructor and therefore works
+    // across realms while rejecting objects that merely advertise Web IDL tags.
+    if (!(receiver instanceof constructor)) return false
+    const probe = value.call(receiver, "x-vitehub-brand-probe")
+    return probe === undefined || probe === null
   }
   catch {
-    return true
+    return false
   }
 }
 
