@@ -91,6 +91,18 @@ describe("Cloudflare SQL carrier discovery", () => {
     expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
   })
 
+  it("rejects an unrelated native accessor used as databaseSize", () => {
+    function SqlStorage() {}
+    const prototype = SqlStorage.prototype
+    Object.defineProperties(prototype, {
+      constructor: { value: SqlStorage },
+      exec: { value: function exec() { return { toArray: () => [] } } },
+      databaseSize: { get: Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get },
+    })
+
+    expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
+  })
+
   it("returns false if proxy inspection throws", () => {
     const sql = new Proxy({}, { getOwnPropertyDescriptor() { throw new Error("unavailable") } })
     expect(hasCloudflareSqlExec(sql)).toBe(false)
