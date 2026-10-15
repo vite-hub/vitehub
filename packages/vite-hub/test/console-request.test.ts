@@ -75,6 +75,19 @@ describe("Console requests", () => {
     })
   })
 
+  it("keeps an application mount that contains the Console API marker", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
+
+    await expect(requestConsole("/tenant/api/_vitehub/console/thing/api/_vitehub/console/sections"))
+      .resolves.toEqual({ sections: ["kv"] })
+
+    expect(fetchMock).toHaveBeenCalledWith("/tenant/api/_vitehub/console/thing/_vitehub/rpc/__call", expect.any(Object))
+    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.sections, {
+      method: "GET",
+      query: {},
+    })
+  })
+
   it("does not replay a submitted invocation when its connection drops", async () => {
     fetchMock.mockRejectedValueOnce(new TypeError("connection dropped"))
     await expect(requestConsole("/no-replay/api/_vitehub/console/agents/support/invocations", {

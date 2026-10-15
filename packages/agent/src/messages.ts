@@ -42,6 +42,41 @@ export interface AgentChatData {
 export type AttachmentData = ArrayBuffer | Blob | string | Uint8Array
 export type AudioData = AttachmentData
 
+const blobSizeGetter = hasRuntimeType(globalThis.Blob, "function") ? Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")?.get : undefined
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+
+/** Brand checks that work for values created in another JavaScript realm. */
+export function isBlobValue(value: unknown): value is Blob {
+  if (!blobSizeGetter) return false
+  try {
+    Reflect.apply(blobSizeGetter, value, [])
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
+  if (!arrayBufferByteLengthGetter) return false
+  try {
+    Reflect.apply(arrayBufferByteLengthGetter, value, [])
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false
+  if (!typedArrayTagGetter) return false
+  try {
+    return Reflect.apply(typedArrayTagGetter, value, []) === "Uint8Array"
+  } catch {
+    return false
+  }
+}
+
 export interface AttachmentPart {
   data?: AttachmentData
   fetchData?: () => Promise<AttachmentData> | AttachmentData
@@ -142,11 +177,11 @@ export type MessagePart =
 export function isAttachmentData(value: unknown): value is AttachmentData {
   return hasRuntimeType(value, "string")
     ? value.length > 0
-    : value instanceof ArrayBuffer
+    : isArrayBufferValue(value)
       ? value.byteLength > 0
-      : value instanceof Blob
-        ? value.size > 0
-        : value instanceof Uint8Array && value.byteLength > 0
+      : isBlobValue(value)
+        ? true
+        : isUint8ArrayValue(value) && value.byteLength > 0
 }
 
 export function isAttachmentPart(value: unknown): value is AttachmentPart {

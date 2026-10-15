@@ -599,6 +599,41 @@ describe("Schedule Run bookkeeping", () => {
     ])
   })
 
+  it("accepts scheduledAt Date values from another JavaScript realm", async () => {
+    const scheduledAt = runInNewContext('new Date("2026-05-23T09:00:00.000Z")') as Date
+    const run = await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "cross-realm-date",
+      scheduledAt,
+    })
+    expect(run.scheduledAt).toBeInstanceOf(Date)
+    expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+  })
+
+  it("rejects invalid Date values from another JavaScript realm", async () => {
+    const scheduledAt = runInNewContext("new Date('invalid')") as Date
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "cross-realm-invalid-date",
+      scheduledAt,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  })
+
+  it("accepts genuine dates with custom or throwing toString tags", async () => {
+    for (const tag of [() => "CustomDate", () => { throw new Error("Do not inspect tags") }]) {
+      const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+      Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: tag })
+      const run = await executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => {} },
+        name: "custom-tag-date",
+        scheduledAt,
+      })
+      expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+    }
+  })
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({
@@ -1249,6 +1284,17 @@ describe("KV Schedule Run Store", () => {
       for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.del(key)
       expect((await store.listRuns({ scheduleId: "actual", limit: 10 })).map(run => run.id).sort()).toEqual(ids.toSorted())
     }
+  })
+
+  it.each(["memory", "kv"])("lists schedule runs newest first when no limit is provided: %s", async kind => {
+    const kvStore = createTestKVStore()
+    const store = kind === "memory" ? createMemoryScheduleRunStore() : createKVScheduleRunStore({ kvStore })
+    const older = new Date("2026-05-23T09:00:00.000Z")
+    const newer = new Date("2026-05-24T09:00:00.000Z")
+    await store.createRun({ id: "older", scheduleId: "daily", target: "report", scheduledAt: older, createdAt: older, updatedAt: older, status: "succeeded", attemptCount: 1 })
+    await store.createRun({ id: "newer", scheduleId: "daily", target: "report", scheduledAt: newer, createdAt: newer, updatedAt: newer, status: "succeeded", attemptCount: 1 })
+
+    expect((await store.listRuns()).map(run => run.id)).toEqual(["newer", "older"])
   })
 
   it.each([false, true])("keeps history authoritative when index publication fails after writing %s", async (published) => {

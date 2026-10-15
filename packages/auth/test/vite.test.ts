@@ -3,10 +3,12 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer, mergeConfig, resolveConfig } from "vite"
 
-import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth } from "../src/vite.ts"
+import * as authServer from "../src/server.ts"
+import { defineAuth } from "../src/index.ts"
+import { AUTH_DEFINITION_ID, AUTH_SERVER_ID, createAuthNitroConfig, hubAuth, shouldPassThroughAuthResponse } from "../src/vite.ts"
 
 const tempDirs: string[] = []
 const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
@@ -340,6 +342,42 @@ describe("hubAuth", () => {
     ].join("\n"))
   })
 
+  it("serves portable native responses without getSetCookie through the mounted Auth route", async () => {
+    const root = await createWorkspaceTempProject()
+    await writeAuth(root)
+    await writeFile(join(root, "index.html"), "<div>ok</div>")
+    const authResponse = new Response("Portable policy response", {
+      status: 409,
+      headers: { "x-policy": "portable", "set-cookie": "policy=denied; Path=/" },
+    })
+    Object.defineProperty(authResponse.headers, "getSetCookie", { value: undefined })
+    // SAFETY: The mounted route needs only this Better Auth handler for the response serialization regression.
+    const handler = vi.spyOn(authServer, "getAuthForDefinition").mockReturnValue({
+      handler: async () => authResponse,
+    } as never)
+    const server = await createServer({
+      configFile: false,
+      plugins: [hubAuth()],
+      root,
+      server: { host: "127.0.0.1", port: 0 },
+    })
+    try {
+      await server.listen()
+      const address = server.httpServer?.address()
+      if (!address || typeof address === "string") throw new Error("Expected local Auth server address")
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/auth/get-session`)
+      expect(response.status).toBe(409)
+      expect(response.headers.get("x-policy")).toBe("portable")
+      expect(response.headers.getSetCookie()).toEqual(["policy=denied; Path=/"])
+      await expect(response.text()).resolves.toBe("Portable policy response")
+      expect(handler).toHaveBeenCalledOnce()
+    }
+    finally {
+      handler.mockRestore()
+      await server.close()
+    }
+  })
+
   it("shares dev route sessions with the authenticated Agent helper in SSR modules", async () => {
     const root = await createWorkspaceTempProject()
     await writeAuth(root)
@@ -446,4 +484,55 @@ describe("hubAuth", () => {
 
     expect(invalidated).toEqual([`\0${AUTH_DEFINITION_ID}`])
   })
+
+  it("accepts comma-separated forwarded protocols in the dev middleware", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    const plugin = hubAuth()
+    await resolvePluginConfig(plugin, root)
+
+    let middleware: ((request: unknown, response: unknown, next: (error?: unknown) => void) => Promise<void>) | undefined
+    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
+    configureServer({
+      middlewares: {
+        use(handler: typeof middleware) {
+          middleware = handler
+        },
+      },
+      ssrLoadModule: async () => ({ default: defineAuth({ appName: "ViteHub" }) }),
+    })
+    if (!middleware) throw new Error("Auth middleware was not registered.")
+
+    const next = vi.fn()
+    let ended = false
+    const response = {
+      appendHeader: vi.fn(),
+      end: vi.fn(() => { ended = true }),
+      statusCode: 0,
+      statusMessage: "",
+      write() {},
+    }
+
+    await middleware({
+      headers: { host: "app.example", "x-forwarded-proto": "https,http" },
+      method: "GET",
+      url: "/api/auth/session",
+    }, response, next)
+
+    expect(next).not.toHaveBeenCalled()
+    expect(response.statusCode).toBeGreaterThanOrEqual(200)
+    expect(ended).toBe(true)
+  })
+})
+
+it("recognizes every path when Auth uses the root base path", async () => {
+  const { isAuthRequestPath } = await import("../src/shared.ts")
+  expect(isAuthRequestPath("/sign-in", "/")).toBe(true)
+  expect(isAuthRequestPath("/api/auth", "/")).toBe(true)
+})
+
+it("only passes Better Auth 404 responses through for the root base path", () => {
+  expect(shouldPassThroughAuthResponse("/", 404)).toBe(true)
+  expect(shouldPassThroughAuthResponse("/auth", 404)).toBe(false)
+  expect(shouldPassThroughAuthResponse("/", 200)).toBe(false)
 })

@@ -29,6 +29,8 @@ const hasPanel = computed(
         <AnnouncementBanner />
         <slot />
       </template>
+
+      <AppFooter class="vh-docs-footer" />
     </div>
   </UMain>
 </template>
@@ -39,27 +41,51 @@ const hasPanel = computed(
   display: none;
 }
 
-/* The content fills the space next to the sidebars. The page header, the page body, and the table of contents set their own insets. */
+/* The content fills the space next to the sidebars. The page header, the page body, and the table of contents set their own insets.
+   The site footer sits in this column, so the sidebars run the full height beside it. On short pages it rests at the bottom of the viewport. */
 .vh-docs-content {
+  display: flex;
   min-width: 0;
   max-width: none;
+  min-height: calc(100dvh - var(--ui-header-height));
+  flex-direction: column;
+}
+
+.vh-docs-footer {
+  margin-top: auto;
 }
 
 /* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;
-    align-items: flex-start;
   }
 
-  /* The sidebars do not clip, so the expanded rail can cover the page. The z-index keeps it below the site header. */
   .vh-docs-shell > .vh-docs-desktop-nav {
+    display: flex;
     position: sticky;
-    z-index: 10;
+    top: var(--ui-header-height);
+    height: calc(100dvh - var(--ui-header-height));
+    max-height: calc(100dvh - var(--ui-header-height));
+    min-height: calc(100dvh - var(--ui-header-height));
+    flex: 0 0 auto;
+  }
+
+  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-sidebars) {
+    width: max-content;
+    height: 100%;
+  }
+
+  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-aside) {
+    position: sticky;
     top: var(--ui-header-height);
     display: flex;
-    flex: none;
     height: calc(100dvh - var(--ui-header-height));
+    max-height: calc(100dvh - var(--ui-header-height));
+    min-height: calc(100dvh - var(--ui-header-height));
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid var(--ui-border);
   }
 
   .vh-docs-content {

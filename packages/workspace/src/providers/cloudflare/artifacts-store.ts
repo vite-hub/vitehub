@@ -265,7 +265,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async removeEmptyDirectory(path: string): Promise<void> {
-    const normalized = normalizeSafeWorkspacePath(path)
+    const normalized = normalizeSafeWorkspacePath(path, { allowEmpty: true })
+    if (!normalized) return
     await this.#ensure()
     await this.#mutate(async () => {
       await this.#fs!.promises.rmdir(this.#absolute(normalized)).catch((error: NodeJS.ErrnoException) => {
