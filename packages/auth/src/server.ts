@@ -76,7 +76,26 @@ function isRequestLike(value: AuthRequest): value is Request {
       }
       return false
     }
+    const hasBrandedAccessor = (target: object, property: string): boolean => {
+      let current: object | null = Object.getPrototypeOf(target)
+      while (current) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, property)
+        if (descriptor) {
+          if (typeof descriptor.get !== "function") return false
+          try {
+            descriptor.get.call(Object.create(null))
+            return false
+          }
+          catch {
+            return true
+          }
+        }
+        current = Object.getPrototypeOf(current)
+      }
+      return false
+    }
     if (!hasPrototypeTag(value, "Request")) return false
+    if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(property => hasBrandedAccessor(value, property))) return false
     const hasMethods = (target: object, methods: string[]): boolean => methods.every((method) => {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
       return typeof Reflect.get(target, method) === "function"
