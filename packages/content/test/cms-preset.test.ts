@@ -79,6 +79,19 @@ describe("reading the cms preset from server/content.ts", () => {
     ].join("\n"))).toEqual({ file, options: {} })
   })
 
+  it("follows a relative content re-export to its definition", async () => {
+    const root = await temporaryRoot()
+    const contentFile = await writeProjectFile(root, "server/content.ts", "export { content } from './definition.ts'\n")
+    await writeProjectFile(root, "server/definition.ts", [
+      "import { defineContent } from 'vite-hub/content'",
+      "import cms from 'vite-hub/content/presets/cms'",
+      "export const content = defineContent({ extends: [cms, { workspace: 'site' }] })",
+    ].join("\n"))
+    await expect(readFile(contentFile, "utf8")).resolves.toContain("export { content }")
+    expect(readCmsPresetUsage(await readFile(contentFile, "utf8"), contentFile, root, parseAst))
+      .toEqual({ file: join(root, "server/definition.ts"), options: { workspace: "site" } })
+  })
+
   it("explains selections that the build cannot read", () => {
     const missing = errorOf(() => read("import cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent(Object.assign({}, { preset: cms }))\n"))
     expect(missing.code).toBe("CONTENT_B0001")

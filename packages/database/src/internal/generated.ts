@@ -1,15 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises"
 
 import { createImportPath } from "@vite-hub/internal/build/paths"
-import { dirname, isAbsolute, join } from "pathe"
+import { dirname, join, relative } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
 import { describeDatabaseContribution } from "../contributions.ts"
-import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { loadContributedDatabaseSchema, loadDatabaseSchema } from "./schema-tables.ts"
 
-import type { ResolvedDatabaseContribution } from "../contributions.ts"
-import type { DatabaseTableNameOptions, LoadedDatabaseSchema } from "./schema-tables.ts"
+import type { DatabaseTableNameOptions } from "./schema-tables.ts"
 import type { DiscoveredDatabaseDefinition, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
 /** Exports each table key from the source that wins it, so Drizzle Kit sees every table once. */
@@ -87,16 +85,27 @@ function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
   ]
 }
 
-function renderGeneratedDrizzleConfig(config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
-  const schemaFiles = databaseNames.map(name => config.generatedSchemaFilesByDatabase[name]!)
+function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
+  if (databaseNames.length > 1) {
+    // One Drizzle config has one set of credentials, one casing, and one migrations folder, so each Database needs its own.
+    const configs = databaseNames.map(name => relative(config.rootDir, config.generatedDrizzleConfigFilesByDatabase[name]!)).join(", ")
+    return [
+      `throw new Error(${JSON.stringify(`[vitehub] This project has more than one Database. Run drizzle-kit once per Database with ${configs}, or run \`vitehub db generate\` and \`vitehub db migrate\`.`)})`,
+      "",
+    ].join("\n")
+  }
   const database = config.databases[databaseNames[0]!]!
-  const out = databaseNames.length === 1 ? database.migrationsDir : ".vitehub/database/migrations"
+  const definition = config.definitions.find(item => item.name === database.name)!
+  // Read Drizzle options from the Definition so migrations and queries use the same casing.
   return [
+    `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
+    "",
     "export default {",
     "  dialect: \"sqlite\",",
+    "  casing: databaseDefinition.drizzle?.casing,",
     ...renderDbCredentials(database),
-    `  schema: ${JSON.stringify(schemaFiles)},`,
-    `  out: ${JSON.stringify(out)},`,
+    `  schema: ${JSON.stringify([config.generatedSchemaFilesByDatabase[database.name]!])},`,
+    `  out: ${JSON.stringify(database.migrationsDir)},`,
     "}",
     "",
   ].join("\n")
@@ -157,12 +166,12 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   await Promise.all(config.definitions.map(definition => writeGeneratedDrizzleSchema(config, definition, options)))
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
-  await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config), "utf8")
+  await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config), "utf8")
   await mkdir(dirname(generatedTypesFile), { recursive: true })
   await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config), "utf8")
   await Promise.all(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })
-    await writeFile(file, renderGeneratedDrizzleConfig(config, [name]), "utf8")
+    await writeFile(file, renderGeneratedDrizzleConfig(file, config, [name]), "utf8")
   }))
 }
