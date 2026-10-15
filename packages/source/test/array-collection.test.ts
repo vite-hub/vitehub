@@ -204,6 +204,12 @@ describe("array()", () => {
       await expect(query(collection, { category: ["guide"] }, first.nextCursor!, 2)).resolves.toMatchObject({ items: [{ slug: "gamma" }] })
     })
 
+    it("accepts cursors when equivalent filters use a different property order", async () => {
+      const collection = articles(records, { sort: { field: "slug" } })
+      const first = await query(collection, { category: "guide", "authors.name": "Ada" }, undefined, 1)
+      await expect(query(collection, { "authors.name": "ada", category: "GUIDE" }, first.nextCursor!, 2)).resolves.toMatchObject({ items: [{ slug: "gamma" }] })
+    })
+
     it("rejects cursors after the data changes, by digest or by content hash", async () => {
       let snapshot: { items: Item[], digest?: string } = { digest: "v1", items: records }
       const digested = articles(() => snapshot)
