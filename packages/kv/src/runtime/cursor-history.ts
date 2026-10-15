@@ -3,7 +3,7 @@ const MAX_CURSORS_PER_HISTORY = 1_024
 const MAX_CURSOR_LENGTH = 8 * 1_024
 const MAX_CONTINUATION_LENGTH = 128 * 1_024
 type CursorHistory = Set<string>
-interface Continuation { providerCursor: string | undefined, history: CursorHistory, epoch?: number }
+interface Continuation { providerCursor: string | undefined, history: CursorHistory, epoch?: number, namespace: string }
 
 function continuationTag(value: string): string {
   const hashes = [2166136261, 2246822519, 3266489917, 668265263]
@@ -31,12 +31,15 @@ function encodeContinuation(providerCursor: string, history: CursorHistory): str
 const continuations = new Map<string, Continuation>()
 
 /** Keeps continuation history tied to an opaque, traversal-owned token. */
-export function createCursorHistory() {
+export function createCursorHistory(namespace = "default") {
   const ownedContinuations = new Set<string>()
   const consumedContinuations = new Map<string, Continuation>()
   let epoch = 0
   function take(cursor: string): Continuation {
     const continuation = continuations.get(cursor)
+    if (continuation && continuation.namespace !== namespace) {
+      throw new Error("ViteHub continuation cursor belongs to a different storage backend.")
+    }
     if (!continuation) {
       // A prefix alone does not identify a portable token: providers own opaque cursors.
       if (cursor.length > MAX_CURSOR_LENGTH) {
@@ -45,7 +48,7 @@ export function createCursorHistory() {
       // A competing request for the same token invalidates any in-flight
       // restoration owned by the previous request.
       consumedContinuations.delete(cursor)
-      return { providerCursor: cursor, history: new Set([cursor]), epoch }
+      return { providerCursor: cursor, history: new Set([cursor]), epoch, namespace }
     }
     continuations.delete(cursor)
     ownedContinuations.delete(cursor)
@@ -54,7 +57,7 @@ export function createCursorHistory() {
   }
   function store(providerCursor: string, history: CursorHistory): string {
     const token = encodeContinuation(providerCursor, history)
-    continuations.set(token, { providerCursor, history, epoch })
+    continuations.set(token, { providerCursor, history, epoch, namespace })
     ownedContinuations.add(token)
     while (continuations.size > MAX_CURSOR_HISTORIES) {
       const oldest = continuations.keys().next().value as string | undefined

@@ -2,22 +2,27 @@ import { expect, it } from "vitest"
 import { createCursorHistory } from "../src/runtime/cursor-history.ts"
 
 it.each(["vhc:provider-cursor", "vhc:1:not-json", "vhc:1:%7B%7D", "vhc:1:%"])("preserves opaque provider cursor %s", (cursor) => {
-  expect(createCursorHistory().take(cursor)).toEqual({ providerCursor: cursor, history: new Set([cursor]) })
+  expect(createCursorHistory().take(cursor)).toMatchObject({ providerCursor: cursor, history: new Set([cursor]) })
 })
 
 it("preserves portable history across instances", () => {
   const cursor = createCursorHistory().store("vhc:next", new Set(["first", "vhc:next"]))
-  expect(createCursorHistory().take(cursor)).toEqual({ providerCursor: "vhc:next", history: new Set(["first", "vhc:next"]) })
+  expect(createCursorHistory().take(cursor)).toMatchObject({ providerCursor: "vhc:next", history: new Set(["first", "vhc:next"]) })
+})
+
+it("rejects a continuation owned by another storage namespace", () => {
+  const cursor = createCursorHistory("cloudflare-kv").store("provider", new Set(["provider"]))
+  expect(() => createCursorHistory("deno-kv").take(cursor)).toThrow("different storage backend")
 })
 
 it("preserves a provider cursor that resembles the legacy continuation format", () => {
   const cursor = "vhc:1:%7B%22providerCursor%22%3A%22provider%22%2C%22history%22%3A%5B%5D%7D"
-  expect(createCursorHistory().take(cursor)).toEqual({ providerCursor: cursor, history: new Set([cursor]) })
+  expect(createCursorHistory().take(cursor)).toMatchObject({ providerCursor: cursor, history: new Set([cursor]) })
 })
 
 it("preserves a provider cursor that resembles the current continuation format", () => {
   const cursor = "vhc1:1:%7B%22providerCursor%22%3A%22provider%22%2C%22history%22%3A%5B%5D%7D"
-  expect(createCursorHistory().take(cursor)).toEqual({ providerCursor: cursor, history: new Set([cursor]) })
+  expect(createCursorHistory().take(cursor)).toMatchObject({ providerCursor: cursor, history: new Set([cursor]) })
 })
 
 it("rejects oversized raw and portable cursors before decoding", () => {

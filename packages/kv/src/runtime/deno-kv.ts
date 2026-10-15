@@ -50,7 +50,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
   let kvPromise: Promise<DenoKV> | undefined
   // Keep history with the continuation cursor that carries it. Consuming the
   // entry before awaiting Deno lets concurrent traversals remain independent.
-  const cursorHistories = createCursorHistory()
+  const cursorHistories = createCursorHistory("deno-kv")
 
   function open(): Promise<DenoKV> {
     if (kvPromise) return kvPromise
@@ -106,7 +106,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
-      const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>() }
+      const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: "deno-kv" }
       try {
         const cursors = continuation.history
         const iterator = (await open()).list({ prefix: [] }, { cursor: continuation.providerCursor, limit })

@@ -50,7 +50,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
   // Continuation state is keyed by the cursor that carries it. Consuming the
   // state before awaiting the provider keeps concurrent traversals independent.
-  const cursorHistories = createCursorHistory()
+  const cursorHistories = createCursorHistory("cloudflare-kv")
   let disposed = false
   const dispose = driver.dispose
   driver.dispose = async () => {
@@ -70,7 +70,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
-    const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>() }
+    const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: "cloudflare-kv" }
     try {
       if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor
       const cursors = continuation.history
