@@ -313,6 +313,7 @@ function hasResponsePrototype(value: unknown): boolean {
   try {
     let prototype: object | null = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
+    let shadowedResponseProperties = false
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(prototype)) return false
       seen.add(prototype)
@@ -362,7 +363,10 @@ function hasResponsePrototype(value: unknown): boolean {
       // Require the platform accessors to authenticate the candidate. An
       // `instanceof Response` fallback is unsafe because a proxy can intercept
       // the later snapshot reads and forge response fields.
-      if (platformConstructor && !ownSnapshot && platformGetters) return true
+      if (platformConstructor && !ownSnapshot && platformGetters && !shadowedResponseProperties) return true
+      if (authorizationResponseProperties.some((key) => Object.hasOwn(prototype, key))) {
+        shadowedResponseProperties = true
+      }
       prototype = Object.getPrototypeOf(prototype)
     }
   }

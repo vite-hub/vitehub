@@ -63,6 +63,7 @@ const hasPanel = computed(
 
   .vh-docs-shell > .vh-docs-desktop-nav {
     display: flex;
+    align-items: flex-start;
     position: sticky;
     top: var(--ui-header-height);
     height: calc(100dvh - var(--ui-header-height));
