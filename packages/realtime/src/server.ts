@@ -454,8 +454,16 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   function resolveRealtimeRoomSql(event: { context: Record<string, unknown>, req: Request }): RealtimeRoomSql | undefined {
     const context = resolveCloudflare(event)?.context
     const storage = ownValue(context, "storage")
-    const sql = ownValue(storage, "sql")
-    return hasCloudflareSqlExec(sql) ? sql : undefined
+    if (storage === null || Object(storage) !== storage) return undefined
+    try {
+      // The storage carrier must be an own context value, while workerd exposes
+      // its native `sql` instance through the carrier's prototype.
+      const sql = Reflect.get(storage as object, "sql")
+      return hasCloudflareSqlExec(sql) ? sql : undefined
+    }
+    catch {
+      return undefined
+    }
   }
 
   async function getDefinition(definitionName: string): Promise<RealtimeDefinition> {
