@@ -103,7 +103,9 @@ console.log(checkpoint.snapshot.id)
 - `authority: "cloudflare"` uses a SQLite-backed Cloudflare Durable Object. `authority: "auto"` selects it only when a Cloudflare Nitro preset or hosting environment can be resolved. Other production builds require an explicit authority.
 - Durable rooms do not make Workspace files durable. Production checkpoints need a durable Workspace Store with conditional writes; memory Workspace Stores are rejected for durable checkpoints.
 - Realtime Definitions are public by default. Set `auth: true` only after configuring ViteHub Auth; this verifies the session and replaces client-supplied presence identity. Presence in a public definition is untrusted and must not authorize application actions.
-- One WebSocket message is limited to 1 MiB. Document state and awareness state are each limited to 8 MiB per room, and one peer can own at most 1,024 awareness clients.
+- Other packages can contribute definitions through `hubRealtime({ contribute })`, such as Content live editing. Realtime adds them only when the build has a room authority and leaves them out without an error otherwise. A file in `server/realtime` with the same name wins.
+- `refreshRealtimeDocument(definition, id)` tells an open room that its stored copy changed outside it. Document adapters may implement `hold()` and `release()` to keep a lease while writers are in a room.
+- One WebSocket message is limited to 1 MiB. Each client may send bursts of 40 document updates, refilled at 20 per second. Document state and awareness state are each limited to 8 MiB per room, and one peer can own at most 1,024 awareness clients.
 - Changing or disabling the document, or disposing its Vue scope, destroys the document provider. A checkpoint rejects during a document switch until the Vue watcher creates the new document. Pending checkpoint retries reject when their original document is disconnected or replaced. The application still owns editor disposal, checkpoint error handling, and reconnect UX.
 
 ## Public imports
