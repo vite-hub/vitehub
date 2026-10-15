@@ -38,7 +38,7 @@ import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
-import { consoleInvocationRootPlugin, consoleVitePlugin, type ConsoleOptions } from "./console/vite.ts"
+import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
@@ -294,7 +294,8 @@ export interface ViteHubOptions {
   channels?: boolean | ChannelsVitePluginOptions
   /** App-owned OAuth Connections in `server/connections/`. Requires `database`. */
   connections?: boolean | ConnectionsVitePluginOptions
-  console?: boolean | ConsoleOptions
+  /** The ViteHub Console at `/_vitehub`. Off by default. `auth` is required: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
+  console?: false | ConsoleOptions
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
@@ -835,7 +836,7 @@ function doctorPlugin(): Plugin {
 
 export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
-  options = withDataDir(options)
+  options = withDataDir({ ...options, console: resolveConsoleOptions(options.console) })
   const plan = resolveDeploymentPlan(options.preset)
   if (options.schedule && plan.preset === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0086({ message: "[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration." })
@@ -940,7 +941,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     const invocationRootState = {}
     plugins.push(consoleVitePlugin({
       blobStores: consoleBlobStores,
-      console: options.console === true ? true : options.console,
+      console: options.console,
       connections: options.connections,
       resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { root, serverDirs }),
       databaseUrl: consoleDatabaseUrl(options),
@@ -984,7 +985,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     if (options.agent) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
-  if (options.auth || (options.console && options.console !== true && options.console.access === "auth" && options.console.auth)) {
+  if (options.auth || consoleAuthConfig(options.console)) {
     plugins.push(hubAuth(
       options.auth === true ? {} : options.auth || false,
       {
@@ -1030,7 +1031,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.channels) plugins.push(hubChannels(options.channels === true ? undefined : options.channels))
   if (options.connections) {
     if (options.connections !== true && options.connections.management && !options.console) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires Console production access. Set console: { access: "auth" } or console: { exposure: "host-managed" }.' })
+      throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" }, console: { auth: { ... } }, or console: { auth: false }.' })
     }
     const connectionsOptions: ConnectionsVitePluginOptions = options.connections === true
       ? { database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
