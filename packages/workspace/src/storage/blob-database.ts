@@ -112,14 +112,17 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   async #key() {
     const candidates = await this.#namespace
-    const existing = await this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(inArray(workspaces.workspace, candidates))
-    const workspace = candidates.find(candidate => existing.some(row => row.workspace === candidate)) ?? candidates[0]!
-    this.#ready ??= this.options.database.insert(workspaces).values({ workspace }).onConflictDoNothing().then(() => {}, error => {
+    this.#ready ??= this.options.database.transaction(async tx => {
+      const existing = await tx.select({ workspace: workspaces.workspace }).from(workspaces).where(inArray(workspaces.workspace, candidates))
+      const workspace = candidates.find(candidate => existing.some(row => row.workspace === candidate)) ?? candidates[0]!
+      await tx.insert(workspaces).values({ workspace }).onConflictDoNothing()
+    }).then(() => {}, error => {
       this.#ready = undefined
       throw error
     })
     await this.#ready
-    return workspace
+    const existing = await this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(inArray(workspaces.workspace, candidates))
+    return candidates.find(candidate => existing.some(row => row.workspace === candidate)) ?? candidates[0]!
   }
 
   #active(workspace: string) {
