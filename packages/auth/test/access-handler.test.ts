@@ -104,6 +104,15 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+  it("rejects native responses with shadowed fields", async () => {
+    const response = new Response("Policy rejected", { status: 409 })
+    Object.defineProperty(response, "headers", { value: {} })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+    await expect(handler(new Request("https://app.example/"))).resolves.toHaveProperty("status", 403)
+  })
+
   it("rejects spoofed authorization responses", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }

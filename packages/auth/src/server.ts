@@ -275,6 +275,13 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
+function hasResponseShadow(value: object): boolean {
+  for (const key of ["status", "statusText", "headers", "body", "clone"]) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) return true
+  }
+  return false
+}
+
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
@@ -289,9 +296,27 @@ function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
     // Use the local native getter when the response comes from this runtime.
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!
+    const responsePrototype = Response.prototype
+    const status = Object.getOwnPropertyDescriptor(responsePrototype, "status")!.get!
+    const statusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")!.get!
+    const headers = Object.getOwnPropertyDescriptor(responsePrototype, "headers")!.get!
+    const body = Object.getOwnPropertyDescriptor(responsePrototype, "body")!.get!
+    const clone = Object.getOwnPropertyDescriptor(responsePrototype, "clone")!.value as (this: unknown) => unknown
+    // Own fields can shadow the native accessors and break host serialization.
+    if (hasResponseShadow(value)) return false
     status.call(value)
-    return true
+    statusText.call(value)
+    const responseHeaders = headers.call(value)
+    if (responseHeaders === null || typeof responseHeaders !== "object" || typeof (responseHeaders as { get?: unknown }).get !== "function") return false
+    body.call(value)
+    const cloned = clone.call(value)
+    if (cloned === null || typeof cloned !== "object" || cloned === value) return false
+    status.call(cloned)
+    statusText.call(cloned)
+    const clonedHeaders = headers.call(cloned)
+    if (clonedHeaders === null || typeof clonedHeaders !== "object" || typeof (clonedHeaders as { get?: unknown }).get !== "function") return false
+    body.call(cloned)
+    return clone.call(cloned) !== cloned
   }
   catch {
     // A response from another runtime has a different native brand. Validate
@@ -328,6 +353,7 @@ function isResponseLike(value: unknown): value is Response {
       // unlike a caller-provided clone property, it cannot be spoofed.
       const clone = cloneMethod.call(value)
       if (clone === null || typeof clone !== "object" || clone === value) return false
+      if (hasResponseShadow(clone)) return false
       statusGetter.call(clone)
       statusTextGetter.call(clone)
       const cloneHeaders = headersGetter.call(clone)
