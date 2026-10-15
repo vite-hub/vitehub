@@ -320,13 +320,26 @@ function hasResponsePrototype(value: unknown): boolean {
       const bodyGetter = Object.getOwnPropertyDescriptor(current, "body")?.get
       if (typeof bodyGetter === "function") {
         const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-        if (constructor?.name !== "Response") return false
-        Reflect.apply(bodyGetter, value, [])
-        const clone = Object.getOwnPropertyDescriptor(current, "clone")?.value
-        if (typeof clone !== "function") return false
-        const cloned = Reflect.apply(clone, value, [])
-        if (cloned === value || Object(cloned) !== cloned || Object.getPrototypeOf(cloned) !== current) return false
-        return true
+        // A Response subclass may override `body`; keep walking until the
+        // native Response prototype provides the brand-checked accessor.
+        if (constructor?.name === "Response") {
+          Reflect.apply(bodyGetter, value, [])
+          const clone = Object.getOwnPropertyDescriptor(current, "clone")?.value
+          if (typeof clone !== "function") return false
+          const cloned = Reflect.apply(clone, value, [])
+          if (cloned === value || Object(cloned) !== cloned) return false
+          let clonedPrototype: object | null = Object.getPrototypeOf(cloned)
+          let reachesResponsePrototype = false
+          for (let cloneDepth = 0; clonedPrototype && cloneDepth < authorizationResponsePrototypeLimit; cloneDepth++) {
+            if (clonedPrototype === current) {
+              reachesResponsePrototype = true
+              break
+            }
+            clonedPrototype = Object.getPrototypeOf(clonedPrototype)
+          }
+          if (!reachesResponsePrototype) return false
+          return true
+        }
       }
       current = Object.getPrototypeOf(current)
     }

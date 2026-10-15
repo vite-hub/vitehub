@@ -156,6 +156,22 @@ describe("Auth access handlers", () => {
     await expect(response?.text()).resolves.toBe("Policy rejected")
   })
 
+  it("normalizes Response subclasses that override body", async () => {
+    class BodyOverridingResponse extends ForeignResponse {
+      override get body() {
+        return super.body
+      }
+    }
+    const foreignResponse = new BodyOverridingResponse("Policy rejected", { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+    expect(response?.status).toBe(409)
+    await expect(response?.text()).resolves.toBe("Policy rejected")
+  })
+
   it.each([["local", Response], ["foreign", ForeignResponse]] as const)("preserves authorization responses without getSetCookie from the %s runtime", async (_runtime, ResponseConstructor) => {
     const response = new ResponseConstructor("Policy rejected", { status: 409 })
     Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
