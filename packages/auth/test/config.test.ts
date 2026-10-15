@@ -62,6 +62,18 @@ describe("discoverAuthDefinition", () => {
     })
   })
 
+  it("keeps an explicitly empty server directory list", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [])
+    const file = await writeAuth(rootDir, "server.auth.ts", [])
+
+    expect(discoverAuthDefinitions(rootDir, { serverDirs: [] })).toEqual([{
+      handler: file,
+      name: "default",
+      source: "server-auth-suffix",
+    }])
+  })
+
   it("discovers Auth from an explicit framework server directory", async () => {
     const rootDir = await createTempProject()
     const serverDir = join(rootDir, "backend")
@@ -80,6 +92,37 @@ describe("discoverAuthDefinition", () => {
     await writeAuth(rootDir, "server.auth.ts", [])
 
     expect(() => discoverAuthDefinitions(rootDir)).toThrow(/Only one Auth Definition/)
+  })
+
+  it("discovers Auth from a Nuxt layer", async () => {
+    const rootDir = await createTempProject()
+    const file = await writeAuth(rootDir, "layers/auth/server/auth.ts", [])
+    const serverDirs = [join(rootDir, "server"), join(rootDir, "layers/auth/server"), join(rootDir, "layers/blog/server")]
+
+    expect(discoverAuthDefinition(rootDir, { serverDirs })).toEqual({ handler: file, name: "default", source: "server-auth" })
+    expect(resolveAuthViteConfig(undefined, rootDir, { serverDirs })?.definition.handler).toBe(file)
+  })
+
+  it("lets the application Auth Definition replace a layer Definition", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "layers/auth/server/auth.ts", [])
+    const file = await writeAuth(rootDir, "server/auth.ts", [])
+
+    expect(discoverAuthDefinitions(rootDir, { serverDirs: [join(rootDir, "server"), join(rootDir, "layers/auth/server")] })).toEqual([
+      { handler: file, name: "default", source: "server-auth" },
+    ])
+  })
+
+  it("rejects Auth Definitions in two layers until the application defines one", async () => {
+    const rootDir = await createTempProject()
+    const auth = await writeAuth(rootDir, "layers/auth/server/auth.ts", [])
+    const admin = await writeAuth(rootDir, "layers/admin/server/auth.ts", [])
+    const serverDirs = [join(rootDir, "server"), join(rootDir, "layers/auth/server"), join(rootDir, "layers/admin/server")]
+
+    expect(() => discoverAuthDefinitions(rootDir, { serverDirs })).toThrow(`More than one Nuxt layer defines one:\n  - ${auth}\n  - ${admin}`)
+
+    const file = await writeAuth(rootDir, "server.auth.ts", [])
+    expect(discoverAuthDefinition(rootDir, { serverDirs })?.handler).toBe(file)
   })
 })
 
