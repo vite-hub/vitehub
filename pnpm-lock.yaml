@@ -970,6 +970,9 @@ importers:
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
+      undici:
+        specifier: ^7.30.0
+        version: 7.30.0
       vite-plus:
         specifier: catalog:tooling
         version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@20.14.5)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
@@ -1073,6 +1076,9 @@ importers:
       files-sdk:
         specifier: catalog:storage
         version: 2.6.2(0e0126661dfb3a9c78ea630da2c57da4)
+      fetch-blob:
+        specifier: 3.2.0
+        version: 3.2.0
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
