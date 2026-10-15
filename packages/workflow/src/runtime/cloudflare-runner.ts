@@ -50,7 +50,16 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
           descriptors.set(key, descriptor)
           Reflect.defineProperty(candidate, key, { ...descriptor, value: undefined })
         }
-        return (clone as (value: unknown) => unknown)(candidate) instanceof Error
+        try {
+          return (clone as (value: unknown) => unknown)(candidate) instanceof Error
+        }
+        catch {
+          // A non-configurable non-cloneable field cannot be hidden. Preserve
+          // genuine errors by checking their intrinsic V8 stack accessor, while
+          // still rejecting prototype spoofs that only provide data fields.
+          const stack = Reflect.getOwnPropertyDescriptor(candidate, "stack")
+          return Boolean(stack && "get" in stack && hasRuntimeType(stack.get, "function"))
+        }
       }
       finally {
         for (const [key, descriptor] of descriptors) Reflect.defineProperty(candidate, key, descriptor)
