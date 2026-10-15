@@ -299,7 +299,9 @@ function isResponseLike(value: unknown): value is Response {
     try {
       let prototype: object | null = value
       let bodyGetter: (() => unknown) | undefined
-      while (prototype && !bodyGetter) {
+      const seen = new Set<object>()
+      while (prototype && !bodyGetter && !seen.has(prototype)) {
+        seen.add(prototype)
         const descriptor = Object.getOwnPropertyDescriptor(prototype, "body")
         if (descriptor?.get) bodyGetter = descriptor.get as () => unknown
         prototype = Object.getPrototypeOf(prototype)
