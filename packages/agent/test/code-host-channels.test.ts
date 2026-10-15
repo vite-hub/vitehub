@@ -123,7 +123,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
     expect(run).toHaveBeenCalledOnce()
     const context = inputs[0]!.context?.pullRequest
     const value = pullRequest.read({ context: { get: () => context } })
-    expect(value).toMatchObject({ forge: kind, instance: new URL(baseUrl[kind]).host, repository: repository[kind], number: 42,
+    expect(value).toMatchObject({ provider: kind, instance: new URL(baseUrl[kind]).host, repository: repository[kind], number: 42,
       body: "Full body", head: { sha: "head-sha" }, trigger: { event: "comment", command: "@review-bot", args: "inspect this" }, source: { checkout: false } })
     expect(inputs[0]!.context?.github).toBeUndefined()
     expect(fetcher.calls).toContainEqual(expect.objectContaining({ method: "POST", url: `${api[kind]}${notes(kind)}`, body: JSON.stringify({ body: "Reviewed" }) }))
