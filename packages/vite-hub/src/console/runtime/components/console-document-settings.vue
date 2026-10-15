@@ -13,8 +13,8 @@ import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/do
 import type { ConsoleDocumentCollection } from "../definitions";
 
 /**
- * The Settings page of a document editor section: one row per singleton, such as site settings, that opens it in the
- * editor. The state comes from the overview the section shell already loads.
+ * The Settings page of a document editor section: one row per singleton, such as site settings or a home page, that
+ * opens it in the editor. The state comes from the overview the section shell already loads.
  */
 const props = defineProps<{
   error?: unknown;
@@ -57,7 +57,7 @@ function editorRoute(name: string) {
         color="error"
         variant="subtle"
         icon="i-lucide-cloud-off"
-        title="Couldn't load settings"
+        title="Couldn't load singletons"
         :description="consoleErrorMessage(error)"
         :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => emit('reload') }]"
       />
@@ -68,12 +68,12 @@ function editorRoute(name: string) {
         v-else-if="!singletons.length"
         variant="naked"
         icon="i-lucide-settings-2"
-        title="No settings"
-        description="Define a singleton() in server/content.ts, such as settings.json, to edit site settings here."
+        title="No singletons"
+        description="Define a singleton() in server/content.ts, such as settings.json, to edit it here."
       />
       <template v-else>
         <h2 class="text-[13px] font-medium text-highlighted">
-          Site documents
+          Singletons
           <span class="ms-1 font-normal text-dimmed tabular-nums">{{ singletons.length }}</span>
         </h2>
         <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default" aria-label="Settings">
@@ -101,7 +101,7 @@ function editorRoute(name: string) {
             </RouterLink>
           </li>
         </ul>
-        <p class="text-xs text-dimmed">One document each, for the whole site. They save as drafts and publish like any other document.</p>
+        <p class="text-xs text-dimmed">Each is one document at a fixed path. It saves as a draft and publishes like any other document.</p>
       </template>
     </div>
   </div>

@@ -243,6 +243,7 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-media-uploads.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-settings.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-seo-panel.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-setup-hint.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-list.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-editor.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-diff.vue", to: "dist/console/runtime/components" },

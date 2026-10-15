@@ -20,7 +20,13 @@ The section appears when `server/content.ts` passes `collections` to `defineCont
 - **Recent activity** names who saved, deleted, restored, or published which document, and when.
 - **Collections** lists each collection with a **New** button when you may edit it.
 
-The sidebar lists the dashboard, every collection with its draft and changed counts, **Settings** when you define a [singleton](/docs/content/configure#singletons-and-data-files), and Media when the project enables Blob. Settings lists each singleton, such as site settings, with its state, and opens it in the editor; singletons do not appear among the collections. **Media** opens the [media library](#media-library). Each page has a URL, such as `/_vitehub/content/-/media`. See [Section pages and URLs](/docs/development/console#section-pages-and-urls).
+The sidebar lists the dashboard, every collection with its draft and changed counts, **Settings** and **Media** under **Manage**. Settings appears when you define a [singleton](/docs/content/configure#singletons-and-data-files); Media appears when the project enables Blob. Settings lists each singleton with its state, and opens it in the editor; singletons do not appear among the collections. Lists and the dashboard name a singleton by its `label`, such as **Settings**, not by its file name. **Media** opens the [media library](#media-library). Each page has a URL, such as `/_vitehub/content/-/media`. See [Section pages and URLs](/docs/development/console#section-pages-and-urls).
+
+When the app lacks something a feature needs, the Console names the fix where the feature would be:
+
+- Without [`authorize`](/docs/content/configure#access) in `defineContent()`, no one can read documents. The sidebar and the dashboard ask you to add it.
+- Without a Schedule Definition that calls [`content.publishDue()`](/docs/content/scheduling#run-due-schedules), **Schedule…** is off, and an **Overdue** schedule names the fix.
+- When the Console data needs a signed-in user, such as with `console: { auth: 'app' }`, the Console asks you to sign in.
 
 <kbd>⌘</kbd> <kbd>K</kbd> searches the drafts of every collection by title, id, fields, and body. <kbd>Enter</kbd> opens a document, and <kbd>⌘</kbd> <kbd>Enter</kbd> opens it in a new tab. The same search creates documents and reviews and publishes all changes. See [Search](/docs/development/console#search).
 

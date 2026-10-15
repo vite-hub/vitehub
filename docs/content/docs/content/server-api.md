@@ -89,12 +89,14 @@ export default defineEventHandler(async (event) => {
 | `posts.name`, `posts.path`, `posts.fields` | The collection name, its glob, and its field names in definition order. |
 | `posts.kind`, `posts.format` | `documents` for a collection, and `markdown`, `json`, or `yaml` from the [file extension](/docs/content/configure#data-files). |
 | `posts.routable`, `posts.seo` | Whether documents have a [`url`](/docs/content/seo#document-urls), and the name of the `seo()` field, if any. |
+| `posts.label`, `posts.singularLabel`, `posts.titleField` | The display name, the name of one document when the definition sets `label: { singular, plural }`, and the string field that names a document. See [Define collections](/docs/content/configure#define-collections). |
 | `posts.schema` | The fields' [JSON Schema](/docs/content/configure#json-schema). |
 | `content.publish(options?)` | Copies draft documents to `published` in one revision. Pass `expect` to publish exactly what was reviewed. |
 | `content.schedule({ at, expect })`, `content.schedules()`, `content.unschedule(id)`, `content.publishDue()` | Publish reviewed drafts at a later time, list and cancel schedules, and run due ones. See [Scheduling](/docs/content/scheduling). |
 | `content.revisions(collection, id?, options?)` | Revisions that saved, removed, restored, or published one document, newest first. Omit `id` for a singleton. |
 | `content.revisions(options?)` | Revisions that changed documents of any collection on one ref, newest first. |
 | `content.can({ user?, actor?, collection, action, id? })` | Evaluates `authorize`. Returns `false` when no policy is defined. |
+| `content.hasPolicy` | Whether `defineContent({ authorize })` defines a policy. |
 | `content.sessions.report()`, `.acquire()`, `.release()`, `.list()` | Presence and edit leases of documents. See [Editing together](/docs/content/editing-together). |
 | `posts.editing` | `{ lease }` from the definition's `editing` option. |
 | `content.sitemap(options?)` | The [sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents with a URL. |

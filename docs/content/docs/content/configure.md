@@ -99,6 +99,8 @@ export const content = defineContent({
 | --- | --- | --- |
 | `path` | `string` | Workspace glob for the collection's files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md` or `authors/*.json`. The folder before the first wildcard is the collection folder, and the extension sets the [format](#data-files). |
 | `fields` | `Record<string, StandardSchema>` | One validator per frontmatter field. |
+| `label` | `string \| { singular, plural }` | Display name, such as `'Posts'`. Pass `{ singular: 'Person', plural: 'People' }` when the plural is not the singular plus `s`, so the Console shows **New person**. Defaults to the collection name in title case. |
+| `titleField` | `string` | The string field that names a document in lists, search, and the editor title. Defaults to the first of `title`, `name`, `label`, and `heading` that is a string field, then to the first required string field. |
 | `search` | `string[]` | Fields that `list({ search })` matches. Defaults to every string field plus the body. |
 | `components` | `Record<string, DocumentComponent>` | Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json', default? }`. Content stores the Markdown as written and does not check component use. |
 | `url` | `string \| ({ id, data }) => string \| null` | The public URL of each document, such as `'/blog/:id'`. Reads carry `document.url`, and sitemaps and canonical links use it. See [Document URLs](/docs/content/seo#document-urls). |
@@ -284,7 +286,7 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action. Published documents are public through `/api/content/**`; `read` covers drafts.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. The Console then shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`; `read` covers drafts.
 
 The runtime methods, such as `save()` and `publish()`, are trusted server API. They do not call `authorize`. Check `content.can()` yourself before you call them from a route that acts for a user.
 

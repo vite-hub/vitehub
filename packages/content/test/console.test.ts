@@ -13,9 +13,9 @@ import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
-import { defineContent, documents } from "../src/index.ts"
+import { defineContent, documents, singleton } from "../src/index.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
-import { contentConsoleSection } from "../src/vite.ts"
+import { contentConsoleSection, findContentPublishRunner } from "../src/vite.ts"
 
 import type { ContentAuthorize } from "../src/index.ts"
 
@@ -305,6 +305,60 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     expect(scoped.activity.flatMap(entry => entry.documents.map(document => document.collection))).not.toContain("notes")
   })
 
+  it("names collections and documents with the definition label and title field", async () => {
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      collections: {
+        people: documents({ path: "people/*.json", label: { singular: "Person", plural: "People" }, titleField: "name", fields: { handle: z.string(), name: z.string().optional() } }),
+        settings: singleton({ path: "settings.json", label: "Site settings", fields: { title: z.string() } }),
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() } }),
+      },
+      authorize: roles,
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    expect(content.collection("people")).toMatchObject({ label: "People", singularLabel: "Person", titleField: "name" })
+    // Without options, the label is the name in title case, and the title field is found by its name.
+    expect(content.collection("posts")).toMatchObject({ label: "Posts", titleField: "title" })
+    expect(content.collection("posts").singularLabel).toBeUndefined()
+    const actions = createContentConsoleActions({ content })
+    expect(await actions.collections(editor)).toEqual([
+      expect.objectContaining({ name: "people", label: "People", singularLabel: "Person", titleField: "name" }),
+      expect.objectContaining({ name: "settings", label: "Site settings", kind: "singleton", titleField: "title" }),
+      expect.objectContaining({ name: "posts", label: "Posts", titleField: "title" }),
+    ])
+    await actions.save({ collection: "people", id: "ada", data: { handle: "ada", name: "Ada Lovelace" }, body: "", ifDigest: null }, editor)
+    await actions.save({ collection: "settings", id: "settings", data: { title: "ViteHub" }, body: "", ifDigest: null }, editor)
+    expect((await actions.list({ collection: "people" }, editor)).items[0]).toMatchObject({ id: "ada", title: "Ada Lovelace" })
+    // The dashboard names a singleton by its label, not by its file name or its title.
+    const overview = await actions.overview({}, editor)
+    expect(overview.collections.find(entry => entry.name === "settings")?.changes).toEqual([expect.objectContaining({ id: "settings", title: "Site settings" })])
+    expect(overview.activity[0]?.documents).toEqual([{ collection: "settings", id: "settings", title: "Site settings" }])
+  })
+
+  it("rejects labels and title fields that the definition cannot use", () => {
+    expect(() => documents({ path: "people/*.json", label: "", fields: {} })).toThrow(/label must be a non-empty string or \{ singular, plural \}/)
+    // @ts-expect-error A collection label needs both names.
+    expect(() => documents({ path: "people/*.json", label: { singular: "Person" }, fields: {} })).toThrow(/label must be/)
+    // @ts-expect-error A singleton has one document, so its label is one string.
+    expect(() => singleton({ path: "settings.json", label: { singular: "Setting", plural: "Settings" }, fields: {} })).toThrow(/singleton\("settings.json"\) label must be a non-empty string\./)
+    // @ts-expect-error titleField names one of the fields.
+    expect(() => documents({ path: "people/*.json", titleField: "name", fields: { handle: z.string() } })).toThrow(/titleField must name one of its fields/)
+  })
+
+  it("names the missing access policy instead of an empty section", async () => {
+    const { actions } = await setup()
+    expect(await actions.setup?.(editor)).toEqual({})
+    const open = defineContent({ workspace: await historyWorkspace(), collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }, logger: false })
+    cleanup.push(() => open.dispose())
+    expect(open.hasPolicy).toBe(false)
+    const withoutPolicy = createContentConsoleActions({ content: open })
+    await expect(withoutPolicy.collections(editor)).resolves.toEqual([])
+    expect(await withoutPolicy.setup?.(editor)).toEqual({
+      access: { message: expect.stringContaining("Add `authorize` to `defineContent()`"), docs: "https://vitehub.dev/docs/content/configure#access" },
+    })
+  })
+
   it("searches drafts across readable collections by title, id, fields, and body", async () => {
     const { actions } = await setup()
     await actions.save(hello, editor)
@@ -474,6 +528,31 @@ describe("Content Console section", () => {
     return entry !== undefined
   }
 
+  it("names the fix for scheduled publishes when no Schedule Definition calls publishDue()", async () => {
+    const root = await temporaryRoot()
+    const schedule = async (name: string, source: string) => {
+      const file = join(root, `${name}.ts`)
+      await writeFile(file, source)
+      return file
+    }
+    const runner = await schedule("publish", `import { defineSchedule } from "vite-hub/schedule"\nimport { content } from "../content"\nexport default defineSchedule({ cron: "* * * * *", handler: () => content.publishDue() })\n`)
+    const optional = await schedule("optional", `import { content as site } from "~~/server/content"\nexport default defineSchedule({ cron: "* * * * *", async handler() { await site?.["publishDue"]({ now: new Date() }) } })\n`)
+    const comment = await schedule("comment", `// TODO: call content.publishDue() here\nexport default defineSchedule({ cron: "0 * * * *", handler: () => "publishDue" })\n`)
+    const other = await schedule("other", `export default defineSchedule({ cron: "0 * * * *", handler: () => cleanup() })\n`)
+    await expect(findContentPublishRunner([other, comment, runner])).resolves.toBe(runner)
+    await expect(findContentPublishRunner([optional])).resolves.toBe(optional)
+    // A name in a comment or a string runs nothing.
+    await expect(findContentPublishRunner([other, comment, join(root, "missing.ts")])).resolves.toBeUndefined()
+
+    const inspect = contentConsoleSection.inspect!
+    await expect(inspect({ projectRoot: root, schedules: [other, runner] }, join(root, "content.ts"))).resolves.toEqual({})
+    await expect(inspect({ projectRoot: root, schedules: [other] }, join(root, "content.ts"))).resolves.toEqual({
+      schedule: { message: "Nothing publishes scheduled documents. Add a Schedule Definition that calls `content.publishDue()`.", docs: "https://vitehub.dev/docs/content/scheduling#run-due-schedules" },
+    })
+    // Without Schedule, no Schedule Definition runs, even one that calls publishDue().
+    await expect(inspect({ projectRoot: root }, join(root, "content.ts"))).resolves.toMatchObject({ schedule: { message: expect.stringContaining("Enable Schedule") } })
+  })
+
   it("shows the section only when server/content.ts defines document collections", async () => {
     await expect(contentConsoleSection.entry({ projectRoot: await temporaryRoot() })).resolves.toBeUndefined()
     const imports = `import { defineContent, documents } from "vite-hub/content"\n`
@@ -492,8 +571,8 @@ describe("Content Console section", () => {
     // The dashboard opens at /_vitehub/content; Media shows only when the project enables Blob.
     expect(contentConsoleSection.pages).toEqual([
       { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },
-      { id: "settings", label: "Settings", icon: "i-lucide-settings-2", group: "Site", view: { kind: "document-settings" } },
-      { id: "media", label: "Media", icon: "i-lucide-image", group: "Assets", requires: ["blob"], view: { kind: "media-library" } },
+      { id: "settings", label: "Settings", icon: "i-lucide-settings-2", group: "Manage", view: { kind: "document-settings" } },
+      { id: "media", label: "Media", icon: "i-lucide-image", group: "Manage", requires: ["blob"], view: { kind: "media-library" } },
     ])
   })
 })

@@ -8,6 +8,7 @@ import {
 } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeBlobOptions } from "../config.ts"
+import { setServedBlobRoute } from "../served.ts"
 
 export { setBlobSharpModule } from "../media/sharp-module.ts"
 
@@ -67,7 +68,10 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
   })()
   const pending = runtimeConfigPromise
   const config = await pending
-  if (runtimeConfigPromise === pending) runtimeConfig = config
+  if (runtimeConfigPromise === pending) {
+    runtimeConfig = config
+    setServedBlobRoute(config ? config.serve : undefined)
+  }
   return config
 }
 
@@ -93,6 +97,7 @@ export function setBlobRuntimeConfig(config: false | ResolvedBlobModuleOptions |
   runtimeConfig = config
   runtimeConfigSnapshot = snapshot
   runtimeConfigPromise = undefined
+  setServedBlobRoute(config ? config.serve : undefined)
   runtimeStorages = new Map()
   pendingStorages = new Map()
 }

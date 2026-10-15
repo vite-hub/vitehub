@@ -2,7 +2,7 @@
 import { CalendarDate, parseDate, Time } from "@internationalized/date";
 import { computed, ref, watch } from "vue";
 
-import { consoleFieldValueIssue } from "../client/documents";
+import { consoleFieldValueIssue, consoleValueSummary } from "../client/documents";
 import ConsoleMediaField from "./console-media-field.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
 
@@ -210,15 +210,12 @@ const blob = computed(() => {
   return { accept, kind: hint.kind === "image" ? "image" as const : "file" as const };
 });
 
-// A nested object reads as one line, such as `Ada · https://vitehub.dev`, and expands in place.
+// A nested object reads as one line, such as `London · GB · 51.5, -0.12`, and expands in place.
 const expanded = ref(false);
 watch(nestedError, (invalid) => {
   if (invalid) expanded.value = true;
 }, { immediate: true });
-const summary = computed(() => {
-  const values = (props.field.fields ?? []).map(child => record(model.value)[child.name]).filter(value => value !== undefined && value !== null && value !== "");
-  return values.map(value => (String(value) === value ? value : JSON.stringify(value))).join(" · ");
-});
+const summary = computed(() => consoleValueSummary(props.field, model.value));
 
 function child(name: string): unknown {
   return record(model.value)[name];

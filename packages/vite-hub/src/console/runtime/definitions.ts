@@ -44,6 +44,8 @@ export interface ConsoleDocumentAccess {
 export interface ConsoleDocumentCollection {
   access: ConsoleDocumentAccess
   label: string
+  /** Name of one document, such as `Person`. Without it, the Console makes `label` singular. */
+  singularLabel?: string
   name: string
   path: string
   schema: Record<string, unknown>
@@ -122,7 +124,22 @@ export interface ConsoleContributedSection {
 export type ConsoleSectionContent =
   | { definitions: readonly ConsoleDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ConsoleRecord[] }
-  | { collections: readonly ConsoleDocumentCollection[], kind: "document-editor" }
+  | { collections: readonly ConsoleDocumentCollection[], kind: "document-editor", setup?: ConsoleDocumentSetup }
+
+/** A fix that the owner names for a feature the project lacks. It mirrors `ViteHubConsoleDocumentHint`. */
+export interface ConsoleDocumentHint {
+  /** Text in backticks shows as code. */
+  message: string
+  docs?: string
+}
+
+/** What the project lacks for some editor features. It mirrors `ViteHubConsoleDocumentSetup`. */
+export interface ConsoleDocumentSetup {
+  /** No user can read anything because the owner has no access policy. */
+  access?: ConsoleDocumentHint
+  /** Nothing runs scheduled publishes. */
+  schedule?: ConsoleDocumentHint
+}
 
 /** Reads the records of one section on each Console request. It mirrors `ViteHubConsoleRuntimeRecordReader`. */
 export type ConsoleRuntimeRecordReader = () => readonly ConsoleRecord[] | Promise<readonly ConsoleRecord[]>
@@ -231,6 +248,24 @@ function parseConsoleRecords(value: unknown): ConsoleRecord[] {
   })
 }
 
+function parseConsoleDocumentHint(value: unknown): ConsoleDocumentHint | undefined {
+  const hint = record(value)
+  if (!text(hint?.message) || !hint.message.trim()) return undefined
+  // Only documentation links on the web; a hint never links to a script or another scheme.
+  return text(hint.docs) && /^https?:\/\//.test(hint.docs) ? { docs: hint.docs, message: hint.message } : { message: hint.message }
+}
+
+/** Reads the setup hints of a document editor from untrusted JSON, or undefined when it names none. */
+export function parseConsoleDocumentSetup(value: unknown): ConsoleDocumentSetup | undefined {
+  const source = record(value)
+  const setup: ConsoleDocumentSetup = {}
+  for (const key of ["access", "schedule"] as const) {
+    const hint = parseConsoleDocumentHint(source?.[key])
+    if (hint) setup[key] = hint
+  }
+  return Object.keys(setup).length ? setup : undefined
+}
+
 /** Reads document collections from untrusted JSON. A collection without a name or schema is dropped. */
 export function parseConsoleDocumentCollections(value: unknown): ConsoleDocumentCollection[] {
   if (!Array.isArray(value)) return []
@@ -247,6 +282,7 @@ export function parseConsoleDocumentCollections(value: unknown): ConsoleDocument
       schema,
     }
     if (text(collection.titleField)) parsed.titleField = collection.titleField
+    if (text(collection.singularLabel) && collection.singularLabel.trim()) parsed.singularLabel = collection.singularLabel
     const components = parseConsoleDocumentComponents(collection.components)
     if (components.length) parsed.components = components
     if (collection.format === "markdown" || collection.format === "json" || collection.format === "yaml") parsed.format = collection.format
@@ -265,7 +301,9 @@ export function parseConsoleSectionContent(value: unknown, section: string): Con
   const source = record(value)
   if (source?.section !== section) return undefined
   if (source.kind === "document-editor") {
-    return Array.isArray(source.collections) ? { collections: parseConsoleDocumentCollections(source.collections), kind: "document-editor" } : undefined
+    if (!Array.isArray(source.collections)) return undefined
+    const setup = parseConsoleDocumentSetup(source.setup)
+    return setup ? { collections: parseConsoleDocumentCollections(source.collections), kind: "document-editor", setup } : { collections: parseConsoleDocumentCollections(source.collections), kind: "document-editor" }
   }
   if (source.kind === "record-table") {
     return Array.isArray(source.records) ? { kind: "record-table", records: parseConsoleRecords(source.records) } : undefined

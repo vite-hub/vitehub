@@ -5,7 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { consoleErrorMessage, consoleListQueryFor, createConsoleDocumentsClient } from "../client/documents";
 import { provideConsoleMediaPicker } from "../client/media";
 import { consoleMediaBase, consoleMediaTransformable, consoleMediaUrl, consoleMediaVariantUrl, createConsoleMediaClient, isConsoleMediaPathname } from "../client/media-library";
-import { requestConsole } from "../client/request";
+import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { resolveConsoleRouteName } from "../console-route";
 import { parseConsoleSectionContent } from "../definitions";
 import { consoleSectionPageRouteName, consoleSectionPageSegment, consoleSectionRouteName, rememberConsoleSection } from "../sections";
@@ -18,10 +18,11 @@ import ConsoleMediaLibrary from "./console-media-library.vue";
 import ConsoleMediaPicker from "./console-media-picker.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleSetupHint from "./console-setup-hint.vue";
 
 import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleMediaInfo } from "../client/media-library";
-import type { ConsoleContributedSection, ConsoleDocumentCollection, ConsoleSectionPage } from "../definitions";
+import type { ConsoleContributedSection, ConsoleDocumentCollection, ConsoleDocumentSetup, ConsoleSectionPage } from "../definitions";
 
 /**
  * Document editor section: the section sidebar with its pages and collections, then the selected page, the documents of
@@ -49,6 +50,8 @@ const router = useRouter();
 const section = computed(() => props.details.id);
 const client = computed(() => createConsoleDocumentsClient(props.documentsBase, section.value));
 const collections = ref<ConsoleDocumentCollection[]>([]);
+// What the project lacks for some features, such as an access policy or a runner for scheduled publishes.
+const setup = shallowRef<ConsoleDocumentSetup>();
 const loading = ref(true);
 const error = ref<unknown>();
 const sidebarOpen = ref(false);
@@ -175,6 +178,7 @@ async function loadCollections(): Promise<void> {
     );
     if (!content || content.kind !== "document-editor") throw new Error("The Console returned invalid collections.");
     collections.value = [...content.collections];
+    setup.value = content.setup;
     error.value = undefined;
     // Without an index page, the section root opens the first collection.
     if (!collectionName.value && !page.value && collections.value[0]) {
@@ -274,7 +278,17 @@ watch(changes, () => void loadOverview());
 
           <p v-if="!collapsed && pages.length && showCollections" class="vitehub-console__section-heading">Collections</p>
           <div v-else-if="pages.length && showCollections" class="vitehub-console__section-rule" aria-hidden="true" />
-          <div v-if="!collapsed && error" class="px-1 pb-2">
+          <div v-if="!collapsed && error && isConsoleSignInRequired(error)" class="px-1 pb-2">
+            <UAlert
+              color="neutral"
+              variant="subtle"
+              icon="i-lucide-log-in"
+              title="Sign in to edit"
+              description="You are not signed in, or your session ended. Sign in, then reload."
+              :actions="[{ label: 'Reload', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: reload }]"
+            />
+          </div>
+          <div v-else-if="!collapsed && error" class="px-1 pb-2">
             <UAlert
               color="error"
               variant="subtle"
@@ -322,6 +336,9 @@ watch(changes, () => void loadOverview());
               </RouterLink>
             </UTooltip>
           </template>
+          <p v-else-if="!collapsed && !singletons.length && setup?.access" class="px-2 py-1.5 text-xs leading-relaxed text-muted">
+            <ConsoleSetupHint :hint="setup.access" />
+          </p>
           <p v-else-if="!collapsed && !singletons.length" class="px-2 py-1.5 text-xs text-muted">
             No collections you can read.
           </p>
@@ -365,6 +382,7 @@ watch(changes, () => void loadOverview());
         :loading="overviewLoading || loading"
         :overview="overview"
         :section="section"
+        :setup="setup"
         @changed="changes++"
         @reload="reload"
       />
@@ -409,11 +427,12 @@ watch(changes, () => void loadOverview());
           :document-id="editorDocumentId"
           :parent="collection.kind === 'singleton' && settingsPage ? { label: settingsPage.label, to: pageRoute(settingsPage) } : undefined"
           :changes="changes"
+          :setup="setup"
           @changed="changes++"
         />
       </template>
       <template v-else-if="collection">
-        <ConsoleDocumentList :key="collection.name" :client="client" :collection="collection" :changes="changes" @changed="changes++" />
+        <ConsoleDocumentList :key="collection.name" :client="client" :collection="collection" :changes="changes" :setup="setup" @changed="changes++" />
       </template>
       <template v-else-if="!loading && collectionName && !error">
         <ConsolePageHeader :title="details.label" />
@@ -430,6 +449,16 @@ watch(changes, () => void loadOverview());
         <ConsolePageHeader :title="details.label" />
         <div class="flex min-h-0 flex-1 items-center justify-center">
           <UIcon v-if="loading" name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+          <UEmpty
+            v-else-if="setup?.access"
+            variant="naked"
+            icon="i-lucide-lock"
+            title="No one can read documents yet"
+          >
+            <template #description>
+              <ConsoleSetupHint :hint="setup.access" />
+            </template>
+          </UEmpty>
           <UEmpty
             v-else
             variant="naked"

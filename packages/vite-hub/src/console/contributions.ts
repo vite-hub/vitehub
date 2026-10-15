@@ -8,7 +8,7 @@ import { scheduleConsoleSection } from "@vite-hub/schedule/vite"
 import { workflowConsoleSection } from "@vite-hub/workflow/vite"
 import { workspaceConsoleSection } from "@vite-hub/workspace/vite"
 
-import type { ViteHubConsoleSectionContribution } from "@vite-hub/internal/console"
+import type { ViteHubConsoleDocumentSetup, ViteHubConsoleSectionContribution } from "@vite-hub/internal/console"
 import type { ConsoleContributedSection, ConsoleSectionContent } from "./runtime/definitions.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
@@ -21,6 +21,8 @@ export interface ConsoleSectionDiscoveryContext {
   rateLimitScanDirs?: string[]
   sandboxDiscoveryRoot?: string
   scheduleDiscoveryRoot?: string
+  /** Files of the Schedule Definitions that run. Undefined when the project does not enable Schedule. */
+  scheduleDefinitions?: readonly string[]
   serverDirs?: string[]
   workspaceDiscoveryRoot?: string
   workflowDiscoveryRoot?: string
@@ -40,6 +42,8 @@ export interface ConsoleDocumentEditorRegistration {
   readonly actions: ConsoleRuntimeReader
   /** Finds the application module that the actions open. The section is shown only when it finds one. */
   entry(context: ConsoleSectionDiscoveryContext): Promise<string | undefined>
+  /** Reads what the project lacks for some editor features, at build time. */
+  inspect?(context: ConsoleSectionDiscoveryContext, entry: string): Promise<ViteHubConsoleDocumentSetup>
 }
 
 export interface ConsoleRegisteredSection {
@@ -75,9 +79,11 @@ function registerConsoleSection<TOptions>(
   }
   if (runtime) registered.runtime = { export: runtime.export, module: consoleRuntimeReaderModule(runtime.module) }
   if (actions && isViteHubConsoleDocumentEditorSection(section)) {
+    const inspect = section.inspect
     registered.documents = {
       actions: { export: actions.export, module: consoleRuntimeReaderModule(actions.module) },
       entry: async context => await section.entry(options(context)),
+      ...(inspect ? { inspect: async (context: ConsoleSectionDiscoveryContext, entry: string) => await inspect(options(context), entry) } : {}),
     }
   }
   return registered
@@ -90,6 +96,7 @@ function registerConsoleSection<TOptions>(
 const registeredSections: readonly ConsoleRegisteredSection[] = [
   registerConsoleSection(contentConsoleSection, context => ({
     projectRoot: context.projectRoot,
+    schedules: context.scheduleDefinitions,
     serverDirs: context.serverDirs,
   })),
   registerConsoleSection(emailConsoleSection, () => undefined),

@@ -61,22 +61,26 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     const contributed = consoleContributedSections.get(section)
     if (contributed && !contributed.documents) content[section] = await contributed.read(options)
   }
+  // The Schedule Definitions that run, or none when the project does not enable Schedule.
+  const schedules = sections.includes("schedules")
+    ? discoverScheduleDefinitions({
+        rootDir: options.discoveryRoot,
+        serverDirs,
+        serverRootDir: options.scheduleDiscoveryRoot ?? projectRoot,
+      })
+    : undefined
   const documents: Record<ConsoleSectionId, string> = {}
   for (const section of consoleDocumentEditorSectionIds) {
     const registered = consoleContributedSections.get(section)
     const entry = await registered?.documents?.entry(options)
     if (!registered || !entry) continue
     documents[section] = entry
-    content[section] = await registered.read(options)
+    const read = await registered.read(options)
+    const setup = await registered.documents?.inspect?.({ ...options, scheduleDefinitions: schedules?.filter(definition => definition.runtimeOnly !== true).map(definition => definition.handler) }, entry)
+    content[section] = read.kind === "document-editor" && setup && Object.keys(setup).length ? { ...read, setup } : read
   }
-  const manualSchedules = sections.includes("schedules")
-    ? discoverScheduleDefinitions({
-        rootDir: options.discoveryRoot,
-        serverDirs,
-        serverRootDir: options.scheduleDiscoveryRoot ?? projectRoot,
-      })
-        .filter(definition => definition.manual === true && definition.runtimeOnly !== true)
-        .map(definition => ({ handler: definition.handler, name: definition.name }))
-    : []
+  const manualSchedules = (schedules ?? [])
+    .filter(definition => definition.manual === true && definition.runtimeOnly !== true)
+    .map(definition => ({ handler: definition.handler, name: definition.name }))
   return { agents, content, documents, manualSchedules }
 }

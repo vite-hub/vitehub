@@ -7,12 +7,13 @@ const mocks = vi.hoisted(() => ({
 import {
   appendUniqueConsoleKeys,
   ConsoleRequestError,
+  isConsoleSignInRequired,
   isRetryableConsoleRequestError,
   loadConsoleKVPages,
   requestConsole,
 } from "../src/console/runtime/client/request.ts"
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../src/console/runtime/client/schedule-run.ts"
-import { createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
+import { consoleNavigationError, createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
 import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
@@ -323,6 +324,18 @@ describe("Console requests", () => {
     await expect(loadSections()).resolves.toEqual(["kv"])
     await expect(loadSections()).resolves.toEqual(["kv"])
     expect(mocks.call).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps why navigation failed, so a signed-out Console asks to sign in", async () => {
+    const base = "/sign-in-test/api/_vitehub/console/sections"
+    mocks.call.mockResolvedValueOnce({ ok: false, status: 401, message: "Sign in to use the Console." })
+    await expect(loadConsoleNavigation(base)).resolves.toBeUndefined()
+    expect(isConsoleSignInRequired(consoleNavigationError(base))).toBe(true)
+    expect(isConsoleSignInRequired(new ConsoleRequestError(403))).toBe(false)
+    expect(isConsoleSignInRequired(new Error("offline"))).toBe(false)
+    mocks.call.mockResolvedValueOnce({ ok: true, value: { sections: ["kv"] } })
+    await expect(loadConsoleNavigation(base)).resolves.toMatchObject({ sections: ["kv"] })
+    expect(consoleNavigationError(base)).toBeUndefined()
   })
 
   it("loads the project name and enabled sections as one navigation response", async () => {

@@ -51,6 +51,23 @@ const maxRevisionScan = 1_000
 const maxUpdatedAtScan = 5_000
 const listDefaultLimit = 50
 const listMaxLimit = 1_000
+const titleFieldNames = ["title", "name", "label", "heading"]
+
+/** `blog-posts` → `Blog Posts`. */
+function titleCase(name: string): string {
+  return name.split(/[-_/\s]+/).filter(Boolean).map(part => `${part[0]!.toUpperCase()}${part.slice(1)}`).join(" ")
+}
+
+/** The first of `title`, `name`, `label`, and `heading` that is a string field, then the first required string field. */
+function defaultTitleField(schema: Record<string, unknown>): string | undefined {
+  const properties: unknown = schema.properties
+  const isString = (field: string) => {
+    const property: unknown = properties !== null && Object(properties) === properties ? Reflect.get(Object(properties), field) : undefined
+    return property !== null && Object(property) === property && Reflect.get(Object(property), "type") === "string"
+  }
+  const required = Array.isArray(schema.required) ? schema.required.filter((field: unknown): field is string => String(field) === field) : []
+  return titleFieldNames.find(isString) ?? required.find(isString)
+}
 
 /** One document read from a Content collection. */
 export interface ContentDocument<TData = Record<string, unknown>> {
@@ -267,6 +284,13 @@ export interface ContentRevisionsResult {
 /** What every Content collection describes about itself, for forms, tools, and the Console. */
 interface ContentCollectionInfo {
   readonly name: string
+  /** Display name: `label` from the definition, or the name in title case, such as `Posts` or `Settings`. */
+  readonly label: string
+  /**
+   * The string field that names a document, such as `title`: `titleField` from the definition, or the first of
+   * `title`, `name`, `label`, and `heading` that is a string field, then the first required string field.
+   */
+  readonly titleField?: string
   /** How documents are stored: Markdown with frontmatter and a body, or JSON or YAML data without a body. */
   readonly format: ContentFormat
   /** Field names, in definition order. */
@@ -286,6 +310,8 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
   extends ContentCollectionInfo, Collection<ContentDocumentSummary<ContentFieldsOutput<TFields>>, ArrayCollectionQuery<string>> {
   /** `documents` for a collection defined with `documents()`. */
   readonly kind: "documents"
+  /** Name of one document, such as `Person`, when the definition sets `label: { singular, plural }`. */
+  readonly singularLabel?: string
   /** The collection glob, such as `posts/**\/*.md`. */
   readonly path: string
   /** Comark components that bodies may use, keyed by tag. Editors offer them in their insert menu. */
@@ -1054,8 +1080,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     })
 
     const seoField = Object.entries(definition.fields).find(([, field]) => isContentSeoField(field))?.[0]
+    const titleField = definition.titleField ?? defaultTitleField(schema)
     const shared = {
       name,
+      label: definition.label ?? titleCase(name),
+      ...(titleField ? { titleField } : {}),
       format,
       routable: definition.url !== undefined,
       ...(seoField ? { seo: seoField } : {}),
@@ -1091,7 +1120,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
     else {
       const components = (definition.kind === "documents" ? definition.components : undefined) ?? {}
-      collection = { ...shared, kind: "documents", path: definition.path, components, get, raw, save, remove, restore, status }
+      const singularLabel = definition.kind === "documents" ? definition.singularLabel : undefined
+      collection = { ...shared, kind: "documents", path: definition.path, components, ...(singularLabel ? { singularLabel } : {}), get, raw, save, remove, restore, status }
     }
 
     return { name, single, compiled, comarkSchema, collection, entries, idFor, parseText, pathFor, sessionCollection }
