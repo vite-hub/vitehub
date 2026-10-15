@@ -192,7 +192,11 @@ function readPackageVersion(): string {
 
 export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise<number> {
   const args = options.args || process.argv.slice(2)
-  const stdout = options.stdout || process.stdout
+  const output = options.stdout || process.stdout
+  // Keep command writes on the stream writer captured before config loading.
+  // Config loading temporarily patches process.stdout.write, and another CLI
+  // invocation may own that patch when this command emits its payload.
+  const stdout: ViteHubCliStream = { write: output.write.bind(output) }
   if (args[0] === "-v" || args[0] === "--version") {
     stdout.write(`${readPackageVersion()}\n`)
     return 0
