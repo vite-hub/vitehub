@@ -630,6 +630,13 @@ describe("agent output helpers", () => {
       Object.defineProperty(forgedCustom, "stack", { get: () => "Error: forged", configurable: true })
       const forgedCustomEvent = toAgentStreamEvent({ error: forgedCustom, type: "error" })
       expect(Object.getOwnPropertySymbols(forgedCustomEvent!)).not.toContain(agentStreamErrorSymbol)
+
+      const sameRealm = new Error("clone fallback boom")
+      Object.defineProperty(sameRealm, "stack", { value: "Error: clone fallback boom", configurable: true, writable: true })
+      Object.defineProperty(sameRealm, "uncloneable", { value: () => undefined })
+      const sameRealmEvent = toAgentStreamEvent({ error: sameRealm, type: "error" })
+      expect(sameRealmEvent).toMatchObject({ error: "clone fallback boom", type: "error" })
+      expect(Reflect.get(sameRealmEvent!, agentStreamErrorSymbol)).toBe(sameRealm)
     }
     finally {
       errorConstructor.isError = nativeIsError

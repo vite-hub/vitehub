@@ -728,6 +728,7 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     // the fallback brand.
     const structuredClone = Reflect.get(globalThis, "structuredClone")
     let cloneBranded = false
+    let cloneFailed = false
     if (hasRuntimeType(structuredClone, "function")) {
       try {
         const clone = Reflect.apply(structuredClone, globalThis, [error])
@@ -738,11 +739,19 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
         cloneBranded = true
       }
       catch {
+        cloneFailed = true
         // Continue with the guarded structural fallback when cloning is not
         // supported for this value or runtime.
       }
     }
     const branded = cloneBranded || nativeBranded === true || (nativeBranded === undefined && (() => {
+          // A same-realm Error retains its intrinsic prototype even when its
+          // stack is a data property. If cloning failed because of an extra
+          // non-cloneable own field, preserve that genuine instance without
+          // accepting the bare Error.prototype shape used by forgeries.
+          if (cloneFailed && error instanceof Error && Reflect.getPrototypeOf(error) === Error.prototype) {
+            return Object.getOwnPropertyNames(error).some((key) => !["message", "stack", "cause"].includes(key))
+          }
           const hasIntrinsicStack = () => {
             const stack = Object.getOwnPropertyDescriptor(error, "stack")
             // Native Errors expose stack through the engine's intrinsic
