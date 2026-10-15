@@ -4,7 +4,10 @@ import { z } from "zod"
 import { defineContent, documents, singleton } from "../../content/src/index.ts"
 import { historyWorkspace } from "../../content/test/history-workspace.ts"
 import { content } from "../src/capabilities.ts"
-import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { resolveChatTriggerInvoker } from "../src/chat-message-input.ts"
+import { webChat } from "../src/channels.ts"
+import { createAgentInspectionMetadata, defineAgent, defineAgentInvoker, runAgent } from "../src/index.ts"
+import { createChannelChatRouteHandler } from "../src/server/internal.ts"
 import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
 import type { ContentAuthorize } from "../../content/src/index.ts"
@@ -615,5 +618,111 @@ describe("content capability", () => {
       description: "Read, draft, publish, and schedule documents in the posts Content collections.",
       name: "content",
     }))
+  })
+})
+
+describe("content capability with the Actor of a chat", () => {
+  /** Resolves the Actor as `authenticated()` from `vite-hub/auth/agent` does: the session of the request names the Auth user. */
+  const signedIn = defineAgentInvoker({
+    resolve: ({ request }) => {
+      const userId = request?.headers.get("cookie")?.match(/session=(\w+)/)?.[1]
+      return userId ? { id: userId, kind: "authUser", label: "editor@example.com", meta: { authUserId: userId } } : undefined
+    },
+  })
+
+  /** The Actor that the generated HTTP chat route of a Web Chat Channel gives the Agent for one request. */
+  async function httpChatActor(headers: Record<string, string> = {}): Promise<AgentActor> {
+    let actor: AgentActor | undefined
+    const agent = defineAgent({
+      channels: { portal: webChat },
+      driver: { run: (context) => { actor = context.actor; return "ok" } },
+      invoker: signedIn,
+    })
+    // SAFETY: The generated route accepts every Agent Definition that defineAgent() returns.
+    const response = await createChannelChatRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/editor/chat", {
+      body: JSON.stringify({ messages: [{ id: "message-1", parts: [{ text: "Draft a post.", type: "text" }], role: "user" }] }),
+      headers,
+      method: "POST",
+    }), { agentName: "editor" })
+    expect(response.status).toBe(200)
+    await response.text()
+    if (!actor) throw new Error("expected the chat route to run the Agent")
+    return actor
+  }
+
+  /** The Actor of a Channel message, such as Discord, after the Agent's own `invoker` ran. */
+  async function channelActor(invoker?: Parameters<typeof defineAgent>[0]["invoker"]): Promise<AgentActor> {
+    let actor: AgentActor | undefined
+    const agent = defineAgent({
+      driver: { run: (context) => { actor = context.actor; return "ok" } },
+      ...(invoker ? { invoker } : {}),
+    })
+    const platformUser = resolveChatTriggerInvoker({
+      messages: [],
+      run: { channelId: "discord", origin: "discord", runId: "discord:message-1" },
+      user: { id: "123", name: "Ana", username: "ana" },
+    })
+    await runAgent(agent, { memo: (_key, create) => create(), runtime: "unknown", waitUntil: () => {} }, { context: { invoker: platformUser }, prompt: "Draft a post." })
+    if (!actor) throw new Error("expected the Agent to run")
+    return actor
+  }
+
+  async function recordedAuthorize() {
+    const decisions: Array<{ actor?: AgentActor, user: unknown }> = []
+    const runtime = await setup({
+      authorize: (context) => {
+        decisions.push({ actor: context.actor, user: context.user })
+        return true
+      },
+    })
+    return { decisions, runtime }
+  }
+
+  it("gives authorize the Auth user of a signed-in chat and records it as the author", async () => {
+    const actor = await httpChatActor({ cookie: "session=user_1" })
+    expect(actor).toEqual({ id: "user_1", kind: "authUser", label: "editor@example.com", meta: { authUserId: "user_1" } })
+
+    const { decisions, runtime } = await recordedAuthorize()
+    const editorTools = await tools(content({ policy: "allow" }), runtime, actor)
+    expect(await run(editorTools.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "Draft\n", ifDigest: null })).toMatchObject({ ok: true })
+    expect(decisions).toEqual([{ actor, user: authUsers.user_1 }])
+    expect((await runtime.revisions("posts", "hello")).revisions[0]!.metadata).toMatchObject({
+      agent: { actor: "user_1", name: "editor" },
+      author: { email: "editor@example.com", id: "user_1" },
+    })
+  })
+
+  it("gives authorize user null for an anonymous chat and records no author", async () => {
+    const actor = await httpChatActor()
+    expect(actor).toMatchObject({ kind: "anonymous" })
+
+    const { decisions, runtime } = await recordedAuthorize()
+    const anonymousTools = await tools(content({ policy: "allow" }), runtime, actor)
+    expect(await run(anonymousTools.content_save_draft, { collection: "posts", id: "hello", data: hello, body: "Draft\n", ifDigest: null })).toMatchObject({ ok: true })
+    expect(decisions).toEqual([{ actor, user: null }])
+    const metadata = (await runtime.revisions("posts", "hello")).revisions[0]!.metadata
+    expect(metadata).toMatchObject({ agent: { actor: actor.id, name: "editor" } })
+    expect(metadata).not.toHaveProperty("author")
+  })
+
+  it("gives authorize user null for a Channel Actor unless the Agent maps it to an Auth user", async () => {
+    const unmapped = await channelActor()
+    expect(unmapped).toMatchObject({ id: "discord:123", kind: "chat", meta: { id: "123" } })
+    const { decisions, runtime } = await recordedAuthorize()
+    await run((await tools(content(), runtime, unmapped)).content_status, { collection: "posts" })
+    expect(decisions).toEqual([{ actor: unmapped, user: null }])
+
+    // The application links the platform user to its Auth user, for example through an account it signed in with.
+    const links: Record<string, string> = { "discord:123": "user_1" }
+    const mapped = await channelActor(defineAgentInvoker({
+      resolve: ({ defaultInvoker }) => {
+        const authUserId = links[defaultInvoker.id]
+        return authUserId ? { ...defaultInvoker, meta: { ...defaultInvoker.meta, authUserId } } : undefined
+      },
+    }))
+    expect(mapped).toMatchObject({ id: "discord:123", kind: "chat", meta: { authUserId: "user_1" } })
+    decisions.length = 0
+    await run((await tools(content(), runtime, mapped)).content_status, { collection: "posts" })
+    expect(decisions).toEqual([{ actor: mapped, user: authUsers.user_1 }])
   })
 })

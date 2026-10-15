@@ -144,7 +144,42 @@ content({
 })
 ```
 
-A `chat.message` Trigger without `invoker` derives a `chat` Actor from the platform user. `authorize` receives it with `kind: 'chat'`. Do not grant `write` or `publish` from chat identity alone.
+### The user of a chat
+
+The user follows the Agent's [`invoker`](/docs/agents/actors), so the same Auth that signs people in to your app decides who an Agent acts for:
+
+| Entry point | Actor | `user` in `authorize` |
+| --- | --- | --- |
+| HTTP chat or Agent route, with `invoker: authenticated()` | The signed-in person, as `kind: 'authUser'` with `meta.authUserId` | The Auth user |
+| The same route without a session, with `authenticated({ required: false })` | Anonymous | `null` |
+| A Channel, such as Discord or Slack | `kind: 'chat'`, with the platform user id | `null`, unless your `invoker` maps it |
+| An Agent without `invoker` | Anonymous, or the trusted `context.invoker` of a custom route | `null`, unless the Actor has `meta.authUserId` |
+
+```ts [server/agents/editor.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { content } from 'vite-hub/agent/capabilities'
+import { authenticated } from 'vite-hub/auth/agent'
+
+export default defineAgent({
+  invoker: authenticated({ required: false }),
+  driver: { model },
+  capabilities: [content()],
+})
+```
+
+A Channel message has no session. Its Actor names the platform user, and `authorize` receives it with `kind: 'chat'` and `user: null`. To act for an Auth user, map the platform user in `invoker.resolve`, for example through an account the person linked when they signed in:
+
+```ts [server/agents/editor.ts]
+invoker: {
+  async resolve({ defaultInvoker }) {
+    if (defaultInvoker.kind !== 'chat') return
+    const authUserId = await findLinkedUser(defaultInvoker.id) // your lookup, such as 'discord:123' -> 'user_1'
+    return authUserId ? { ...defaultInvoker, meta: { ...defaultInvoker.meta, authUserId } } : undefined
+  },
+},
+```
+
+Do not grant `write` or `publish` from an unmapped chat identity.
 
 `content_publish`, `content_schedule`, and `content_unschedule` use `policy: 'require-approval'`. The call stops with `APPROVAL_REQUIRED` and an Approval Request that shows the input, such as the listed documents and digests, and runs only after approval. `content_save_draft` runs without approval, because drafts are not served. Set `policy` to replace all four defaults. A function receives `{ name, input }`:
 
@@ -156,7 +191,7 @@ content({
 
 The tools check `content.can()` before the policy, so a denied call fails at once instead of waiting for an approver. They check again when the approved call runs. Approval cannot grant an action that `authorize` denies.
 
-Saves, publishes, schedules, and cancellations record `metadata.agent = { name, actor }`, so [`content.revisions()`](/docs/content/server-api#revisions) and [`content.schedules()`](/docs/content/scheduling#inspect-and-cancel) show which Agent and Actor made each change.
+Saves, publishes, schedules, and cancellations record `metadata.agent = { name, actor }` and, when `authorize` received a user, `metadata.author = { id, name, email }`, as Console saves do. [`content.revisions()`](/docs/content/server-api#revisions), [`content.schedules()`](/docs/content/scheduling#inspect-and-cancel), and the Console history then show the person, the Agent, and the Actor of each change.
 
 ## Verify the tools
 

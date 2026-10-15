@@ -482,12 +482,24 @@ function contentTools(
     }
     return expected
   }
-  const authorMetadata = () => ({
-    agent: {
-      ...(context.agentIdentity?.name ? { name: context.agentIdentity.name } : {}),
-      ...(context.actor?.id ? { actor: context.actor.id } : {}),
-    },
-  })
+  /**
+   * Who made a change: the Agent and its Actor, and as `author` the user that `authorize` checked, with the fields that
+   * the Console records for its own saves. Without a user there is no `author`.
+   */
+  const authorMetadata = async () => {
+    const user = await contentUser()
+    const author = Object.fromEntries(["id", "name", "email"].flatMap((key) => {
+      const value = user?.[key]
+      return String(value) === value && value ? [[key, value]] : []
+    }))
+    return {
+      agent: {
+        ...(context.agentIdentity?.name ? { name: context.agentIdentity.name } : {}),
+        ...(context.actor?.id ? { actor: context.actor.id } : {}),
+      },
+      ...(Object.keys(author).length ? { author } : {}),
+    }
+  }
   /** The schedule with this id, or undefined when it already ran or was cancelled. */
   const findSchedule = async (id: unknown) => String(id) === id ? (await runtime.schedules()).find(schedule => schedule.id === id) : undefined
   // Check access before the policy so a denied call fails at once instead of waiting for an approval.
@@ -707,7 +719,7 @@ function contentTools(
           const { body: _body, issues, ...document } = await target.save(
             id,
             { data: input.data, ...(target.format === "markdown" ? { body: input.body } : {}) },
-            { ifDigest: input.ifDigest, metadata: authorMetadata(), ...(options.lease ? { lease: options.lease } : {}) },
+            { ifDigest: input.ifDigest, metadata: await authorMetadata(), ...(options.lease ? { lease: options.lease } : {}) },
           )
           return issues?.length
             ? { document, hint: hints.savedWithIssues, issues, ok: true as const }
@@ -752,7 +764,7 @@ function contentTools(
         if (!Array.isArray(expected)) return expected
         for (const document of expected) await authorize("publish", document.collection, document.id)
         try {
-          const result = await runtime.publish({ expect: expected, metadata: authorMetadata() })
+          const result = await runtime.publish({ expect: expected, metadata: await authorMetadata() })
           return { documents: result.documents, ok: true as const, revision: result.revision?.id ?? null }
         }
         catch (error) {
@@ -786,7 +798,7 @@ function contentTools(
             at: input.at,
             expect: expected,
             ...(input.message ? { message: input.message } : {}),
-            metadata: authorMetadata(),
+            metadata: await authorMetadata(),
           })
           return { ok: true as const, schedule: scheduleView(schedule) }
         }
@@ -822,7 +834,7 @@ function contentTools(
           await authorize("publish", document.collection, document.id)
         }
         try {
-          await runtime.unschedule(schedule.id, { metadata: authorMetadata() })
+          await runtime.unschedule(schedule.id, { metadata: await authorMetadata() })
           return { ok: true as const, schedule: schedule.id }
         }
         catch (error) {

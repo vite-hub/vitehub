@@ -19,7 +19,7 @@ icon: i-lucide-code-2
 | `withAuthorization` from `@vite-hub/auth/server` | Run a resource handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
 | `useUserSession`, `useSession`, `createAuthClient` from `@vite-hub/auth/vue` | Read session state and call Better Auth from Vue. |
 | `authenticated` from `@vite-hub/auth/agent` | Map a Better Auth session into an Agent Invoker. |
-| `agentAuth` from `@vite-hub/auth/agent` | The `auth` primitive generated Agent routes pass to Capabilities. `agentAuth.user(actor)` reads the Auth user behind an Actor from `actor.meta.authUserId`, or returns `null`. |
+| `agentAuth` from `@vite-hub/auth/agent` | The `auth` primitive generated Agent routes pass to Capabilities. `agentAuth.user(actor)` reads the Auth user behind an Actor from `actor.meta.authUserId`, or returns `null`. `authenticated()` sets `authUserId` for a request with a session. A Channel Actor or an anonymous Actor has none, unless your `invoker.resolve` adds it. |
 | `getViteHubErrorShape` from `@vite-hub/runtime` | Handle missing authentication and provider failures by stable Auth code. |
 
 ## Use it at runtime
