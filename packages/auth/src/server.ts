@@ -322,7 +322,14 @@ function isResponseLike(value: unknown): value is Response {
       bodyGetter.call(value)
       // Calling the prototype method performs the native internal brand check;
       // unlike a caller-provided clone property, it cannot be spoofed.
-      if (cloneMethod.call(value) === value) return false
+      const clone = cloneMethod.call(value)
+      if (clone === null || typeof clone !== "object" || clone === value) return false
+      statusGetter.call(clone)
+      statusTextGetter.call(clone)
+      const cloneHeaders = headersGetter.call(clone)
+      if (cloneHeaders === null || typeof cloneHeaders !== "object" || typeof (cloneHeaders as { get?: unknown }).get !== "function") return false
+      bodyGetter.call(clone)
+      if (cloneMethod.call(clone) === clone) return false
       return true
     }
     catch {
