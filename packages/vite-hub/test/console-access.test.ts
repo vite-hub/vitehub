@@ -86,6 +86,13 @@ describe("Console access policies", () => {
     expect(() => resolveConsoleOptions({ exposure: "prod" })).toThrow(/console\.exposure/)
   })
 
+  it("keeps legacy host-managed exposure out of app-auth validation", () => {
+    expect(resolveConsoleOptions({ exposure: "host-managed", authorize: "authorize.ts" })).toMatchObject({
+      auth: false,
+      exposure: "host-managed",
+    })
+  })
+
   it("fails closed when no policy is installed", async () => {
     const { handler, result } = await run(undefined)
     expect(handler).not.toHaveBeenCalled()

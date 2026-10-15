@@ -100,7 +100,9 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure must be "host-managed" or "open". Use console.auth instead.' })
   }
   if (!("auth" in value) && (legacy.access !== undefined || legacy.exposure !== undefined)) {
-    const auth = legacy.exposure === "host-managed" ? "app" : legacy.access === "auth" ? "app" : legacy.access === "local" ? false : false
+    // Host-managed exposure delegates authorization to the host and must not
+    // trigger the app-auth discovery/assertion path during plugin setup.
+    const auth = legacy.exposure === "host-managed" ? false : legacy.access === "auth" ? "app" : legacy.access === "local" ? false : false
     return { ...value, auth } as ConsoleOptions
   }
   if (!("auth" in value)) {
