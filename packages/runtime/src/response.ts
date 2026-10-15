@@ -17,7 +17,7 @@ export interface SerializedResponse {
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 
 interface BlobMethods {
-  readonly stream: () => ReadableStream
+  readonly body: () => ReadableStream
   readonly type: string
 }
 
@@ -91,7 +91,20 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
           ? String(Reflect.apply(typeGetter, value, []))
           : String(Reflect.getOwnPropertyDescriptor(value, "type")?.value ?? "")
         return {
-          stream: () => Reflect.apply(stream, value, []) as ReadableStream,
+          // Use the validated byte operation instead of invoking a potentially
+          // overridden stream method supplied by the input value.
+          body: () => new ReadableStream<Uint8Array>({
+            async start(controller) {
+              try {
+                const bytes = await Reflect.apply(arrayBuffer, value, []) as ArrayBuffer
+                controller.enqueue(new Uint8Array(bytes))
+                controller.close()
+              }
+              catch (error) {
+                controller.error(error)
+              }
+            },
+          }),
           type,
         }
       }
@@ -118,7 +131,7 @@ export function toResponse(value: unknown): Response {
   const blobMethods = getBlobMethods(value)
   if (blobMethods) {
     const type = blobMethods.type
-    return new Response(blobMethods.stream(), type ? { headers: { "content-type": type } } : undefined)
+    return new Response(blobMethods.body(), type ? { headers: { "content-type": type } } : undefined)
   }
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },
