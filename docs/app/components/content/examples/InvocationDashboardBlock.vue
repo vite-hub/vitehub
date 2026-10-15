@@ -9,14 +9,14 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 
 // Keep running timestamps relative to the page load, including server rendering.
 const now = useState("ui-dashboard-clock", () => Date.now());
-let clock: ReturnType<typeof setInterval> | undefined;
+const clock = ref<ReturnType<typeof setInterval>>();
 onMounted(() => {
-  clock = setInterval(() => {
+  clock.value = setInterval(() => {
     now.value = Date.now();
   }, 60_000);
 });
 onUnmounted(() => {
-  if (clock) clearInterval(clock);
+  if (clock.value) clearInterval(clock.value);
 });
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
