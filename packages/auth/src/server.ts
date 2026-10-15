@@ -333,6 +333,11 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (body === null) return true
   if (Object(body) !== body) return false
 
+  // A stream's reader method must come from its intrinsic prototype. An own
+  // method can forge the serialization boundary and is bypassed by the native
+  // bridge below.
+  if (Object.hasOwn(body, "getReader")) return false
+
   // Read the stream's own intrinsic accessors so bodies from another runtime
   // or realm are accepted without applying this realm's brand checks.
   const locked = responsePropertyDescriptor(body, "locked")?.get
