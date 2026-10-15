@@ -234,8 +234,6 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     if (normalizedHeaders.get("x-vercel-ai-ui-message-stream") !== "v1") return
     // Consumption uses a stable local snapshot and the branded stream, never
     // methods supplied by a Response-shaped carrier.
-    // Validate response metadata before taking ownership of the source reader.
-    new Response(body, { status, statusText, headers: normalizedHeaders })
     const bridgedBody = bridgeUIMessageBody(body)
     try {
       const response = new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
