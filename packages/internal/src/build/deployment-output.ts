@@ -427,7 +427,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
         wranglerConfigOwnership,
       }),
       options.bundleEntry && staticIndex
-        ? copyClientOutput(clientDir, staticOutputDir)
+        ? copyClientOutput(clientDir, staticOutputDir, [outputRoot])
         : Promise.resolve(),
       ...files.map(([fileName, contents]) =>
         writeFile(resolve(outputRoot, fileName), contents, "utf8")),
