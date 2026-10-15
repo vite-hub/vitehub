@@ -413,7 +413,18 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    let nativeBodyState = false
+    try {
+      const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyState = Boolean(bodyUsed)
+        && !Reflect.apply(bodyUsed, candidate, [])
+        && (body === null || (Boolean(locked) && !Reflect.apply(locked, body, [])))
+    }
+    catch {
+      // A proxy can expose native descriptors without owning native response state.
+    }
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
