@@ -195,16 +195,23 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
     let upload: { pathname: string, uploadId: string } | undefined
     let remoteAbort: Promise<void> | undefined
     let aborted = false
+    let resolveCreateSettled!: () => void
+    const createSettled = new Promise<void>(resolve => { resolveCreateSettled = resolve })
     let resolveAbortedCompletion!: () => void
     const abortedCompletion = new Promise<void>(resolve => { resolveAbortedCompletion = resolve })
 
     const run = (async () => {
-      upload = await readJson(await send("create", pathname, {
-        body: JSON.stringify({ contentType: file.type || undefined }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-        signal: controller.signal,
-      }), parseMultipartCreate)
+      try {
+        upload = await readJson(await send("create", pathname, {
+          body: JSON.stringify({ contentType: file.type || undefined }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+          signal: controller.signal,
+        }), parseMultipartCreate)
+      }
+      finally {
+        resolveCreateSettled()
+      }
       const { pathname: uploadPathname, uploadId } = upload
       if (aborted) {
         await abortRemoteUpload().catch(() => {})
@@ -271,6 +278,7 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
       // Keep the create request alive until its response gives us the upload ID.
       // Once the upload exists, cancel any in-flight part or completion request.
       if (upload) controller.abort()
+      else await createSettled
       await abortRemoteUpload()
     }
 

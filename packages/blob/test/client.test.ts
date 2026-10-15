@@ -98,7 +98,10 @@ describe("createMultipartUploader", () => {
     const task = createMultipartUploader("/api/multipart", { fetch })(new File(["a"], "a.txt"))
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
 
-    const aborted = task.abort()
+    let abortFinished = false
+    const aborted = task.abort().then(() => { abortFinished = true })
+    await Promise.resolve()
+    expect(abortFinished).toBe(false)
     releaseCreate(json({ pathname: "a.txt", uploadId: "u1" }))
 
     await aborted
