@@ -64,6 +64,16 @@ function isRequestLike(value: AuthRequest): value is Request {
     // layouts. This checks the API used by Better Auth, not the object's origin:
     // host-provided implementations are trusted code, not an authenticity boundary.
     if (Object.prototype.toString.call(value) !== "[object Request]") return false
+    const hasPrototypeTag = (target: object, tag: string): boolean => {
+      let current: object | null = Object.getPrototypeOf(target)
+      while (current) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, Symbol.toStringTag)
+        if (descriptor) return typeof descriptor.get === "function" && descriptor.get.call(target) === tag
+        current = Object.getPrototypeOf(current)
+      }
+      return false
+    }
+    if (!hasPrototypeTag(value, "Request")) return false
     const hasMethods = (target: object, methods: string[]): boolean => methods.every((method) => {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
       return typeof Reflect.get(target, method) === "function"
@@ -71,9 +81,9 @@ function isRequestLike(value: AuthRequest): value is Request {
     if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false
     // Body methods alone are insufficient: structural host inputs can expose
     // them while lacking the Headers and AbortSignal APIs of a Web Request.
-    if (!value.headers || Object.prototype.toString.call(value.headers) !== "[object Headers]" || value.headers.constructor?.name !== "Headers" || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
+    if (!value.headers || Object.prototype.toString.call(value.headers) !== "[object Headers]" || !hasPrototypeTag(value.headers, "Headers") || value.headers.constructor?.name !== "Headers" || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
     if (["get", "has", "set", "append", "delete", "entries", "forEach"].some(method => Object.prototype.hasOwnProperty.call(value.headers, method))) return false
-    if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || value.signal.constructor?.name !== "AbortSignal" || typeof value.signal.aborted !== "boolean") return false
+    if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || !hasPrototypeTag(value.signal, "AbortSignal") || value.signal.constructor?.name !== "AbortSignal" || typeof value.signal.aborted !== "boolean") return false
     if (Object.prototype.hasOwnProperty.call(value.signal, "aborted")) return false
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check request state without calling clone(), which would tee a streaming body.
     if (typeof Reflect.get(value, "bodyUsed") !== "boolean") return false
