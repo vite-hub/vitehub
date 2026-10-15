@@ -172,20 +172,20 @@ function renderSchemaType(variables: string[]) {
   return rest.reduce((merged, next) => `Omit<${merged}, keyof ${next}> & ${next}`, first!)
 }
 
-function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig) {
+function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig, loadedContributions: ReadonlyMap<string, readonly ResolvedDatabaseContribution[]>) {
   const { definitions } = config
   const variables = definitions.map((definition, index) => schemaSourceVariables(definition, `database_${index}`, `database_${index}_`))
   const imports = definitions.flatMap((definition, index) => [
     ...definition.schemaSources.map((source, sourceIndex) =>
       `import type ${variables[index]![sourceIndex]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
-    ...(config.tableContributionsByDatabase[definition.name] ?? []).map((contribution, contributionIndex) =>
+    ...(loadedContributions.get(definition.name) ?? []).map((contribution, contributionIndex) =>
       renderContributionImport(file, contribution, `contribution_${index}_${contributionIndex}`, true)),
   ])
   // A later layer source replaces a key. Contributed tables never share a key with the Definition, so the
   // intersection equals the merged schema.
   const schemaType = (definition: DiscoveredDatabaseDefinition, index: number) => [
     renderSchemaType(variables[index]!),
-    ...(config.tableContributionsByDatabase[definition.name] ?? []).map((_, contributionIndex) => `typeof contribution_${index}_${contributionIndex}`),
+    ...(loadedContributions.get(definition.name) ?? []).map((_, contributionIndex) => `typeof contribution_${index}_${contributionIndex}`),
   ].join(" & ")
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
   const registryEntries = definitions.flatMap((definition, index) => [
@@ -230,11 +230,18 @@ export async function removeGeneratedDatabaseTypes(rootDir: string) {
 export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig, options: DatabaseTableNameOptions = {}) {
   const generatedTypesFile = join(config.rootDir, ".vitehub/types/database.d.ts")
   await Promise.all(config.definitions.map(definition => writeGeneratedDrizzleSchema(config, definition, options)))
+  const loadedContributions = new Map<string, readonly ResolvedDatabaseContribution[]>()
+  await Promise.all(config.definitions.map(async (definition) => {
+    const contributions = config.tableContributionsByDatabase[definition.name] ?? []
+    const loaded = await Promise.all(contributions.map(async contribution =>
+      ({ contribution, schema: await loadContributedDatabaseSchema(contribution, config.generatedSchemaFilesByDatabase[definition.name]!, options) })))
+    loadedContributions.set(definition.name, loaded.filter(item => item.schema.loaded).map(item => item.contribution))
+  }))
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
   await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config), "utf8")
   await mkdir(dirname(generatedTypesFile), { recursive: true })
-  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config), "utf8")
+  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config, loadedContributions), "utf8")
   await Promise.all(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })

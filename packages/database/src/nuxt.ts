@@ -319,20 +319,25 @@ async function installNitroLocalDatabaseRuntime(
       : undefined,
     onFallback: (message: string) => console.warn(message),
   }
+  const loadedContributionsByDatabase = new Map<string, Set<CollectedDatabaseContribution>>()
   for (const definition of runtime.definitions) {
     const parts = [{ schema: await loadDefinitionSchema(definition, tableNameOptions), owner: `Database Definition ${definition.handler}` }]
+    const loadedContributions = new Set<CollectedDatabaseContribution>()
     for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
-      parts.push({ schema: await loadContributedDatabaseSchema(contribution, file, tableNameOptions), owner: `contributed tables ${describeDatabaseContribution(contribution)}` })
+      const schema = await loadContributedDatabaseSchema(contribution, file, tableNameOptions)
+      if (schema.loaded) loadedContributions.add(contribution)
+      parts.push({ schema, owner: `contributed tables ${describeDatabaseContribution(contribution)}` })
     }
+    loadedContributionsByDatabase.set(definition.name, loadedContributions)
     assertDistinctLoadedSchemas(definition.name, parts)
   }
 
   // Nuxt layers and contributed tables add tables to one database, so the runtime uses the merged schema.
   const contributedSchemas = runtime.definitions.map((definition, index) =>
-    (runtime.tableContributionsByDatabase[definition.name] ?? []).map((contribution, contributionIndex) => ({
-      contribution,
-      variable: `contributedSchema_${index}_${contributionIndex}`,
-    })))
+    (runtime.tableContributionsByDatabase[definition.name] ?? []).flatMap((contribution, contributionIndex) =>
+      loadedContributionsByDatabase.get(definition.name)?.has(contribution)
+        ? [{ contribution, variable: `contributedSchema_${index}_${contributionIndex}` }]
+        : []))
   const layered = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1
   const merged = (index: number) => layered(runtime.definitions[index]!) || contributedSchemas[index]!.length > 0
   const imports = runtime.definitions.flatMap((definition, index) => [
