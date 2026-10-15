@@ -131,6 +131,14 @@ export async function encodeSandboxValueStaged(
         ? new Uint8Array(await (entry as Blob).arrayBuffer())
         : entry as Uint8Array
       throwIfAborted()
+      // A Blob can override `arrayBuffer()` even when its intrinsic size was
+      // within the allowance. Account for the materialized bytes before
+      // staging them so the aggregate bound cannot be bypassed.
+      const materializedBytes = bytes.byteLength
+      const accountedBytes = state.sidecarBytes - byteLength + materializedBytes
+      if (accountedBytes > limits.maxSidecarBytes)
+        throw transferLimitError(label, 'maxSidecarBytes', accountedBytes, limits.maxSidecarBytes)
+      state.sidecarBytes = accountedBytes
       state.pendingWrites.push({ id, bytes })
       return tagged({
         id,
