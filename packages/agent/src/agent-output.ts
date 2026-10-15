@@ -707,10 +707,10 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
       ? Reflect.get(processValue, "getBuiltinModule")
       : undefined
     const nativeIsError = hasRuntimeType(getBuiltinModule, "function")
-      ? Reflect.get(getBuiltinModule.call(processValue, "util"), "types")
+      ? Reflect.get(Reflect.apply(getBuiltinModule, processValue, ["util"]), "types")
       : undefined
-    const intrinsicIsError = nativeIsError && typeof nativeIsError === "object"
-      ? Reflect.get(nativeIsError, "isNativeError")
+    const intrinsicIsError = nativeIsError !== null && typeof nativeIsError === "object"
+      ? Reflect.get(nativeIsError as object, "isNativeError")
       : undefined
     const branded = hasRuntimeType(currentIsError, "function")
       ? currentIsError(error) === true
