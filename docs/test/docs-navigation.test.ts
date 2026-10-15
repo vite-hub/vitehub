@@ -167,5 +167,15 @@ describe("docs product navigation", () => {
       expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
       expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { statusCode: 301, to: `/raw${to}.md` } });
     }
+
+    for (const [from, to] of Object.entries({
+      "/databases": "/database",
+      "/rate-limits": "/rate-limit",
+      "/blog": "/tutorials",
+      "/guides": "/tutorials",
+    })) {
+      expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
+      expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
+    }
   });
 });
