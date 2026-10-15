@@ -636,8 +636,14 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (!content.sessions) return { user, available: false, reason: "This Content runtime does not track sessions.", sessions: [] }
       const names = new Set(collections.map(collection => collection.name))
       try {
-        const listed = await content.sessions.list(collections.length === 1 ? collections[0]!.name : undefined)
-        return { user, available: true, sessions: listed.filter(entry => names.has(entry.collection)).map(entry => sessionView(entry, session)) }
+        const listed = (await content.sessions.list(collections.length === 1 ? collections[0]!.name : undefined)).filter(entry => names.has(entry.collection))
+        // A session names its document, so each document needs read access, as in the list.
+        const readableByCollection = new Map(await Promise.all(collections.map(async collection => [
+          collection.name,
+          await readableIds(context, collection, listed.filter(entry => entry.collection === collection.name).map(entry => entry.id)),
+        ] as const)))
+        const visible = listed.filter(entry => readableByCollection.get(entry.collection)?.has(entry.id))
+        return { user, available: true, sessions: visible.map(entry => sessionView(entry, session)) }
       }
       catch (error) {
         const reason = sessionsUnavailable(error)

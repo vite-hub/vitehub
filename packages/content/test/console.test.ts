@@ -503,6 +503,28 @@ describe("Content Console sessions", { timeout: 30_000 }, () => {
     expect(await failure(actions.sessions({ collection: "posts" }, anonymous))).toMatchObject({ status: 403 })
   })
 
+  it("hides the sessions of documents a per-document policy denies", async () => {
+    const workspace = await historyWorkspace({ sessions: true })
+    const { actions: editorActions } = await setup(workspace)
+    await editorActions.session({ collection: "posts", id: "hello", session: tabA, action: "acquire" }, editor)
+    await editorActions.session({ collection: "posts", id: "secret", session: tabB, action: "report", kind: "view" }, editor)
+    expect((await editorActions.sessions({}, editor)).sessions.map(entry => entry.id).sort()).toEqual(["hello", "secret"])
+
+    const scoped = defineContent({
+      workspace,
+      collections: { posts: documents({ path: "posts/**/*.md", fields: { title: z.string().min(1) } }) },
+      authorize: ({ action, id }) => action === "read" && id !== "secret",
+      logger: false,
+    })
+    cleanup.push(() => scoped.dispose())
+    const actions = createContentConsoleActions({ content: scoped })
+    for (const input of [{}, { collection: "posts" }]) {
+      const listed = await actions.sessions(input, reader)
+      expect(listed.sessions.map(entry => entry.id)).toEqual(["hello"])
+      expect(JSON.stringify(listed)).not.toMatch(/secret/i)
+    }
+  })
+
   it("stays editable when the Database has no sessions table", async () => {
     const { actions } = await setup()
     const presence = await actions.session({ collection: "posts", id: "hello", session: tabA, action: "acquire" }, editor)
