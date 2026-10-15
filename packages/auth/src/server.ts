@@ -372,7 +372,11 @@ function hasResponsePrototype(value: unknown): boolean {
       // Require the platform accessors to authenticate the candidate. An
       // `instanceof Response` fallback is unsafe because a proxy can intercept
       // the later snapshot reads and forge response fields.
-      if (platformConstructor && !ownSnapshot && platformGetters && !shadowedResponseProperties) return true
+      // A genuine local Response subclass may override accessors, but the
+      // intrinsic getters at its branded base still authenticate the instance.
+      // Keep rejecting shadowed accessors on structural/foreign candidates.
+      if (platformConstructor && !ownSnapshot && platformGetters
+        && (!shadowedResponseProperties || value instanceof Response)) return true
       if (authorizationResponseProperties.some((key) => Object.hasOwn(prototype, key))) {
         shadowedResponseProperties = true
       }

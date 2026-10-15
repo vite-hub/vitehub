@@ -285,6 +285,24 @@ describe("Auth access handlers", () => {
     }
   })
 
+  it("normalizes a branded Response subclass with overridden accessors", async () => {
+    class BrandedResponse extends Response {
+      override get status() { return 409 }
+      override get statusText() { return "Conflict" }
+      override get headers() { return new Headers({ "x-policy": "custom" }) }
+      override get body() { return null }
+    }
+    const response = new BrandedResponse()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({
+      status: 409,
+      statusText: "Conflict",
+    })
+  })
+
   it("rejects an already-consumed body from the foreign runtime", async () => {
     const ResponseConstructor = ForeignResponse
     const source = new ResponseConstructor("Policy rejected", { status: 409 })
