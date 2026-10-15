@@ -485,6 +485,48 @@ export function compileSingletonPath(path: string): CompiledDocumentsPath & { pa
   }
 }
 
+/** Whether one glob segment, with `*` and `?`, and another can match the same file or directory name. */
+function segmentsOverlap(left: string, right: string): boolean {
+  const queue: Array<[number, number]> = [[0, 0]]
+  const seen = new Set<string>()
+  while (queue.length) {
+    const [i, j] = queue.shift()!
+    const key = `${i},${j}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    if (i === left.length && j === right.length) return true
+    // A `*` matches nothing, or one more character of the other side.
+    if (left[i] === "*") queue.push([i + 1, j])
+    if (right[j] === "*") queue.push([i, j + 1])
+    if (i === left.length || j === right.length) continue
+    if (left[i] === "*" && right[j] !== "*") queue.push([i, j + 1])
+    else if (right[j] === "*" && left[i] !== "*") queue.push([i + 1, j])
+    else if (left[i] !== "*" && (left[i] === "?" || right[j] === "?" || left[i] === right[j])) queue.push([i + 1, j + 1])
+  }
+  return false
+}
+
+/**
+ * Whether two collection paths can name the same Workspace file. A `documents()` glob and a `singleton()` file are both
+ * paths of segments; `**` matches any number of segments. `defineContent()` uses it so one file belongs to one collection.
+ */
+export function collectionPathsOverlap(left: Pick<ContentCollectionDefinition, "path">, right: Pick<ContentCollectionDefinition, "path">): boolean {
+  const a = left.path.replace(/^\.?\/+/, "").split("/")
+  const b = right.path.replace(/^\.?\/+/, "").split("/")
+  const seen = new Set<string>()
+  const walk = (i: number, j: number): boolean => {
+    const key = `${i},${j}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    if (i === a.length && j === b.length) return true
+    if (a[i] === "**" && (walk(i + 1, j) || (j < b.length && walk(i, j + 1)))) return true
+    if (b[j] === "**" && (walk(i, j + 1) || (i < a.length && walk(i + 1, j)))) return true
+    if (a[i] === "**" || b[j] === "**") return false
+    return i < a.length && j < b.length && segmentsOverlap(a[i]!, b[j]!) && walk(i + 1, j + 1)
+  }
+  return walk(0, 0)
+}
+
 // Fields
 
 export type ContentFieldIssue = {

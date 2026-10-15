@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { hubBlob } from "@vite-hub/blob/vite";
 import { createAgentCliContributor } from "@vite-hub/agent/cli";
 import { runViteHubCli } from "@vite-hub/cli";
+import { createContentCliContributor } from "@vite-hub/content/cli";
 import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubEmail } from "@vite-hub/email/vite";
 import { hubEnv } from "@vite-hub/env/vite";
@@ -68,6 +69,7 @@ describe("CLI documentation contract", () => {
       { vitehub: { cli: agent } },
       { vitehub: { cli: database } },
       { vitehub: { cli: { namespaces: [createConsoleCliNamespace()] } } },
+      { vitehub: { cli: createContentCliContributor() } },
       hubEnv(),
       emailPlugin,
       hubKv(),

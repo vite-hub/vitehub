@@ -103,6 +103,8 @@ export default defineEventHandler(async (event) => {
 | `content.sitemap(options?)` | The [sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents with a URL. |
 | `content.robots(options?)` | The robots.txt text for `defineContent({ seo: { robots } })`. |
 
+To read, edit, publish, or schedule documents from a terminal during development, use [`vitehub content`](/docs/content/cli).
+
 A document is `{ collection, id, path, data, body, digest, revision, updatedAt }`. `path` is the Workspace file, `data` holds each field's validated output, and `digest` is the SHA-256 of the file bytes. `body` is the Markdown body, always empty for JSON and YAML documents. `revision` is the history revision the document was read from. A collection with a [`url`](/docs/content/seo#document-urls) adds `url`, the document's public path or `null`.
 
 `updatedAt` is when the document last changed on the ref it was read from: the `createdAt` of the newest revision on that ref that added or changed its file. On `published`, that is the publish that last changed it. On `draft`, it is the last save or restore, or the revision that started the draft from `published`. Content finds it by walking the ref back from the revision it read, once per revision per runtime, and stops at an earlier answer it already has. It is `null` when the change is older than the 5,000 revisions one walk scans.
