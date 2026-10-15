@@ -158,6 +158,19 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
+
+  it("keeps site catalogs in the rail header above the product sections", () => {
+    const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
+
+    expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
+    expect(rail).toContain("<template #header");
+    expect(rail).toContain('{ label: "Tutorials", to: "/tutorials"');
+    expect(rail).toContain('{ label: "Projects", to: "/projects"');
+    expect(rail).toContain('{ label: "Templates", to: "/templates"');
+    expect(rail).toContain("<template #default");
+  });
+
+
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
@@ -170,7 +183,6 @@ describe("UI documentation", () => {
     expect(layout).toMatch(/\.vh-docs-shell\s*\{\s*display: flex;/);
     expect(layout).toContain("overflow: hidden;");
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
-2cd03ecde0a8a18b415b46
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");
     const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
