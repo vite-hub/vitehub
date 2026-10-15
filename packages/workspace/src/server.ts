@@ -114,7 +114,9 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
   }
 }
 
-function headerValue(headers: Headers | Record<string, string | string[] | undefined>, name: string): string | undefined {
+type WorkspaceDevHeaders = Headers | Record<string, string | string[] | undefined> | { get(name: string): string | null }
+
+function headerValue(headers: WorkspaceDevHeaders, name: string): string | undefined {
   const tag = Object.prototype.toString.call(headers)
   const prototype = Object.getPrototypeOf(headers)
   const constructor = prototype && Reflect.get(prototype, "constructor")
@@ -183,7 +185,7 @@ export async function readWorkspaceDevToken(rootDir: string, options: WorkspaceD
   }
 }
 
-export async function validateWorkspaceDevToken(rootDir: string, headers: Headers | Record<string, string | string[] | undefined>, options: WorkspaceDevTokenOptions = {}): Promise<boolean> {
+export async function validateWorkspaceDevToken(rootDir: string, headers: WorkspaceDevHeaders, options: WorkspaceDevTokenOptions = {}): Promise<boolean> {
   const token = headerValue(headers, workspaceDevTokenHeader)
   return isViteHubSecretEqual(token, await ensureWorkspaceDevToken(rootDir, options))
 }
