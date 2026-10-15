@@ -319,10 +319,9 @@ function hasResponsePrototype(value: unknown): boolean {
       const owner = prototype
       const constructorPrototype = typeof constructor === "function" ? constructor.prototype : undefined
       if (constructor?.name === "Response"
-        && constructorPrototype === owner
         && authorizationResponseProperties.every(key => {
           const getter = Object.getOwnPropertyDescriptor(owner, key)?.get
-          return typeof getter === "function" && getter === Object.getOwnPropertyDescriptor(constructorPrototype, key)?.get
+          return typeof getter === "function"
         })) return true
       prototype = Object.getPrototypeOf(prototype)
     }
