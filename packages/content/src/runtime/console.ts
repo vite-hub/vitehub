@@ -5,6 +5,7 @@ import type {
   ViteHubConsoleDocument,
   ViteHubConsoleDocumentActionContext,
   ViteHubConsoleDocumentActions,
+  ViteHubConsoleDocumentSetup,
   ViteHubConsoleDocumentActionsFactory,
   ViteHubConsoleDocumentActivity,
   ViteHubConsoleDocumentChange,
@@ -35,9 +36,10 @@ import type { ContentAction, ContentDocumentsRuntime } from "../index.ts"
 import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections.ts"
 import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
+import { contentLive } from "../live.ts"
 
 type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions" | "schedule" | "schedules" | "unschedule">
-  & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "sessions">>
+  & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "live" | "sessions">>
 
 const sessionActions: readonly ViteHubConsoleDocumentSessionAction[] = ["report", "acquire", "takeover", "release"]
 
@@ -213,13 +215,19 @@ function scheduleView(schedule: ContentDocumentSchedule | ContentSchedule): Vite
   return result
 }
 
-function revisionAuthor(metadata: Record<string, unknown> | undefined): string | undefined {
-  const by = metadata?.author
+function personName(by: unknown): string | undefined {
   if (!isRecord(by)) return
   for (const key of ["name", "email", "id"]) {
     const value = by[key]
     if (String(value) === value && value) return value
   }
+}
+
+/** Who saved a revision: its author, or every editor of a live save, such as `Ana and Ben`. */
+function revisionAuthor(metadata: Record<string, unknown> | undefined): string | undefined {
+  const editors = Array.isArray(metadata?.editors) ? metadata.editors.map(personName).filter(name => name !== undefined) : []
+  if (editors.length > 1) return `${editors.slice(0, -1).join(", ")} and ${editors.at(-1)}`
+  return personName(metadata?.author)
 }
 
 function revisionAction(metadata: Record<string, unknown> | undefined): string {
@@ -367,10 +375,19 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     },
 
     setup() {
+      const setup: ViteHubConsoleDocumentSetup = {}
       // Without a policy `content.can()` denies everything, so the editor names the fix instead of an empty section.
-      return content.hasPolicy === false
-        ? { access: { message: "Add `authorize` to `defineContent()` to decide who may read, edit, and publish documents.", docs: "https://vitehub.dev/docs/content/configure#access" } }
-        : {}
+      if (content.hasPolicy === false) {
+        setup.access = { message: "Add `authorize` to `defineContent()` to decide who may read, edit, and publish documents.", docs: "https://vitehub.dev/docs/content/configure#access" }
+      }
+      // Live editing covers Markdown documents. Where the host has no Realtime authority, the editor keeps one editor at a time.
+      if (content.live !== false && content.collections().some(collection => collection.format === "markdown")) {
+        const live = contentLive()
+        setup.live = live
+          ? { definition: live.definition }
+          : { unavailable: "Live editing needs Realtime on a host with a room authority, such as a Node server or Cloudflare Durable Objects." }
+      }
+      return setup
     },
 
     async list(input: ViteHubConsoleDocumentListInput, context): Promise<ViteHubConsoleDocumentPage> {

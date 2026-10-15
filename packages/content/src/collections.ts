@@ -22,6 +22,7 @@ import {
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentScheduleKey, createContentSchedules } from "./schedules.ts"
 import { isContentSeoField } from "./seo.ts"
+import { contentLive, contentLiveRoom, contentLiveSession } from "./live.ts"
 import { contentLeaseHeld, createContentSessions } from "./sessions.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
@@ -481,6 +482,8 @@ export type ContentHistorySource = ComarkContentSource & { readonly loadedRevisi
 export interface ContentCollectionsOptions {
   workspace: string
   collections: Record<string, ContentCollectionDefinition>
+  /** `false` keeps one editor at a time even where live editing is installed. */
+  live?: "auto" | false
 }
 
 export interface ContentCollectionsRuntime extends Omit<ContentSchedulesRuntime, "documentSchedules"> {
@@ -977,6 +980,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             metadata,
           })
           if (writeOptions.session !== undefined) await sessions.renew(sessionCollection, id, writeOptions.session)
+          await refreshLiveRoom(id, writeOptions.session)
           if ("delete" in change) return
           texts.set(change.digest, change.text)
           return documentOf(id, { path, digest: change.digest }, change, revision, revision.createdAt)
@@ -986,6 +990,22 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           if (isWorkspaceConflict(error) && conflictRef(error) === "draft" && attempt < maxCommitAttempts) continue
           throw error
         }
+      }
+    }
+
+    /**
+     * A write from outside the live room of a document, such as an Agent, the CLI, or another route, re-seeds that room
+     * when it has no unsaved edits. The room's own saves carry its lease session and skip this.
+     */
+    async function refreshLiveRoom(id: string, session: string | undefined): Promise<void> {
+      const live = options.live === false || format !== "markdown" ? undefined : contentLive()
+      if (!live) return
+      if (session !== undefined && session === await contentLiveSession(name, id)) return
+      try {
+        await live.refresh(contentLiveRoom(name, id))
+      }
+      catch {
+        // The room finds the change at its next save.
       }
     }
 
