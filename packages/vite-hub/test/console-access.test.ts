@@ -127,6 +127,13 @@ describe("Console access policies", () => {
     expect(handler).toHaveBeenCalledOnce()
     expect(result).toEqual({ mode: "host-managed", sections: "all" })
   })
+  it("invokes a host-managed authorize callback once", async () => {
+    const authorize = vi.fn(() => ({ sections: ["kv"] as const }))
+    const { handler, result } = await run({ mode: "host-managed", authorize })
+    expect(authorize).toHaveBeenCalledOnce()
+    expect(handler).toHaveBeenCalledOnce()
+    expect(result).toEqual({ mode: "host-managed", sections: ["kv"] })
+  })
   it("returns a custom Response created in another runtime realm", async () => {
     const window = new Window()
     try {

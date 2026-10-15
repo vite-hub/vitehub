@@ -176,6 +176,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   const policy = scope[policyKey]
   if (!policy) return rejection(500, "[vitehub] Console access is not configured. The generated Console output did not install an access policy.")
   let user: ConsoleUser | undefined
+  let authorizeResult: unknown
+  let authorizeResultReady = false
   if (policy.mode === "local") {
     if (productionRuntime()) return rejection(403, "[vitehub] console: true is development-only. Configure console: { access: \"auth\" } or console: { exposure: \"host-managed\", authorize } for production.")
   }
@@ -183,10 +185,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     if (!policy.authorize) {
       return rejection(500, "[vitehub] console: { exposure: \"host-managed\" } requires console.authorize. Set it to a server file that default-exports defineConsoleAuthorize().")
     }
-    const result = await policy.authorize({ request: webRequest(event) })
-    const response = await authorizationResponse(result)
-    if (response) return response
-    if (result !== true) return rejection(403, "Forbidden.")
+    authorizeResult = await policy.authorize({ request: webRequest(event) })
+    authorizeResultReady = true
   }
   else if (policy.mode === "auth" || policy.mode === "cloudflare-access") {
     if (!policy.check) {
@@ -201,8 +201,11 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   let sections: ConsoleAccess["sections"] = "all"
   if (policy.authorize) {
     const request = webRequest(event)
-    const result: unknown = await policy.authorize(user ? { request, user } : { request })
-    if (result instanceof Response) return result
+    const result: unknown = authorizeResultReady
+      ? authorizeResult
+      : await policy.authorize(user ? { request, user } : { request })
+    const response = await authorizationResponse(result)
+    if (response) return response
     if (result === false) return rejection(403, "Forbidden.")
     if (result !== true) {
       const allowed = authorizedSections(result)
