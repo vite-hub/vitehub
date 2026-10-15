@@ -414,6 +414,78 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   }
 }
 
+function bridgeAuthorizationBody(
+  body: ReadableStream<Uint8Array>,
+  getReader: () => unknown,
+) {
+  const reader = Reflect.apply(getReader, body, [])
+  let readerPrototype: object | null = Object.getPrototypeOf(Object(reader))
+  let read: ((...args: []) => Promise<ReadableStreamReadResult<Uint8Array>>) | undefined
+  let cancel: ((...args: [unknown?]) => Promise<void>) | undefined
+  let releaseLock: (() => void) | undefined
+  const seen = new Set<object>()
+  for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(readerPrototype)) break
+    seen.add(readerPrototype)
+    const readDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "read")
+    const cancelDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")
+    const releaseDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
+    if (!read && typeof readDescriptor?.value === "function") read = readDescriptor.value
+    if (!cancel && typeof cancelDescriptor?.value === "function") cancel = cancelDescriptor.value
+    if (!releaseLock && typeof releaseDescriptor?.value === "function") releaseLock = releaseDescriptor.value
+    if (read && cancel && releaseLock) break
+    readerPrototype = Object.getPrototypeOf(readerPrototype)
+  }
+  if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    Reflect.apply(releaseLock, reader, [])
+  }
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await Reflect.apply(read, reader, [])
+        if (result.done) {
+          release()
+          controller.close()
+        }
+        else controller.enqueue(result.value)
+      }
+      catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await Reflect.apply(cancel, reader, [reason])
+      }
+      finally {
+        release()
+      }
+    },
+  }, { highWaterMark: 0 })
+  return { stream, release }
+}
+
+function authorizationBodyReader(body: object): (() => unknown) | undefined {
+  let prototype: object | null = Object.getPrototypeOf(body)
+  const seen = new Set<object>()
+  let lockedOwner: object | undefined
+  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(prototype)) return
+    seen.add(prototype)
+    if (!lockedOwner && typeof Object.getOwnPropertyDescriptor(prototype, "locked")?.get === "function") lockedOwner = prototype
+    if (lockedOwner === prototype) {
+      const reader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value
+      return typeof reader === "function" ? reader : undefined
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
+
 function normalizeAuthorizationResponse(value: unknown): Response | undefined {
   if (value === null || Object(value) !== value) return
   try {
@@ -467,7 +539,13 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // Foreign and shadowed values require a serializable local snapshot.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
+      : body === null
+        ? new Response(null, { status, statusText, headers: normalizedHeaders })
+        : new Response(bridgeAuthorizationBody(body, authorizationBodyReader(Object(body)) ?? (() => undefined)).stream, {
+            status,
+            statusText,
+            headers: normalizedHeaders,
+          })
     // Foreign implementations and shadowed native values become stable local responses.
     return normalizedResponse
   }
