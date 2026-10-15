@@ -97,7 +97,28 @@ export interface RealtimeEditor {
   extensions(): AnyExtension[]
   fromMarkdown(markdown: string): Promise<JSONContent> | JSONContent
   toMarkdown(document: JSONContent): Promise<string> | string
+  /**
+   * Checks a stored document when a room opens. Return `writable: false` when the codec
+   * cannot edit it without loss: the room then opens read-only and never saves.
+   */
+  verify?(markdown: string, options: { fields?: Record<string, RealtimeFieldValue> }): Promise<RealtimeVerifyResult> | RealtimeVerifyResult
 }
+
+/** Result of `RealtimeEditor.verify()` for one stored document. */
+export interface RealtimeVerifyResult {
+  /**
+   * The body this codec writes for the unchanged document, when it differs from the stored
+   * body only in form. A save whose body equals it, with unchanged fields, writes nothing.
+   */
+  canonical?: string
+  /** Problems shown in the room `status` until the first save. */
+  issues?: RealtimeIssue[]
+  /** `false` opens the room read-only: no saves, and clients cannot change the body or fields. */
+  writable: boolean
+}
+
+/** Why a connection is read-only: `access` (authorization denied write) or `document` (the codec cannot edit it losslessly). */
+export type RealtimeReadOnlyReason = "access" | "document"
 
 export interface RealtimeRequestContext {
   definition: string

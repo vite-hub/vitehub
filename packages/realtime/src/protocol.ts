@@ -1,7 +1,7 @@
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 
-import type { RealtimeResetReason, RealtimeWorkspaceChange } from "./types.ts"
+import type { RealtimeReadOnlyReason, RealtimeResetReason, RealtimeWorkspaceChange } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const messageWorkspaceChange = 4
@@ -13,6 +13,8 @@ export const workspaceRoomId = "@workspace"
 export const maxAwarenessClients = 1024
 export const realtimeSyncPendingCode = "REALTIME_SYNC_PENDING"
 export const realtimeSourceChangedCode = "REALTIME_SOURCE_CHANGED"
+/** A save or checkpoint asked a room whose codec cannot edit the stored document without loss. */
+export const realtimeReadOnlyCode = "REALTIME_READ_ONLY"
 /** Close code sent after a reset control frame. The client must drop its Y.Doc. */
 export const realtimeResetCloseCode = 4409
 /** Close code for updates a peer may not write: read-only access or the server-written status. */
@@ -23,7 +25,7 @@ export function isRetryableRealtimeRequestCode(value: unknown): boolean {
 }
 
 export type RealtimeControlMessage =
-  | { type: "session", access: "read" | "write", epoch: string }
+  | { type: "session", access: "read" | "write", epoch: string, reason?: RealtimeReadOnlyReason }
   | { type: "reset", epoch: string, reason: RealtimeResetReason }
 
 export function encodeRealtimeControl(message: RealtimeControlMessage): Uint8Array {
@@ -41,6 +43,9 @@ export function decodeRealtimeControlPayload(decoder: decoding.Decoder): Realtim
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The control frame is untrusted JSON; epochs are non-empty strings.
     if (typeof value.epoch !== "string" || !value.epoch) return
     if (value.type === "session" && "access" in value && (value.access === "read" || value.access === "write")) {
+      if (value.access === "read" && "reason" in value && (value.reason === "access" || value.reason === "document")) {
+        return { type: "session", access: value.access, epoch: value.epoch, reason: value.reason }
+      }
       return { type: "session", access: value.access, epoch: value.epoch }
     }
     if (value.type === "reset" && "reason" in value && (value.reason === "source-changed" || value.reason === "stale")) {

@@ -4,6 +4,7 @@ import * as Y from "yjs"
 
 import type { RealtimeDefinition } from "../src/types.ts"
 import { RealtimeDocumentConflict } from "../src/conflict.ts"
+import { defineRealtimeEditor } from "../src/editor.ts"
 import { createRealtimeYDoc, readRealtimeYDoc } from "../src/document.ts"
 import { readRealtimeStatus } from "../src/layout.ts"
 import { createRealtimeHandler, realtimeRoomKey } from "../src/server.ts"
@@ -188,6 +189,134 @@ describe("custom document adapters", () => {
     expect(response.status).toBe(200)
     expect(memory.adapter.save.mock.calls[0]![1]).toEqual({ body, fields: { reviewed: true } })
     document.destroy()
+    client.close()
+  })
+})
+
+/**
+ * Stub codec that loses a construct: blocks starting with `::` (an undeclared component) are
+ * dropped. It also writes `- ` for a `* ` list marker and drops the final newline.
+ */
+function createLossyEditor() {
+  const { calls, editor: base } = createStubEditor()
+  const blocks = (markdown: string) => markdown.replace(/\n+$/, "").split("\n\n")
+  const kept = (markdown: string) => blocks(markdown).filter(block => !block.startsWith("::")).map(block => block.replace(/^\* /, "- ")).join("\n\n")
+  const verify = vi.fn((markdown: string) => {
+    const lost = blocks(markdown).filter(block => block.startsWith("::"))
+    return lost.length
+      ? { issues: lost.map(block => ({ message: `The editor does not know ${block.split("\n")[0]}.` })), writable: false }
+      : { canonical: kept(markdown), writable: true }
+  })
+  const editor = defineRealtimeEditor({
+    extensions: base.extensions,
+    fromMarkdown: markdown => base.fromMarkdown(kept(markdown)),
+    toMarkdown: document => base.toMarkdown(document),
+    verify,
+  })
+  return { calls, editor, verify }
+}
+
+describe("editor codec guard", () => {
+  it("opens a document the codec cannot keep as read-only and never saves it", async () => {
+    const { editor, verify } = createLossyEditor()
+    const body = "Intro\n\n::callout\nKeep me\n::\n\nOutro\n"
+    const memory = createMemoryAdapter({ page: { body, fields: { title: "Notes" } } })
+    const server = createTestServer({ document: memory.adapter, editor })
+    const client = await server.connect("page")
+    await settle()
+
+    expect(verify).toHaveBeenCalledWith(body, { fields: { title: "Notes" } })
+    expect(client.controls[0]).toEqual({ type: "session", access: "read", epoch: expect.any(String), reason: "document" })
+    expect(paragraphs(client.doc)).toEqual(["Intro", "Outro"])
+    expect(readRealtimeStatus(client.doc)).toMatchObject({
+      digest: "v1",
+      error: "The editor cannot save this document without loss. The room is read-only.",
+      issues: [{ message: "The editor does not know ::callout." }],
+    })
+
+    const save = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })
+    expect(save.status).toBe(409)
+    await expect(save.json()).resolves.toMatchObject({ data: { code: "REALTIME_READ_ONLY" } })
+
+    await pace()
+    client.doc.getMap("fields").set("title", "Changed")
+    expect(client.closed).toEqual({ code: 4403, reason: "This realtime document is read-only: the editor cannot save it without loss." })
+    const second = await server.connect("page")
+    await settle()
+    await pace()
+    appendParagraph(second.doc, "Edit")
+    expect(second.closed?.code).toBe(4403)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+    expect(memory.store.get("page")).toMatchObject({ body, digest: "v1" })
+  })
+
+  it("opens writable again after the stored document is fixed", async () => {
+    const { editor } = createLossyEditor()
+    const memory = createMemoryAdapter({ page: { body: "Intro\n\n::callout" } })
+    const server = createTestServer({ document: memory.adapter, editor })
+    const client = await server.connect("page")
+    await settle()
+    expect(client.controls[0]).toMatchObject({ access: "read", reason: "document" })
+
+    memory.write("page", "Intro\n\nOutro")
+    await server.post("page", "refresh")
+    expect(client.closed?.code).toBe(4409)
+    const fresh = await server.connect("page")
+    await settle()
+    expect(fresh.controls[0]).toEqual({ type: "session", access: "write", epoch: expect.any(String) })
+    expect(readRealtimeStatus(fresh.doc)).toMatchObject({ error: null, issues: [] })
+    fresh.close()
+  })
+
+  it("writes nothing when the room only holds the codec's form of the stored document", async () => {
+    const { editor } = createLossyEditor()
+    const memory = createMemoryAdapter({ page: { body: "* item\n\nText\n", fields: { title: "List" } } })
+    const server = createTestServer({ document: memory.adapter, editor })
+    const client = await server.connect("page")
+    await settle()
+    expect(client.controls[0]).toMatchObject({ access: "write" })
+    expect(paragraphs(client.doc)).toEqual(["- item", "Text"])
+
+    // An edit that is undone leaves the canonical form: no save, no rewrite of `* item`.
+    await pace()
+    appendParagraph(client.doc, "Typo")
+    await pace()
+    client.doc.getXmlFragment("body").delete(2, 1)
+    expect(paragraphs(client.doc)).toEqual(["- item", "Text"])
+    await vi.advanceTimersByTimeAsync(2_000)
+    await settle()
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+    expect(readRealtimeStatus(client.doc)).toMatchObject({ digest: "v1", error: null })
+
+    // A real edit saves the codec's form and keeps the final newline.
+    appendParagraph(client.doc, "More")
+    await vi.advanceTimersByTimeAsync(2_000)
+    await settle()
+    expect(memory.adapter.save).toHaveBeenCalledOnce()
+    expect(memory.store.get("page")).toMatchObject({ body: "- item\n\nText\n\nMore\n", fields: { title: "List" } })
+    expect(readRealtimeStatus(client.doc)).toMatchObject({ digest: "v2", issues: [] })
+    client.close()
+  })
+
+  it("saves output the codec cannot read back and reports an issue", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const server = createTestServer(liveDefinition(memory.adapter))
+    const client = await server.connect("page")
+    await settle()
+    await pace()
+    // The stub codec splits paragraphs on blank lines, so this paragraph reads back as two.
+    appendParagraph(client.doc, "one\n\ntwo")
+    await vi.advanceTimersByTimeAsync(2_000)
+    await settle()
+
+    expect(memory.store.get("page")!.body).toBe("Start\n\none\n\ntwo")
+    expect(readRealtimeStatus(client.doc)).toMatchObject({
+      digest: "v2",
+      error: null,
+      issues: [{ message: "The editor cannot read back the Markdown that it saved. Some content can change when the document opens again." }],
+    })
     client.close()
   })
 })

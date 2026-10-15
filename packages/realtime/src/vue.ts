@@ -8,7 +8,7 @@ import * as Y from "yjs"
 import type { AnyExtension } from "@tiptap/core"
 import type { MaybeRefOrGetter, Ref } from "vue"
 import type { RealtimeIdentity } from "./presence.ts"
-import type { RealtimeCheckpoint, RealtimeDocumentStatus, RealtimeEditor, RealtimePerson, RealtimeResetReason, RealtimeSaved, RealtimeUser, RealtimeWorkspaceChange } from "./types.ts"
+import type { RealtimeCheckpoint, RealtimeDocumentStatus, RealtimeEditor, RealtimePerson, RealtimeReadOnlyReason, RealtimeResetReason, RealtimeSaved, RealtimeUser, RealtimeWorkspaceChange } from "./types.ts"
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { createRealtimeEditorExtensions } from "./editor.ts"
 import { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
@@ -105,7 +105,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   const saveStatus = shallowRef<RealtimeDocumentStatus>()
   const status = ref<RealtimeStatus>("disconnected")
   const synced = ref(false)
-  const readOnly = ref(false)
+  const readOnlyReason = ref<RealtimeReadOnlyReason | null>(null)
   const checkpointRequests = ref(0)
   const saveRequests = ref(0)
   const pendingWorkspaceChanges: RealtimeWorkspaceChange[] = []
@@ -128,7 +128,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     saveStatus.value = undefined
     status.value = "disconnected"
     synced.value = false
-    readOnly.value = false
+    readOnlyReason.value = null
   }
 
   function currentPerson(clientId: number): RealtimeIdentity {
@@ -210,7 +210,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       if (control.type === "session") {
         // Reconnects present this seed; the server resets the client if the room was re-seeded meanwhile.
         nextProvider.params.epoch = control.epoch
-        readOnly.value = control.access === "read"
+        readOnlyReason.value = control.access === "read" ? control.reason ?? "access" : null
         return
       }
       reset(id, control.reason, control.epoch)
@@ -388,7 +388,9 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     fields: computed(() => document.value?.getMap<unknown>(realtimeDocumentLayout.fields)),
     people,
     provider,
-    readOnly,
+    /** The server rejects edits from this connection. `readOnlyReason` tells why; `saveStatus` holds the details. */
+    readOnly: computed(() => readOnlyReason.value !== null),
+    readOnlyReason,
     refresh,
     onReset,
     save,
