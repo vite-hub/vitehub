@@ -832,7 +832,7 @@ function isResponseLike(value: unknown): value is Response {
     // caller-controlled Symbol.toStringTag getter can otherwise spoof the
     // intrinsic tag while exposing a response-shaped object.
     let tagDescriptor: PropertyDescriptor | undefined
-    let tagPrototype: object | null = value
+    let tagPrototype: object | null = Object.getPrototypeOf(value) as object | null
     while (tagPrototype && !tagDescriptor) {
       tagDescriptor = Object.getOwnPropertyDescriptor(tagPrototype, Symbol.toStringTag)
       tagPrototype = Object.getPrototypeOf(tagPrototype) as object | null
