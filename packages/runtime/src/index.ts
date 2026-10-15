@@ -439,6 +439,11 @@ function isWebAssemblyModule(value: unknown): boolean {
 const intrinsicFunctionToString = Function.prototype.toString
 const nativeFunctionToString = (() => {
   try {
+    // A replacement can selectively delegate calls while forging only the
+    // operation signatures below. Check immutable function metadata before
+    // accepting any formatter output; this rejects the usual forged callable
+    // even when its self-source and probe responses look native.
+    if (intrinsicFunctionToString.name !== "toString" || intrinsicFunctionToString.length !== 1) return false
     if (intrinsicFunctionToString.call(intrinsicFunctionToString).replace(/\s+/g, " ") !== "function toString() { [native code] }") return false
     // A replacement can forge native-looking source for selected functions. Probe
     // the ordinary source and required TypeError behavior before trusting it.
