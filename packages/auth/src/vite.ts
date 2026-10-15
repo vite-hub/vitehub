@@ -250,8 +250,14 @@ function splitSetCookieHeader(value: string): string[] {
   let unknownAttribute = false
   let unknownAttributeHasValue = false
   let deferredCookieBoundary: number | undefined
+  let inQuotes = false
   for (let index = 0; index < value.length; index++) {
     const character = value[index]
+    if (character === '"' && value[index - 1] !== "\\") {
+      inQuotes = !inQuotes
+      continue
+    }
+    if (inQuotes) continue
     if (character === ";") {
       inAttributes = true
       const match = value.slice(index + 1).match(/^\s*([^=;,\s]+)\s*(=|;|,|$)/)
