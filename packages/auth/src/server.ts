@@ -375,9 +375,8 @@ function hasResponsePrototype(value: unknown): boolean {
       // A genuine local Response subclass may override accessors, but the
       // intrinsic getters at its branded base still authenticate the instance.
       // Keep rejecting shadowed accessors on structural/foreign candidates.
-      if (platformConstructor && !ownSnapshot && platformGetters
-        && (!shadowedResponseProperties || value instanceof Response)) return true
-      if (authorizationResponseProperties.some((key) => Object.hasOwn(prototype, key))) {
+      if (platformConstructor && !ownSnapshot && platformGetters && !shadowedResponseProperties) return true
+      if (authorizationResponseProperties.some((key) => Object.hasOwn(owner, key))) {
         shadowedResponseProperties = true
       }
       prototype = Object.getPrototypeOf(prototype)
