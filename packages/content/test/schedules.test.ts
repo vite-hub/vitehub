@@ -307,4 +307,35 @@ describe("scheduled publishing in the Console", { timeout: 30_000 }, () => {
     expect((await actions.overview({ activity: 0 }, editor)).collections.find(collection => collection.name === "posts")?.scheduled).toEqual([])
     await expect(failure(actions.unschedule({ collection: "posts", schedule: schedule.id }, editor))).resolves.toMatchObject({ status: 404, code: "CONTENT_SCHEDULE_NOT_FOUND" })
   })
+
+  it("names no document of a failed schedule that a per-document policy hides", async () => {
+    const { content, posts, workspace } = await setup()
+    const hello = await posts.save("hello", { data: { title: "Hello" }, body: "" })
+    const secret = await posts.save("secret", { data: { title: "Secret plan" }, body: "" })
+    const at = later()
+    await content.schedule({ at, expect: [{ collection: "posts", id: "hello", digest: hello.digest }, { collection: "posts", id: "secret", digest: secret.digest }] })
+    await posts.save("secret", { data: { title: "Secret plan v2" }, body: "" })
+    const run = await content.publishDue({ now: at })
+    // The runtime failure names the document that moved.
+    expect(run.failed[0]?.failure?.message).toContain("posts/secret")
+
+    const scoped = defineContent({
+      workspace,
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) },
+      authorize: ({ action, id }) => action === "read" && id !== "secret",
+      logger: false,
+    })
+    cleanup.push(() => scoped.dispose())
+    const actions = createContentConsoleActions({ content: scoped })
+    const reader = { user: { id: "rae", role: "reader" } }
+    const page = await actions.list({ collection: "posts" }, reader)
+    expect(page.items.map(item => item.id)).toEqual(["hello"])
+    const failed = { status: "failed", failure: "A document changed after it was scheduled, so nothing was published." }
+    expect(page.items[0]!.schedule).toMatchObject(failed)
+    const document = await actions.get({ collection: "posts", id: "hello" }, reader)
+    expect(document?.schedule).toMatchObject(failed)
+    const overview = await actions.overview({ activity: 0 }, reader)
+    expect(overview.collections[0]!.scheduled).toEqual([{ id: "hello", title: "Hello", schedule: expect.objectContaining(failed) }])
+    expect(JSON.stringify([page, document, overview])).not.toMatch(/secret/i)
+  })
 })
