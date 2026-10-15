@@ -123,7 +123,7 @@ describe("docs product navigation", () => {
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
+    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null, null, "Build", null]);
   });
 
   it("lists each topic once inside a section", () => {
