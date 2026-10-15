@@ -347,14 +347,20 @@ const authorizationReaderReleaseLock = authorizationReaderPrototype
   ? Object.getOwnPropertyDescriptor(authorizationReaderPrototype, "releaseLock")?.value
   : undefined
 const authorizationUint8ArraySubarray = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "subarray")?.value
+const authorizationTypedArrayTag = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  Symbol.toStringTag,
+)?.get
 
 function isAuthorizationByteChunk(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value) || typeof authorizationUint8ArraySubarray !== "function") return false
+  if (!ArrayBuffer.isView(value)
+    || typeof authorizationUint8ArraySubarray !== "function"
+    || typeof authorizationTypedArrayTag !== "function") return false
   try {
-    // The native typed-array operation performs a brand check that also accepts
-    // Uint8Arrays created by another realm, while rejecting strings and other views.
+    // The native typed-array operation performs a brand check, while the native
+    // tag getter distinguishes Uint8Array from other typed-array views.
     Reflect.apply(authorizationUint8ArraySubarray, value, [0, 0])
-    return true
+    return Reflect.apply(authorizationTypedArrayTag, value, []) === "Uint8Array"
   }
   catch {
     return false
