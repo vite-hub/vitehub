@@ -619,6 +619,16 @@ describe("agent output helpers", () => {
       })
       const proxyEvent = toAgentStreamEvent({ error: proxySpoof, type: "error" })
       expect(Object.getOwnPropertySymbols(proxyEvent!)).not.toContain(agentStreamErrorSymbol)
+
+      const forgedConstructor = function Error() {}
+      const forgedPrototype = Object.create(Error.prototype)
+      Object.defineProperty(forgedConstructor, "prototype", { value: forgedPrototype })
+      Object.defineProperty(forgedPrototype, "constructor", { value: forgedConstructor })
+      const forgedCustom = Object.create(forgedPrototype)
+      Object.defineProperty(forgedCustom, Symbol.toStringTag, { value: "ProviderError" })
+      Object.defineProperty(forgedCustom, "stack", { get: () => "Error: forged", configurable: true })
+      const forgedCustomEvent = toAgentStreamEvent({ error: forgedCustom, type: "error" })
+      expect(Object.getOwnPropertySymbols(forgedCustomEvent!)).not.toContain(agentStreamErrorSymbol)
     }
     finally {
       errorConstructor.isError = nativeIsError

@@ -765,9 +765,13 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
           if (prototype === Error.prototype) return hasIntrinsicStack()
           if (prototype === null || prototype === Object.prototype) return false
           const constructor = Reflect.get(prototype, "constructor")
-          return hasRuntimeType(constructor, "function")
-            && Reflect.get(constructor, "prototype") === prototype
-            && hasIntrinsicStack()
+          if (!hasRuntimeType(constructor, "function")
+            || Reflect.get(constructor, "prototype") !== prototype
+            || !hasIntrinsicStack()) return false
+          // A provider can forge the prototype/constructor relationship and a
+          // configurable stack accessor. Realm Error constructors are built-ins;
+          // user-defined constructors cannot reproduce this intrinsic marker.
+          return /\[native code\]/.test(Function.prototype.toString.call(constructor))
         })())
     if (!branded) return
     return { message: String(Reflect.get(error, "message")), value: error }
