@@ -24,7 +24,7 @@ export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 /** The checked Console access that a guarded handler receives. Only `withConsoleAccess()` creates it. */
 export interface ConsoleAccess {
   readonly mode: ConsoleAccessMode
-  readonly sections: "all" | readonly ConsoleSectionId[]
+  readonly sections?: "all" | readonly ConsoleSectionId[]
   readonly user?: ConsoleUser
 }
 
@@ -141,7 +141,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     if (response) return response
     if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
-  let sections: ConsoleAccess["sections"] = "all"
+  let sections: ConsoleAccess["sections"]
   if (policy.mode !== "host-managed" && policy.mode !== "local" && policy.authorize) {
     const result: unknown = await policy.authorize(user ? { request: webRequest(event), user } : { request: webRequest(event) })
     if (result instanceof Response) return result
@@ -160,7 +160,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
     sections = allowed
   }
-  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}) })
+  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, ...(sections ? { sections } : {}), ...(user ? { user } : {}) })
   if (policy.mode === "auth" && !user && policy.user) deferredUsers.set(access, () => policy.user!(event))
   return access
 }
@@ -172,7 +172,7 @@ export async function readConsoleAccessUser(access: ConsoleAccess): Promise<Cons
 
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
-  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
+  return access.sections === undefined || access.sections === "all" || (section !== undefined && access.sections.includes(section))
 }
 
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
