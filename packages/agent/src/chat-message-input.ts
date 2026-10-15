@@ -452,10 +452,10 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   }
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
   let selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
-  if (options.concurrency === "queue") {
+  if (options.concurrency === "queue" || options.concurrency === "steer") {
     const metadata = v.safeParse(retainedQueueMetadataSchema, messages.at(-1)?.metadata)
     if (metadata.success) {
-      // Retained queue input belongs to this invocation, even when history is disabled.
+      // Retained queue or burst input belongs to this invocation, even when history is disabled.
       const retained = messages.slice(-Math.min(messages.length, metadata.output.chat.skippedCount + 1))
       selectedMessages = [...selectedMessages.filter(message => !retained.includes(message)), ...retained]
     }

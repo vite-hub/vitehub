@@ -101,6 +101,15 @@ jobs:
       # that the repository contract tests would scan.
       - run: vp run build
 
+      # vp pack rewrites each package's exports map in sorted order. Commit
+      # that order so a local build leaves the tree clean.
+      - name: Build leaves package manifests unchanged
+        run: |
+          git diff --exit-code -- 'packages/*/package.json' || {
+            echo "::error::vp run build rewrote package.json exports. Run it locally and commit the result."
+            exit 1
+          }
+
       - name: Fast contracts
         if: ${{ github.event_name == 'pull_request' }}
         run: vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts
