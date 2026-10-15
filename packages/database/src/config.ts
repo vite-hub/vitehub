@@ -94,6 +94,54 @@ function stripComments(source: string) {
   return result
 }
 
+function maskCommentsAndStrings(source: string) {
+  let result = ""
+  let quote: string | undefined
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]!
+    const next = source[index + 1]
+    if (quote) {
+      if (char === "\\") {
+        result += "  "
+        index++
+      }
+      else {
+        result += char === "\n" || char === "\r" ? char : " "
+        if (char === quote) quote = undefined
+      }
+      continue
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char
+      result += " "
+    }
+    else if (char === "/" && next === "/") {
+      result += "  "
+      index++
+      while (index + 1 < source.length && source[index + 1] !== "\n") {
+        result += " "
+        index++
+      }
+    }
+    else if (char === "/" && next === "*") {
+      result += "  "
+      index++
+      while (index + 1 < source.length) {
+        index++
+        const commentChar = source[index]!
+        if (commentChar === "*" && source[index + 1] === "/") {
+          result += "  "
+          index++
+          break
+        }
+        result += commentChar === "\n" || commentChar === "\r" ? commentChar : " "
+      }
+    }
+    else result += char
+  }
+  return result
+}
+
 function readEntryKey(entry: string): string | undefined {
   const match = /^\s*(?:([A-Za-z_$][\w$]*)|["']([^"']+)["']|\[\s*["']([^"']+)["']\s*\])\s*(?::|$)/.exec(stripLeadingEntryComments(entry))
   return match?.[1] || match?.[2] || match?.[3]
@@ -261,8 +309,12 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
   const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
   seen.add(identifier)
-  const declaration = new RegExp(`(?:^|[;\\n\\r])\\s*(?:const|let|var)\\s+${identifier}\\s*=\\s*([^;]+)`, 's').exec(stripComments(source))?.[1]
-  return readOpaqueResourceOwnership(declaration, source, seen)
+  const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = new RegExp(`(?:^|[;\\n\\r])\\s*(?:const|let|var)\\s+${escapedIdentifier}\\s*=\\s*([^;]+)`, 's').exec(maskCommentsAndStrings(source))
+  if (!match) return undefined
+  const original = source.slice(match.index, match.index + match[0].length)
+  const declaration = /=\s*([\s\S]+)/.exec(original)?.[1]
+  return readOpaqueResourceOwnership(declaration, source, seen) ?? false
 }
 
 function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource?: boolean, value?: CloudflareD1BindingConfig } {
@@ -656,7 +708,7 @@ export function resolveDBViteConfig(
   const cloudflareBindings = new Map<string, string>()
   for (const definition of definitions) {
     const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
-    if (definitionCloudflare.resource === "opaque" && definitionCloudflare.ownsOpaqueResource !== false) continue
+    if (definitionCloudflare.resource === "opaque" && definitionCloudflare.ownsOpaqueResource === true) continue
     const binding = databases[definition.name]?.cloudflare?.binding
       ?? (definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
     if (!binding) continue
