@@ -21,6 +21,12 @@ Open <http://localhost:5173/login> and sign in as one of the playground users:
 | `editor@vitehub.dev` | Content only | Read, write, publish |
 | `writer@vitehub.dev` | Content only | Read and write, no publish |
 
+`realtime: true` turns on live co-editing: open a post as two users (for example the editor and the writer in two
+browser profiles) and both edit it at once, with carets and field avatars. The room saves the draft a few seconds after
+typing stops, and History names everyone who edited. A post that uses Markdown the editor cannot keep, such as an
+undeclared component, opens read-only in the room and stays editable in Source by one editor at a time. The sessions
+table stores the room's `live` lease in its text `kind` column, so the committed migration needs no change.
+
 Media at `/_vitehub/content/-/media` stores files in `.vitehub/data/blob`. Writers upload files and edit alt text,
 focal points, and crops; admins and editors also move and delete them, since they can publish.
 
