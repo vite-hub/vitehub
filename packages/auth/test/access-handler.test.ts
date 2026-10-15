@@ -318,6 +318,21 @@ describe("Auth access handlers", () => {
     }
   })
 
+  it("rejects a response with an unbranded inherited header carrier", async () => {
+    const source = new ForeignResponse("Policy rejected", { status: 409 })
+    const forEach = vi.fn(() => { throw new Error("untrusted headers") })
+    function Headers() {}
+    const prototype = { constructor: Headers, forEach }
+    Object.defineProperty(Headers, "prototype", { value: prototype })
+    Object.defineProperty(source, "headers", { value: Object.create(prototype) })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => source as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    expect(forEach).not.toHaveBeenCalled()
+  })
+
   it("snapshots a serializable Response-shaped prototype without rereading its getters", async () => {
     const sourceBody = new Response("Policy rejected").body
     const headers = vi.fn()

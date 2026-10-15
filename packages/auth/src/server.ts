@@ -387,13 +387,23 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 }
 
 function authorizationHeaderMethods(headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
-  if (Object.prototype.hasOwnProperty.call(headers, "forEach") || (Object.prototype.hasOwnProperty.call(headers, "getSetCookie") && Reflect.getOwnPropertyDescriptor(headers, "getSetCookie")?.value !== undefined)) return
+  if (Object.prototype.hasOwnProperty.call(headers, "forEach") || (Object.prototype.hasOwnProperty.call(headers, "getSetCookie") && Object.getOwnPropertyDescriptor(headers, "getSetCookie")?.value !== undefined)) return
   const prototype = Object.getPrototypeOf(headers)
-  if (!prototype || Object.getOwnPropertyDescriptor(prototype, "constructor")?.value?.name !== "Headers") return
+  const constructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+  // A constructor name alone is not evidence that this is a Headers prototype.
+  // Require the prototype link and the standard brand before accepting methods
+  // that will be invoked with the caller's header carrier as their receiver.
+  if (typeof constructor !== "function" || constructor.name !== "Headers" || constructor.prototype !== prototype) return
+  try {
+    if (Object.prototype.toString.call(headers) !== "[object Headers]") return
+  }
+  catch {
+    return
+  }
   const forEach = Object.getOwnPropertyDescriptor(prototype, "forEach")?.value
   const getSetCookie = Object.getOwnPropertyDescriptor(prototype, "getSetCookie")?.value
-  if (typeof forEach !== "function") return
-  if (getSetCookie !== undefined && typeof getSetCookie !== "function") return
+  if (typeof forEach !== "function" || forEach.name !== "forEach") return
+  if (getSetCookie !== undefined && (typeof getSetCookie !== "function" || getSetCookie.name !== "getSetCookie")) return
   return { forEach: forEach as (...args: never[]) => unknown, getSetCookie: getSetCookie as (...args: never[]) => unknown | undefined }
 }
 
