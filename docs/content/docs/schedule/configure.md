@@ -102,7 +102,7 @@ export function myPackage(): Plugin & ScheduleContributingPlugin {
         const module = join(projectRoot, '.vitehub/my-package/publish-schedule.ts')
         await mkdir(dirname(module), { recursive: true })
         await writeFile(module, [
-          `import { defineSchedule } from 'vite-hub/schedule'`,
+          `import { defineSchedule } from '@vite-hub/schedule'`,
           `import { publishDue } from 'my-package/server'`,
           `export default defineSchedule({ cron: '*/5 * * * *', manual: true, handler: () => publishDue() })`,
           '',

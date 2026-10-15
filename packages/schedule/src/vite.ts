@@ -241,7 +241,9 @@ async function addNitroScheduleDevHandler(value: unknown, roots: ReturnType<type
   await mkdir(dirname(handler), { recursive: true })
   const contents = renderViteHubNitroDevHandler({ context: { rootDir: roots.viteRoot, serverId }, export: "handleScheduleDevRequest", module: `${importBase ?? schedulePackageName}/runtime/dev` })
   if (!existsSync(handler) || await readFile(handler, "utf8") !== contents) await writeFile(handler, contents, "utf8")
-  const kit = createNitroServerKit(cloneNitroConfig(value))
+  const nitro = cloneNitroConfig(value)
+  if (Array.isArray(nitro.handlers) && nitro.handlers.some(entry => isRecord(entry) && entry.route === scheduleDevRuntimeRoute)) return nitro
+  const kit = createNitroServerKit(nitro)
   kit.addHandler({ handler, route: scheduleDevRuntimeRoute })
   return kit.config as NitroConfig
 }
@@ -688,7 +690,9 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           serverDirs,
         } as InternalScheduleNitroConfigOptions)
         if (nitro) {
-          ;(config as unknown as ViteConfigWithNitro).nitro = nitro
+          ;(config as unknown as ViteConfigWithNitro).nitro = config.command === "serve"
+            ? await addNitroScheduleDevHandler(nitro, roots, devServerId, internalOptions.importBase)
+            : nitro
         }
       }
       // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
