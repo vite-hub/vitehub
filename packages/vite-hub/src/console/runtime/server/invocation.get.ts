@@ -186,5 +186,5 @@ const invocationHandler = async (event: ConsoleRequestEvent): Promise<ConsoleInv
     : deleteConsoleInvocationAction(event, body)
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof invocationHandler> = withConsoleAccess(invocationHandler)
+const guardedHandler: ConsoleAccessRoute<typeof invocationHandler> = withConsoleAccess(invocationHandler, { section: "agents" })
 export default guardedHandler

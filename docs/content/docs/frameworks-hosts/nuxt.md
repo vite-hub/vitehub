@@ -47,6 +47,35 @@ pnpm nuxt dev
 pnpm nuxt build
 ```
 
+## Nuxt layers
+
+ViteHub scans the server directory of the application and of every layer it
+extends. A layer can own an Auth Definition, Database tables, Agents, or any
+other Definition. The application needs no extra code to use them.
+
+```txt [File tree]
+app/
+  nuxt.config.ts          # extends: ['../layers/accounts', '../layers/blog']
+layers/
+  accounts/
+    server/auth.ts
+    server/databases/config.ts   # users table
+  blog/
+    server/databases/config.ts   # posts table
+```
+
+The application takes precedence over its layers:
+
+- An Auth Definition in the application replaces the layer Definitions. Two
+  layers with an Auth Definition fail discovery until the application defines one.
+- Database Definitions with the same name merge into one database. Read
+  [Tables from Nuxt layers](/docs/database/configure#tables-from-nuxt-layers).
+- Other Definitions keep one identity per name. Two layers, or a layer and the
+  application, with the same identity fail discovery and list both files.
+
+Run `pnpm vitehub inspect definitions` to see the file that supplies each
+Definition.
+
 ## Differences from the Vite integration
 
 | Concern | Nuxt behavior |
