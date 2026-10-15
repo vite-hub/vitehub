@@ -1,6 +1,8 @@
 import Collaboration from "@tiptap/extension-collaboration"
 import { useUserSession } from "@vite-hub/auth/vue"
 import * as decoding from "lib0/decoding"
+import * as encoding from "lib0/encoding"
+import * as awarenessProtocol from "y-protocols/awareness"
 import { computed, markRaw, onScopeDispose, ref, shallowRef, toValue, watch } from "vue"
 import { WebsocketProvider } from "y-websocket"
 import * as Y from "yjs"
@@ -12,12 +14,16 @@ import type { RealtimeCheckpoint, RealtimeDocumentStatus, RealtimeEditor, Realti
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { createRealtimeEditorExtensions } from "./editor.ts"
 import { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
+
+/** Reads a room document as Markdown and fields with the editor codec, such as the `previous` document of a reset. */
+export { readRealtimeYDoc } from "./document.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import {
   decodeRealtimeControlPayload,
   decodeWorkspaceChangePayload,
   encodeWorkspaceChange,
   isRetryableRealtimeRequestCode,
+  messageAwareness,
   messageRealtimeControl,
   messageWorkspaceChange,
   workspaceRoomId,
@@ -215,6 +221,18 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       }
       reset(id, control.reason, control.epoch)
     }
+    // y-websocket sends every awareness change it sees, other clients' too. The server lets each connection change only
+    // the clients it owns and closes it otherwise, so send this client's own state only.
+    nextProvider.awareness.off("update", nextProvider._awarenessUpdateHandler)
+    nextProvider.awareness.on("update", ({ added, removed, updated }: { added: number[], removed: number[], updated: number[] }) => {
+      const own = [...added, ...updated, ...removed].filter(client => client === nextDocument.clientID)
+      const socket = nextProvider.ws
+      if (!own.length || !nextProvider.wsconnected || !socket || socket.readyState !== socket.OPEN) return
+      const encoder = encoding.createEncoder()
+      encoding.writeVarUint(encoder, messageAwareness)
+      encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(nextProvider.awareness, own))
+      socket.send(encoding.toUint8Array(encoder))
+    })
     nextProvider.awareness.setLocalStateField("user", currentPerson(nextDocument.clientID))
     nextProvider.awareness.on("change", () => {
       if (provider.value === nextProvider) updatePeople(nextProvider)

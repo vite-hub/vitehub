@@ -88,6 +88,10 @@ icon: i-lucide-radio
   A `fields` map with last-write-wins per field, and a server-written `status` map with issues.
   :::
 
+  :::product-feature-item{title="Content documents edit live in the Console" icon="i-lucide-file-pen-line" to="/docs/content/editing-together#live-editing"}
+  With Realtime enabled, Content adds a `content` definition: carets, field focus, and drafts that save themselves.
+  :::
+
   :::product-feature-item{title="One writer needs only Workspace" icon="i-lucide-folder-git-2" to="/docs/workspace"}
   Use Workspace alone when one writer changes files.
   :::

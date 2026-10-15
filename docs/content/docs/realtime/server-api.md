@@ -68,6 +68,8 @@ export default defineRealtime({
 | `stored` | The stored form when the adapter normalized the snapshot. Realtime merges the difference into the room as a structural diff, keeping concurrent edits and without a reset. Omit `fields` to leave live fields untouched. |
 | `issues` | Validation problems that did not block the save. They appear in the room `status` map. |
 | `checkpoint(context, { digest, message, user })` | Optional. Records a history entry that must contain `digest`. Enables `history.checkpoint()`. |
+| `hold(context, { users })` | Optional. Called while a writable room has clients: when one joins or leaves, and every 60 seconds. `users` are the identified people connected now. Use it to keep a lease. A thrown error shows in the room `status` until a later call succeeds. |
+| `release(context)` | Optional. Called once after the last writer left a room that `hold()` kept, after the room saved. |
 | `kind` | Optional label for `vitehub inspect`. |
 
 `context` is `{ authority, definition, documentId }`. `authority` is `memory`
@@ -98,7 +100,10 @@ export const pagesEditor = defineRealtimeEditor({
 
 Use it in the definition with `editor: pagesEditor` and in the browser with
 `useRealtimeTiptap('pages', id, { editor: pagesEditor })`. Both sides must
-use the same extensions. Without `editor`, Realtime uses `realtimeMarkdownEditor`:
+use the same extensions. `editor` may also be a function of the document
+context, such as `({ documentId }) => editorFor(documentId)`, when documents
+of one definition use different schemas. Content uses it for one codec per
+collection; see [Edit Content together](/docs/content/editing-together#live-editing). Without `editor`, Realtime uses `realtimeMarkdownEditor`:
 StarterKit, images, tables, and raw YAML frontmatter as an atom node, parsed
 by `@tiptap/markdown`.
 
@@ -226,6 +231,13 @@ realtime.onReset(({ reason, previous }) => {
 After a reset `realtime.document` and `realtime.extensions` point to a new
 document. Recreate the editor when `document` changes, as for a document
 switch.
+
+Server code tells a room that its stored copy changed outside it with
+`refreshRealtimeDocument(definition, documentId)` from `vite-hub/realtime/server`.
+An open room without unsaved edits re-seeds at once; a room with unsaved
+edits finds the change at its next save. On Cloudflare pass
+`{ durableObjects: env.$DurableObject }` to reach the room's Durable Object.
+Content calls it after every save from outside a live room.
 
 ## Workspace documents and history
 

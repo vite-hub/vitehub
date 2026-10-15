@@ -14,7 +14,7 @@ import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.
 import { createConnectionsHandler } from "@vite-hub/connections/http"
 import { createConnectionsRuntime } from "@vite-hub/connections/server"
 
-import { bindConsoleAccess, consoleConnectionsActor, consoleOpenAccessWarning, consoleRouteScope, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { bindConsoleAccess, consoleConnectionsActor, consoleOpenAccessWarning, consoleRealtimeAccess, consoleRouteScope, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { consoleRpcOperationSection, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { assertConsoleAccess, consoleVitePlugin, resolveConsoleOptions } from "../src/console/vite.ts"
@@ -368,6 +368,43 @@ describe("Connections manager from Console access", () => {
     expect(allowed.status).toBe(200)
     await expect(allowed.json()).resolves.toEqual({ connections: [] })
     expect(authorize).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("Realtime rooms from Console access", () => {
+  it("names the signed-in Console user and gates rooms by section access", async () => {
+    installConsoleAccess({
+      mode: "auth",
+      check: async () => undefined,
+      user: async request => (request.req?.headers?.get("x-user") ? { id: "ana", name: "Ana", email: "ana@vitehub.dev" } : undefined),
+      authorize: ({ user }) => (user ? { sections: ["content"] } : { sections: ["kv"] }),
+    })
+    const content = consoleRealtimeAccess("content")
+    const signedIn = event({ "x-user": "ana" })
+    await expect(content.identify({ event: signedIn })).resolves.toEqual({ email: "ana@vitehub.dev", id: "ana", name: "Ana" })
+    await expect(content.authorize({ event: signedIn })).resolves.toBe(true)
+    await expect(content.user({ event: signedIn })).resolves.toMatchObject({ id: "ana" })
+    // Without the section, a room has no person and no access.
+    const kvOnly = event()
+    await expect(content.identify({ event: kvOnly })).resolves.toBeNull()
+    await expect(content.authorize({ event: kvOnly })).resolves.toBe(false)
+    await expect(content.user({ event: kvOnly })).resolves.toBeNull()
+  })
+
+  it("makes each connection of an open Console a guest, and reads the Cloudflare Access email", async () => {
+    installConsoleAccess({ mode: "open" })
+    const open = consoleRealtimeAccess("content")
+    await expect(open.identify({ event: event() })).resolves.toMatchObject({ id: expect.stringMatching(/^guest-/), name: "Guest" })
+    await expect(open.user({ event: event() })).resolves.toBeNull()
+    installConsoleAccess({ mode: "cloudflare-access", check: async () => undefined })
+    await expect(consoleRealtimeAccess("content").identify({ event: event({ "cf-access-authenticated-user-email": "ben@vitehub.dev" }) }))
+      .resolves.toEqual({ email: "ben@vitehub.dev", id: "ben@vitehub.dev", name: "ben@vitehub.dev" })
+  })
+
+  it("denies a request that the access policy rejects", async () => {
+    installConsoleAccess({ mode: "auth", check: async () => new Response(null, { status: 401 }) })
+    await expect(consoleRealtimeAccess("content").identify({ event: event() })).resolves.toBeNull()
+    await expect(consoleRealtimeAccess("content").identify({ event: "not an event" })).resolves.toBeNull()
   })
 })
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Time, today } from "@internationalized/date";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from "vue";
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 
 import {
@@ -33,10 +33,12 @@ import {
   stableConsoleJSON,
 } from "../client/documents";
 import { splitConsoleFrontmatter } from "../client/editor";
-import { consoleClockTime, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
+import { useConsoleLiveDocument } from "../client/live";
+import { consoleClockTime, consoleLiveDefinition, consoleLiveLabel, consoleLiveSessions, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
 import { useConsoleToast } from "../client/toast";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
 import ConsoleDocumentHistory from "./console-document-history.vue";
+import ConsoleLiveFocus from "./console-live-focus.vue";
 import ConsoleDocumentProperties from "./console-document-properties.vue";
 import ConsoleMarkdownEditor from "./console-markdown-editor.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
@@ -51,6 +53,7 @@ import type { RouteLocationRaw } from "vue-router";
 
 import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentSchedule, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleRawDocument } from "../client/documents";
 import type { ConsoleDocumentSetup } from "../definitions";
+import type { ConsoleLivePerson, ConsoleLiveReset } from "../client/live";
 
 /**
  * Edits one document as a page: a large title, the fields as property rows, then the body. Drafts save on their own
@@ -156,17 +159,156 @@ const session = useConsoleDocumentPresence({
   collection: props.collection.name,
   documentId: () => (creating.value ? undefined : props.documentId),
   canWrite: () => canWrite.value,
+  // While this page joins or edits in the live room, the room holds the lease for it.
+  live: () => Boolean(liveRoom.value),
   onDigest: onRemoteDigest,
 });
 const leaseMode = session.mode;
 const { dialogOpen: leaseDialogOpen, holder: leaseHolder, others: sessionOthers, presence: sessionPresence, unreachable: sessionUnreachable } = session;
+
+/**
+ * Live co-editing. Where Content installs it, a saved Markdown document opens its Realtime room: fields and body sync as
+ * people type, carets and focused fields show who is where, and the room saves the draft and holds the edit lease for
+ * everyone in it. The page edits alone, with the lease, when the codec cannot keep the body or the room does not answer.
+ */
+const liveDefinition = consoleLiveDefinition(props.setup);
+const liveFallback = ref<"document" | "unreachable">();
+const liveRoom = computed(() => {
+  if (!liveDefinition || !hasBody.value || creating.value || liveFallback.value || props.documentId === undefined) return undefined;
+  return single.value ? props.collection.name : `${props.collection.name}/${props.documentId}`;
+});
+const live = liveDefinition
+  ? useConsoleLiveDocument({
+      definition: liveDefinition,
+      room: () => liveRoom.value,
+      components: () => props.collection.components,
+      user: () => sessionPresence.value?.user,
+      onReset: onLiveReset,
+    })
+  : undefined;
+/** This tab edits through the live room now. */
+const liveActive = computed(() => Boolean(live?.ready.value && liveRoom.value));
+const liveOthers = computed<ConsoleLivePerson[]>(() => (liveActive.value ? live?.others.value ?? [] : []));
+/** The room document, provider, and identity for the body editor. A reset mounts the editor again for the new room. */
+const liveBinding = computed(() => {
+  const document = live?.document.value;
+  const provider = live?.provider.value;
+  const user = live?.identity.value;
+  return liveActive.value && document && provider && user ? markRaw({ document, provider, user }) : undefined;
+});
+const liveEpoch = ref(0);
+/** Live editing is installed but this page edits alone: say so where it matters, when someone else is here. */
+const liveUnavailableReason = computed(() => {
+  if (!hasBody.value || creating.value) return undefined;
+  const live = props.setup?.live;
+  if (live && "unavailable" in live) return live.unavailable;
+  if (liveFallback.value === "unreachable") return "The live session did not answer. Saves still refuse to overwrite a newer version.";
+  return undefined;
+});
+/** Edits a reset dropped, for "Copy your unsaved edits". */
+const liveUnsaved = ref<{ body: string, fields: Record<string, unknown> }>();
+/** Until when a reset comes from this tab's own restore, which needs no notice. */
+let ownResetUntil = 0;
+
+if (live) {
+  // A body the codec cannot keep opens read-only in the room: edit it alone, in Source, under the single-editor lease.
+  watch(live.readOnlyReason, (reason) => {
+    if (reason === "document") liveFallback.value = "document";
+  });
+  // A room that does not answer within a few seconds leaves the page to one editor at a time.
+  let joinTimer: ReturnType<typeof setTimeout> | undefined;
+  watch(liveRoom, (room) => {
+    clearTimeout(joinTimer);
+    if (room) joinTimer = setTimeout(() => {
+      if (!live.ready.value && liveRoom.value === room) liveFallback.value = "unreachable";
+    }, 8_000);
+  }, { immediate: true });
+  onBeforeUnmount(() => clearTimeout(joinTimer));
+  watch(live.document, () => liveEpoch.value++);
+  // Room fields show in the property rows; the draft watcher writes local edits back, field by field.
+  watch(() => live.fields.value, (fields) => {
+    if (!fields || !liveActive.value) return;
+    if (stableConsoleJSON(compact(fields)) === stableConsoleJSON(compact(draft.value.data))) return;
+    draft.value = { ...draft.value, data: clone(fields) };
+  });
+  // Each room save: the time, the field issues, the History list, and the state of the document.
+  watch(() => live.saveStatus.value?.savedAt, (at, before) => {
+    if (!at || at === before || !liveActive.value) return;
+    savedAt.value = at;
+    void refreshState();
+    notifyChanged();
+    if (revisions.value.length || historyOpen.value || panel.value === "history") void loadRevisions();
+  });
+  watch(() => live.issues.value, (issues) => {
+    if (!liveActive.value || !live.saveStatus.value?.savedAt) return;
+    const fieldIssues = issues.filter(issue => issue.field !== undefined && issue.field !== "body").map(issue => ({ field: issue.field, message: issue.message, path: issue.path ?? [] }));
+    fieldErrors.value = groupConsoleFieldIssues(humanizeConsoleFieldIssues(fields.value, fieldIssues));
+    errorSnapshot = Object.fromEntries(Object.entries(draft.value.data).map(([name, value]) => [name, stableConsoleJSON(value ?? null)]));
+  });
+}
+
+/** The stored copy changed outside the room, such as an Agent save or a restore. The room reloaded it. */
+function onLiveReset(reset: ConsoleLiveReset): void {
+  if (Date.now() < ownResetUntil || reset.reason !== "source-changed") return;
+  const what = single.value ? "page" : noun.value.toLowerCase();
+  if (!reset.unsaved) {
+    toast.show({ title: `This ${what} was updated` });
+    return;
+  }
+  liveUnsaved.value = reset.unsaved;
+  toast.show({ action: { label: "Copy your unsaved edits", onClick: () => void copyLiveUnsaved() }, title: `This ${what} changed while you typed` });
+}
+
+async function copyLiveUnsaved(): Promise<void> {
+  const unsaved = liveUnsaved.value;
+  if (!unsaved) return;
+  try {
+    await navigator.clipboard.writeText(unsaved.body);
+    toast.show({ title: "Your edits copied" });
+  }
+  catch {
+    toast.error("Couldn't copy. Select the text and copy it.");
+  }
+}
+
+/** The field a focused element edits: the top-level field of its property row, or the title. */
+function focusedField(target: EventTarget | null): string | undefined {
+  const row = target instanceof Element ? target.closest("[data-vitehub-field]") : null;
+  const control = row?.getAttribute("data-vitehub-field") ?? (target instanceof Element ? target.id : "");
+  return fields.value.map(field => field.name).find(name => {
+    const id = `field-${name.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    return control === id || control.startsWith(`${id}-`);
+  });
+}
+
+function onFieldFocus(event: FocusEvent): void {
+  if (liveActive.value) live?.focus(focusedField(event.target));
+}
+
+function onFieldBlur(event: FocusEvent): void {
+  if (liveActive.value && !focusedField(event.relatedTarget)) live?.focus(undefined);
+}
+
+/** Who else focuses each field, keyed by the id of its control, for avatars on the property rows. */
+const fieldPeople = computed(() => {
+  const byControl: Record<string, ConsoleLivePerson[]> = {};
+  for (const person of liveOthers.value) {
+    if (!person.focus) continue;
+    (byControl[`field-${person.focus.replace(/[^a-zA-Z0-9_-]/g, "-")}`] ??= []).push(person);
+  }
+  return byControl;
+});
+provide("vitehubFieldPeople", fieldPeople);
 /** Sessions are on, but this tab cannot check them: a failed request, or an owner without the sessions table. */
 const sessionsUnchecked = computed(() => !creating.value && (sessionUnreachable.value || sessionPresence.value?.available === false));
 /** The one line under the header that says who holds the lease and what this tab can do about it. */
 const leaseBanner = computed<{ icon: string, text: string } | undefined>(() => {
   if (!canWrite.value || creating.value) return;
   const name = holderName.value;
-  if (leaseMode.value === "blocked") return { icon: "i-lucide-lock", text: name === "You" ? "Read-only · You're editing this in another tab" : `Read-only · ${name} is editing` };
+  if (leaseMode.value === "blocked") {
+    if (holderLive.value) return { icon: "i-lucide-users", text: `Read-only · ${name}` };
+    return { icon: "i-lucide-lock", text: name === "You" ? "Read-only · You're editing this in another tab" : `Read-only · ${name} is editing` };
+  }
   if (leaseMode.value === "taken") {
     const savedTime = consoleClockTime(savedAt.value ?? base.value?.updatedAt);
     const by = name === "You" ? "Your other tab took over" : `${name} took over`;
@@ -174,7 +316,12 @@ const leaseBanner = computed<{ icon: string, text: string } | undefined>(() => {
   }
   if (leaseMode.value === "left") return { icon: "i-lucide-lock-open", text: name === "You" ? "Your other tab stopped editing" : `${name} stopped editing` };
 });
-const holderName = computed(() => (session.ownOtherTab.value ? "You" : session.holder.value?.user.name ?? "Someone"));
+const holderName = computed(() => {
+  const holder = session.holder.value;
+  if (holder?.kind === "live") return consoleLiveLabel(holder);
+  return session.ownOtherTab.value ? "You" : holder?.user.name ?? "Someone";
+});
+const holderLive = computed(() => session.holder.value?.kind === "live");
 /** Saves another tab refused while it held the lease. Their edits stay on screen. */
 const refusedEdits = ref(0);
 /** Whether this tab may change the document now: write access, and no other tab holds the lease. */
@@ -184,6 +331,8 @@ const leaseCompare = ref<{ mine: Version, theirs: ConsoleDocument | null }>();
 const id = computed(() => (creating.value ? newId.value.trim() : props.documentId!));
 const savedVersion = computed<Version>(() => (base.value ? { body: base.value.body, data: base.value.data } : { body: "", data: consoleSchemaDefaults(props.collection.schema) }));
 const dirty = computed(() => {
+  // The live room saves on its own; nothing waits on this tab.
+  if (liveActive.value) return false;
   if (creating.value) return Boolean(newId.value.trim()) || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(savedVersion.value.data)) || Boolean(draft.value.body.trim());
   // A singleton that does not exist yet is dirty once it differs from its defaults.
   if (!base.value) return single.value && state.value !== "deleted" && stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(savedVersion.value.data));
@@ -209,7 +358,7 @@ const idError = computed(() => (creating.value && newId.value && !isConsoleDocum
  * Drafts save on their own once they exist. A new document waits for Create, since its id names the file. A singleton
  * has a fixed file, so its first edit creates it.
  */
-const autosaves = computed(() => canWrite.value && !creating.value && (Boolean(base.value) || (single.value && state.value !== "deleted")) && !conflict.value && !publishing.value && !restoring.value && session.mayWrite.value);
+const autosaves = computed(() => !liveActive.value && canWrite.value && !creating.value && (Boolean(base.value) || (single.value && state.value !== "deleted")) && !conflict.value && !publishing.value && !restoring.value && session.mayWrite.value);
 const sourceParts = computed(() => (storedFile.value === undefined ? undefined : splitConsoleFrontmatter(storedFile.value)));
 
 // "Saving…" shows only when a save takes longer than 200ms, then stays at least 400ms, so fast saves do not flicker.
@@ -237,6 +386,13 @@ type HeaderAction = "conflict" | "fields" | "retry";
  */
 const headerStatus = computed<{ action?: HeaderAction, label: string, pending?: boolean, savedAt?: string, tone: "error" | "neutral" | "success" | "warning" } | undefined>(() => {
   if (savingVisible.value) return { label: "Saving…", pending: true, tone: "neutral" };
+  if (liveActive.value && live) {
+    if (live.status.value !== "connected") return { label: "Reconnecting…", pending: true, tone: "neutral" };
+    if (live.saveStatus.value?.error) return { action: "retry", label: "Not saved · retry", tone: "error" };
+    if (errorCount.value) return { action: "fields", label: `${errorCount.value === 1 ? "1 field needs" : `${errorCount.value} fields need`} attention`, tone: "error" };
+    if (!state.value) return undefined;
+    return { label: consoleDocumentStateLabel(state.value), savedAt: live.saveStatus.value?.savedAt ?? savedAt.value ?? base.value?.updatedAt ?? undefined, tone: consoleDocumentStateColor(state.value) };
+  }
   if (conflict.value) return { action: "conflict", label: "Not saved · newer version", tone: "error" };
   if (errorCount.value) return { action: "fields", label: `${errorCount.value === 1 ? "1 field needs" : `${errorCount.value} fields need`} attention`, tone: "error" };
   if (saveError.value && dirty.value) return { action: "retry", label: "Not saved · retry", tone: "error" };
@@ -309,6 +465,11 @@ async function load(): Promise<void> {
   loading.value = true;
   try {
     const document = await props.client.get(props.collection.name, props.documentId!);
+    // In a live room the fields and body come from the room. Only the stored version and its state come from here.
+    if (document && liveActive.value) {
+      takeState(document);
+      return;
+    }
     // Someone typed while the document loaded: keep their edits and the version they started from.
     if (document && base.value && dirty.value) return;
     if (document) accept(document);
@@ -327,6 +488,46 @@ async function load(): Promise<void> {
   }
   finally {
     loading.value = false;
+  }
+}
+
+/** The stored version, its state, and its schedule, without the fields and body on screen. */
+function takeState(document: ConsoleDocument): void {
+  seenDigests.add(document.digest);
+  base.value = document;
+  state.value = document.state;
+  schedule.value = document.schedule;
+}
+
+/** Reads the stored version again after a room save, so Publish names the digest the room saved. */
+async function refreshState(): Promise<void> {
+  if (creating.value) return;
+  try {
+    const document = await props.client.get(props.collection.name, props.documentId!);
+    if (document) takeState(document);
+  }
+  catch {
+    // The next room save tries again.
+  }
+}
+
+/** Saves the live room now, such as for ⌘S or before Publish. Resolves whether the stored version is current. */
+async function saveLive(): Promise<boolean> {
+  if (!live) return false;
+  saving.value = true;
+  saveError.value = undefined;
+  try {
+    await live.save();
+    await refreshState();
+    return true;
+  }
+  catch (error) {
+    saveError.value = consoleErrorMessage(error, "The request failed.");
+    toast.error("Couldn't save. Try again.", { label: "Retry", onClick: () => void saveLive() });
+    return false;
+  }
+  finally {
+    saving.value = false;
   }
 }
 
@@ -357,6 +558,10 @@ watch(() => draft.value.data, (data) => {
  */
 async function save(options: { auto?: boolean, ifDigest?: string | null } = {}): Promise<void> {
   if (!canWrite.value) return;
+  if (liveActive.value) {
+    await saveLive();
+    return;
+  }
   // ⌘S during a save, such as an autosave in flight, saves again right after it.
   if (saving.value) {
     if (!options.auto) saveQueued = true;
@@ -446,6 +651,8 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
 
 /** The draft digest of each presence answer. A clean page reloads what another tab saved; a dirty one keeps the conflict flow. */
 function onRemoteDigest(digest: string | null): void {
+  // A live room reloads its people itself.
+  if (liveActive.value) return;
   if (creating.value || loading.value || saving.value || publishing.value || restoring.value || dirty.value) return;
   if ((base.value?.digest ?? null) === digest) return;
   if (!base.value && digest === null) return;
@@ -471,6 +678,13 @@ async function takeOver(): Promise<void> {
   }
   refusedEdits.value = 0;
   if (dirty.value) await save();
+}
+
+/** Joins the live room that holds the lease, after this tab could not reach it before. */
+function joinLive(): void {
+  leaseDialogOpen.value = false;
+  session.resume();
+  liveFallback.value = undefined;
 }
 
 /** After the holder left: read their last save, then edit on the next keystroke. */
@@ -526,6 +740,10 @@ function dataChangedSinceErrors(): boolean {
 }
 
 watch(draft, () => {
+  if (liveActive.value) {
+    live?.writeFields(compact(draft.value.data));
+    return;
+  }
   if (!dirty.value) return;
   if (!creating.value) {
     session.input();
@@ -562,6 +780,9 @@ async function publish(): Promise<void> {
   clearTimeout(autosaveTimer);
   await bodyEditor.value?.commit();
   await settled();
+  // Publish exactly what the room holds now: save it, then name that digest.
+  if (liveActive.value && !(await saveLive())) return;
+  if (liveActive.value && errorCount.value) return;
   if (dirty.value) {
     await save();
     if (dirty.value || conflict.value || errorCount.value || saveError.value) return;
@@ -629,6 +850,7 @@ async function openSchedule(): Promise<void> {
   clearTimeout(autosaveTimer);
   await bodyEditor.value?.commit();
   await settled();
+  if (liveActive.value && !(await saveLive())) return;
   if (dirty.value) {
     await save();
     if (dirty.value || conflict.value || errorCount.value || saveError.value) return;
@@ -685,11 +907,15 @@ async function remove(): Promise<void> {
     deleteOpen.value = false;
     return;
   }
+  // In a live room, delete what the room saved last; the room then reloads it as deleted.
+  const inRoom = liveActive.value;
+  if (inRoom && !(await saveLive())) return;
   const removed = { id: id.value, revision: base.value.revision };
   const { client, collection } = props;
   deleting.value = true;
   try {
-    await client.remove(collection.name, removed.id, base.value.digest, consoleTabSession);
+    if (inRoom) ownResetUntil = Date.now() + 10_000;
+    await client.remove(collection.name, removed.id, base.value.digest, consoleTabSession, inRoom);
     deleteOpen.value = false;
     base.value = null;
     notifyChanged();
@@ -768,13 +994,18 @@ async function restore(): Promise<void> {
   clearTimeout(autosaveTimer);
   await bodyEditor.value?.commit();
   await settled();
+  // In a live room, restore over what the room saved last. Everyone in the room then reloads the restored version.
+  const inRoom = liveActive.value;
+  if (inRoom && !(await saveLive())) return;
   const before = { document: base.value, unsaved: dirty.value ? clone(draft.value) : undefined };
   const { client, collection } = props;
   const documentId = id.value;
   restoring.value = true;
   try {
-    const restored = await client.restore(collection.name, documentId, preview.value.revision.id, base.value?.digest ?? null, consoleTabSession);
-    accept(restored);
+    if (inRoom) ownResetUntil = Date.now() + 10_000;
+    const restored = await client.restore(collection.name, documentId, preview.value.revision.id, base.value?.digest ?? null, consoleTabSession, inRoom);
+    if (inRoom) takeState(restored);
+    else accept(restored);
     savedAt.value = new Date().toISOString();
     preview.value = undefined;
     historyOpen.value = false;
@@ -786,12 +1017,14 @@ async function restore(): Promise<void> {
         onClick: async () => {
           try {
             const current = mounted ? base.value?.digest ?? restored.digest : restored.digest;
+            if (inRoom) ownResetUntil = Date.now() + 10_000;
             if (before.document) {
-              const reverted = await client.restore(collection.name, documentId, before.document.revision, current);
-              if (mounted) accept(reverted);
+              const reverted = await client.restore(collection.name, documentId, before.document.revision, current, inRoom ? consoleTabSession : undefined, inRoom);
+              if (mounted && inRoom) takeState(reverted);
+              else if (mounted) accept(reverted);
             }
             else {
-              await client.remove(collection.name, documentId, current);
+              await client.remove(collection.name, documentId, current, inRoom ? consoleTabSession : undefined, inRoom);
               if (mounted) {
                 base.value = null;
                 state.value = "deleted";
@@ -970,7 +1203,16 @@ const menuItems = computed(() => [[
       </UTooltip>
     </template>
     <template #right>
-      <ConsolePresenceAvatars v-if="sessionOthers.length" class="me-1" :sessions="sessionOthers" :user="sessionPresence?.user" />
+      <template v-if="liveActive">
+        <ConsolePresenceAvatars v-if="liveOthers.length" class="me-1" :sessions="consoleLiveSessions(collection.name, id, liveOthers)" :user="sessionPresence?.user" />
+        <UTooltip text="Everyone here edits together. The draft saves a few seconds after typing stops." :content="{ side: 'bottom' }">
+          <span class="me-1 hidden sm:inline-flex"><ConsoleStatus label="Live" /></span>
+        </UTooltip>
+      </template>
+      <ConsolePresenceAvatars v-else-if="sessionOthers.length" class="me-1" :sessions="sessionOthers" :user="sessionPresence?.user" />
+      <UTooltip v-if="!liveActive && liveUnavailableReason && sessionOthers.length" :text="liveUnavailableReason" :content="{ side: 'bottom' }">
+        <span class="me-1 hidden lg:inline-flex"><ConsoleStatus :label="consoleLiveUnavailable" /></span>
+      </UTooltip>
       <UTooltip v-if="sessionsUnchecked" :text="sessionPresence?.reason ?? 'The Console could not reach the server. Saves still refuse to overwrite a newer version.'" :content="{ side: 'bottom' }">
         <span class="me-1 hidden lg:inline-flex"><ConsoleStatus label="Can't check who else is editing" /></span>
       </UTooltip>
@@ -1088,7 +1330,8 @@ const menuItems = computed(() => [[
             <UIcon :name="leaseBanner.icon" class="size-4 shrink-0 text-muted" aria-hidden="true" />
             <span class="min-w-0 flex-1 text-default">{{ leaseBanner.text }}</span>
             <template v-if="leaseMode === 'blocked'">
-              <UButton size="xs" color="neutral" variant="outline" label="Take over" @click="takeOver" />
+              <UButton v-if="holderLive && liveDefinition" size="xs" color="neutral" variant="outline" label="Join" @click="joinLive" />
+              <UButton v-else-if="!holderLive" size="xs" color="neutral" variant="outline" label="Take over" @click="takeOver" />
             </template>
             <template v-else-if="leaseMode === 'taken'">
               <UButton size="xs" color="neutral" variant="ghost" label="Compare" @click="compareWithHolder" />
@@ -1122,7 +1365,10 @@ const menuItems = computed(() => [[
               :aria-describedby="fieldErrors[titleField.name] ? `field-${titleField.name}-error` : undefined"
               @input="onTitleInput"
               @keydown="onTitleKeydown"
+              @focus="onFieldFocus"
+              @blur="onFieldBlur"
             />
+            <ConsoleLiveFocus v-if="fieldPeople[`field-${titleField.name}`]" class="-mt-1" :people="fieldPeople[`field-${titleField.name}`]!" />
             <p v-if="fieldErrors[titleField.name]" :id="`field-${titleField.name}-error`" class="mt-1 text-xs text-error">{{ fieldErrors[titleField.name]!.join(" ") }}</p>
           </div>
 
@@ -1134,6 +1380,8 @@ const menuItems = computed(() => [[
             :disabled="!editable"
             :unfolded="!hasBody"
             @submit="saveFromShortcut"
+            @focusin="onFieldFocus"
+            @focusout="onFieldBlur"
           >
             <ConsolePropertyRow v-if="creating" icon="i-lucide-file" label="Id" control="field-id" :error="idError" :missing="!newId.trim() && !idError">
               <UInput
@@ -1178,7 +1426,7 @@ const menuItems = computed(() => [[
           <div class="flex items-center gap-2 text-xs text-muted">
             <UIcon name="i-lucide-file-code" class="size-4 shrink-0" aria-hidden="true" />
             <span class="font-mono text-highlighted">{{ base?.path }}</span>
-            <span class="ms-auto">{{ dataDirty ? "Fields are saving…" : "Fields are read-only here. Edit them in Rich." }}</span>
+            <span class="ms-auto">{{ liveActive ? "Read-only during a live session. Edit in Rich." : dataDirty ? "Fields are saving…" : "Fields are read-only here. Edit them in Rich." }}</span>
           </div>
           <pre
             v-if="sourceParts?.frontmatter"
@@ -1187,8 +1435,28 @@ const menuItems = computed(() => [[
           >{{ sourceParts.frontmatter.trimEnd() }}</pre>
         </section>
 
+        <!-- Live: the body is the room. Each new room seed mounts a new editor. -->
         <ConsoleMarkdownEditor
-          v-if="hasBody"
+          v-if="hasBody && liveBinding"
+          v-show="mode === 'rich'"
+          :key="`live-${liveEpoch}`"
+          ref="bodyEditor"
+          :model-value="draft.body"
+          :live="liveBinding"
+          :active="mode === 'rich'"
+          :collection="collection.name"
+          :components="collection.components"
+          :document-id="id"
+          :disabled="!editable || Boolean(live?.readOnlyReason.value)"
+          label="Body"
+          @outline="outline = $event"
+        />
+        <div v-else-if="hasBody && liveRoom" v-show="mode === 'rich'" class="flex min-h-[40vh] items-start gap-2 text-[13px] text-muted" role="status">
+          <UIcon name="i-lucide-loader-circle" class="mt-0.5 size-4 animate-spin" aria-hidden="true" />
+          Joining the live session…
+        </div>
+        <ConsoleMarkdownEditor
+          v-else-if="hasBody"
           v-show="mode === 'rich'"
           ref="bodyEditor"
           v-model="draft.body"
@@ -1200,8 +1468,13 @@ const menuItems = computed(() => [[
           label="Body"
           @outline="outline = $event"
         />
+        <pre
+          v-if="hasBody && mode === 'source' && liveActive"
+          class="min-h-80 overflow-x-auto font-mono text-[13px] leading-6 whitespace-pre-wrap text-muted select-text"
+          aria-label="Markdown body as last saved, read-only"
+        >{{ sourceParts?.body ?? draft.body }}</pre>
         <UTextarea
-          v-if="hasBody && mode === 'source'"
+          v-else-if="hasBody && mode === 'source'"
           v-model="draft.body"
           :disabled="!editable"
           autoresize
@@ -1288,17 +1561,21 @@ const menuItems = computed(() => [[
 
   <UModal
     :open="leaseDialogOpen"
-    :title="holderName === 'You' ? 'You\'re editing this in another tab' : `${holderName} is editing this page`"
-    :description="holderName === 'You' ? 'Open it read-only here, or take over from the other tab. Everything you saved stays in history.' : `Open it read-only, or take over. Everything ${holderName} saved stays in history.`"
+    :title="holderLive ? holderName : holderName === 'You' ? 'You\'re editing this in another tab' : `${holderName} is editing this page`"
+    :description="holderLive
+      ? (liveDefinition ? 'Join to edit together. Everyone\'s edits save to the draft.' : 'Open it read-only until the live session ends.')
+      : holderName === 'You' ? 'Open it read-only here, or take over from the other tab. Everything you saved stays in history.' : `Open it read-only, or take over. Everything ${holderName} saved stays in history.`"
     @update:open="(open) => { if (!open) openReadOnly() }"
   >
-    <template v-if="leaseHolder?.since" #body>
-      <p class="text-[13px] text-muted tabular-nums">Editing since {{ consoleClockTime(leaseHolder.since) }}</p>
+    <template v-if="leaseHolder?.since || liveUnavailableReason" #body>
+      <p v-if="leaseHolder?.since" class="text-[13px] text-muted tabular-nums">{{ holderLive ? "Live since" : "Editing since" }} {{ consoleClockTime(leaseHolder.since) }}</p>
+      <p v-if="liveUnavailableReason && !holderLive" class="mt-1 text-xs text-dimmed">{{ consoleLiveUnavailable }}</p>
     </template>
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton color="neutral" variant="outline" label="Open read-only" @click="openReadOnly" />
-        <UButton v-if="canWrite" color="neutral" label="Take over" @click="takeOver" />
+        <UButton v-if="canWrite && holderLive && liveDefinition" color="neutral" label="Join" @click="joinLive" />
+        <UButton v-else-if="canWrite && !holderLive" color="neutral" label="Take over" @click="takeOver" />
       </div>
     </template>
   </UModal>

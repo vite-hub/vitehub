@@ -5,6 +5,7 @@ import type {
   ViteHubConsoleDocument,
   ViteHubConsoleDocumentActionContext,
   ViteHubConsoleDocumentActions,
+  ViteHubConsoleDocumentSetup,
   ViteHubConsoleDocumentActionsFactory,
   ViteHubConsoleDocumentActivity,
   ViteHubConsoleDocumentChange,
@@ -35,9 +36,10 @@ import type { ContentAction, ContentDocumentsRuntime } from "../index.ts"
 import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections.ts"
 import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
+import { contentLive } from "../live.ts"
 
 type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions" | "schedule" | "schedules" | "unschedule">
-  & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "sessions">>
+  & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "live" | "sessions">>
 
 const sessionActions: readonly ViteHubConsoleDocumentSessionAction[] = ["report", "acquire", "takeover", "release"]
 
@@ -223,13 +225,19 @@ function scheduleView(schedule: ContentDocumentSchedule | ContentSchedule): Vite
   return result
 }
 
-function revisionAuthor(metadata: Record<string, unknown> | undefined): string | undefined {
-  const by = metadata?.author
+function personName(by: unknown): string | undefined {
   if (!isRecord(by)) return
   for (const key of ["name", "email", "id"]) {
     const value = by[key]
     if (String(value) === value && value) return value
   }
+}
+
+/** Who saved a revision: its author, or every editor of a live save, such as `Ana and Ben`. */
+function revisionAuthor(metadata: Record<string, unknown> | undefined): string | undefined {
+  const editors = Array.isArray(metadata?.editors) ? metadata.editors.map(personName).filter(name => name !== undefined) : []
+  if (editors.length > 1) return `${editors.slice(0, -1).join(", ")} and ${editors.at(-1)}`
+  return personName(metadata?.author)
 }
 
 function revisionAction(metadata: Record<string, unknown> | undefined): string {
@@ -299,6 +307,22 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       : { user: context.user, collection: collection.name, action, id })
     if (!allowed) {
       throw failure(403, "CONTENT_FORBIDDEN", `You cannot ${action === "read" ? "read drafts of" : action === "write" ? "edit" : "publish"} this ${id === undefined ? "collection" : "document"}.`)
+    }
+  }
+
+  /**
+   * A restore or delete from a tab in the live room of the document. The room holds the lease for everyone in it, so
+   * the write passes that lease, and only that one: a single editor's lease still refuses it. The room then reloads.
+   */
+  async function liveWrite(input: Record<string, unknown>, collection: AnyContentCollection, id: string): Promise<{ lease?: "override" }> {
+    if (input.live !== true || !content.sessions) return {}
+    try {
+      const holder = (await content.sessions.list(collection.name)).find(entry => entry.id === id && entry.kind !== "view")
+      return holder?.kind === "live" ? { lease: "override" } : {}
+    }
+    catch {
+      // Without the sessions table nobody holds a lease.
+      return {}
     }
   }
 
@@ -391,10 +415,19 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     },
 
     setup() {
+      const setup: ViteHubConsoleDocumentSetup = {}
       // Without a policy `content.can()` denies everything, so the editor names the fix instead of an empty section.
-      return content.hasPolicy === false
-        ? { access: { message: "Add `authorize` to `defineContent()` to decide who may read, edit, and publish documents.", docs: "https://vitehub.dev/docs/content/configure#access" } }
-        : {}
+      if (content.hasPolicy === false) {
+        setup.access = { message: "Add `authorize` to `defineContent()` to decide who may read, edit, and publish documents.", docs: "https://vitehub.dev/docs/content/configure#access" }
+      }
+      // Live editing covers Markdown documents. Where the host has no Realtime authority, the editor keeps one editor at a time.
+      if (content.live !== false && content.collections().some(collection => collection.format === "markdown")) {
+        const live = contentLive()
+        setup.live = live
+          ? { definition: live.definition }
+          : { unavailable: "Live editing needs Realtime on a host with a room authority, such as a Node server or Cloudflare Durable Objects." }
+      }
+      return setup
     },
 
     async list(input: ViteHubConsoleDocumentListInput, context): Promise<ViteHubConsoleDocumentPage> {
@@ -504,7 +537,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const id = text(input.id, "id")
       await allow(context, collection, "write", id)
       const ifDigest = text(input.ifDigest, "ifDigest")
-      await attempt(async () => await collection.remove(id, { ifDigest, metadata: writeMetadata(context), ...writeSession(input) }))
+      await attempt(async () => await collection.remove(id, { ifDigest, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id) }))
     },
 
     async publish(input, context) {
@@ -594,7 +627,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       await allow(context, collection, "write", id)
       const revision = text(input.revision, "revision")
       const ifDigest = digest(input.ifDigest)
-      return await attempt(async () => await view(collection, await collection.restore(id, revision, { ifDigest, metadata: writeMetadata(context), ...writeSession(input) })))
+      return await attempt(async () => await view(collection, await collection.restore(id, revision, { ifDigest, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id) })))
     },
 
     async session(input, context): Promise<ViteHubConsoleDocumentPresence> {

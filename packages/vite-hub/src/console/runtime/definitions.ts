@@ -139,6 +139,8 @@ export interface ConsoleDocumentSetup {
   access?: ConsoleDocumentHint
   /** Nothing runs scheduled publishes. */
   schedule?: ConsoleDocumentHint
+  /** Live co-editing: the Realtime Definition whose rooms are `<collection>/<id>`, or why the host cannot run it. */
+  live?: { definition: string } | { unavailable: string }
 }
 
 /** Reads the records of one section on each Console request. It mirrors `ViteHubConsoleRuntimeRecordReader`. */
@@ -263,6 +265,9 @@ export function parseConsoleDocumentSetup(value: unknown): ConsoleDocumentSetup 
     const hint = parseConsoleDocumentHint(source?.[key])
     if (hint) setup[key] = hint
   }
+  const live = record(source?.live)
+  if (text(live?.definition) && live.definition) setup.live = { definition: live.definition }
+  else if (text(live?.unavailable) && live.unavailable) setup.live = { unavailable: live.unavailable }
   return Object.keys(setup).length ? setup : undefined
 }
 

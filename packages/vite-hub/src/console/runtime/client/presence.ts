@@ -80,6 +80,11 @@ export function useConsoleDocumentPresence(options: {
   /** Undefined while creating a document: nothing to report yet. */
   documentId: () => string | undefined
   canWrite: () => boolean
+  /**
+   * True while this tab edits in the live room of the document. The room holds the lease for everyone in it, so this
+   * tab reports presence only: it never claims, and a live holder opens no dialog.
+   */
+  live?: () => boolean
   /** Called with the draft digest of each answer. */
   onDigest?: (digest: string | null) => void
 }): ConsoleDocumentPresenceState {
@@ -96,7 +101,8 @@ export function useConsoleDocumentPresence(options: {
   let stopped = false
 
   const tracked = computed(() => !unreachable.value && presence.value?.available !== false)
-  const leased = computed(() => tracked.value && presence.value?.lease !== false)
+  const live = () => options.live?.() === true
+  const leased = computed(() => tracked.value && presence.value?.lease !== false && !live())
   const mayWrite = computed(() => !leased.value || mode.value === "editing")
   const others = computed(() => presence.value?.sessions.filter(session => !session.self) ?? [])
   const ownOtherTab = computed(() => Boolean(holder.value && presence.value?.user && holder.value.user.id === presence.value.user.id))
@@ -109,7 +115,8 @@ export function useConsoleDocumentPresence(options: {
       if (result.editing) mode.value = "editing"
       return
     }
-    const other = result.holder && !result.holder.self ? result.holder : undefined
+    // The live room of this document holds the lease for this tab too.
+    const other = result.holder && !result.holder.self && !(live() && result.holder.kind === "live") ? result.holder : undefined
     if (result.editing) {
       mode.value = "editing"
       holder.value = undefined
@@ -305,9 +312,14 @@ export function useConsoleDocumentSessions(options: { client: ConsoleDocumentsCl
   return {
     sessions,
     user,
-    of: (collection, id) => sessions.value
-      .filter(session => session.collection === collection && session.id === id && !session.self)
-      .sort((left, right) => (left.kind === right.kind ? 0 : left.kind === "edit" ? -1 : 1)),
+    of: (collection, id) => {
+      const open = sessions.value.filter(session => session.collection === collection && session.id === id && !session.self)
+      // A live room stands for the people in it: their own tabs only add the people who view without editing live.
+      const live = open.find(session => session.kind === "live")
+      const names = new Set(live ? consoleLiveNames(live) : [])
+      const rank = (session: ConsoleDocumentSession) => (session.kind === "view" ? 1 : 0)
+      return open.filter(session => session === live || !(session.kind === "view" && names.has(session.user.name))).sort((left, right) => rank(left) - rank(right))
+    },
   }
 }
 
@@ -322,4 +334,35 @@ export function consoleClockTime(value: string | null | undefined): string {
   if (!value) return ""
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+}
+
+/** The people of a live room as session rows, so the presence avatars show them as editing. */
+export function consoleLiveSessions(collection: string, id: string, people: ReadonlyArray<{ id: string, image?: string, name: string }>): ConsoleDocumentSession[] {
+  return people.map(person => ({
+    collection,
+    id,
+    kind: "edit",
+    self: false,
+    since: null,
+    user: person.image ? { id: person.id, image: person.image, name: person.name } : { id: person.id, name: person.name },
+  }))
+}
+
+/** The names in a live session row, such as `Ana, Ben`. */
+export function consoleLiveNames(session: Pick<ConsoleDocumentSession, "user">): string[] {
+  return session.user.name.split(",").map(name => name.trim()).filter(Boolean)
+}
+
+/** Copy for a live room: who is in it, such as `Live session: Ana, Ben`. */
+export function consoleLiveLabel(session: Pick<ConsoleDocumentSession, "user">): string {
+  return `Live session: ${consoleLiveNames(session).join(", ")}`
+}
+
+/** Shown where a document would allow live editing but the host cannot run it. */
+export const consoleLiveUnavailable = "Live editing unavailable · one editor at a time"
+
+/** Whether a document can be edited live: Markdown, already saved, and live editing installed. */
+export function consoleLiveDefinition(setup: { live?: { definition: string } | { unavailable: string } } | undefined): string | undefined {
+  const live = setup?.live
+  return live && "definition" in live ? live.definition : undefined
 }

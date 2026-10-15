@@ -126,7 +126,46 @@ Sessions still report presence, and `kind: 'edit'` shows who edits. `acquire()` 
 
 ## Live editing
 
-Live co-editing is coming with Realtime live mode. Where a Realtime authority exists, such as a Node server or Cloudflare Durable Objects, several people will edit one document at the same time with carets and field focus, and the room will hold the lease for all of them. Other hosts keep one editor at a time as described on this page.
+Where Realtime runs, several people edit one Markdown document at the same time. Turn on Realtime next to Content:
+
+```ts [vite.config.ts]
+vitehub({
+  preset: 'node',
+  console: { auth: 'app' },
+  realtime: { authority: 'memory' },
+})
+```
+
+`vite dev` uses the memory authority without the option. A Node build needs `authority: 'memory'` (one server process), and a Cloudflare build uses Durable Objects. On Vercel, Netlify, and Deno there is no room authority: the build succeeds and Content keeps one editor at a time, as described above. Set `defineContent({ live: false })` to keep one editor at a time everywhere.
+
+### What people see
+
+- Opening a document joins its live room. Everyone in it edits the fields and the body together. The body shows a named caret per person, and each property row shows who has it in focus.
+- The header shows the people in the room and **Live**. The room saves the draft 2 seconds after typing stops, at most every 10 seconds, and when the last person leaves. ⌘S, Publish, and Schedule save first. Each revision in History names everyone who edited it, such as `Ana and Ben`.
+- Drafts in progress save with their field issues, which show inline. Publish waits until they are fixed.
+- A body with Markdown the editor cannot keep, such as an undeclared component, a task list, or a heading id, opens read-only in the room. The page names the construct, and Source stays editable by one person at a time under the edit lease.
+- A save from outside the room, such as an Agent, the CLI, or another route, reloads the room. Someone with edits the room had not saved yet gets **Copy your unsaved edits**.
+- Where live editing is unavailable, a page that someone else has open shows **Live editing unavailable · one editor at a time**.
+
+### The live lease
+
+The room holds the edit lease as `kind: 'live'` for everyone in it, from the first person who joins with write access until the last one leaves and the room saved. `user.name` of the lease lists the people, such as `Ana, Ben`. Others see **Live session: Ana, Ben** and join instead of taking over. Writes from outside the room fail with `CONTENT_LEASE_HELD` naming the live session, unless they pass `lease: 'override'`; the room then reloads. The sessions table stores `kind` as text, so `live` needs no migration.
+
+### Build your own live editor
+
+ViteHub generates one Realtime Definition named `content`. Its rooms are `<collection>/<id>`, or the collection name of a singleton. It identifies people with the Console session when the Console is enabled, otherwise with the ViteHub Auth session, and `authorize` maps to `content.can()`: reading a room needs `read`, editing needs `write`.
+
+```ts [app editor]
+import { contentRealtimeEditor } from 'vite-hub/content/editor'
+import { useRealtimeTiptap } from 'vite-hub/realtime/vue'
+
+const editor = contentRealtimeEditor(posts) // the same codec the server uses
+const realtime = useRealtimeTiptap('content', 'posts/hello', { editor })
+```
+
+`contentRealtimeEditor(collection)` builds the comark-tiptap schema of a collection from its `components`, without a DOM. Browser editors that add node views build their components with `contentEditorComponents()`, so both schemas match. `contentMarkdownLoss()` is the check `verify()` uses: it ignores attribute order, declared prop defaults, and reference links written inline.
+
+`vite-hub/content/realtime` also exports `contentDocument(collection)`, the Realtime document adapter of one collection, and `contentRealtime(content, { identify, authorize, user })` to define the room yourself in `server/realtime/content.ts`. A file with that name replaces the generated one.
 
 ## Limits
 
@@ -134,3 +173,6 @@ Live co-editing is coming with Realtime live mode. Where a Realtime authority ex
 - The lease check and the commit are two steps. A lease taken between them does not stop that one save; `ifDigest` still protects the bytes.
 - Each write with leases on runs one extra Database query. Each `report()` and `acquire()` is one atomic batch.
 - Rows of sessions that expired more than an hour ago are deleted on the next report in the same Workspace.
+- Live editing covers Markdown documents. JSON and YAML documents keep one editor at a time.
+- A room that does not answer within 8 seconds leaves the page to one editor at a time.
+- On Cloudflare, an outside write reloads a room only while its Durable Object is in memory. A room that wakes up later loads the stored document, because its digest changed.
