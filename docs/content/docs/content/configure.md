@@ -47,10 +47,13 @@ Collections need a Workspace with retained history. Use the [Blob + Database Sto
 
 ```ts [server/databases/content/config.ts]
 import { defineDatabase } from 'vite-hub/database'
+import { contentSessionsSchema } from 'vite-hub/content/database'
 import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
 
-export default defineDatabase({ name: 'content', schema: workspaceHistorySchema })
+export default defineDatabase({ name: 'content', schema: { ...workspaceHistorySchema, ...contentSessionsSchema } })
 ```
+
+`contentSessionsSchema` holds presence and edit leases, so the Console shows who has a document open and gives one editor at a time the right to save. See [Editing together](/docs/content/editing-together).
 
 ```ts [server/workspaces/site.ts]
 import { blob } from 'vite-hub/blob'
@@ -99,6 +102,7 @@ export const content = defineContent({
 | `search` | `string[]` | Fields that `list({ search })` matches. Defaults to every string field plus the body. |
 | `components` | `Record<string, DocumentComponent>` | Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json', default? }`. Content stores the Markdown as written and does not check component use. |
 | `url` | `string \| ({ id, data }) => string \| null` | The public URL of each document, such as `'/blog/:id'`. Reads carry `document.url`, and sitemaps and canonical links use it. See [Document URLs](/docs/content/seo#document-urls). |
+| `editing` | `{ lease?: boolean }` | `lease: false` lets several sessions edit a document at once. By default one session at a time holds the edit lease. See [Editing together](/docs/content/editing-together#opt-out-per-collection). |
 
 A document id is the file path below the collection folder, without the extension. `posts/hello.md` is `hello`, and `posts/2026/launch.md` is `2026/launch`. The Markdown body after the frontmatter is the document `body`.
 
@@ -148,6 +152,7 @@ ViteHub does not own a settings schema. The fields above are an example: define 
 | `path` | `string` | Workspace path of one file, such as `settings.json`, `config/site.yaml`, or `pages/home.md`. No wildcards. The extension sets the [format](#data-files). |
 | `fields` | `Record<string, StandardSchema>` | One validator per field, as in `documents()`. |
 | `url` | `string \| ({ id, data }) => string \| null` | The public URL of the document, such as `'/'`. Omit it for data without a page, such as settings. |
+| `editing` | `{ lease?: boolean }` | As in `documents()`. |
 
 The document id is the file name without the extension, so `settings.json` is `settings`. You rarely need it: every method of a singleton works without an id.
 

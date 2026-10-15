@@ -84,6 +84,10 @@ icon: i-lucide-file-text
   `content.schedule()` publishes exactly what was reviewed at a later time, run by a Schedule Definition on every host.
   :::
 
+  :::product-feature-item{title="One editor at a time, and everyone sees who" icon="i-lucide-users" to="/docs/content/editing-together"}
+  Presence and edit leases in the history Database. Writes from anyone else fail with `CONTENT_LEASE_HELD`.
+  :::
+
   :::product-feature-item{title="Documents, navigation, and search from server code" icon="i-lucide-code-2" to="/docs/content/server-api"}
   `content.get()`, `content.navigation()`, and `content.search()` run in server code.
   :::

@@ -7,7 +7,7 @@ import type { ConsoleDocumentCollection } from "../definitions.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 /** The document actions that one Console request may call. It mirrors `ViteHubConsoleDocumentActionName`. */
-export const consoleDocumentActionNames = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "unschedule"] as const
+export const consoleDocumentActionNames = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"] as const
 
 export type ConsoleDocumentActionName = (typeof consoleDocumentActionNames)[number]
 

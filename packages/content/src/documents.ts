@@ -68,6 +68,18 @@ export interface DocumentsOptions<TFields extends ContentFields> {
    * and previews use it. Omit it for documents without their own page.
    */
   url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
+  /**
+   * How sessions edit documents together. By default one session at a time holds the edit lease of a document, and
+   * writes from other callers fail with `CONTENT_LEASE_HELD`. `lease: false` lets several sessions edit at once:
+   * presence still shows who is there, and `ifDigest` still guards each save.
+   */
+  editing?: ContentEditingOptions
+}
+
+/** How sessions of a collection edit documents together. */
+export interface ContentEditingOptions {
+  /** One editor at a time per document. Defaults to true. */
+  lease?: boolean
 }
 
 /** One Comark component that document bodies may use. */
@@ -98,6 +110,12 @@ export interface SingletonOptions<TFields extends ContentFields> {
   fields: TFields
   /** The public URL of the document, such as `/` or `/about`. Omit it for data without a page, such as settings. */
   url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
+  /**
+   * How sessions edit documents together. By default one session at a time holds the edit lease of a document, and
+   * writes from other callers fail with `CONTENT_LEASE_HELD`. `lease: false` lets several sessions edit at once:
+   * presence still shows who is there, and `ifDigest` still guards each save.
+   */
+  editing?: ContentEditingOptions
 }
 
 const collectionDefinition: unique symbol = Symbol.for("vitehub.content.documents")
@@ -110,6 +128,8 @@ interface CollectionDefinitionBase<TFields extends ContentFields> {
   readonly format: ContentFormat
   /** How each document maps to its public URL, when it has one. */
   readonly url?: ContentDocumentUrl<any>
+  /** Whether one session at a time holds the edit lease of a document. */
+  readonly editing: { readonly lease: boolean }
 }
 
 /** A document collection definition created by `documents()`. */
@@ -166,6 +186,7 @@ export function documents<const TFields extends ContentFields>(options: Document
     fields: options.fields,
     format: compiled.format,
     path: options.path,
+    editing: editingOptions("documents", options.path, options.editing),
   }
   if (options.search) definition.search = [...options.search]
   if (options.components !== undefined) definition.components = documentComponents(options.path, options.components)
@@ -236,9 +257,19 @@ export function singleton<const TFields extends ContentFields>(options: Singleto
     fields: options.fields,
     format: compiled.format,
     path: compiled.path,
+    editing: editingOptions("singleton", options.path, options.editing),
   }
   if (options.url !== undefined) definition.url = options.url
   return definition
+}
+
+function editingOptions(helper: string, path: string, editing: unknown): { readonly lease: boolean } {
+  if (editing === undefined) return Object.freeze({ lease: true })
+  const lease: unknown = editing !== null && Object(editing) === editing && !Array.isArray(editing) ? Reflect.get(Object(editing), "lease") : null
+  if (lease !== undefined && lease !== true && lease !== false) {
+    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) editing must be { lease?: boolean }.`)
+  }
+  return Object.freeze({ lease: lease !== false })
 }
 
 const urlToken = /:([A-Za-z_$][\w$]*)/g

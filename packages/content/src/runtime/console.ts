@@ -22,6 +22,11 @@ import type {
   ViteHubConsoleDocumentSchedule,
   ViteHubConsoleDocumentScheduled,
   ViteHubConsoleDocumentScheduledChange,
+  ViteHubConsoleDocumentPresence,
+  ViteHubConsoleDocumentSession,
+  ViteHubConsoleDocumentSessionAction,
+  ViteHubConsoleDocumentSessions,
+  ViteHubConsoleDocumentSessionUser,
   ViteHubConsoleDocumentState,
   ViteHubConsoleDocumentSummary,
   ViteHubConsoleMediaAccess,
@@ -29,8 +34,12 @@ import type {
 import type { ContentAction, ContentDocumentsRuntime } from "../index.ts"
 import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections.ts"
 import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
+import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
 
 type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions" | "schedule" | "schedules" | "unschedule">
+  & Partial<Pick<ContentDocumentsRuntime, "sessions">>
+
+const sessionActions: readonly ViteHubConsoleDocumentSessionAction[] = ["report", "acquire", "takeover", "release"]
 
 const documentStates: readonly ViteHubConsoleDocumentState[] = ["draft", "published", "changed", "deleted"]
 const titleFields = ["title", "name", "label", "heading"]
@@ -127,6 +136,14 @@ function translate(error: unknown): never {
     })
   }
   if (code === "CONTENT_NOT_FOUND") throw failure(404, "CONTENT_NOT_FOUND", "This document does not exist.")
+  if (code === "CONTENT_LEASE_HELD" && isRecord(details) && isRecord(details.holder)) {
+    // Another tab holds the edit lease. The editor names the holder and offers to take over.
+    const holder = details.holder
+    const user = isRecord(holder.user) ? holder.user : {}
+    const name = String(user.name) === user.name && user.name ? user.name : String(user.id ?? "Someone")
+    const view: Record<string, unknown> = { user: { id: String(user.id ?? ""), name, ...(String(user.image) === user.image && user.image ? { image: user.image } : {}) }, since: holder.since ?? null }
+    throw failure(409, "CONTENT_LEASE_HELD", `${name} is editing this document.`, { holder: view })
+  }
   // Input diagnostics, such as a bad id or a stale cursor, describe the request rather than the server.
   if (String(code) === code && /^(?:CONTENT|SOURCE)_R\d+$/.test(code)) throw failure(400, code, message)
   throw error
@@ -158,6 +175,12 @@ function expectations(value: readonly unknown[]): ViteHubConsoleDocumentPublishE
     if (!isRecord(entry)) throw invalidInput("Each expect entry must be { id, digest }.")
     return { id: text(entry.id, "expect.id"), digest: digest(entry.digest, "expect.digest") }
   })
+}
+
+/** The tab token that a write carries, so the tab's own lease does not block it. */
+function writeSession(input: Record<string, unknown>): { session?: string } {
+  const session = optionalText(input.session, "session")
+  return session ? { session } : {}
 }
 
 /** Signed-in user fields worth recording as the author of a revision. */
@@ -219,6 +242,32 @@ function usesPathname(value: unknown, pathnames: ReadonlySet<string>, found: Set
   }
   if (!isRecord(value)) return
   for (const entry of Object.values(value)) usesPathname(entry, pathnames, found)
+}
+
+/** The Console user as sessions show them: a display name, and an image when the user has one. */
+function sessionUser(context: ViteHubConsoleDocumentActionContext): ViteHubConsoleDocumentSessionUser | null {
+  const user = context.user
+  if (!user) return null
+  const read = (key: string) => String(user[key]) === user[key] && user[key] ? user[key] as string : undefined
+  const id = read("id") ?? read("email")
+  if (!id) return null
+  const result: ViteHubConsoleDocumentSessionUser = { id, name: read("name") ?? read("email") ?? id }
+  const image = read("image")
+  if (image) result.image = image
+  return result
+}
+
+function sessionView(entry: ContentSession, session: string | undefined): ViteHubConsoleDocumentSession {
+  const user: ViteHubConsoleDocumentSessionUser = { id: entry.user.id, name: entry.user.name ?? entry.user.id }
+  if (entry.user.image) user.image = entry.user.image
+  return { collection: entry.collection, id: entry.id, user, kind: entry.kind, since: entry.since, self: entry.session === session }
+}
+
+/** Sessions that the owner cannot track, such as without the sessions table, leave the editor editable. */
+function sessionsUnavailable(error: unknown): string | undefined {
+  if (Reflect.get(Object(error), "code") !== "CONTENT_R0012") return
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/^\[vitehub\]\s*/, "")
 }
 
 /**
@@ -437,7 +486,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (String(input.body) !== input.body) throw invalidInput("body must be a Markdown string.")
       const data = fieldValues(input.data)
       const ifDigest = digest(input.ifDigest)
-      return await attempt(async () => await view(collection, await collection.save(id, { data, body: input.body }, { ifDigest, metadata: writeMetadata(context) })))
+      return await attempt(async () => await view(collection, await collection.save(id, { data, body: input.body }, { ifDigest, metadata: writeMetadata(context), ...writeSession(input) })))
     },
 
     async remove(input, context) {
@@ -446,7 +495,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const id = text(input.id, "id")
       await allow(context, collection, "write", id)
       const ifDigest = text(input.ifDigest, "ifDigest")
-      await attempt(async () => await collection.remove(id, { ifDigest, metadata: writeMetadata(context) }))
+      await attempt(async () => await collection.remove(id, { ifDigest, metadata: writeMetadata(context), ...writeSession(input) }))
     },
 
     async publish(input, context) {
@@ -536,7 +585,71 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       await allow(context, collection, "write", id)
       const revision = text(input.revision, "revision")
       const ifDigest = digest(input.ifDigest)
-      return await attempt(async () => await view(collection, await collection.restore(id, revision, { ifDigest, metadata: writeMetadata(context) })))
+      return await attempt(async () => await view(collection, await collection.restore(id, revision, { ifDigest, metadata: writeMetadata(context), ...writeSession(input) })))
+    },
+
+    async session(input, context): Promise<ViteHubConsoleDocumentPresence> {
+      if (!isRecord(input)) throw invalidInput("session() requires { collection, id, session, action }.")
+      const collection = open(input.collection)
+      const id = text(input.id, "id")
+      const session = text(input.session, "session")
+      const action = input.action
+      if (!sessionActions.includes(action)) throw invalidInput("action must be report, acquire, takeover, or release.")
+      // Viewing needs read access. Taking the lease, free or held, needs write access: readers never see Take over.
+      await allow(context, collection, action === "acquire" || action === "takeover" ? "write" : "read", id)
+      if (input.kind !== undefined && input.kind !== "view" && input.kind !== "edit") throw invalidInput("kind must be view or edit.")
+      const user = sessionUser(context)
+      const sessionsUser = user ? { id: user.id, name: user.name, image: user.image ?? null } : { id: "anonymous", name: "Someone" }
+      const presence = (result: Omit<ViteHubConsoleDocumentPresence, "user" | "lease">): ViteHubConsoleDocumentPresence =>
+        ({ user, lease: collection.editing.lease, ...result })
+      const sessions = content.sessions
+      if (!sessions) return presence({ available: false, reason: "This Content runtime does not track sessions.", editing: true, holder: null, sessions: [], now: new Date().toISOString() })
+      try {
+        if (action === "release") {
+          await sessions.release(collection.name, id, { session })
+          return presence({ available: true, editing: false, holder: null, sessions: [], now: new Date().toISOString() })
+        }
+        const result: ContentDocumentSessions = action === "report"
+          ? await sessions.report(collection.name, id, { session, user: sessionsUser, kind: input.kind ?? "view", input: input.input === true })
+          : await sessions.acquire(collection.name, id, { session, user: sessionsUser, takeover: action === "takeover" })
+        return presence({
+          available: true,
+          editing: result.editing,
+          holder: result.holder ? sessionView(result.holder, session) : null,
+          sessions: result.sessions.map(entry => sessionView(entry, session)),
+          now: result.now,
+        })
+      }
+      catch (error) {
+        const reason = sessionsUnavailable(error)
+        if (reason) return presence({ available: false, reason, editing: true, holder: null, sessions: [], now: new Date().toISOString() })
+        translate(error)
+      }
+    },
+
+    async sessions(input, context): Promise<ViteHubConsoleDocumentSessions> {
+      const options = isRecord(input) ? input : {}
+      const session = optionalText(options.session, "session")
+      const collections = options.collection === undefined ? await readable(context) : [open(options.collection)]
+      if (options.collection !== undefined) await allow(context, collections[0]!, "read")
+      const user = sessionUser(context)
+      if (!content.sessions) return { user, available: false, reason: "This Content runtime does not track sessions.", sessions: [] }
+      const names = new Set(collections.map(collection => collection.name))
+      try {
+        const listed = (await content.sessions.list(collections.length === 1 ? collections[0]!.name : undefined)).filter(entry => names.has(entry.collection))
+        // A session names its document, so each document needs read access, as in the list.
+        const readableByCollection = new Map(await Promise.all(collections.map(async collection => [
+          collection.name,
+          await readableIds(context, collection, listed.filter(entry => entry.collection === collection.name).map(entry => entry.id)),
+        ] as const)))
+        const visible = listed.filter(entry => readableByCollection.get(entry.collection)?.has(entry.id))
+        return { user, available: true, sessions: visible.map(entry => sessionView(entry, session)) }
+      }
+      catch (error) {
+        const reason = sessionsUnavailable(error)
+        if (reason) return { user, available: false, reason, sessions: [] }
+        translate(error)
+      }
     },
 
     async overview(input, context) {
