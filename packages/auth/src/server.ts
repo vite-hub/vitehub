@@ -275,15 +275,26 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
-async function runAccessAuthorize(
+function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
-): Promise<Response | undefined> {
-  const result = await authorize(context)
-
-  const response = await normalizeAuthorizationResponse(result)
-  if (response) return response
-  if (result !== true) return createForbiddenResponse(context.request)
+): Promise<{ response?: Response }> {
+  const result = authorize(context)
+  let thenable = false
+  try {
+    thenable = result !== null && (typeof result === "object" || typeof result === "function") && typeof Reflect.get(result, "then") === "function"
+  }
+  catch {
+    thenable = true
+  }
+  const directResponse = thenable ? undefined : normalizeAuthorizationResponse(result)
+  if (directResponse) return Promise.resolve({ response: directResponse })
+  return Promise.resolve(result).then(resolved => {
+    const response = normalizeAuthorizationResponse(resolved)
+    if (response) return { response }
+    if (resolved !== true) return { response: createForbiddenResponse(context.request) }
+    return {}
+  })
 }
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
@@ -470,7 +481,7 @@ async function checkAuthRequest(
       }
       if (!authorize) continue
       const rejection = await runAccessAuthorize(authorize, authorization)
-      if (rejection) return reject(rejection)
+      if (rejection.response) return reject(rejection.response)
     }
     return { authorization }
   }
@@ -506,7 +517,7 @@ async function checkAuthorizeRequest(
   const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, authorization)
-  return rejection ? reject(rejection) : { authorization }
+  return rejection.response ? reject(rejection.response) : { authorization }
 }
 
 /**
