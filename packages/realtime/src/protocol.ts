@@ -20,7 +20,10 @@ function validPath(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
   if (value.startsWith("/") || value.endsWith("/") || value.includes("\\") || /^[a-z]:/i.test(value)) return false
   const parts = value.split("/")
-  if (parts.some(part => !part || /^(?:\.(?: +[. ]*)?|\.\.(?: +[. ]*)?)$/.test(part))) return false
+  if (parts.some(part => {
+    const withoutStream = part.split(":", 1)[0]!
+    return !withoutStream || /^(?:\.(?: +[. ]*)?|\.\.(?: +[. ]*)?)$/.test(withoutStream)
+  })) return false
   if (parts.some((part, index) => {
     const lower = part.toLowerCase()
     const withoutStream = lower.split(":", 1)[0]!
