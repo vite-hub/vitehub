@@ -161,6 +161,14 @@ const frameworkPackageName = "vite-hub"
 const generatedImportBase = "vite-hub/_internal"
 const upstashDriverSpecifier = "@vite-hub/kv/runtime/upstash-driver"
 const disabledUpstashDriver = fileURLToPath(import.meta.resolve(`${generatedImportBase}/kv/runtime/disabled-upstash`))
+function packageExportImportTarget(target: unknown): string | undefined {
+  if (typeof target === "string") return target
+  if (!target || typeof target !== "object" || Array.isArray(target)) return undefined
+
+  const importTarget = Reflect.get(target, "import")
+  return typeof importTarget === "string" ? importTarget : undefined
+}
+
 function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
   return {
     ...(sandbox
@@ -174,7 +182,7 @@ function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
 }
 const frameworkProviderImportAliases = Object.fromEntries(
   Object.entries(frameworkPackageManifest.exports)
-    .filter(([subpath, target]) => subpath.startsWith("./") && target.endsWith(".js"))
+    .filter(([subpath, target]) => subpath.startsWith("./") && packageExportImportTarget(target)?.endsWith(".js"))
     .map(([subpath]) => {
       const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
       return [specifier, fileURLToPath(import.meta.resolve(specifier))]

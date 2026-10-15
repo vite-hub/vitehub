@@ -8,52 +8,188 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    "./cli": "./dist/cli.js",
-    "./console": "./dist/console.js",
-    "./contributions": "./dist/contributions.js",
-    "./env": "./dist/env.js",
-    "./effect": "./dist/effect.js",
-    "./arrays": "./dist/arrays.js",
-    "./agent-workflow": "./dist/agent-workflow.js",
-    "./definition-catalog": "./dist/definition-catalog.js",
-    "./deployment": "./dist/deployment.js",
-    "./dev-endpoint": "./dist/dev-endpoint.js",
-    "./dev-token": "./dist/dev-token.js",
-    "./hosting": "./dist/hosting.js",
-    "./integrations/hex": "./dist/integrations/hex.js",
-    "./object": "./dist/object.js",
-    "./provision": "./dist/provision.js",
-    "./provision-state": "./dist/provision-state.js",
-    "./source-scanner": "./dist/source-scanner.js",
-    "./vite-stage": "./dist/vite-stage.js",
-    "./runtime/app": "./dist/runtime/app.js",
-    "./runtime/cloudflare-hosted": "./dist/runtime/cloudflare-hosted.js",
-    "./runtime/vercel-hosted": "./dist/runtime/vercel-hosted.js",
-    "./runtime/cloudflare-env": "./dist/runtime/cloudflare-env.js",
-    "./http-request": "./dist/http-request.js",
-    "./inspect": "./dist/inspect.js",
-    "./runtime/random": "./dist/runtime/random.js",
-    "./secret": "./dist/secret.js",
-    "./runtime/time-zone": "./dist/runtime/time-zone.js",
-    "./build/cloudflare": "./dist/build/cloudflare.js",
-    "./build/deployment-output": "./dist/build/deployment-output.js",
-    "./build/deployment-plan-output": "./dist/build/deployment-plan-output.js",
-    "./build/deno-runtime-packages": "./dist/build/deno-runtime-packages.js",
-    "./build/mode": "./dist/build/mode.js",
-    "./build/paths": "./dist/build/paths.js",
-    "./build/esbuild": "./dist/build/esbuild.js",
-    "./build/provider-output-sources": "./dist/build/provider-output-sources.js",
-    "./build/client-output": "./dist/build/client-output.js",
-    "./build/colocated-agent-files": "./dist/build/colocated-agent-files.js",
-    "./build/vercel-config": "./dist/build/vercel-config.js",
-    "./build/vercel-runtime-package-copy": "./dist/build/vercel-runtime-package-copy.js",
-    "./build/vercel-runtime-packages": "./dist/build/vercel-runtime-packages.js",
-    "./build/user-entry": "./dist/build/user-entry.js",
-    "./build/vite": "./dist/build/vite.js",
-    "./nitro-kit": "./dist/nitro-kit.js",
-    "./workspace-inventory": "./dist/workspace-inventory.js",
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    },
+    "./console": {
+      "types": "./dist/console.d.ts",
+      "import": "./dist/console.js"
+    },
+    "./contributions": {
+      "types": "./dist/contributions.d.ts",
+      "import": "./dist/contributions.js"
+    },
+    "./env": {
+      "types": "./dist/env.d.ts",
+      "import": "./dist/env.js"
+    },
+    "./effect": {
+      "types": "./dist/effect.d.ts",
+      "import": "./dist/effect.js"
+    },
+    "./arrays": {
+      "types": "./dist/arrays.d.ts",
+      "import": "./dist/arrays.js"
+    },
+    "./agent-workflow": {
+      "types": "./dist/agent-workflow.d.ts",
+      "import": "./dist/agent-workflow.js"
+    },
+    "./definition-catalog": {
+      "types": "./dist/definition-catalog.d.ts",
+      "import": "./dist/definition-catalog.js"
+    },
+    "./deployment": {
+      "types": "./dist/deployment.d.ts",
+      "import": "./dist/deployment.js"
+    },
+    "./dev-endpoint": {
+      "types": "./dist/dev-endpoint.d.ts",
+      "import": "./dist/dev-endpoint.js"
+    },
+    "./dev-token": {
+      "types": "./dist/dev-token.d.ts",
+      "import": "./dist/dev-token.js"
+    },
+    "./hosting": {
+      "types": "./dist/hosting.d.ts",
+      "import": "./dist/hosting.js"
+    },
+    "./integrations/hex": {
+      "types": "./dist/integrations/hex.d.ts",
+      "import": "./dist/integrations/hex.js"
+    },
+    "./object": {
+      "types": "./dist/object.d.ts",
+      "import": "./dist/object.js"
+    },
+    "./provision": {
+      "types": "./dist/provision.d.ts",
+      "import": "./dist/provision.js"
+    },
+    "./provision-state": {
+      "types": "./dist/provision-state.d.ts",
+      "import": "./dist/provision-state.js"
+    },
+    "./source-scanner": {
+      "types": "./dist/source-scanner.d.ts",
+      "import": "./dist/source-scanner.js"
+    },
+    "./vite-stage": {
+      "types": "./dist/vite-stage.d.ts",
+      "import": "./dist/vite-stage.js"
+    },
+    "./runtime/app": {
+      "types": "./dist/runtime/app.d.ts",
+      "import": "./dist/runtime/app.js"
+    },
+    "./runtime/cloudflare-hosted": {
+      "types": "./dist/runtime/cloudflare-hosted.d.ts",
+      "import": "./dist/runtime/cloudflare-hosted.js"
+    },
+    "./runtime/vercel-hosted": {
+      "types": "./dist/runtime/vercel-hosted.d.ts",
+      "import": "./dist/runtime/vercel-hosted.js"
+    },
+    "./runtime/cloudflare-env": {
+      "types": "./dist/runtime/cloudflare-env.d.ts",
+      "import": "./dist/runtime/cloudflare-env.js"
+    },
+    "./http-request": {
+      "types": "./dist/http-request.d.ts",
+      "import": "./dist/http-request.js"
+    },
+    "./inspect": {
+      "types": "./dist/inspect.d.ts",
+      "import": "./dist/inspect.js"
+    },
+    "./runtime/random": {
+      "types": "./dist/runtime/random.d.ts",
+      "import": "./dist/runtime/random.js"
+    },
+    "./secret": {
+      "types": "./dist/secret.d.ts",
+      "import": "./dist/secret.js"
+    },
+    "./runtime/time-zone": {
+      "types": "./dist/runtime/time-zone.d.ts",
+      "import": "./dist/runtime/time-zone.js"
+    },
+    "./build/cloudflare": {
+      "types": "./dist/build/cloudflare.d.ts",
+      "import": "./dist/build/cloudflare.js"
+    },
+    "./build/deployment-output": {
+      "types": "./dist/build/deployment-output.d.ts",
+      "import": "./dist/build/deployment-output.js"
+    },
+    "./build/deployment-plan-output": {
+      "types": "./dist/build/deployment-plan-output.d.ts",
+      "import": "./dist/build/deployment-plan-output.js"
+    },
+    "./build/deno-runtime-packages": {
+      "types": "./dist/build/deno-runtime-packages.d.ts",
+      "import": "./dist/build/deno-runtime-packages.js"
+    },
+    "./build/mode": {
+      "types": "./dist/build/mode.d.ts",
+      "import": "./dist/build/mode.js"
+    },
+    "./build/paths": {
+      "types": "./dist/build/paths.d.ts",
+      "import": "./dist/build/paths.js"
+    },
+    "./build/esbuild": {
+      "types": "./dist/build/esbuild.d.ts",
+      "import": "./dist/build/esbuild.js"
+    },
+    "./build/provider-output-sources": {
+      "types": "./dist/build/provider-output-sources.d.ts",
+      "import": "./dist/build/provider-output-sources.js"
+    },
+    "./build/client-output": {
+      "types": "./dist/build/client-output.d.ts",
+      "import": "./dist/build/client-output.js"
+    },
+    "./build/colocated-agent-files": {
+      "types": "./dist/build/colocated-agent-files.d.ts",
+      "import": "./dist/build/colocated-agent-files.js"
+    },
+    "./build/vercel-config": {
+      "types": "./dist/build/vercel-config.d.ts",
+      "import": "./dist/build/vercel-config.js"
+    },
+    "./build/vercel-runtime-package-copy": {
+      "types": "./dist/build/vercel-runtime-package-copy.d.ts",
+      "import": "./dist/build/vercel-runtime-package-copy.js"
+    },
+    "./build/vercel-runtime-packages": {
+      "types": "./dist/build/vercel-runtime-packages.d.ts",
+      "import": "./dist/build/vercel-runtime-packages.js"
+    },
+    "./build/user-entry": {
+      "types": "./dist/build/user-entry.d.ts",
+      "import": "./dist/build/user-entry.js"
+    },
+    "./build/vite": {
+      "types": "./dist/build/vite.d.ts",
+      "import": "./dist/build/vite.js"
+    },
+    "./nitro-kit": {
+      "types": "./dist/nitro-kit.d.ts",
+      "import": "./dist/nitro-kit.js"
+    },
+    "./workspace-inventory": {
+      "types": "./dist/workspace-inventory.d.ts",
+      "import": "./dist/workspace-inventory.js"
+    },
     "./test/e2e-live": "./src/test/e2e-live.mjs",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./package-exports": {
+      "types": "./src/package-exports.ts",
+      "default": "./src/package-exports.ts"
+    }
   },
   "scripts": {
     "build": "vp pack",
