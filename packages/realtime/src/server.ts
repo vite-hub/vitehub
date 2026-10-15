@@ -187,6 +187,14 @@ function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName
       if (owner !== value) {
         const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")
         if (!constructor || !("value" in constructor) || typeof constructor.value !== "function" || constructor.value.prototype !== owner) return false
+        let source: string
+        try {
+          source = Function.prototype.toString.call(constructor.value)
+        }
+        catch {
+          return false
+        }
+        if (!/^class\s/.test(source)) return false
       }
       if ("value" in descriptor) return typeof descriptor.value === "function"
       try {
