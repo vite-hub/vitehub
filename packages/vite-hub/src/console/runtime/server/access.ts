@@ -72,10 +72,26 @@ function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return false
   try {
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-    if (status) status.call(value)
-    else return false
-    return true
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    let current: object | null = value
+    let status: (() => unknown) | undefined
+    while (current) {
+      const descriptor = Object.getOwnPropertyDescriptor(current, "status")
+      if (descriptor?.get) {
+        status = descriptor.get
+        break
+      }
+      current = Object.getPrototypeOf(current)
+    }
+    if (!status) return false
+    status.call(value)
+    const prototype = Object.getPrototypeOf(value)
+    if (!prototype) return false
+    return ["body", "bodyUsed", "headers", "ok", "statusText", "type", "url", "clone", "text"].every(key => {
+      let owner: object | null = prototype
+      while (owner && !Object.prototype.hasOwnProperty.call(owner, key)) owner = Object.getPrototypeOf(owner)
+      return owner !== null
+    })
   }
   catch {
     return false
