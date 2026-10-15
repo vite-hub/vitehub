@@ -317,7 +317,7 @@ interface RealtimeRoomSql {
 
 function documentTables(sql: RealtimeRoomSql): void {
   sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL)")
-  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL)")
+  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL, client_update INTEGER NOT NULL DEFAULT 1)")
 }
 
 function parseRoomPath(url: string): { definitionName: string, documentId: string, searchParams: URLSearchParams, workspaceEvents: boolean } {
@@ -591,7 +591,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   function listen(room: DocumentRoom, document: Y.Doc): void {
     document.on("update", (update: Uint8Array, origin: unknown) => {
       if (room.document !== document) return
-      if (origin !== serverOrigin) persistRoomUpdate(room, update)
+      persistRoomUpdate(room, update, origin !== serverOrigin)
       const message = encodeSyncUpdate(update)
       const sender = roomPeer(room, origin)
       if (sender) sender.publish(room.channel, message)
@@ -636,13 +636,19 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         document = new Y.Doc()
         try {
           Y.applyUpdate(document, storedState)
-          const updates = sql.exec("SELECT update_blob FROM vitehub_realtime_document_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+          let updates: Array<Record<string, unknown>>
+          try {
+            updates = sql.exec("SELECT update_blob, client_update FROM vitehub_realtime_document_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+          }
+          catch {
+            updates = sql.exec("SELECT update_blob FROM vitehub_realtime_document_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+          }
           for (const row of updates) {
             const update = storedUpdate(row.update_blob)
             if (update) Y.applyUpdate(document, update)
           }
           persistedUpdates = updates.length
-          dirty = Number(stored?.dirty) === 1 || updates.length > 0
+          dirty = Number(stored?.dirty) === 1 || updates.some(update => update.client_update === undefined || Number(update.client_update) === 1)
           assertRealtimeRoomStateQuota(document)
           // The codec may have changed since the room was persisted: show what it reports now.
           if (guard.readOnly || readRealtimeStatus(document).error === readOnlyDocumentMessage) {
@@ -706,12 +712,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     room.persistedUpdates = 0
   }
 
-  function persistRoomUpdate(room: DocumentRoom, update: Uint8Array): void {
+  function persistRoomUpdate(room: DocumentRoom, update: Uint8Array, clientUpdate: boolean): void {
     if (!room.sql) return
     room.sql.exec(
-      "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
+      "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, ?)",
       room.key,
       Uint8Array.from(update).buffer,
+      clientUpdate ? 1 : 0,
     )
     room.persistedUpdates++
     if (room.persistedUpdates >= durableUpdateCompactionInterval) persistRoom(room)
