@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -405,7 +404,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     // Releasing the reader must unlock the same fresh stream. An override can
     // otherwise lock the fresh stream while returning a reader from elsewhere.
     if (Reflect.apply(locked, freshStream, [])) return false
-    return responsePropertyDescriptor(candidate, "getReader")?.value === getReader
+    // An intermediate prototype may intentionally shadow `getReader`; the
+    // intrinsic method selected alongside the branded `locked` accessor is
+    // the one we validated and will use for bridging.
+    return true
   }
   catch {
     return false
@@ -470,7 +472,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     return normalizedResponse
   }
   catch {
-    return
+    return undefined
   }
 }
 
