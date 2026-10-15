@@ -23,6 +23,7 @@ jobs:
       - contract-tests
       - package-tests
       - package-tests-success
+      - prepublish-contracts
       - consumer-contracts
       - consumer-contracts-success
       - windows-agent-credentials
@@ -48,9 +49,12 @@ jobs:
             "windows-agent-credentials",
             "verify-providers",
           ])
+          const skippedPushJobs = new Set(["prepublish-contracts"])
           const failures = Object.entries(results).filter(([name, job]) => {
             const maySkip = (process.env.GITHUB_EVENT_NAME === "pull_request"
               && skippedPullRequestJobs.has(name))
+              || (process.env.GITHUB_EVENT_NAME === "push"
+                && skippedPushJobs.has(name))
               || (process.env.GITHUB_EVENT_NAME !== "push" && name === "docs-deploy")
             return job.result !== "success" && !(maySkip && job.result === "skipped")
           })
@@ -106,6 +110,41 @@ jobs:
         run: vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts
 
       - run: vp run --ignore-depends-on examples:verify
+
+  # Match Void's prepublish contract: install the exact tarballs a release
+  # would publish and exercise them without workspace visibility. This runs
+  # for pull requests and manual dispatches; pushes already run the sharded
+  # consumer suite below.
+  prepublish-contracts:
+    name: prepublish package contracts
+    if: ${{ github.event_name != 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+
+      # Published packages come from a fresh build, not task cache
+      # fingerprints. Keep this in sync with the release workflow.
+      - run: vp run --no-cache --filter "./packages/*" build
+      - name: Pack exact release tarballs
+        run: |
+          node .github/scripts/release-packages.mjs pack \
+            --workspace . \
+            --output .release/npm \
+            --source-sha "$GITHUB_SHA"
+      - name: Verify exact release tarballs
+        run: |
+          node .github/scripts/release-packages.mjs verify \
+            --manifest .release/npm/release-manifest.json \
+            --workspace . \
+            --source-sha "$GITHUB_SHA"
+      - name: Test package contracts against exact release tarballs
+        env:
+          VITEHUB_RELEASE_MANIFEST: ${{ github.workspace }}/.release/npm/release-manifest.json
+        run: vp run test:consumer
 
   contract-tests:
     name: contract tests

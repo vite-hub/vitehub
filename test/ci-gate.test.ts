@@ -60,6 +60,30 @@ describe("CI merge gate", () => {
     ])
   })
 
+  it("runs packed release contracts for pull requests and manual dispatches", () => {
+    const prepublish = workflow.jobs["prepublish-contracts"]
+    expect(prepublish?.if).toBe("${{ github.event_name != 'push' }}")
+    expect(prepublish?.steps.flatMap(step => step.run ? [step.run] : [])).toEqual([
+      'vp run --no-cache --filter "./packages/*" build',
+      [
+        "node .github/scripts/release-packages.mjs pack \\",
+        "  --workspace . \\",
+        "  --output .release/npm \\",
+        "  --source-sha \"$GITHUB_SHA\"",
+      ].join("\n") + "\n",
+      [
+        "node .github/scripts/release-packages.mjs verify \\",
+        "  --manifest .release/npm/release-manifest.json \\",
+        "  --workspace . \\",
+        "  --source-sha \"$GITHUB_SHA\"",
+      ].join("\n") + "\n",
+      "vp run test:consumer",
+    ])
+    expect(prepublish?.steps.find(step => step.env?.VITEHUB_RELEASE_MANIFEST)?.env).toEqual({
+      VITEHUB_RELEASE_MANIFEST: "${{ github.workspace }}/.release/npm/release-manifest.json",
+    })
+  })
+
   it("uses read-only repository credentials for verification", () => {
     expect(workflow.permissions).toEqual({ contents: "read" })
   })
@@ -118,10 +142,16 @@ describe("CI merge gate", () => {
 
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
-      result: ["checks", "contracts-examples", "package-tests", "package-tests-success", "docs"].includes(name) ? "success" : "skipped",
+      result: ["checks", "contracts-examples", "package-tests", "package-tests-success", "docs", "prepublish-contracts"].includes(name) ? "success" : "skipped",
     }]))
     expect(runGate(results).status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
+  })
+
+  it("requires packed release contracts on pull requests while allowing their push skip", () => {
+    const results = { ...successfulJobs, "prepublish-contracts": { result: "skipped" } }
+    expect(runGate(results, "pull_request").status).not.toBe(0)
+    expect(runGate(results, "push").status).toBe(0)
   })
 
   it.each(jobNames)("rejects a failed or cancelled %s job", (name) => {
