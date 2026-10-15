@@ -190,7 +190,8 @@ describe("UI documentation", () => {
     expect(sidebarTop).toContain("UContentSearchButton");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).toContain('<UPageAside class="vh-docs-aside">');
-    expect(layout).toContain("lg:!flex-1");
+    expect(layout).toContain("overflow: hidden;");
+    expect(layout).toContain("<DocsSidebars panel />");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
