@@ -1,19 +1,21 @@
 <script setup lang="ts">
 import { mapEditorItems, createHandlers } from "@nuxt/ui/utils/editor";
 import { Extension } from "@tiptap/core";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import { Placeholder } from "@tiptap/extensions";
 import { Plugin } from "@tiptap/pm/state";
 import { EditorContent, nodeViewProps } from "@tiptap/vue-3";
-import { parseMarkdown } from "comark";
+import { contentEditorComponents, contentEditorKitOptions, contentMarkdownLossOf, describeContentMarkdownLoss } from "@vite-hub/content/editor";
 import { defineComarkVueComponent, useComarkEditor } from "comark-tiptap/vue";
-import { computed, defineComponent, h, onBeforeUnmount, provide, ref, shallowRef, watch } from "vue";
+import { computed, defineComponent, h, markRaw, onBeforeUnmount, provide, ref, shallowRef, watch } from "vue";
 
 import {
   consoleComponentDefaults,
+  consoleComponentRecord,
   consoleConvertibleNodes,
   consoleEditorComponents,
   consoleHeadingSlug,
-  consoleMarkdownLoss,
   consoleSlashGroups,
   consoleTurnIntoItems,
 } from "../client/editor";
@@ -26,12 +28,16 @@ import type { DropdownMenuItem, EditorCustomHandlers, EditorToolbarItem } from "
 import type { Editor, JSONContent } from "@tiptap/vue-3";
 import type { ConsoleMediaItem, ConsoleMediaPicker } from "../client/media";
 import type { ConsoleDocumentComponent } from "../definitions";
+import type * as Y from "yjs";
 
 /**
  * The document body: a block editor over Markdown. Comark is the document model, so Markdown and Comark components
  * round-trip; Nuxt UI provides the bubble toolbar, the block handle, and the `/` menu. Selecting text shows formatting,
  * hovering a block shows ⋮⋮ (move, turn into, duplicate, delete) and + (insert below), and `/` inserts blocks, images,
  * and the collection's components. The editor writes Markdown to `v-model` and never rewrites a body nobody changed.
+ * With `live`, the body is the `body` fragment of a Realtime room instead: Yjs owns the content and the undo history,
+ * other people show as carets, and the room saves the draft. The schema comes from the same Content functions as the
+ * server codec, so both read the room alike.
  */
 const props = defineProps<{
   /** False while another view, such as Source, edits the same Markdown. The editor reloads the model when it returns. */
@@ -41,6 +47,8 @@ const props = defineProps<{
   disabled?: boolean;
   documentId?: string;
   label?: string;
+  /** The live room to bind instead of `v-model`. Read once: mount the editor again for another room. */
+  live?: { document: Y.Doc, provider: { awareness: unknown }, user: { color: string, id: string, name: string } };
 }>();
 
 const emit = defineEmits<{
@@ -62,18 +70,17 @@ let canonical: string | undefined;
 let loading = 0;
 let pending: ReturnType<typeof setTimeout> | undefined;
 
+const live = props.live;
 const components = computed(() => consoleEditorComponents(props.components));
 const definitions = new Map(components.value.map(component => [component.name, component]));
-const comarkComponents = components.value.map(component => defineComarkVueComponent({
-  kind: component.kind,
-  name: component.name,
-  // A wrapper per component, so the shared node view knows which definition it renders.
+// The same component definitions as the server codec, each with a node view that knows which definition it renders.
+const comarkComponents = contentEditorComponents(consoleComponentRecord(props.components), definition => defineComarkVueComponent({
+  ...definition,
   nodeView: defineComponent({
-    name: `ConsoleComark${component.name}`,
+    name: `ConsoleComark${definition.name}`,
     props: nodeViewProps,
-    setup: nodeProps => () => h(ConsoleComarkComponent, { ...nodeProps, definition: component }),
+    setup: nodeProps => () => h(ConsoleComarkComponent, { ...nodeProps, definition: definitions.get(definition.name)! }),
   }),
-  props: Object.fromEntries(Object.entries(component.props).map(([name, prop]) => [name, prop.default === undefined ? { type: prop.type } : { default: prop.default, type: prop.type }])),
 }));
 
 // Media: a provided picker, such as a Blob media library, or the editor's own dialog.
@@ -141,22 +148,30 @@ const { editor, getMarkdown, setContent } = useComarkEditor({
       showOnlyCurrent: true,
     }),
     mediaDrop,
+    // Live: Yjs holds the body and its undo history, and each person shows as a named caret in their colour.
+    ...(live
+      ? [
+          markRaw(Collaboration.configure({ fragment: markRaw(live.document.getXmlFragment("body")) })),
+          markRaw(CollaborationCaret.configure({ provider: live.provider, user: live.user })),
+        ]
+      : []),
   ],
   kitOptions: {
     resolveSrc: src => providedPicker?.resolveSrc?.(src),
     starterKit: {
+      ...(live ? contentEditorKitOptions.starterKit : {}),
       dropcursor: { class: "vitehub-drop-cursor", color: "var(--ui-primary)", width: 2 },
       link: { openOnClick: false },
     },
   },
-  onError: (error, context) => {
+  onError: (error) => {
     // A node the editor cannot represent is dropped from the editor, not from the stored Markdown. Editing it here
     // would delete it, so the body becomes read-only in Rich mode.
-    if (!loading) return;
+    if (!loading || live) return;
     lossy.value = error instanceof Error ? error.message : "The rich editor cannot show part of this Markdown.";
   },
   onUpdate: () => {
-    if (!loading) schedule();
+    if (!loading && !live) schedule();
     scheduleOutline();
   },
 });
@@ -175,9 +190,9 @@ function schedule(): void {
   pending = setTimeout(() => void flush(), 120);
 }
 
-/** Writes pending rich-text edits to the model now, for example before a save. */
+/** Writes pending rich-text edits to the model now, for example before a save. A live room saves on its own. */
 async function commit(): Promise<void> {
-  if (!pending) return;
+  if (!pending || live) return;
   clearTimeout(pending);
   await flush();
 }
@@ -211,14 +226,15 @@ function load(markdown: string): Promise<void> {
   });
 }
 
-/** Why rich editing would lose part of `markdown`, or undefined when what the editor writes parses the same. */
+/**
+ * Why rich editing would lose part of `markdown`, or undefined when what the editor writes parses the same. Content owns
+ * the check, so the Console and a live room's codec agree on what counts as loss and on its wording.
+ */
 async function markdownLoss(markdown: string, written: string | undefined): Promise<string | undefined> {
   if (written === undefined || written === markdown) return undefined;
   try {
-    const [stored, rewritten] = await Promise.all([parseMarkdown(markdown), parseMarkdown(written)]);
-    const lost = consoleMarkdownLoss(stored.nodes, rewritten.nodes);
-    if (!lost) return undefined;
-    return lost.length ? `Not supported here: ${lost.map(tag => `::${tag}`).join(", ")}.` : "Part of it would change shape.";
+    const loss = await contentMarkdownLossOf(markdown, written, { components: consoleComponentRecord(props.components) });
+    return loss ? describeContentMarkdownLoss(loss) : undefined;
   }
   catch {
     return undefined;
@@ -226,17 +242,23 @@ async function markdownLoss(markdown: string, written: string | undefined): Prom
 }
 
 watch(editor, (instance) => {
-  if (instance) void load(model.value);
+  if (!instance) return;
+  if (!live) {
+    void load(model.value);
+    return;
+  }
+  setEditable();
+  scheduleOutline();
 }, { once: true });
 
 watch(model, (value) => {
-  if (value === written) return;
+  if (live || value === written) return;
   written = value;
   if (props.active !== false) void load(value);
 });
 
 watch(() => props.active, (active) => {
-  if (active === false) return;
+  if (active === false || live) return;
   if (model.value !== loaded) void load(model.value);
 });
 
@@ -440,8 +462,8 @@ watch(editor, (instance) => {
 <template>
   <section class="vitehub-markdown-editor relative" :aria-label="label ?? 'Body'">
     <p v-if="lossy" class="mb-4 flex items-start gap-2 rounded-md bg-elevated/60 px-3 py-2 text-[13px] text-muted" role="status">
-      <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
-      <span>This body uses Markdown the rich editor can't keep, so it is read-only here. Edit it in Source (⌘/). <span class="text-xs text-dimmed">{{ lossy }}</span></span>
+      <UIcon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <span>Read-only here. {{ lossy }} <span class="text-xs text-dimmed">⌘/</span></span>
     </p>
     <template v-if="editor">
       <EditorContent :editor="editor" />
@@ -623,4 +645,29 @@ watch(editor, (instance) => {
 }
 
 .vitehub-markdown-editor__content[contenteditable="false"] :is(p, h1, h2, h3, h4).is-empty::before { content: none; }
+
+/* Live carets: a 2px bar and a small name tag in each person's colour, as in Notion and Linear. */
+.vitehub-markdown-editor__content .collaboration-carets__caret {
+  border-inline: 1px solid;
+  margin-inline: -1px;
+  pointer-events: none;
+  position: relative;
+  word-break: normal;
+}
+
+.vitehub-markdown-editor__content .collaboration-carets__label {
+  border-radius: 3px 3px 3px 0;
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  inset-block-start: -1.45em;
+  inset-inline-start: -1px;
+  line-height: 1;
+  padding: 2px 4px;
+  position: absolute;
+  user-select: none;
+  white-space: nowrap;
+}
 </style>

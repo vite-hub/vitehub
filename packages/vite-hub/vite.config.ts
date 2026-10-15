@@ -255,6 +255,7 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-property-row.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-page-header.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-presence-avatars.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-live-focus.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-page-toolbar.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
@@ -306,6 +307,7 @@ export default defineConfig({
       "src/console/runtime/client/documents.ts",
       "src/console/runtime/client/editor.ts",
       "src/console/runtime/client/env-status.ts",
+      "src/console/runtime/client/live.ts",
       "src/console/runtime/client/media.ts",
       "src/console/runtime/client/media-library.ts",
       "src/console/runtime/client/media-uploads.ts",
@@ -353,6 +355,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/documents"];
         delete exports["./console/runtime/client/editor"];
         delete exports["./console/runtime/client/env-status"];
+        delete exports["./console/runtime/client/live"];
         delete exports["./console/runtime/client/media"];
         delete exports["./console/runtime/client/media-library"];
         delete exports["./console/runtime/client/media-uploads"];
