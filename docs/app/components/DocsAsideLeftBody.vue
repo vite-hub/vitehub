@@ -27,12 +27,13 @@ const pageGroups = computed(() => {
     return { ...group, pages: [...group.pages, perspective] };
   });
 });
-const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
+const platformSections = computed(() => catalog.find(group => group.category === "Platform")?.sections ?? []);
+const platformSections = computed(() => catalog.find(group => group.category === "Platform")?.sections ?? []);
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
