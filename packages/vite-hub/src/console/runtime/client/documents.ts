@@ -163,6 +163,54 @@ export interface ConsoleDocumentSearchResult {
   updatedAt: string | null
 }
 
+/** The person behind an editor tab. */
+export interface ConsoleDocumentSessionUser {
+  id: string
+  image?: string
+  name: string
+}
+
+/** One editor tab that has a document open. */
+export interface ConsoleDocumentSession {
+  collection: string
+  id: string
+  /** `edit` while it holds the edit lease. */
+  kind: "edit" | "view"
+  /** True for this tab. */
+  self: boolean
+  /** When it started editing, as an ISO timestamp. */
+  since: string | null
+  user: ConsoleDocumentSessionUser
+}
+
+/** Who has one document open, after a session action. */
+export interface ConsoleDocumentPresence {
+  /** False when the owner cannot track sessions. The editor stays editable. */
+  available: boolean
+  /** The draft digest now, to reload a clean page that someone else saved. */
+  digest?: string | null
+  /** Whether this tab may edit. */
+  editing: boolean
+  holder: ConsoleDocumentSession | null
+  /** Whether one tab at a time holds the edit lease. */
+  lease: boolean
+  now: string
+  reason?: string
+  sessions: ConsoleDocumentSession[]
+  /** The signed-in Console user. */
+  user: ConsoleDocumentSessionUser | null
+}
+
+/** Every open tab in readable collections. */
+export interface ConsoleDocumentSessions {
+  available: boolean
+  reason?: string
+  sessions: ConsoleDocumentSession[]
+  user: ConsoleDocumentSessionUser | null
+}
+
+export type ConsoleDocumentSessionAction = "acquire" | "release" | "report" | "takeover"
+
 /** The result of each owner document action. */
 interface ConsoleDocumentActionResults {
   get: ConsoleDocument | null
@@ -176,6 +224,8 @@ interface ConsoleDocumentActionResults {
   revisions: { cursor?: string, revisions: ConsoleDocumentRevision[] }
   save: ConsoleDocument
   schedule: ConsoleDocumentScheduled
+  session: ConsoleDocumentPresence
+  sessions: ConsoleDocumentSessions
   unschedule: null
 }
 
@@ -191,21 +241,27 @@ export interface ConsoleDocumentsClient {
   publish(collection: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentPublished>
   /** Reads the stored file on the draft, or at an earlier revision, without validating it. */
   raw(collection: string, id: string, revision?: string): Promise<ConsoleRawDocument | null>
-  remove(collection: string, id: string, ifDigest: string): Promise<null>
-  restore(collection: string, id: string, revision: string, ifDigest: string | null): Promise<ConsoleDocument>
+  remove(collection: string, id: string, ifDigest: string, session?: string): Promise<null>
+  restore(collection: string, id: string, revision: string, ifDigest: string | null, session?: string): Promise<ConsoleDocument>
   revisions(collection: string, id: string, cursor?: string): Promise<{ cursor?: string, revisions: ConsoleDocumentRevision[] }>
-  save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null }): Promise<ConsoleDocument>
+  /** `session` is this tab's token, so its own edit lease does not block the save. */
+  save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, session?: string }): Promise<ConsoleDocument>
   /** Publishes exactly these drafts at `at`, an ISO timestamp. A draft saved after scheduling makes the schedule fail. */
   schedule(collection: string, at: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentScheduled>
   /** Cancels a pending schedule, or dismisses a failed one. */
   unschedule(collection: string, schedule: string): Promise<null>
+  /** Reports, takes, or releases this tab's session on one document. `keepalive` lets a release outlive the page. */
+  session(collection: string, id: string, input: { action: ConsoleDocumentSessionAction, input?: boolean, kind?: "edit" | "view", session: string }, options?: { keepalive?: boolean }): Promise<ConsoleDocumentPresence>
+  /** Every open tab in readable collections, or in one. */
+  sessions(options?: { collection?: string, session?: string, signal?: AbortSignal }): Promise<ConsoleDocumentSessions>
 }
 
 /** Calls the owner document actions of one document editor section. */
 export function createConsoleDocumentsClient(base: string, section: string): ConsoleDocumentsClient {
-  async function call<TAction extends keyof ConsoleDocumentActionResults>(action: TAction, body: Record<string, unknown>, signal?: AbortSignal): Promise<ConsoleDocumentActionResults[TAction]> {
+  async function call<TAction extends keyof ConsoleDocumentActionResults>(action: TAction, body: Record<string, unknown>, signal?: AbortSignal, keepalive?: boolean): Promise<ConsoleDocumentActionResults[TAction]> {
     const options: Parameters<typeof requestConsole>[1] = { body, method: "POST", query: { action, section } }
     if (signal) options.signal = signal
+    if (keepalive) options.keepalive = true
     const value = await requestConsole(base, options)
     // SAFETY: The owner actions return the mirrored contract for this action. The editor renders fields as text and checks ids before use.
     return value as ConsoleDocumentActionResults[TAction]
@@ -217,17 +273,22 @@ export function createConsoleDocumentsClient(base: string, section: string): Con
       (await call("search", options.limit ? { limit: options.limit, query } : { query }, options.signal)).items,
     get: (collection: string, id: string) => call("get", { collection, id }),
     raw: (collection: string, id: string, revision?: string) => call("raw", revision ? { collection, id, revision } : { collection, id }),
-    save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null }) =>
+    save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, session?: string }) =>
       call("save", { collection, id, ...input }),
-    remove: (collection: string, id: string, ifDigest: string) => call("remove", { collection, id, ifDigest }),
+    remove: (collection: string, id: string, ifDigest: string, session?: string) => call("remove", { collection, id, ifDigest, ...(session ? { session } : {}) }),
     publish: (collection: string, expect: readonly ConsoleDocumentPublishExpectation[]) =>
       call("publish", { collection, expect: expect.map(({ digest, id }) => ({ digest, id })) }),
     revisions: (collection: string, id: string, cursor?: string) =>
       call("revisions", cursor ? { collection, cursor, id } : { collection, id }),
-    restore: (collection: string, id: string, revision: string, ifDigest: string | null) => call("restore", { collection, id, ifDigest, revision }),
+    restore: (collection: string, id: string, revision: string, ifDigest: string | null, session?: string) =>
+      call("restore", { collection, id, ifDigest, revision, ...(session ? { session } : {}) }),
     schedule: (collection: string, at: string, expect: readonly ConsoleDocumentPublishExpectation[]) =>
       call("schedule", { at, collection, expect: expect.map(({ digest, id }) => ({ digest, id })) }),
     unschedule: (collection: string, schedule: string) => call("unschedule", { collection, schedule }),
+    session: (collection: string, id: string, input: { action: ConsoleDocumentSessionAction, input?: boolean, kind?: "edit" | "view", session: string }, options: { keepalive?: boolean } = {}) =>
+      call("session", { collection, id, ...input }, undefined, options.keepalive),
+    sessions: (options: { collection?: string, session?: string, signal?: AbortSignal } = {}) =>
+      call("sessions", { ...(options.collection ? { collection: options.collection } : {}), ...(options.session ? { session: options.session } : {}) }, options.signal),
   }
 }
 
@@ -254,6 +315,16 @@ export function consoleInvalidDocument(error: unknown): string | undefined {
   if (!(error instanceof ConsoleRequestError) || error.failureCode !== "CONTENT_INVALID") return
   const id = error.details?.id
   return String(id) === id ? id : undefined
+}
+
+/** The holder named by a `CONTENT_LEASE_HELD` failure: another tab holds the edit lease. Undefined for another error. */
+export function consoleLeaseHolder(error: unknown): { name: string, since: string | null } | undefined {
+  if (!(error instanceof ConsoleRequestError) || error.failureCode !== "CONTENT_LEASE_HELD") return
+  const holder = error.details?.holder
+  const user: unknown = holder instanceof Object ? Reflect.get(holder, "user") : undefined
+  const name: unknown = user instanceof Object ? Reflect.get(user, "name") : undefined
+  const since: unknown = holder instanceof Object ? Reflect.get(holder, "since") : undefined
+  return { name: String(name) === name && name ? name : "Someone", since: String(since) === since ? since : null }
 }
 
 export function isConsoleConflict(error: unknown): boolean {
