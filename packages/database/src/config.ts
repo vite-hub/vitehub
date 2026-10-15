@@ -83,6 +83,36 @@ function maskCommentsAndStrings(source: string) {
       quote = char
       result += " "
     }
+    else if (char === "/" && next !== "/" && next !== "*") {
+      let previous = index - 1
+      while (previous >= 0 && /\s/.test(source[previous]!)) previous--
+      if (previous < 0 || /[=([{,:;!&|?]/.test(source[previous]!)) {
+        result += " "
+        index++
+        let inClass = false
+        for (; index < source.length; index++) {
+          const regexChar = source[index]!
+          if (regexChar === "\\") {
+            result += "  "
+            index++
+            continue
+          }
+          if (regexChar === "[") inClass = true
+          else if (regexChar === "]") inClass = false
+          else if (regexChar === "/" && !inClass) {
+            result += " "
+            while (/[A-Za-z]/.test(source[index + 1] || "")) {
+              index++
+              result += " "
+            }
+            break
+          }
+          result += regexChar === "\n" || regexChar === "\r" ? regexChar : " "
+        }
+        continue
+      }
+      result += char
+    }
     else if (char === "/" && next === "/") {
       result += "  "
       index++
@@ -292,7 +322,19 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
       if (name !== identifier) continue
       const relativeOffset = match[0].indexOf(match[1]!) + declaration.indexOf("=") + 1
       const sourceOffset = match.index + relativeOffset
-      const value = stripLeadingEntryComments(source.slice(sourceOffset).split(";", 1)[0])
+      const remainder = masked.slice(sourceOffset)
+      let depth = 0
+      let end = remainder.length
+      for (let index = 0; index < remainder.length; index++) {
+        const char = remainder[index]!
+        if (char === "{" || char === "[" || char === "(") depth++
+        else if (char === "}" || char === "]" || char === ")") depth = Math.max(0, depth - 1)
+        else if (char === ";" && depth === 0) {
+          end = index
+          break
+        }
+      }
+      const value = stripLeadingEntryComments(source.slice(sourceOffset, sourceOffset + end))
       return readOpaqueResourceOwnership(value, source, seen)
     }
   }
