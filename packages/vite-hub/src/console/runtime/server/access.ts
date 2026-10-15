@@ -80,12 +80,21 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     if (typeof status !== "number" || typeof statusText !== "string" || !headers || typeof headers !== "object") return
     const clone = Reflect.get(value, "clone")
     if (typeof clone !== "function") return
-    const cloned = Reflect.apply(clone, value, [])
+    const bodyUsed = Reflect.get(value, "bodyUsed")
+    if (typeof bodyUsed !== "boolean") return
+    const init = { headers: new Headers(headers as Headers), status, statusText }
+    let cloned: unknown
+    try {
+      cloned = Reflect.apply(clone, value, [])
+    }
+    catch {
+      if (bodyUsed) return new Response(null, init)
+      return
+    }
     if (!cloned || typeof cloned !== "object" || cloned === value || Object.getPrototypeOf(cloned) !== Object.getPrototypeOf(value)) return
     const arrayBuffer = Reflect.get(cloned, "arrayBuffer")
     if (typeof arrayBuffer !== "function") return
     const body = Reflect.get(value, "body")
-    const init = { headers: new Headers(headers as Headers), status, statusText }
     if (body === null) return new Response(null, init)
     return new Response(await Reflect.apply(arrayBuffer, cloned, []), init)
   }
