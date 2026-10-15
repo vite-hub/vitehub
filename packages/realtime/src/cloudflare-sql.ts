@@ -39,7 +39,7 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     // identify that exact prototype. This rejects copied members and bound or
     // arrow constructor proxies before any candidate callback is invoked.
     if (constructorEntry.owner !== execEntry.owner || constructorEntry.owner !== databaseSizeEntry.owner) return false
-    if (!Object.hasOwn(constructor, "prototype")) return false
+    if (!Object.hasOwn(constructor, "prototype") || constructor.prototype !== constructorEntry.owner) return false
     // Accessor callbacks supplied by JavaScript have an own `prototype`;
     // workerd's native getter does not. Reject these before the brand probe so
     // discovery never invokes a fabricated getter.
@@ -48,7 +48,10 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     // A proxy-wrapped arrow or bound callback cannot reproduce that accessor
     // identity and must not be used as a receiver brand check.
     if (databaseSize.name !== "get databaseSize") return false
-    if (!/\[native code\]/.test(Function.prototype.toString.call(databaseSize))) return false
+    // Native workerd members expose native source representations. Require the
+    // same marker for every prototype member before any receiver probe.
+    const isNativeFunction = (value: Function): boolean => /\[native code\]/.test(Function.prototype.toString.call(value))
+    if (!isNativeFunction(constructor) || !isNativeFunction(exec) || !isNativeFunction(databaseSize)) return false
 
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)
