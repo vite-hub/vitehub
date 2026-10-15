@@ -60,5 +60,7 @@ async function consoleDefinitionsHandler(event: ConsoleRequestEvent): Promise<Co
   return { kind: "record-table", records: section === "schedules" ? markRunnableSchedules(records) : records, section }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof consoleDefinitionsHandler> = withConsoleAccess(consoleDefinitionsHandler)
+const guardedHandler: ConsoleAccessRoute<typeof consoleDefinitionsHandler> = withConsoleAccess(consoleDefinitionsHandler, {
+  section: event => consoleRequestURL(event).searchParams.get("section") ?? undefined,
+})
 export default guardedHandler
