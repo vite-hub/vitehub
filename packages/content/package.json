@@ -41,6 +41,10 @@
       "types": "./dist/editor.d.ts",
       "import": "./dist/editor.js"
     },
+    "./realtime": {
+      "types": "./dist/realtime.d.ts",
+      "import": "./dist/realtime.js"
+    },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js"

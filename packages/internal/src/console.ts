@@ -220,6 +220,12 @@ export interface ViteHubConsoleDocumentSetup {
   /** Present when no user can read anything because the owner has no access policy. */
   access?: ViteHubConsoleDocumentHint
   /**
+   * Live co-editing. `definition` names the Realtime Definition whose rooms are `<collection>/<id>`; the editor joins
+   * the room of a Markdown document instead of taking the edit lease. `unavailable` names why the owner wanted live
+   * editing and the host cannot run it, such as a host without a Realtime authority. Absent when live editing is off.
+   */
+  live?: { definition: string } | { unavailable: string }
+  /**
    * Present when nothing runs scheduled publishes. The editor disables Schedule, and overdue schedules name the fix.
    */
   schedule?: ViteHubConsoleDocumentHint
@@ -523,8 +529,12 @@ export interface ViteHubConsoleDocumentSession {
   collection: string
   id: string
   user: ViteHubConsoleDocumentSessionUser
-  /** `edit` while it holds the edit lease, or edits a collection without leases. Otherwise `view`. */
-  kind: "view" | "edit"
+  /**
+   * `edit` while it holds the edit lease, or edits a collection without leases. `live` for a live Realtime room that
+   * holds the lease for everyone in it: `user.name` lists them, such as `Ana, Ben`, and others join instead of taking
+   * over. Otherwise `view`.
+   */
+  kind: "view" | "edit" | "live"
   /** When it started editing, as an ISO timestamp. Null while it views. */
   since: string | null
   /** True for the tab that sent the request. */

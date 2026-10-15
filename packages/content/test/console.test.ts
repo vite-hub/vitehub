@@ -348,7 +348,8 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
 
   it("names the missing access policy instead of an empty section", async () => {
     const { actions } = await setup()
-    expect(await actions.setup?.(editor)).toEqual({})
+    // Markdown collections name why live editing is off where the host has no Realtime authority.
+    expect(await actions.setup?.(editor)).toEqual({ live: { unavailable: expect.stringContaining("room authority") } })
     const open = defineContent({ workspace: await historyWorkspace(), collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }, logger: false })
     cleanup.push(() => open.dispose())
     expect(open.hasPolicy).toBe(false)
@@ -356,6 +357,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     await expect(withoutPolicy.collections(editor)).resolves.toEqual([])
     expect(await withoutPolicy.setup?.(editor)).toEqual({
       access: { message: expect.stringContaining("Add `authorize` to `defineContent()`"), docs: "https://vitehub.dev/docs/content/configure#access" },
+      live: { unavailable: expect.any(String) },
     })
   })
 

@@ -239,6 +239,12 @@ export type DefineContentOptions<
   /** Policy for Content surfaces. Without it, `content.can()` denies every action. */
   authorize?: ContentAuthorize<CollectionName<TCollections>>
   /**
+   * Live co-editing of Markdown documents through Realtime. `auto` (default) turns it on when Realtime is enabled and
+   * the host has a room authority, such as a Node server or Cloudflare Durable Objects; the room then holds the edit
+   * lease for everyone in it. Other hosts, and `false`, keep one editor at a time.
+   */
+  live?: "auto" | false
+  /**
    * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
    * `url`; `robots: true` serves `/robots.txt`. ViteHub generates the routes when this call sets them.
    */
@@ -286,6 +292,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   readonly sessions: ContentSessions<CollectionName<TCollections>>
   /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
+  /** `defineContent({ live })`: `auto` edits Markdown documents live where the host can, `false` never does. */
+  readonly live: "auto" | false
   /**
    * Whether `defineContent({ authorize })` defines a policy. Without one, `can()` denies every action, so surfaces such
    * as the Console show no collections.
@@ -323,7 +331,10 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
-  const { source, sources, workspace, collections, authorize, seo: seoOptions, ...sharedOptions } = options
+  const { source, sources, workspace, collections, authorize, seo: seoOptions, live = "auto", ...sharedOptions } = options
+  if (live !== "auto" && live !== false) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
+  }
   const seo = normalizeSeoOptions(seoOptions)
   if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
@@ -344,7 +355,7 @@ export function defineContent<
   })
   const documentsRuntime: ContentCollectionsRuntime | undefined = collectionEntries.length
     // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
-    ? createContentCollections({ workspace: workspace!, collections: Object.fromEntries(collectionEntries) })
+    ? createContentCollections({ workspace: workspace!, collections: Object.fromEntries(collectionEntries), live })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
   for (const [name, definition] of collectionEntries) {
@@ -414,6 +425,7 @@ export function defineContent<
   const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   const documentsApi = {
     seo,
+    live,
     hasPolicy: authorize !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
