@@ -110,7 +110,9 @@ A document id is the file path below the collection folder, without the extensio
 
 ### Fields
 
-`fields` is a record, not one object schema, so each field can come from a different library. Zod 4 and Valibot object schemas reject validators from other libraries, such as a Blob `image()`; a record of fields accepts any [Standard Schema](https://standardschema.dev).
+`fields` is a record, not one object schema, so each field can come from a different library. Zod 4 and Valibot object schemas reject validators from other libraries, such as `image()`; a record of fields accepts any [Standard Schema](https://standardschema.dev), as written.
+
+`vite-hub/content` exports every field helper: `image()` and `file()` for a [Blob reference](/docs/blob/server-api#blob-reference-schemas), `seo()`, and `optional()`. Blob owns `image()` and `file()`, and `vite-hub/blob` exports the same functions. The Workspace `file()` mount loader from `vite-hub/workspace` is a different helper; when one module needs both, rename one import, such as `import { file as fileField } from 'vite-hub/content'`.
 
 - **Typed data.** `data` takes each field's output type, so `date` is a `Date`. `save()` takes each field's input type.
 - **Optional fields.** A field is optional when its validator accepts a missing value, as with `.optional()` or `.default()`. Wrap a validator that has no `.optional()` in `optional()` from `vite-hub/content`.
@@ -122,8 +124,7 @@ A document id is the file path below the collection folder, without the extensio
 Some content is one document, not a list: site settings, a home page, a footer. Define it with `singleton()` and a file path. It lives in `collections` next to your collections, with the same drafts, publishing, history, validation, and access.
 
 ```ts [server/content.ts]
-import { image } from 'vite-hub/blob'
-import { defineContent, documents, optional, singleton } from 'vite-hub/content'
+import { defineContent, documents, image, optional, singleton } from 'vite-hub/content'
 import { z } from 'zod'
 
 export const content = defineContent({
@@ -192,18 +193,17 @@ A JSON or YAML document is its fields only. `body` is always empty, and `save()`
 | `z.string().min(1)` | `{ type: 'string', minLength: 1 }` |
 | `z.coerce.date()` | `{ type: 'string', format: 'date-time' }` |
 | `z.iso.date()` | `{ type: 'string', format: 'date', pattern }` |
-| `toStandardJsonSchema(v.string())` | `{ type: 'string' }` |
-| `v.string()` | `{}` |
+| `v.pipe(v.string(), v.minLength(1))` | `{ type: 'string', minLength: 1 }` |
+| `v.pipe(v.string(), v.isoDate())` | `{ type: 'string', format: 'date' }` |
 
-Zod 4 schemas carry a Standard JSON Schema. Zod cannot represent a `Date`, so Content projects Zod date fields as the ISO `date-time` string they are stored as. Valibot schemas carry none: wrap them in `toStandardJsonSchema()` from `@valibot/to-json-schema`.
+Zod 4 schemas carry a Standard JSON Schema. Zod cannot represent a `Date`, so Content projects Zod date fields as the ISO `date-time` string they are stored as. Valibot schemas carry none, so Content converts them with `@valibot/to-json-schema`, as Agent tools do. Pass them as they are:
 
 ```ts [server/content.ts]
-import { toStandardJsonSchema } from '@valibot/to-json-schema'
 import * as v from 'valibot'
 
 const fields = {
-  title: toStandardJsonSchema(v.pipe(v.string(), v.minLength(1))),
-  day: toStandardJsonSchema(v.pipe(v.string(), v.isoDate())),
+  title: v.pipe(v.string(), v.minLength(1)),
+  day: v.optional(v.pipe(v.string(), v.isoDate())),
 }
 ```
 

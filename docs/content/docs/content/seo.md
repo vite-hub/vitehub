@@ -43,8 +43,7 @@ A pattern must start with `/` and may only name `:id` and defined fields; anythi
 `seo()` is a field like any other. Add it to the collections whose pages need their own search and social text:
 
 ```ts [server/content.ts]
-import { image } from 'vite-hub/blob'
-import { documents, seo } from 'vite-hub/content'
+import { documents, image, seo } from 'vite-hub/content'
 
 const posts = documents({
   path: 'posts/**/*.md',
@@ -63,7 +62,7 @@ const posts = documents({
 
 The whole field and each key are optional, so an empty `seo` costs nothing. Unknown keys fail validation, so a typo such as `descripton` is caught on save. Long titles and descriptions still validate: search results show about 60 title characters and 50 to 160 description characters, and the field's JSON Schema carries those lengths in `x-vitehub-seo` for forms and tools.
 
-`seo()` is a record of validators rather than a Zod or Valibot object, because those object schemas reject a Blob `image()`. Without `image`, the social image is a URL, absolute or root-relative, such as `/og/home.png`. Pass `image()` from `vite-hub/blob` to store a [Blob reference](/docs/blob/server-api) instead. Its issues come back under `seo.image`.
+`seo()` is a record of validators rather than a Zod or Valibot object, because those object schemas reject a Blob `image()`. Without `image`, the social image is a URL, absolute or root-relative, such as `/og/home.png`. Pass `image()` from `vite-hub/content` to store a [Blob reference](/docs/blob/server-api) instead. Its issues come back under `seo.image`.
 
 Values are stored as a nested YAML block in Markdown frontmatter, or nested JSON or YAML in [data files](/docs/content/configure#data-files).
 

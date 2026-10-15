@@ -99,6 +99,7 @@
     "./ensure": "./dist/ensure.js",
     "./errors": "./dist/errors.js",
     "./media": "./dist/media.js",
+    "./reference": "./dist/reference.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/dev": "./dist/runtime/dev.js",
     "./runtime/state": "./dist/runtime/state.js",

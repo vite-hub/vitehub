@@ -2,6 +2,8 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
+    // Packages that bundle `@vite-hub/internal/valibot` depend on the converter, so apps share one copy.
+    deps: { neverBundle: ["@valibot/to-json-schema"] },
     dts: true,
     entry: [
       "src/agent-workflow.ts",
@@ -22,6 +24,7 @@ export default defineConfig({
       "src/secret.ts",
       "src/source-scanner.ts",
       "src/standard-schema.ts",
+      "src/valibot.ts",
       "src/vite-stage.ts",
       "src/workspace-inventory.ts",
       "src/build/client-output.ts",

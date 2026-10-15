@@ -31,7 +31,7 @@ icon: i-lucide-circle-alert
 - Content reads check the `published` head with one Database query per call, so they see publishes from other instances.
 - `updatedAt` walks the ref back once per revision per runtime, with one Database query per 100 revisions plus one per commit made outside Content. A walk stops at an earlier cached answer, and after 5,000 revisions it reports `null` for older changes.
 - Frontmatter is YAML and values must survive a JSON round trip. A `Date` is stored as an ISO string.
-- A field without a Standard JSON Schema, such as a plain Valibot schema, appears as `{}` in `schema`, and `defineContent()` warns once per field. Wrap Valibot schemas in `toStandardJsonSchema()`.
+- A field without a Standard JSON Schema, such as an async Valibot schema, appears as `{}` in `schema`, and `defineContent()` warns once per field. Content converts synchronous Valibot schemas itself.
 - `/api/content/**` serves published documents only. Content has no write routes, and the runtime methods do not call `authorize`.
 - Without `authorize`, `content.can()` denies every action.
 - The Store retains every revision. There is no pruning.

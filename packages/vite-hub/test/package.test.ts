@@ -85,7 +85,11 @@ describe("Console Auth package exports", () => {
 
 const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/;
 
-const consolidatedOwnerExports = new Set(["@vite-hub/blob/ensure", "@vite-hub/workspace/ai"]);
+const consolidatedOwnerExports = new Set([
+  "@vite-hub/blob/ensure",
+  "@vite-hub/blob/reference",
+  "@vite-hub/workspace/ai",
+]);
 
 const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/ai-sdk",

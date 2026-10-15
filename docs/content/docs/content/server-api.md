@@ -13,6 +13,7 @@ icon: i-lucide-code-2
 | `defineContent` from `vite-hub/content` | Define the Content runtime that ViteHub serves from `server/content.ts`. |
 | `documents`, `singleton`, `optional` from `vite-hub/content` | Define an editable collection or a singleton, and mark a field optional. |
 | `seo` from `vite-hub/content` | A per-document [SEO field](/docs/content/seo#seo-fields). |
+| `image`, `file` from `vite-hub/content` | [Blob reference](/docs/blob/server-api#blob-reference-schemas) fields. Blob owns them; `vite-hub/blob` exports the same functions. |
 | `contentSessionsSchema` from `vite-hub/content/database` | The table behind [`content.sessions`](/docs/content/editing-together). Add it to the Database of the Workspace history. |
 | `contentSessionTimeouts` from `vite-hub/content` | Presence, lease, and idle durations in milliseconds: `{ presence: 45_000, lease: 300_000, idle: 900_000 }`. |
 | `contentHead` from `vite-hub/content` or `vite-hub/content/client` | [Head tags](/docs/content/seo#head-tags) for a document, in the shape `useHead()` takes. |
