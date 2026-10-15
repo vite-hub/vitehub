@@ -64,6 +64,36 @@ export default defineDatabase({
 })
 ```
 
+## Tables from Nuxt layers
+
+In a Nuxt application, ViteHub also discovers Database Definitions in the server
+directory of each layer. Definitions with the same name join one database. The
+database has the tables of all of them, and `vitehub db generate` writes one set
+of migrations for it.
+
+```ts [layers/blog/server/databases/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    posts: sqliteTable('posts', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+    }),
+  },
+})
+```
+
+These rules apply:
+
+- `connection`, `cloudflare`, and `drizzle` come from one Definition. When the application Definition sets one of them, it replaces all layer options, so it must also set each option that a layer sets. The application and each layer that sets options must then pass an object literal to `defineDatabase()`, so that ViteHub can read their options. Otherwise one layer can set them. Two layers that set them fail discovery until the application sets them.
+- An application table replaces a layer table with the same key. Use this to add columns to a layer table. Two layers that declare the same table key fail discovery.
+- Migrations go to the application, in `server/databases/migrations` or `server/databases/<name>/migrations`, also when only layers define the database.
+- A project still uses either one Default Database or Named Databases. A layer with a Default Database and another layer with Named Databases fail discovery.
+
+ViteHub finds duplicate table keys when `schema` is an object literal. Query the merged database with `useDatabase()` or the `db` server auto-import. A layer that queries its own `defineDatabase()` object directly sees only its own tables.
+
 ## Database Definition options
 
 `defineDatabase()` accepts one object.
