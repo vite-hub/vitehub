@@ -26,7 +26,6 @@ const pageGroups = computed(() => {
       : group,
   );
 });
-const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );

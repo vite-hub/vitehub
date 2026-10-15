@@ -43,7 +43,7 @@ import { isAgentInvocationCancellationError } from "../internal/invocation-cance
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
-import { attachmentStringBytes, isArrayBufferValue, isAttachmentData, isBlobValue, isUint8ArrayValue } from "../messages.ts"
+import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentData, isBlobValue, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -4204,7 +4204,7 @@ interface ChatMessagePartOptions {
 }
 
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (isBlobValue(attachment.data) && attachment.data.type.startsWith("image/")) return attachment.data.type
+  if (isBlobValue(attachment.data) && blobType(attachment.data).startsWith("image/")) return blobType(attachment.data)
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4242,14 +4242,15 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
   }
   if (isRuntimeFunction(attachment.fetchData)) {
     try {
-      return checkedTextAttachmentBytes(await attachment.fetchData(), options)
+      const data = await attachment.fetchData()
+      return checkedTextAttachmentBytes(isBlobValue(data) ? await blobArrayBuffer(data) : data, options)
     } catch (error) {
       if (isTextAttachmentOversizeError(error)) throw error
       return undefined
     }
   }
   if (isBlobValue(attachment.data)) {
-    return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
+    return checkedTextAttachmentBytes(await blobArrayBuffer(attachment.data), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
 }
@@ -7041,19 +7042,6 @@ function historyBytesToBase64(data: Uint8Array): string {
 const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
 const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
 
-function isChannelHistoryBlob(value: unknown): { size: number, arrayBuffer: () => Promise<ArrayBuffer> } | undefined {
-  if (!isRuntimeObject(value)) return
-  try {
-    const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(value)
-    if (!isRuntimeNumber(size) || !Number.isSafeInteger(size) || size < 0) return
-    const arrayBuffer = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer")!.value
-    if (!isRuntimeFunction(arrayBuffer)) return
-    return { size, arrayBuffer: () => arrayBuffer.call(value) }
-  } catch {
-    return
-  }
-}
-
 function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
   let bytes: Uint8Array
   const prototype = Object.getPrototypeOf(Uint8Array.prototype)
@@ -7169,12 +7157,13 @@ async function channelHistoryAttachment(
   }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
-  const blob = isChannelHistoryBlob(data)
-  if (blob) {
-    if (blob.size <= maxBytes) {
+  if (isBlobValue(data)) {
+    if (blobSize(data) <= maxBytes) {
       try {
-        // SAFETY: Blob.arrayBuffer() is the native method applied to a branded Blob, so it resolves to an ArrayBuffer.
-        data = new Uint8Array(await boundedChannelHistoryOperation(blob.arrayBuffer, signal) as ArrayBuffer)
+        const blob = data
+        const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal)
+        // SAFETY: blobArrayBuffer always resolves to an ArrayBuffer; the bounded wrapper preserves that result.
+        data = new Uint8Array(buffer as ArrayBuffer)
       } catch {
         data = undefined
       }
@@ -7185,6 +7174,16 @@ async function channelHistoryAttachment(
     try {
       data = await boundedChannelHistoryOperation(() => resolved.fetchData!(), signal)
     } catch {}
+  }
+  if (isBlobValue(data)) {
+    if (blobSize(data) <= maxBytes) {
+      try {
+        const blob = data
+        const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal)
+        // SAFETY: blobArrayBuffer always resolves to an ArrayBuffer; the bounded wrapper preserves that result.
+        data = new Uint8Array(buffer as ArrayBuffer)
+      } catch { data = undefined }
+    } else data = undefined
   }
   let bytes: Uint8Array | undefined
   try {
