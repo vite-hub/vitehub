@@ -2105,6 +2105,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         }
         claimUnavailable = claim !== true && claim !== false
         ownsRecord = claim === true
+        // Best-effort may dispatch while the running state is still being
+        // retried. If that retry confirms that this claim was lost, stop the
+        // active Driver instead of allowing it to overlap the replacement
+        // owner. Unavailable results remain best-effort and keep retrying.
+        if (claim === false && driverDispatched && !finished) requestCancellation()
         if (ownsRecord) {
           const latest = await boundedStoreOperation(() => store.getSummary(recordId))
           if (latest && latest !== storeOperationTimedOut) {

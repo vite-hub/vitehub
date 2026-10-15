@@ -148,6 +148,37 @@ describe("Agent Invocation enforcement", () => {
     expect(await backing.getSummary(await agentInvocationId("cancel-after-unconfirmed"))).toMatchObject({ status: "cancelled" })
   })
 
+  it("cancels an active best-effort run when its retried claim is lost", async () => {
+    const backing = createMemoryAgentInvocationStore()
+    let runningAttempted = false
+    let claimAttempts = 0
+    const store: AgentInvocationStore = {
+      ...backing,
+      async claim(...args) {
+        claimAttempts++
+        if (claimAttempts > 1) return false
+        return await backing.claim(...args)
+      },
+      async update(id, input, claimId) {
+        if (input.status === "running" && !runningAttempted) {
+          runningAttempted = true
+          return undefined
+        }
+        return await backing.update(id, input, claimId)
+      },
+    }
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    const invocations = defineAgentInvocations({ store })
+    const run = vi.fn(async ({ abortSignal }: { abortSignal: AbortSignal }) => {
+      await new Promise<void>((resolve, reject) => {
+        abortSignal.addEventListener("abort", () => reject(abortSignal.reason), { once: true })
+      })
+    })
+
+    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("claim-lost-after-dispatch"), {})).rejects.toThrow()
+    expect(run).toHaveBeenCalledOnce()
+  }, 10_000)
+
   it("keeps channel replay strict when the running write is not confirmed", async () => {
     const { store } = failingRunningStore("missing")
     const invocations = defineAgentInvocations({ store })
