@@ -122,4 +122,33 @@ describe("CLI primitives", () => {
     expect(callback).toHaveBeenCalledOnce()
     expect(process.stdout.write).toBe(write)
   })
+
+  it("serializes concurrent stdout redirects", async () => {
+    const write = process.stdout.write
+    const firstStarted = Promise.withResolvers<void>()
+    const releaseFirst = Promise.withResolvers<void>()
+    const firstStderr: string[] = []
+    const secondStderr: string[] = []
+
+    const first = withStdoutOnStderr(async () => {
+      firstStarted.resolve()
+      await releaseFirst.promise
+      process.stdout.write("first\n")
+    }, { write: chunk => firstStderr.push(String(chunk)) })
+    await firstStarted.promise
+
+    let secondStarted = false
+    const second = withStdoutOnStderr(async () => {
+      secondStarted = true
+      process.stdout.write("second\n")
+    }, { write: chunk => secondStderr.push(String(chunk)) })
+    await Promise.resolve()
+    expect(secondStarted).toBe(false)
+
+    releaseFirst.resolve()
+    await Promise.all([first, second])
+    expect(firstStderr).toEqual(["first\n"])
+    expect(secondStderr).toEqual(["second\n"])
+    expect(process.stdout.write).toBe(write)
+  })
 })
