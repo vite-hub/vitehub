@@ -236,6 +236,8 @@ describe("provider deployment outputs", () => {
     })
 
     expect(existsSync(copiedBackup)).toBe(false)
+    expect(existsSync(join(rootDir, "dist", "client", relative(clientDir, cloudflareDir)))).toBe(false)
+    await expect(readFile(join(rootDir, "dist", "client", "index.html"), "utf8")).resolves.toBe("<!doctype html>\n")
   })
 
   it("backs up custom Cloudflare roots outside their client tree", async () => {

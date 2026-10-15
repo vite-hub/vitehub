@@ -14,6 +14,15 @@ import {
 const jsxScanner = createSourceScanner("source.tsx")
 
 describe("source scanner", () => {
+  it("scans a generated namespace with thousands of definitions without repeated prefix work", () => {
+    const source = "namespace Runtime {\n" + "defineThing({ value: 1 });\n".repeat(2000) + "}"
+    const started = performance.now()
+    const calls = findIdentifierCalls(source, "defineThing")
+    const elapsed = performance.now() - started
+    expect(calls).toHaveLength(2000)
+    expect(elapsed).toBeLessThan(1000)
+  })
+
   it.each(['const text = "</Email>";', "/* </Email> */", "/* </Email> */\nconst pattern = /Email/;"])("preserves a definition between a type assertion and later JSX text: %s", (after) => {
     const source = `const first = <Email>value;\nexport default defineThing({ value: "real" });\n${after}`
     expect(findDefaultExportCall(source, ["defineThing"])?.argument).toBe('{ value: "real" }')
@@ -819,6 +828,77 @@ describe("source scanner", () => {
     expect(splitTopLevel(`() => { try {} catch (error) /\\)/.test(")") }, { id: "daily" }`)).toEqual([
       `() => { try {} catch (error) /\\)/.test(")") }`,
       `{ id: "daily" }`,
+    ])
+  })
+
+  it("ignores TypeScript type member signatures with matching names", () => {
+    const source = [
+      `interface Fixture<T extends { value: string }> { defineThing(value: string): void }`,
+      `type Other = { defineThing(value: string): void }`,
+      `const value = defineThing({ value: "real" })`,
+    ].join("\n")
+
+    const calls = findIdentifierCalls(source, "defineThing")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.arguments).toEqual([`{ value: "real" }`])
+  })
+
+  it("ignores inline and nested object type signatures but keeps runtime namespaces", () => {
+    const source = [
+      `const value: { defineThing(value: string): void; nested: { defineThing(): void } } = defineThing({ value: "real" })`,
+      `namespace Runtime { defineThing({ value: "namespace" }) }`,
+      `declare namespace Ambient { defineThing(value: string): void }`,
+    ].join("\n")
+
+    const calls = findIdentifierCalls(source, "defineThing")
+    expect(calls).toHaveLength(2)
+    expect(calls.map(call => call.arguments[0])).toEqual([
+      `{ value: "real" }`,
+      `{ value: "namespace" }`,
+    ])
+  })
+
+  it.each(["class", "abstract class"])("keeps runtime %s field calls while ignoring method signatures", (declaration) => {
+    const source = [
+      `${declaration} Agent {`,
+      `  defineThing(): void;`,
+      `  defineThing() {}`,
+      `  definition = defineThing("direct");`,
+      `  conditional = ready ? defineThing("conditional") : other;`,
+      `  constructed = new defineThing("new");`,
+      `  collection = [defineThing("array"), other];`,
+      `}`,
+    ].join("\n")
+
+    expect(findIdentifierCalls(source, "defineThing").map(call => call.arguments)).toEqual([
+      [`"direct"`],
+      [`"conditional"`],
+      [`"new"`],
+      [`"array"`],
+    ])
+  })
+
+  it.each(["\n", "\r\n", "\u2028", " /* next overload */\n"])("ignores class overload signatures without delimiters: %j", (separator) => {
+    const source = [
+      `class Agent {`,
+      `  defineThing(value: string)${separator}`,
+      `  defineThing(value: number): void${separator}`,
+      `  defineThing(value: string | number) { return defineThing("implementation") }`,
+      `  direct = defineThing("direct")`,
+      `  continued = ready ||${separator}    defineThing("continued")`,
+      `  arrow = () =>${separator}    defineThing("arrow")`,
+      `  chained = other()${separator}    || defineThing("chained")`,
+      `}`,
+      `declare class Ambient { defineThing(value: string) }`,
+      `interface Shape { defineThing(value: string) }`,
+    ].join("\n")
+
+    expect(findIdentifierCalls(source, "defineThing").map(call => call.arguments)).toEqual([
+      [`"implementation"`],
+      [`"direct"`],
+      [`"continued"`],
+      [`"arrow"`],
+      [`"chained"`],
     ])
   })
 
