@@ -526,7 +526,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       inactive
       && inactiveMemoryRoomKeys.has(inactive.key)
       && inactive.peers.size === 0
-      && (inactive.kind === "events" || (!inactive.dirty && inactive.operations === 0))
+      && (inactive.kind === "events" || (inactive.operations === 0 && (!inactive.dirty || !inactive.resolved.persistence)))
     ) {
       destroyRoom(inactive)
     }
@@ -753,7 +753,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       destroyRoom(room)
       return
     }
-    if (room.dirty) return
+    // A memory-only room has no durable destination for unsaved edits. Once its
+    // clients leave, allow the authority to reclaim it instead of exhausting the
+    // room limit forever. Durable persistence keeps dirty rooms for retry.
+    if (room.dirty && room.resolved.persistence) return
     inactiveMemoryRoomKeys.delete(room.key)
     inactiveMemoryRoomKeys.add(room.key)
   }

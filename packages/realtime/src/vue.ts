@@ -287,7 +287,10 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       const query = action === "checkpoint" ? "history=checkpoint" : `document=${action}`
       const stillCurrent = () => !controller.signal.aborted && !!current && connectedDocumentId === id && document.value === current && toValue(documentId) === id && enabled()
       for (let attempt = 0; ; attempt++) {
-        if (!stillCurrent()) disconnected()
+        // A refresh may intentionally re-seed the room and replace `document`
+        // before its HTTP response arrives. The successful response remains
+        // valid even though that reset makes the old document non-current.
+        if (action !== "refresh" && !stillCurrent()) disconnected()
         let response: Response
         try {
           response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?${query}`), {
