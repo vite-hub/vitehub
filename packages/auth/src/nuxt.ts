@@ -2,6 +2,7 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
+import { resolveNuxtServerDirs, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth } from "./vite.ts"
 
@@ -19,6 +20,7 @@ export interface AuthNuxtModuleOptions {
 type NuxtLike = {
   hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>) => void
   options: {
+    _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
     imports?: {
       imports?: Array<{ from: string, name: string }>
@@ -66,7 +68,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       Object.assign(nitroConfig, createAuthNitroConfig(authPlugin as ReturnType<typeof hubAuth>, {
         nitro: nitroConfig,
         projectRoot: viteRoot,
-        serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+        serverDirs: resolveNuxtServerDirs(nuxt.options),
         viteAuth: nuxt.options.vite?.auth,
       }))
     })
