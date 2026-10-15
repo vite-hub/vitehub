@@ -562,7 +562,7 @@ export function inspectContentModule(program: unknown): ContentEntryFeatures {
   const options = rest.length ? undefined : properties(resolveNode(argument))
   // Unknown option shapes may still enable SEO at runtime (for example via a spread).
   // Keep generated handlers enabled rather than silently omitting valid routes.
-  if (!options) return { collections: true, sitemap: true, robots: true }
+  if (!options) return { collections: true, sitemap: true, robots: true, live: true }
 
   const live = unwrapAst(options.get("live"))
   const features: ContentEntryFeatures = { collections: false, sitemap: false, robots: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
