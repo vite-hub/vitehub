@@ -10,7 +10,7 @@ import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, i
 import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
-import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
 import { createAgentHealthHandler } from "./health.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
@@ -2339,7 +2339,9 @@ function defineBaseAgent<
     [baseAgentDefinitionHealth]: { value: options.health ? undefined : definition.health },
     [baseAgentDefinitionStatus]: { value: definition.status },
   })
-  configureAgentCapacity(definition, options.budget?.capacity ?? driver.capacity)
+  configureAgentCapacity(definition, options.budget?.capacity === undefined
+    ? driver.capacity
+    : normalizeAgentDriverCapacity(options.budget.capacity))
   Object.defineProperty(definition, "__vitehubAgentSettings", {
     value: channels === options.channels ? options : { ...options, channels },
   })
@@ -5165,6 +5167,7 @@ function withEagerStreamUsageExtensions<
           totalUsage: source?.totalUsage,
         }, result)
         await runExtensions(usageRecord)
+        if (usageRecord) yield { type: "usage", usageRecord }
       }
     }
   })()

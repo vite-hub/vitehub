@@ -127,7 +127,7 @@ export function budget(options: AgentBudgetOptions): AgentCapabilityDefinition {
       context.modelExecution.instrument({
         callSettings: ({ callSettings }) => {
           const current = callSettings.maxOutputTokens
-          if (hasRuntimeType(current, "number") && current <= maxOutputTokens) return
+          if (hasRuntimeType(current, "number")) return current <= maxOutputTokens ? undefined : { maxOutputTokens }
           return { maxOutputTokens }
         },
       })
