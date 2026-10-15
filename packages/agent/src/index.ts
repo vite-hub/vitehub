@@ -7210,7 +7210,14 @@ async function executeAgentInvocationWithCapacityLease<
     if (!stream) return
     const streamed = withStreamedResult(stream, value, undefined, context.toolResults, context.tools)
     for await (const _chunk of streamed.stream) { /* settle and collect tool results */ }
-    return { result: await streamed.finishResult(value) }
+    const finished = await streamed.finishResult(value)
+    // `finishResult` preserves an async iterator from the source for callers
+    // that still need to consume it. This reminder result has already been
+    // consumed, so remove that marker before the next bounded turn check.
+    if (isAsyncIterable(finished)) {
+      return { result: { ...finished } }
+    }
+    return { result: finished }
   }
 
   if (options.kind === "run"
