@@ -325,7 +325,7 @@ function hasResponsePrototype(value: unknown): boolean {
         const clone = Object.getOwnPropertyDescriptor(current, "clone")?.value
         if (typeof clone !== "function") return false
         const cloned = Reflect.apply(clone, value, [])
-        if (cloned === value || Object(cloned) !== cloned) return false
+        if (cloned === value || Object(cloned) !== cloned || Object.getPrototypeOf(cloned) !== current) return false
         return true
       }
       current = Object.getPrototypeOf(current)

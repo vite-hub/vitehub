@@ -333,6 +333,23 @@ describe("Auth access handlers", () => {
     }
   })
 
+  it("rejects a forged response prototype whose clone is unrelated", async () => {
+    const prototype = Object.defineProperties({}, {
+      constructor: { value: function Response() {} },
+      status: { value: 409 },
+      statusText: { value: "Conflict" },
+      headers: { value: new Headers() },
+      body: { get: () => null },
+      clone: { value: () => ({}) },
+    })
+    const candidate = Object.create(prototype)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => candidate }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("snapshots a serializable Response-shaped prototype without rereading its getters", async () => {
     const sourceBody = new Response("Policy rejected").body
     const headers = vi.fn()
@@ -349,6 +366,7 @@ describe("Auth access handlers", () => {
       headers: { get: headers },
       body: { get: body },
     })
+    Object.defineProperty(prototype, "clone", { value: () => Object.create(prototype) })
     const candidate = Object.create(prototype)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => candidate }] },
