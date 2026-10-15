@@ -159,5 +159,5 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
   }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler)
+const guardedHandler: ConsoleAccessRoute<typeof agentInvocationsHandler> = withConsoleAccess(agentInvocationsHandler, { section: "agents" })
 export default guardedHandler
