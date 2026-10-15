@@ -107,22 +107,26 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     },
     async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
       const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>() }
-      const cursors = continuation.history
-      const iterator = (await open()).list({ prefix: [] }, { cursor: continuation.providerCursor, limit })
-      const keys: string[] = []
-      for await (const entry of iterator) {
-        const key = fromDenoKey(entry.key)
-        if (key?.startsWith(prefix)) keys.push(key)
-      }
-      if (!iterator.cursor) return { keys }
-      if (cursors.has(iterator.cursor)) {
-        throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
-      }
-      if (!recordCursor(cursors, iterator.cursor)) {
+      try {
+        const cursors = continuation.history
+        const iterator = (await open()).list({ prefix: [] }, { cursor: continuation.providerCursor, limit })
+        const keys: string[] = []
+        for await (const entry of iterator) {
+          const key = fromDenoKey(entry.key)
+          if (key?.startsWith(prefix)) keys.push(key)
+        }
+        if (!iterator.cursor) return { keys }
+        if (cursors.has(iterator.cursor)) {
+          throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV list returned a repeated pagination cursor." })
+        }
+        if (!recordCursor(cursors, iterator.cursor)) {
+          throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV rejected pagination after the cursor history limit was reached." })
+        }
+        return { keys, cursor: cursorHistories.store(iterator.cursor, cursors) }
+      } catch (error) {
         if (cursor) cursorHistories.restore(cursor, continuation)
-        throw kvErrorDiagnostics.KV_R0024({ message: "Deno KV rejected pagination after the cursor history limit was reached." })
+        throw error
       }
-      return { keys, cursor: cursorHistories.store(iterator.cursor, cursors) }
     },
     async hasItem(key) {
       return (await (await open()).get(toDenoKey(key))).versionstamp !== null

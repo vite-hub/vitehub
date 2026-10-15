@@ -56,24 +56,28 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
     const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>() }
-    if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor
-    const cursors = continuation.history
-    const page = await driver.getInstance().list(listOptions)
-    if (!isCloudflareKVListPage(page)) {
-      throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
-    }
-    const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
-    if (!page.list_complete) {
-      if (cursors.has(page.cursor!)) {
-        throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a repeated pagination cursor." })
+    try {
+      if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor
+      const cursors = continuation.history
+      const page = await driver.getInstance().list(listOptions)
+      if (!isCloudflareKVListPage(page)) {
+        throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
       }
-      if (!recordCursor(cursors, page.cursor!)) {
-        if (cursor) cursorHistories.restore(cursor, continuation)
-        throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected pagination after the cursor history limit was reached." })
+      const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
+      if (!page.list_complete) {
+        if (cursors.has(page.cursor!)) {
+          throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a repeated pagination cursor." })
+        }
+        if (!recordCursor(cursors, page.cursor!)) {
+          throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected pagination after the cursor history limit was reached." })
+        }
+        result.cursor = cursorHistories.store(page.cursor!, cursors)
       }
-      result.cursor = cursorHistories.store(page.cursor!, cursors)
+      return result
+    } catch (error) {
+      if (cursor) cursorHistories.restore(cursor, continuation)
+      throw error
     }
-    return result
   }
   return driver
 }
