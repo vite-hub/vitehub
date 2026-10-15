@@ -284,5 +284,5 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
   return result
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof invocationsHandler> = withConsoleAccess(invocationsHandler)
+const guardedHandler: ConsoleAccessRoute<typeof invocationsHandler> = withConsoleAccess(invocationsHandler, { section: "agents" })
 export default guardedHandler

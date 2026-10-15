@@ -53,6 +53,46 @@ const ambiguousOneClickMessages: Pick<EmailMessage, "headers" | "unsubscribe">[]
 ];
 
 describe("Resend Email driver", () => {
+  it("rejects inherited provider options", () => {
+    const request = vi.fn();
+    const options = Object.create({ apiKey: "re_secret", fetch: request }) as ResendEmailDriverOptions;
+
+    expect(() => resend(options)).toThrow("apiKey is required");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("ignores inherited optional provider options", async () => {
+    const inheritedFetch = vi.fn();
+    const request = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
+    vi.stubGlobal("fetch", request);
+    try {
+      const options = Object.assign(
+        Object.create({ endpoint: "https://inherited.example.test", fetch: inheritedFetch }),
+        { apiKey: "re_secret" },
+      ) as ResendEmailDriverOptions;
+      await expect(resend(options).send(message, context)).resolves.toMatchObject({ error: null });
+      expect(request).toHaveBeenCalledWith("https://api.resend.com/emails", expect.any(Object));
+      expect(inheritedFetch).not.toHaveBeenCalled();
+    }
+    finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses the validated API key even if options mutate before delivery", async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
+    const options = { apiKey: "re_secret", fetch: request } as ResendEmailDriverOptions;
+    const driver = resend(options);
+    delete (options as Partial<ResendEmailDriverOptions>).apiKey;
+    Object.setPrototypeOf(options, { apiKey: "re_inherited" });
+
+    await expect(driver.send(message, context)).resolves.toMatchObject({ error: null });
+    expect(request).toHaveBeenCalledWith(
+      "https://api.resend.com/emails",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer re_secret" }) }),
+    );
+  });
+
   it("accepts fetch functions from another realm", async () => {
     const request = runInNewContext(
       "async () => new Response(JSON.stringify({ id: 'email-1' }), { status: 200 })",
