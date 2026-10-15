@@ -419,11 +419,11 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // Require the Headers internal slots before accepting a response snapshot.
     // Method names and prototypes can be forged, but native brand operations fail
     // unless the value was created by a Web Headers implementation.
-    const nativeHeadersGet = Object.getOwnPropertyDescriptor(Headers.prototype, "get")?.value
-    const nativeHeadersForEach = Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value
-    if (typeof nativeHeadersGet !== "function" || typeof nativeHeadersForEach !== "function") return
-    Reflect.apply(nativeHeadersGet, headers, ["content-type"])
-    Reflect.apply(nativeHeadersForEach, headers, [() => {}])
+    const headersGet = responsePropertyDescriptor(headerCarrier, "get")?.value
+    const headersForEach = responsePropertyDescriptor(headerCarrier, "forEach")?.value
+    if (typeof headersGet !== "function" || typeof headersForEach !== "function") return
+    Reflect.apply(headersGet, headers, ["content-type"])
+    Reflect.apply(headersForEach, headers, [() => {}])
     const snapshot = { status, statusText, headers, body }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
