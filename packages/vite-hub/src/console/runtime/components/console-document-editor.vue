@@ -4,7 +4,6 @@ import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, ref, 
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 
 import {
-  compactConsoleFieldValues,
   consoleDocumentSlug,
   consoleDocumentHasBody,
   consoleDocumentScheduleHint,
@@ -20,18 +19,21 @@ import {
   consoleListQueryFor,
   consolePublishMismatches,
   consoleRevisionLabel,
-  consoleSchemaDefaults,
   consoleSeoFallbacks,
   consoleSeoField,
   consoleSingularLabel,
-  describeConsoleSchemaFields,
-  groupConsoleFieldIssues,
-  humanizeConsoleFieldIssues,
   isConsoleConflict,
   isConsoleDocumentId,
   consoleLocalScheduleTime,
   stableConsoleJSON,
-} from "../client/documents";
+} from "../client/documents"
+import {
+  compactConsoleFieldValues,
+  consoleSchemaDefaults,
+  describeConsoleSchemaFields,
+  groupConsoleFieldIssues,
+  humanizeConsoleFieldIssues,
+} from "../client/schema-form";
 import { splitConsoleFrontmatter } from "../client/editor";
 import { useConsoleLiveDocument } from "../client/live";
 import { consoleClockTime, consoleLiveDefinition, consoleLiveLabel, consoleLiveSessions, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
@@ -39,7 +41,7 @@ import { useConsoleToast } from "../client/toast";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
 import ConsoleDocumentHistory from "./console-document-history.vue";
 import ConsoleLiveFocus from "./console-live-focus.vue";
-import ConsoleDocumentProperties from "./console-document-properties.vue";
+import ConsoleSchemaForm from "./console-schema-form.vue";
 import ConsoleMarkdownEditor from "./console-markdown-editor.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -1372,7 +1374,7 @@ const menuItems = computed(() => [[
             <p v-if="fieldErrors[titleField.name]" :id="`field-${titleField.name}-error`" class="mt-1 text-xs text-error">{{ fieldErrors[titleField.name]!.join(" ") }}</p>
           </div>
 
-          <ConsoleDocumentProperties
+          <ConsoleSchemaForm
             v-model="draft.data"
             :schema="collection.schema"
             :exclude="[titleField?.name, seoField?.name].filter(name => name !== undefined)"
@@ -1405,7 +1407,7 @@ const menuItems = computed(() => [[
                 <span class="truncate">{{ base.path }}</span>
               </span>
             </ConsolePropertyRow>
-          </ConsoleDocumentProperties>
+          </ConsoleSchemaForm>
 
           <ConsoleSeoPanel
             v-if="seoField"

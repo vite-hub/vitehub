@@ -8,8 +8,14 @@ import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../
 import type { ConsoleScheduleRunView } from "../client/schedule-run";
 import { parseConsoleSectionContent } from "../definitions";
 import { rememberConsoleSection } from "../sections";
+import { consoleStatusValue } from "../client/format";
 import ConsoleFrame from "./console-frame.vue";
+import ConsolePageHeader from "./console-page-header.vue";
+import ConsolePropertyList from "./console-property-list.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleSetupHint from "./console-setup-hint.vue";
+import ConsoleStatus from "./console-status.vue";
+import ConsoleValue from "./console-value.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -67,6 +73,28 @@ const selectedRun = computed(() =>
   selectedName.value ? scheduleRuns.value.get(selectedName.value) : undefined,
 );
 const selectedEntry = computed(() => entries.value.find((entry) => entry.id === selectedName.value));
+
+/** The fields of the selected Definition, with its name, source, and file first. */
+const definitionFields = computed(() => {
+  const definition = selectedDefinition.value;
+  if (!definition) return [];
+  return [
+    { label: "Name", mono: true, value: definition.name },
+    { label: "Source", value: sourceLabel(definition.source) },
+    { label: "File", mono: true, value: definition.file },
+    ...definition.fields.map(field => ({ label: field.label, value: field.value })),
+  ];
+});
+
+/** A manual run result as a status: `Run succeeded` with a green dot, or why it did not run. */
+function runStatus(run: ConsoleScheduleRunView): { label: string, pending?: boolean, tone: "error" | "neutral" | "success" | "warning" } {
+  const status = consoleStatusValue(run.status);
+  return {
+    label: run.status === "unavailable" ? "Could not run this Schedule" : `Run ${run.status}`,
+    tone: status?.tone ?? "neutral",
+    ...(status?.pending ? { pending: true } : {}),
+  };
+}
 
 function errorMessage(value: unknown): string | undefined {
   return value instanceof Error
@@ -212,89 +240,53 @@ onBeforeUnmount(() => request?.abort());
       <template #header="{ collapsed }">
         <div v-if="!collapsed" class="vitehub-console__panel-title">
           <span class="min-w-0 flex-1 truncate">{{ sectionDetails.label }}</span>
-          <UTooltip text="Refresh definitions">
-            <UButton
-              aria-label="Refresh definitions"
-              color="neutral"
-              icon="i-lucide-refresh-cw"
-              size="xs"
-              variant="ghost"
-              :loading="loading"
-              @click="loadDefinitions"
-            />
+          <UTooltip text="Refresh">
+            <UButton aria-label="Refresh definitions" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading" @click="loadDefinitions" />
           </UTooltip>
         </div>
-        <div v-else class="flex justify-center">
-          <UTooltip text="Refresh definitions">
-            <UButton aria-label="Refresh definitions" color="neutral" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading" @click="loadDefinitions" />
-          </UTooltip>
-        </div>
+        <UTooltip v-else text="Refresh" :content="{ side: 'right' }">
+          <UButton class="mx-auto" aria-label="Refresh definitions" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading" @click="loadDefinitions" />
+        </UTooltip>
       </template>
 
       <template #default="{ collapsed }">
-        <div v-if="!collapsed && errorMessage(error)" class="px-3">
-          <UAlert
-            color="error"
-            variant="subtle"
-            icon="i-lucide-cloud-off"
-            title="Could not load definitions"
-            :description="errorMessage(error)"
-            :actions="[
-              { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadDefinitions },
-            ]"
-          />
-        </div>
-        <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
-          <div class="grid gap-1 px-2 py-1">
-            <UTooltip
-              v-for="entry in entries"
-              :key="entry.id"
-              :text="entry.id"
-              :content="{ side: 'right' }"
-            >
-              <UButton
-                :icon="sectionDetails.icon"
-                color="neutral"
-                :variant="selectedName === entry.id ? 'soft' : 'ghost'"
-                block
-                :aria-label="entry.id"
-                @click="selectDefinition(entry.id)"
-              />
-            </UTooltip>
+        <nav class="vitehub-console__section-nav" :class="{ 'is-collapsed': collapsed }" :aria-label="itemsTitle">
+          <div v-if="!collapsed && errorMessage(error)" class="px-1 pb-2">
+            <UAlert
+              color="error"
+              variant="subtle"
+              icon="i-lucide-cloud-off"
+              title="Couldn't load definitions"
+              :description="errorMessage(error)"
+              :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: loadDefinitions }]"
+            />
           </div>
-        </div>
-        <div v-else-if="loading && !entries.length" class="grid gap-2 px-3">
-          <USkeleton v-for="index in 6" :key="index" class="h-11 rounded-md" />
-        </div>
-        <nav
-          v-else-if="entries.length"
-          class="min-h-0 flex-1 overflow-y-auto px-2 pb-3"
-          :aria-label="itemsTitle"
-        >
-          <UButton
-            v-for="entry in entries"
-            :key="entry.id"
-            block
-            class="justify-start py-2"
-            color="neutral"
-            :variant="selectedName === entry.id ? 'soft' : 'ghost'"
-            @click="selectDefinition(entry.id)"
-          >
-            <span class="grid min-w-0 gap-0.5 text-start">
-              <span class="truncate font-mono text-xs">{{ entry.id }}</span>
-              <span class="truncate text-xs text-muted">{{ entry.detail }}</span>
-            </span>
-          </UButton>
+          <template v-else-if="loading && !entries.length">
+            <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-11 rounded-md" />
+          </template>
+          <template v-else-if="entries.length">
+            <UTooltip v-for="entry in entries" :key="entry.id" :text="entry.id" :content="{ side: 'right' }" :disabled="!collapsed">
+              <button
+                type="button"
+                class="vitehub-console__section-link text-start"
+                :class="{ 'is-detailed': !collapsed && entry.detail }"
+                :aria-current="selectedName === entry.id ? 'true' : undefined"
+                :aria-label="collapsed ? entry.id : undefined"
+                @click="selectDefinition(entry.id)"
+              >
+                <UIcon v-if="collapsed" :name="sectionDetails.icon" class="vitehub-console__section-icon" aria-hidden="true" />
+                <span v-else class="grid min-w-0 gap-0.5">
+                  <span class="truncate font-mono text-xs">{{ entry.id }}</span>
+                  <span v-if="entry.detail" class="truncate text-xs font-normal text-dimmed">{{ entry.detail }}</span>
+                </span>
+              </button>
+            </UTooltip>
+          </template>
+          <p v-else-if="!collapsed && !loading && !error" class="px-2 py-1.5 text-xs leading-relaxed text-muted">
+            {{ catalogView ? `No ${sectionDetails.label} Definitions in this project yet.` : "The owner package returned no records." }}
+          </p>
         </nav>
-        <UEmpty
-          v-else-if="!loading && !error && !collapsed"
-          class="min-h-0 flex-1 px-4"
-          :icon="sectionDetails.icon"
-          :title="`No ${itemsTitle}`"
-          :description="catalogView ? `Add a discovered ${sectionDetails.label.slice(0, -1)} Definition to this project.` : 'The owner package returned no records.'"
-        />
       </template>
-
     </UDashboardSidebar>
 
     <ConsoleSearch
@@ -309,181 +301,83 @@ onBeforeUnmount(() => request?.abort());
       :id="`${section}-definition`"
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
-      <template #header>
-        <UDashboardNavbar
-          :toggle="{ 'aria-label': `Open ${itemsTitle}` }"
-          :ui="{ root: 'border-b border-default' }"
-        >
-          <template #title>
-            <span class="min-w-0">
-              <p class="truncate font-mono text-xs font-medium text-highlighted">
-                {{ selectedEntry?.id || sectionDetails.label }}
-              </p>
-              <p v-if="selectedEntry?.detail" class="mt-0.5 truncate text-xs text-muted">
-                {{ selectedEntry.detail }}
-              </p>
-            </span>
-          </template>
-          <template #right>
-            <UButton
-              v-if="canRunSelected"
-              color="neutral"
-              icon="i-lucide-play"
-              label="Run now"
-              size="xs"
-              variant="outline"
-              :disabled="Boolean(runningSchedule)"
-              :loading="runningSchedule === selectedName"
-              @click="runSelectedSchedule"
-            />
-            <UBadge color="neutral" label="Read-only" size="sm" variant="soft" />
-          </template>
-        </UDashboardNavbar>
-      </template>
+      <ConsolePageHeader :title="selectedEntry?.id || sectionDetails.label">
+        <template #right>
+          <span class="hidden text-xs text-dimmed sm:inline">Read-only</span>
+          <UButton
+            v-if="canRunSelected"
+            icon="i-lucide-play"
+            label="Run now"
+            size="sm"
+            variant="outline"
+            :disabled="Boolean(runningSchedule)"
+            :loading="runningSchedule === selectedName"
+            @click="runSelectedSchedule"
+          />
+        </template>
+      </ConsolePageHeader>
 
-      <template #body>
-        <UEmpty
-          v-if="!selectedEntry && !loading"
-          class="min-h-0 flex-1"
-          icon="i-lucide-mouse-pointer-click"
-          :title="catalogView ? 'Select a definition' : 'Select a record'"
-          :description="catalogView ? 'Choose a discovered definition from the sidebar to inspect its metadata.' : 'Choose a record from the sidebar to inspect its fields.'"
-        />
-        <div
-          v-else-if="loading && !selectedEntry"
-          class="flex min-h-0 flex-1 items-center justify-center"
-        >
-          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted opacity-70" />
+      <div class="min-h-0 flex-1 overflow-y-auto" aria-live="polite">
+        <div v-if="loading && !selectedEntry" class="mx-auto grid w-full max-w-4xl gap-3 p-4 sm:p-6" aria-busy="true">
+          <USkeleton class="h-4 w-40" />
+          <USkeleton v-for="index in 5" :key="index" class="h-9 w-full" />
         </div>
-        <main v-else-if="selectedDefinition" class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          <div class="mx-auto grid w-full max-w-5xl gap-4">
-            <section class="overflow-hidden rounded-lg border border-default bg-default">
-              <div class="flex h-10 items-center border-b border-default px-3">
-                <h2 class="text-xs font-medium text-highlighted">Definition</h2>
-              </div>
-              <dl class="divide-y divide-default">
-                <div class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4">
-                  <dt class="text-xs font-medium text-muted">
-                    Name
-                  </dt>
-                  <dd class="break-all font-mono text-xs text-highlighted">
-                    {{ selectedDefinition.name }}
-                  </dd>
-                </div>
-                <div class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4">
-                  <dt class="text-xs font-medium text-muted">
-                    Source
-                  </dt>
-                  <dd class="text-xs text-highlighted">
-                    {{ sourceLabel(selectedDefinition.source) }}
-                  </dd>
-                </div>
-                <div class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4">
-                  <dt class="text-xs font-medium text-muted">
-                    File
-                  </dt>
-                  <dd class="break-all font-mono text-xs text-highlighted">
-                    {{ selectedDefinition.file }}
-                  </dd>
-                </div>
-                <div
-                  v-for="field in selectedDefinition.fields"
-                  :key="field.label"
-                  class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4"
-                >
-                  <dt class="text-xs font-medium text-muted">
-                    {{ field.label }}
-                  </dt>
-                  <dd class="whitespace-pre-wrap break-words font-mono text-xs text-highlighted">{{ field.value }}</dd>
-                </div>
-              </dl>
-            </section>
-            <UAlert
-              v-if="selectedRun"
-              :color="selectedRun.status === 'succeeded' ? 'success' : selectedRun.status === 'failed' || selectedRun.status === 'unavailable' ? 'error' : 'neutral'"
-              :icon="selectedRun.status === 'succeeded' ? 'i-lucide-circle-check' : 'i-lucide-circle-alert'"
-              :title="selectedRun.status === 'unavailable' ? 'Could not run this Schedule' : `Run ${selectedRun.status}`"
-              :description="consoleScheduleRunDescription(selectedRun)"
-              variant="subtle"
-            />
-            <UAlert
-              v-else
-              color="neutral"
-              icon="i-lucide-info"
-              title="Definition metadata only"
-              :description="sectionDetails.view.notice"
-              variant="subtle"
-            />
+        <UEmpty
+          v-else-if="!selectedEntry"
+          variant="naked"
+          class="py-16"
+          :icon="sectionDetails.icon"
+          :title="catalogView ? 'No definition selected' : 'No record selected'"
+          :description="entries.length ? `Choose one from the sidebar to see its ${catalogView ? 'metadata' : 'fields'}.` : 'Nothing to show yet.'"
+        />
+        <main v-else-if="selectedDefinition" class="mx-auto grid w-full max-w-4xl gap-6 p-4 sm:p-6">
+          <div v-if="selectedRun" class="grid gap-1" role="status">
+            <ConsoleStatus :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pending="runStatus(selectedRun).pending" />
+            <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
           </div>
+          <ConsolePropertyList title="Definition" :items="definitionFields" />
+          <p class="flex gap-2 text-xs leading-relaxed text-muted">
+            <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />
+          </p>
         </main>
-        <main v-else-if="selectedRecord" class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          <div class="mx-auto grid w-full max-w-5xl gap-4">
-            <section class="overflow-x-auto rounded-lg border border-default bg-default">
-              <table class="w-full text-left text-xs">
-                <thead class="border-b border-default">
-                  <tr>
-                    <th
-                      v-for="column in recordColumns"
-                      :key="column.key"
-                      class="h-10 px-3 text-xs font-medium text-muted"
-                      scope="col"
-                    >
-                      {{ column.label }}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-default">
-                  <tr
-                    v-for="row in records"
-                    :key="row.id"
-                    class="cursor-pointer hover:bg-elevated/60"
-                    :class="{ 'bg-elevated': row.id === selectedName }"
-                    :aria-selected="row.id === selectedName"
-                    @click="selectDefinition(row.id)"
-                  >
-                    <td v-for="column in recordColumns" :key="column.key" class="break-words px-3 py-2 font-mono text-highlighted">
-                      {{ row.cells[column.key] || "" }}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-            <section class="overflow-hidden rounded-lg border border-default bg-default">
-              <div class="flex h-10 items-center border-b border-default px-3">
-                <h2 class="truncate font-mono text-xs font-medium text-highlighted">{{ selectedRecord.id }}</h2>
-              </div>
-              <dl class="divide-y divide-default">
-                <div
-                  v-for="field in selectedRecord.fields"
-                  :key="field.label"
-                  class="grid gap-1 px-4 py-3 sm:grid-cols-[9rem_1fr] sm:gap-4"
-                >
-                  <dt class="text-xs font-medium text-muted">
-                    {{ field.label }}
-                  </dt>
-                  <dd class="break-words font-mono text-xs text-highlighted">{{ field.value }}</dd>
-                </div>
-              </dl>
-            </section>
-            <UAlert
-              v-if="selectedRun"
-              :color="selectedRun.status === 'succeeded' ? 'success' : selectedRun.status === 'failed' || selectedRun.status === 'unavailable' ? 'error' : 'neutral'"
-              :icon="selectedRun.status === 'succeeded' ? 'i-lucide-circle-check' : 'i-lucide-circle-alert'"
-              :title="selectedRun.status === 'unavailable' ? 'Could not run this Schedule' : `Run ${selectedRun.status}`"
-              :description="consoleScheduleRunDescription(selectedRun)"
-              variant="subtle"
-            />
-            <UAlert
-              v-else
-              color="neutral"
-              icon="i-lucide-info"
-              title="Read-only records"
-              :description="sectionDetails.view.notice"
-              variant="subtle"
-            />
+        <main v-else-if="selectedRecord" class="mx-auto grid w-full max-w-6xl gap-6 p-4 sm:p-6">
+          <div v-if="selectedRun" class="grid gap-1" role="status">
+            <ConsoleStatus :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pending="runStatus(selectedRun).pending" />
+            <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
           </div>
+          <section class="overflow-x-auto" :aria-label="sectionDetails.label">
+            <table class="w-full text-left text-[13px]">
+              <thead>
+                <tr class="border-b border-default">
+                  <th v-for="column in recordColumns" :key="column.key" class="h-8 whitespace-nowrap px-2 text-xs font-medium text-dimmed" scope="col">
+                    {{ column.label }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="row in records"
+                  :key="row.id"
+                  class="h-10 cursor-pointer border-b border-default hover:bg-elevated"
+                  :class="{ 'bg-accented hover:bg-accented': row.id === selectedName }"
+                  :aria-selected="row.id === selectedName"
+                  @click="selectDefinition(row.id)"
+                >
+                  <td v-for="column in recordColumns" :key="column.key" class="px-2 py-1.5 align-middle text-highlighted">
+                    <ConsoleValue :value="row.cells[column.key] || ''" />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+          <ConsolePropertyList title="Fields" :items="selectedRecord.fields" />
+          <p class="flex gap-2 text-xs leading-relaxed text-muted">
+            <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />
+          </p>
         </main>
-      </template>
+      </div>
     </UDashboardPanel>
   </ConsoleFrame>
 </template>

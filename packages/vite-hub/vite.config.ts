@@ -248,7 +248,7 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-document-editor.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-diff.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-history.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-document-properties.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-schema-form.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-markdown-editor.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-comark-component.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-media-dialog.vue", to: "dist/console/runtime/components" },
@@ -260,6 +260,9 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-property-list.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
       { from: "../ui/styles.css", to: "dist/ui" },
       { from: "templates/cloudflare-types.d.ts", to: "dist" },
@@ -304,7 +307,9 @@ export default defineConfig({
       "src/console/runtime/client/request.ts",
       "src/console/runtime/client/env-management.ts",
       "src/console/runtime/client/connections-management.ts",
+      "src/console/runtime/client/blob-media.ts",
       "src/console/runtime/client/documents.ts",
+      "src/console/runtime/client/format.ts",
       "src/console/runtime/client/editor.ts",
       "src/console/runtime/client/env-status.ts",
       "src/console/runtime/client/live.ts",
@@ -314,6 +319,7 @@ export default defineConfig({
       "src/console/runtime/client/presence.ts",
       "src/console/runtime/client/publish.ts",
       "src/console/runtime/client/schedule-run.ts",
+      "src/console/runtime/client/schema-form.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/client/toast.ts",
       "src/console/runtime/definitions.ts",
@@ -352,9 +358,11 @@ export default defineConfig({
         delete exports["./console/runtime/client/request"];
         delete exports["./console/runtime/client/env-management"];
         delete exports["./console/runtime/client/connections-management"];
+        delete exports["./console/runtime/client/blob-media"];
         delete exports["./console/runtime/client/documents"];
         delete exports["./console/runtime/client/editor"];
         delete exports["./console/runtime/client/env-status"];
+        delete exports["./console/runtime/client/format"];
         delete exports["./console/runtime/client/live"];
         delete exports["./console/runtime/client/media"];
         delete exports["./console/runtime/client/media-library"];
@@ -362,6 +370,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/presence"];
         delete exports["./console/runtime/client/publish"];
         delete exports["./console/runtime/client/schedule-run"];
+        delete exports["./console/runtime/client/schema-form"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/client/toast"];
         delete exports["./console/runtime/definitions"];

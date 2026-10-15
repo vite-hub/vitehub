@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 
-import { consoleImageUrl, consoleTruncate, describeConsoleSchemaFields } from "../client/documents";
+import { consoleImageUrl, consoleTruncate } from "../client/documents"
+import { describeConsoleSchemaFields } from "../client/schema-form";
 import { useConsoleMediaPicker } from "../client/media";
 import ConsolePropertyRow from "./console-property-row.vue";
 import ConsoleSchemaField from "./console-schema-field.vue";

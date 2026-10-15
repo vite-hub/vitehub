@@ -65,14 +65,15 @@ describe("shared Console navigation layout", () => {
   })
 
   it("titles each context panel with its section and drops sidebars that only held navigation", () => {
-    for (const name of ["console-definitions", "console-blob", "console-database"]) {
+    for (const name of ["console-definitions", "console-database"]) {
       expect(component(name)).toContain('class="vitehub-console__panel-title"')
       expect(component(name)).toContain('class="vitehub-console__nav"')
       // A bound `:id` evaluates `console - navigation` and stores the sidebar size under "NaN".
       expect(component(name)).toMatch(/\sid="console-navigation"/)
       expect(component(name)).not.toContain(':id="console-navigation"')
     }
-    for (const name of ["console-home", "console-env", "console-kv", "console-connections"]) {
+    // Blob browses folders inside its page, like Content Media, so it needs no sidebar either.
+    for (const name of ["console-home", "console-env", "console-kv", "console-connections", "console-blob"]) {
       expect(component(name)).not.toContain("<UDashboardSidebar")
       expect(component(name)).toContain(':toggle="false"')
     }
@@ -106,9 +107,9 @@ describe("shared Console navigation layout", () => {
     expect(component("console-database")).not.toContain("tracking-[.1em] text-muted\">\n            Database")
   })
 
-  it("shows Run now next to the Read-only badge only for runnable Schedules", () => {
+  it("shows Run now after the Read-only note only for runnable Schedules", () => {
     const definitions = component("console-definitions")
-    expect(definitions).toMatch(/<template #right>\s*<UButton\s+v-if="canRunSelected"[\s\S]*?label="Run now"[\s\S]*?<UBadge color="neutral" label="Read-only"/)
+    expect(definitions).toMatch(/<template #right>\s*<span[^>]*>Read-only<\/span>\s*<UButton\s+v-if="canRunSelected"[\s\S]*?label="Run now"/)
     expect(definitions).toContain("Boolean(props.scheduleRunBase && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable))")
     expect(readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")).toContain('scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run")')
     expect(readFileSync(new URL("../src/console/runtime/pages/section.vue", import.meta.url), "utf8")).toContain(':schedule-run-base="`${appBaseURL}/api/_vitehub/console/schedule-run`"')

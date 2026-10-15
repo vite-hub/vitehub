@@ -3,12 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vu
 
 import { consoleErrorMessage } from "../client/documents";
 import {
-  consoleBytes,
   consoleFolderName,
   consoleFocalCropPosition,
   consoleFolderTrail,
   consoleMediaAccepts,
-  consoleMediaDate,
   consoleMediaFormat,
   consoleMediaTransformable,
   consoleMediaType,
@@ -16,11 +14,13 @@ import {
   consoleMediaUrl,
   consoleMediaVariantUrl,
 } from "../client/media-library";
+import { consoleBytes } from "../client/format";
 import { useConsoleMediaUploads } from "../client/media-uploads";
 import { useConsoleToast } from "../client/toast";
 import ConsoleMediaMove from "./console-media-move.vue";
 import ConsoleMediaUploads from "./console-media-uploads.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsoleRelativeTime from "./console-relative-time.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaReferenceDocument, ConsoleMediaType, ConsoleMediaUploadResult } from "../client/media-library";
 
@@ -42,6 +42,13 @@ const props = defineProps<{
   actionsTarget?: HTMLElement | null;
   /** The name of the root folder, such as Media. */
   rootLabel?: string;
+  /** The empty state text of a folder, such as for a read-only store. */
+  emptyDescription?: string;
+  /** The search placeholder, such as `Filter by prefix…` for a store that lists by prefix. */
+  searchPlaceholder?: string;
+  /** The view when the viewer has not picked one, and the key that remembers their pick. */
+  defaultView?: "grid" | "list";
+  viewKey?: string;
 }>();
 
 const emit = defineEmits<{
@@ -71,8 +78,9 @@ const error = ref<unknown>();
 const search = ref("");
 const query = ref("");
 const type = ref<ConsoleMediaType | "all">("all");
-const viewKey = "vitehub:console:media-view";
-const view = ref<"grid" | "list">(globalThis.localStorage?.getItem(viewKey) === "list" ? "list" : "grid");
+const viewKey = props.viewKey ?? "vitehub:console:media-view";
+const storedView = globalThis.localStorage?.getItem(viewKey);
+const view = ref<"grid" | "list">(storedView === "list" || storedView === "grid" ? storedView : props.defaultView ?? "grid");
 /** Every file this browser has listed, so a selection survives a change of folder. */
 const known = new Map<string, ConsoleMediaFile>();
 let anchor: string | undefined;
@@ -93,6 +101,8 @@ const trail = computed(() => consoleFolderTrail(folder.value));
 /** A folder's name, or the root's name, such as Media. */
 const folderLabel = (path: string) => (path ? consoleFolderName(path) : props.rootLabel ?? consoleFolderName(path));
 const searching = computed(() => Boolean(query.value));
+/** Stores without image dimensions, such as a raw Blob Store, leave the Dimensions column out. */
+const hasDimensions = computed(() => items.value.some(file => file.width && file.height));
 const selectedSet = computed(() => new Set(selected.value));
 const selecting = computed(() => selected.value.length > 0);
 /** Selection exists for bulk moves and deletes on the page, and for picking several files in the picker. */
@@ -504,8 +514,10 @@ defineExpose({
           </button>
         </template>
       </nav>
-      <UInput v-model="search" class="w-full sm:w-56" icon="i-lucide-search" size="sm" placeholder="Search file names…" aria-label="Search file names" />
+      <UInput v-model="search" class="w-full sm:w-56" icon="i-lucide-search" size="sm" :placeholder="searchPlaceholder ?? 'Search file names…'" :aria-label="searchPlaceholder ?? 'Search file names'" />
       <USelect v-model="type" class="w-32" size="sm" :items="typeItems" aria-label="Filter by type" />
+      <!-- Controls of the page that hosts the browser, such as the Blob section's store picker. -->
+      <slot name="toolbar" />
       <div class="ms-auto flex items-center gap-1.5">
         <div class="flex rounded-md ring-1 ring-(--ui-border) ring-inset" role="group" aria-label="View">
           <UTooltip text="Grid">
@@ -576,7 +588,7 @@ defineExpose({
           class="py-16"
           :icon="folder ? 'i-lucide-folder-open' : 'i-lucide-images'"
           :title="folder ? 'This folder is empty' : 'No media yet'"
-          :description="access.write ? 'Drop files anywhere here, or upload them.' : 'Files that editors upload show here.'"
+          :description="emptyDescription ?? (access.write ? 'Drop files anywhere here, or upload them.' : 'Files that editors upload show here.')"
           :actions="access.write ? [{ label: 'Upload files', icon: 'i-lucide-upload', color: 'neutral', variant: 'outline', onClick: () => fileInput?.click() }] : []"
         />
 
@@ -629,7 +641,7 @@ defineExpose({
               <th class="text-start">Name</th>
               <th class="hidden text-start sm:table-cell">Type</th>
               <th class="hidden text-end sm:table-cell">Size</th>
-              <th class="hidden text-end md:table-cell">Dimensions</th>
+              <th v-if="hasDimensions" class="hidden text-end md:table-cell">Dimensions</th>
               <th class="hidden text-end lg:table-cell">Uploaded</th>
             </tr>
           </thead>
@@ -658,8 +670,8 @@ defineExpose({
               </td>
               <td class="hidden text-muted sm:table-cell">{{ consoleMediaFormat(file) }}</td>
               <td class="hidden text-end text-muted tabular-nums sm:table-cell">{{ consoleBytes(file.size) }}</td>
-              <td class="hidden text-end text-muted tabular-nums md:table-cell">{{ file.width && file.height ? `${file.width} × ${file.height}` : "—" }}</td>
-              <td class="hidden text-end text-muted tabular-nums lg:table-cell">{{ consoleMediaDate(file.createdAt) }}</td>
+              <td v-if="hasDimensions" class="hidden text-end text-muted tabular-nums md:table-cell">{{ file.width && file.height ? `${file.width} × ${file.height}` : "—" }}</td>
+              <td class="hidden text-end text-muted lg:table-cell"><ConsoleRelativeTime :value="file.createdAt" /></td>
             </tr>
           </tbody>
         </table>
@@ -731,6 +743,24 @@ defineExpose({
 </template>
 
 <style>
+/* The detail panel of a file sits next to the browser on wide screens and covers it on narrow ones. */
+.vitehub-media-library__detail {
+  border-left: 1px solid var(--ui-border);
+  flex-shrink: 0;
+  width: 22.5rem;
+}
+
+@media (max-width: 1023px) {
+  .vitehub-media-library__detail {
+    background: var(--ui-bg);
+    border-left: 0;
+    inset: 0;
+    position: absolute;
+    width: auto;
+    z-index: 40;
+  }
+}
+
 .vitehub-media-crumb {
   border-radius: 0.375rem;
   color: var(--ui-text-muted);

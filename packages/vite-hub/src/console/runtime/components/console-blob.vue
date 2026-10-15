@@ -1,33 +1,22 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, shallowRef, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
-import { requestConsole } from "../client/request";
+import { createConsoleBlobMediaClient } from "../client/blob-media";
+import { consoleFolderName, consoleFolderTrail } from "../client/media-library";
 import { rememberConsoleSection } from "../sections";
+import ConsoleBlobDetail from "./console-blob-detail.vue";
 import ConsoleFrame from "./console-frame.vue";
+import ConsoleMediaBrowser from "./console-media-browser.vue";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
-interface BlobObjectResponse {
-  contentType?: string;
-  customMetadata: Record<string, string>;
-  httpEtag?: string;
-  httpMetadata: Record<string, string>;
-  pathname: string;
-  size?: number;
-  uploadedAt: string;
-  urlAvailable?: true;
-}
+import type { ConsoleMediaFile } from "../client/media-library";
 
-interface BlobPageResponse {
-  blobs: BlobObjectResponse[];
-  cursor?: string;
-  hasMore: boolean;
-  limit: number;
-  prefix: string;
-  store: string;
-  stores: string[];
-}
-
+/**
+ * The Blob section: one Blob Store in the media browser of Content, read-only, with its raw metadata next to it. The
+ * store, the folder, the open object, and "Show ViteHub files" live in the URL, so a link opens the same view.
+ */
 const props = defineProps<{
   agentsBase: string;
   blobBase: string;
@@ -37,293 +26,116 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 
-const sidebarOpen = ref(false);
+const route = useRoute();
+const router = useRouter();
 const stores = ref<string[]>([]);
-const selectedStore = ref("default");
-const prefix = ref("");
-const blobs = ref<BlobObjectResponse[]>([]);
-const cursor = ref<string>();
-const hasMore = ref(false);
-const selectedPath = ref<string>();
-const loading = ref(true);
-const loadingMore = ref(false);
-const error = ref<unknown>();
-let request: AbortController | undefined;
-let prefixTimer: ReturnType<typeof setTimeout> | undefined;
+const active = shallowRef<ConsoleMediaFile>();
+const activeError = ref<string>();
 
-const storeItems = computed(() => stores.value.map(store => ({ label: store, value: store })));
-const selectedBlob = computed(() => blobs.value.find(blob => blob.pathname === selectedPath.value));
-const httpMetadata = computed(() => Object.entries(selectedBlob.value?.httpMetadata ?? {}).sort(([left], [right]) => left.localeCompare(right)));
-const customMetadata = computed(() => Object.entries(selectedBlob.value?.customMetadata ?? {}).sort(([left], [right]) => left.localeCompare(right)));
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value instanceof Object && !Array.isArray(value)
-    ? Object.fromEntries(Object.entries(value))
-    : undefined;
+function query(name: string): string {
+  const value = route.query[name];
+  return String(value) === value ? value : "";
 }
 
-function stringRecord(value: unknown): Record<string, string> {
-  const source = record(value);
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate every metadata value before rendering it.
-  if (!source || Object.values(source).some(item => typeof item !== "string")) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0095({ message: "The Console returned invalid Blob metadata." });
-  }
-  // SAFETY: Every value passed the string check above, and Object.entries produces string keys.
-  return source as Record<string, string>;
+function setQuery(next: Record<string, string | undefined>): void {
+  void router.replace({ query: { ...route.query, ...next } });
 }
 
-function parseBlob(value: unknown): BlobObjectResponse {
-  const source = record(value);
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate required object fields at this boundary.
-  if (!source || typeof source.pathname !== "string" || typeof source.uploadedAt !== "string") {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0096({ message: "The Console returned an invalid Blob object." });
-  }
-  const object: BlobObjectResponse = {
-    customMetadata: stringRecord(source.customMetadata),
-    httpMetadata: stringRecord(source.httpMetadata),
-    pathname: source.pathname,
-    uploadedAt: source.uploadedAt,
-  };
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate the optional content type at this boundary.
-  if (typeof source.contentType === "string") object.contentType = source.contentType;
-  if (typeof source.httpEtag === "string") object.httpEtag = source.httpEtag;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate the optional size before formatting it.
-  if (typeof source.size === "number" && Number.isFinite(source.size)) object.size = source.size;
-  if (source.urlAvailable === true) object.urlAvailable = true;
-  return object;
-}
+const store = computed({
+  get: () => query("store") || "default",
+  set: (value: string) => setQuery({ file: undefined, folder: undefined, store: value === "default" ? undefined : value }),
+});
+const showVitehub = computed({
+  get: () => query("vitehub") === "1",
+  set: (value: boolean) => setQuery({ file: undefined, vitehub: value ? "1" : undefined }),
+});
+const folder = computed({
+  get: () => query("folder"),
+  set: (value: string) => setQuery({ file: undefined, folder: value || undefined }),
+});
 
-function parsePage(value: unknown): BlobPageResponse {
-  const source = record(value);
-  if (!source || !Array.isArray(source.blobs) || !Array.isArray(source.stores)) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0097({ message: "The Console returned an invalid Blob page." });
-  }
-  return {
-    blobs: source.blobs.map(parseBlob),
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate the optional pagination cursor at this boundary.
-    cursor: typeof source.cursor === "string" ? source.cursor : undefined,
-    hasMore: source.hasMore === true,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate the page size at this boundary.
-    limit: typeof source.limit === "number" ? source.limit : 100,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate the prefix at this boundary.
-    prefix: typeof source.prefix === "string" ? source.prefix : "",
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate the selected store at this boundary.
-    store: typeof source.store === "string" ? source.store : "default",
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate each store identity before rendering it.
-    stores: source.stores.filter((store): store is string => typeof store === "string"),
-  };
-}
-
-function errorMessage(value: unknown): string | undefined {
-  return value instanceof Error
-    ? value.message
-    : value
-      ? "The Console could not load Blob metadata."
-      : undefined;
-}
-
-function formatBytes(value: number | undefined): string {
-  if (value === undefined) return "Unknown";
-  if (value < 1_024) return `${value} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
-  let size = value / 1_024;
-  let unit = 0;
-  while (size >= 1_024 && unit < units.length - 1) {
-    size /= 1_024;
-    unit += 1;
-  }
-  return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unit]}`;
-}
-
-async function loadObjects(options: { append?: boolean; keepSelection?: boolean } = {}): Promise<void> {
-  request?.abort();
-  const controller = new AbortController();
-  request = controller;
-  const current = options.keepSelection ? selectedPath.value : undefined;
-  if (options.append) loadingMore.value = true;
-  else {
-    blobs.value = [];
-    cursor.value = undefined;
-    hasMore.value = false;
-    selectedPath.value = undefined;
-    loading.value = true;
-  }
-  try {
-    const page = parsePage(await requestConsole(props.blobBase, {
-      query: {
-        cursor: options.append ? cursor.value : undefined,
-        prefix: prefix.value || undefined,
-        store: selectedStore.value,
-      },
-      signal: controller.signal,
-    }));
-    if (request !== controller) return;
+// A new client per store and per ViteHub file switch remounts the browser, so it lists from the start.
+const client = computed(() => createConsoleBlobMediaClient(props.blobBase, {
+  onPage: (page) => {
     stores.value = page.stores;
-    const next = options.append
-      ? [...blobs.value, ...page.blobs.filter(candidate => !blobs.value.some(object => object.pathname === candidate.pathname))]
-      : page.blobs;
-    blobs.value = next;
-    cursor.value = page.cursor;
-    hasMore.value = page.hasMore;
-    error.value = undefined;
-    const selection = options.append && options.keepSelection ? selectedPath.value : current;
-    selectedPath.value = selection && next.some(object => object.pathname === selection)
-      ? selection
-      : next[0]?.pathname;
-  } catch (cause) {
-    if (cause instanceof Object && "name" in cause && cause.name === "AbortError") return;
-    if (request === controller) error.value = cause;
-  } finally {
-    if (request === controller) {
-      request = undefined;
-      loading.value = false;
-      loadingMore.value = false;
-    }
+  },
+  showVitehub: showVitehub.value,
+  store: store.value,
+}));
+const storeItems = computed(() => (stores.value.length ? stores.value : [store.value]).map(name => ({ label: name, value: name })));
+const trail = computed(() => consoleFolderTrail(folder.value).slice(0, -1).map(path => ({
+  label: path ? consoleFolderName(path) : "Blob",
+  to: { query: { ...route.query, file: undefined, folder: path || undefined } },
+})));
+
+// `?file=` opens the metadata of one object, also after a reload.
+watch([() => query("file"), client], async ([pathname]) => {
+  activeError.value = undefined;
+  if (!pathname) {
+    active.value = undefined;
+    return;
   }
+  if (active.value?.pathname === pathname) return;
+  try {
+    active.value = await client.value.get(pathname);
+  }
+  catch (error) {
+    active.value = undefined;
+    activeError.value = error instanceof Error ? error.message : "The object could not be loaded.";
+  }
+}, { immediate: true });
+
+function open(file: ConsoleMediaFile | undefined): void {
+  active.value = file;
+  setQuery({ file: file?.pathname });
 }
 
-function selectBlob(pathname: string): void {
-  selectedPath.value = pathname;
-  sidebarOpen.value = false;
-}
-
-async function refresh(): Promise<void> {
-  cursor.value = undefined;
-  await loadObjects({ keepSelection: true });
-}
-
-watch(selectedStore, () => {
-  selectedPath.value = undefined;
-  cursor.value = undefined;
-  void loadObjects();
-});
-
-watch(prefix, () => {
-  if (prefixTimer) clearTimeout(prefixTimer);
-  prefixTimer = setTimeout(() => {
-    selectedPath.value = undefined;
-    cursor.value = undefined;
-    void loadObjects();
-  }, 200);
-});
-
-onMounted(() => {
-  rememberConsoleSection("blob");
-  void loadObjects();
-});
-
-onBeforeUnmount(() => {
-  request?.abort();
-  if (prefixTimer) clearTimeout(prefixTimer);
-});
+onMounted(() => rememberConsoleSection("blob"));
 </script>
 
 <template>
   <ConsoleFrame active="blob" :sections-base="sectionsBase">
-    <UDashboardSidebar
-      id="console-navigation"
-      class="vitehub-console__nav"
-      v-model:open="sidebarOpen"
-      :default-size="16"
-      :collapsed-size="4"
-      :min-size="13"
-      :max-size="26"
-      :menu="{ title: 'Blob objects', description: 'Browse configured Blob stores.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0' }"
-      resizable
-    >
-      <template #header="{ collapsed }">
-        <div v-if="!collapsed" class="vitehub-console__panel-title">
-          <span class="min-w-0 flex-1 truncate">Blob</span>
-          <UTooltip text="Refresh objects"><UButton aria-label="Refresh objects" color="neutral" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading || loadingMore" @click="refresh" /></UTooltip>
-        </div>
-        <div v-else class="flex justify-center">
-          <UTooltip text="Refresh objects"><UButton aria-label="Refresh objects" color="neutral" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading || loadingMore" @click="refresh" /></UTooltip>
-        </div>
-      </template>
-
-      <template #default="{ collapsed }">
-        <div v-if="!collapsed" class="grid gap-2 px-3 pb-3">
-          <USelect v-if="stores.length > 1" v-model="selectedStore" :items="storeItems" aria-label="Blob store" size="sm" />
-          <UInput v-model="prefix" aria-label="Filter objects by prefix" icon="i-lucide-search" placeholder="Filter by prefix" size="sm" />
-        </div>
-        <div v-if="!collapsed && errorMessage(error)" class="px-3 pb-3">
-          <UAlert color="error" variant="subtle" icon="i-lucide-cloud-off" title="Could not load objects" :description="errorMessage(error)" :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]" />
-        </div>
-        <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
-          <div class="grid gap-1 px-2 py-1">
-            <UTooltip v-for="object in blobs" :key="object.pathname" :text="object.pathname" :content="{ side: 'right' }">
-              <UButton icon="i-lucide-file" color="neutral" :variant="selectedPath === object.pathname ? 'soft' : 'ghost'" block :aria-label="object.pathname" @click="selectBlob(object.pathname)" />
-            </UTooltip>
-          </div>
-        </div>
-        <div v-else-if="loading && !blobs.length" class="grid gap-2 px-3"><USkeleton v-for="index in 6" :key="index" class="h-11 rounded-md" /></div>
-        <nav v-else-if="blobs.length" class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label="Blob objects">
-          <button v-for="object in blobs" :key="object.pathname" type="button" class="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-start outline-none hover:bg-elevated focus-visible:ring-2 focus-visible:ring-primary" :class="selectedPath === object.pathname ? 'bg-elevated text-highlighted' : 'text-toned'" @click="selectBlob(object.pathname)">
-            <UIcon name="i-lucide-file" class="size-3.5 shrink-0 text-dimmed" />
-            <span class="min-w-0 flex-1">
-              <span class="block truncate font-mono text-xs">{{ object.pathname }}</span>
-              <span class="mt-0.5 block truncate text-xs text-muted">{{ formatBytes(object.size) }} · {{ object.contentType || "Unknown type" }}</span>
-            </span>
-          </button>
-          <UButton v-if="hasMore" class="mt-2" block color="neutral" icon="i-lucide-chevron-down" label="Load more" size="sm" variant="ghost" :loading="loadingMore" @click="loadObjects({ append: true, keepSelection: true })" />
-        </nav>
-        <UEmpty v-else-if="!loading && !error && !collapsed" class="min-h-0 flex-1 px-4" icon="i-lucide-file-box" :title="prefix ? 'No matching objects' : 'This store is empty'" :description="prefix ? 'Try a shorter object prefix.' : 'Objects will appear here when the application stores them.'" />
-      </template>
-
-    </UDashboardSidebar>
-
     <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />
 
-    <UDashboardPanel id="blob-object">
-      <div class="flex min-h-0 flex-1 flex-col" aria-live="polite">
-        <header class="flex h-14 shrink-0 items-center border-b border-default px-4">
-          <UButton class="mr-2 lg:hidden" aria-label="Open Blob objects" color="neutral" icon="i-lucide-panel-left" variant="ghost" @click="sidebarOpen = true" />
-          <div class="min-w-0">
-            <p class="truncate font-mono text-xs font-medium text-highlighted">{{ selectedPath || "Blob" }}</p>
-            <p v-if="selectedPath" class="mt-0.5 truncate text-xs text-muted">{{ selectedStore }}</p>
-          </div>
-          <UBadge class="ml-auto" color="neutral" label="Read-only" size="sm" variant="soft" />
-        </header>
-
-        <UEmpty v-if="!selectedBlob && !loading" class="min-h-0 flex-1" icon="i-lucide-mouse-pointer-click" title="Select an object" description="Choose an object to inspect metadata returned by its Blob store." />
-        <div v-else-if="loading && !selectedBlob" class="flex min-h-0 flex-1 items-center justify-center"><UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" /></div>
-        <main v-else-if="selectedBlob" class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          <div class="mx-auto w-full max-w-5xl">
-            <section class="overflow-hidden rounded-lg border border-default bg-default">
-              <div class="flex h-10 items-center border-b border-default px-3"><h2 class="text-xs font-medium text-highlighted">Object metadata</h2></div>
-              <dl class="divide-y divide-default">
-                <div v-for="field in [
-                  ['Store', selectedStore],
-                  ['Pathname', selectedBlob.pathname],
-                  ['Content type', selectedBlob.contentType || 'Unknown'],
-                  ['Size', formatBytes(selectedBlob.size)],
-                  ['Uploaded', selectedBlob.uploadedAt],
-                  ['HTTP ETag', selectedBlob.httpEtag || 'Unavailable'],
-                  ['Access URL', selectedBlob.urlAvailable ? 'Available from the configured provider' : 'Unavailable'],
-                ]" :key="field[0]" class="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
-                  <dt class="text-xs font-medium text-muted">{{ field[0] }}</dt>
-                  <dd class="break-all font-mono text-xs text-highlighted">{{ field[1] }}</dd>
-                </div>
-              </dl>
-            </section>
-
-            <div class="mt-4 grid gap-4 lg:grid-cols-2">
-              <section v-for="group in [{ title: 'HTTP metadata', entries: httpMetadata }, { title: 'Custom metadata', entries: customMetadata }]" :key="group.title" class="overflow-hidden rounded-lg border border-default bg-default">
-                <div class="flex h-10 items-center border-b border-default px-3"><h2 class="text-xs font-medium text-highlighted">{{ group.title }}</h2><span class="ml-auto text-xs text-muted">{{ group.entries.length }}</span></div>
-                <dl v-if="group.entries.length" class="divide-y divide-default">
-                  <div v-for="entry in group.entries" :key="entry[0]" class="grid gap-1 px-4 py-3 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-3">
-                    <dt class="break-all font-mono text-xs text-muted">{{ entry[0] }}</dt>
-                    <dd class="break-all font-mono text-xs text-highlighted">{{ entry[1] }}</dd>
-                  </div>
-                </dl>
-                <p v-else class="px-4 py-5 text-sm text-muted">No metadata was returned for this object.</p>
-              </section>
-            </div>
-
-            <UAlert class="mt-4" color="neutral" variant="subtle" icon="i-lucide-file-lock-2" title="Metadata only" description="The Console does not download object contents or expose Blob mutations." />
-          </div>
-        </main>
+    <UDashboardPanel id="blob-objects" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+      <ConsolePageHeader :title="folder ? consoleFolderName(folder) : 'Blob'" :trail="trail" :back="trail.at(-1)" :description="stores.length > 1 ? undefined : store" :toggle="false">
+        <template #right>
+          <span class="text-xs text-dimmed">Read-only</span>
+        </template>
+      </ConsolePageHeader>
+      <div class="relative flex min-h-0 flex-1">
+        <ConsoleMediaBrowser
+          :key="`${store}:${showVitehub}`"
+          v-model:folder="folder"
+          mode="page"
+          root-label="Blob"
+          default-view="list"
+          view-key="vitehub:console:blob-view"
+          search-placeholder="Filter by prefix…"
+          empty-description="Objects show here when the application stores them."
+          :client="client"
+          :active="active?.pathname"
+          @open="open"
+        >
+          <template #toolbar>
+            <USelect v-if="stores.length > 1" v-model="store" class="w-36" size="sm" :items="storeItems" aria-label="Blob store" />
+            <USwitch v-model="showVitehub" color="neutral" label="Show ViteHub files" size="xs" :ui="{ label: 'text-xs font-normal text-muted' }" />
+          </template>
+        </ConsoleMediaBrowser>
+        <ConsoleBlobDetail
+          v-if="active"
+          :key="active.pathname"
+          class="vitehub-media-library__detail"
+          :file="active"
+          :object="client.object(active.pathname)"
+          :store="store"
+          @close="open(undefined)"
+        />
+        <div v-else-if="activeError" class="vitehub-media-library__detail flex flex-col items-center justify-center gap-2 p-6 text-center">
+          <p class="text-sm text-highlighted">Couldn't open {{ query("file") }}</p>
+          <p class="text-xs text-muted">{{ activeError }}</p>
+          <UButton variant="outline" size="sm" label="Close" @click="open(undefined)" />
+        </div>
       </div>
     </UDashboardPanel>
   </ConsoleFrame>
