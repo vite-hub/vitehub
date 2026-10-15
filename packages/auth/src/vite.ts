@@ -10,6 +10,7 @@ import { resolveAuthViteConfig } from "./config.ts"
 import { discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { isAuthRequestPath } from "./shared.ts"
+import { sendWebResponse } from "./node-response.ts"
 
 export function shouldPassThroughAuthResponse(basePath: string, status: number): boolean {
   return basePath === "/" && status === 404
@@ -240,38 +241,6 @@ function createWebRequest(request: IncomingMessage): Request {
   }
 
   return new Request(url, init)
-}
-
-async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
-  target.statusCode = response.status
-  target.statusMessage = response.statusText
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; preserve forEach serialization when absent.
-  const setCookieHeaders = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : []
-  response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
-    target.appendHeader(key, value)
-  })
-  for (const value of setCookieHeaders) {
-    target.appendHeader("set-cookie", value)
-  }
-
-  if (!response.body) {
-    target.end()
-    return
-  }
-
-  const reader = response.body.getReader()
-  try {
-    for (;;) {
-      const chunk = await reader.read()
-      if (chunk.done) break
-      target.write(Buffer.from(chunk.value))
-    }
-  }
-  finally {
-    target.end()
-    reader.releaseLock()
-  }
 }
 
 function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {
