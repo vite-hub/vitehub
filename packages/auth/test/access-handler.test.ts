@@ -104,6 +104,15 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+  it("preserves native responses whose bodies are already consumed", async () => {
+    const response = new Response("Policy rejected", { status: 409 })
+    await response.text()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+  })
+
   it("rejects native responses with shadowed fields", async () => {
     const response = new Response("Policy rejected", { status: 409 })
     Object.defineProperty(response, "headers", { value: {} })

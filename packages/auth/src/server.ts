@@ -301,7 +301,6 @@ function isResponseLike(value: unknown): value is Response {
     const statusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")!.get!
     const headers = Object.getOwnPropertyDescriptor(responsePrototype, "headers")!.get!
     const body = Object.getOwnPropertyDescriptor(responsePrototype, "body")!.get!
-    const clone = Object.getOwnPropertyDescriptor(responsePrototype, "clone")!.value as (this: unknown) => unknown
     // Own fields can shadow the native accessors and break host serialization.
     if (hasResponseShadow(value)) return false
     status.call(value)
@@ -309,14 +308,9 @@ function isResponseLike(value: unknown): value is Response {
     const responseHeaders = headers.call(value)
     if (responseHeaders === null || typeof responseHeaders !== "object" || typeof (responseHeaders as { get?: unknown }).get !== "function") return false
     body.call(value)
-    const cloned = clone.call(value)
-    if (cloned === null || typeof cloned !== "object" || cloned === value) return false
-    status.call(cloned)
-    statusText.call(cloned)
-    const clonedHeaders = headers.call(cloned)
-    if (clonedHeaders === null || typeof clonedHeaders !== "object" || typeof (clonedHeaders as { get?: unknown }).get !== "function") return false
-    body.call(cloned)
-    return clone.call(cloned) !== cloned
+    // Do not clone the response here: cloning throws when its body is already
+    // consumed or locked, but the original native response is still valid.
+    return true
   }
   catch {
     // A response from another runtime has a different native brand. Validate
