@@ -846,6 +846,11 @@ function isResponseLike(value: unknown): value is Response {
     // without relying on the current realm's Response constructor.
     const constructorDescriptor = tagOwner && Object.getOwnPropertyDescriptor(tagOwner, "constructor")
     if (!constructorDescriptor || !hasRuntimeType(constructorDescriptor.value, "function") || constructorDescriptor.value.prototype !== tagOwner) return false
+    // A self-linked constructor is easy to manufacture on a caller-owned
+    // prototype. Real Fetch implementations expose the Response constructor
+    // under this stable name; reject arbitrary constructor names before the
+    // remaining structural checks can route a generic result here.
+    if (constructorDescriptor.value.name !== "Response") return false
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     // The foreign implementation owns its getters. Require the full Response
     // accessor contract before accepting an output as a byte stream.
