@@ -59,7 +59,7 @@ Runs may overlap, for example from two replicas: each publish checks the reviewe
 - At its time, the run calls `publish({ expect })`. A draft saved after scheduling makes the run publish nothing. The schedule turns `failed` and keeps the error in `failure`: `{ at, code: 'WORKSPACE_CONFLICT', message, details: { ref: 'draft', documents } }`. A draft that no longer validates fails the same way with `CONTENT_INVALID`.
 - A failed schedule is not moved to the new draft. That draft was not reviewed, so someone has to review it and schedule again. `unschedule()` dismisses the failed one.
 
-`schedule()` also throws `CONTENT_R0011` when `at` is not in the future, when `at` is a string without a time zone, when every document is already published as reviewed, or when a document already has a pending schedule. Call `unschedule()` before you schedule that document again.
+`schedule()` throws `CONTENT_INVALID` when a draft still has field issues, naming each one in `details.documents`. It also throws `CONTENT_R0011` when `at` is not in the future, when `at` is a string without a time zone, when every document is already published as reviewed, or when a document already has a pending schedule. Call `unschedule()` before you schedule that document again.
 
 ## Statuses
 

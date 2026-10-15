@@ -624,6 +624,30 @@ export function renderDocumentFile(frontmatter: Record<string, unknown>, body: s
   return `---\n${keys ? stringifyYaml(frontmatter, yamlOptions) : ""}---\n${body ? `\n${body}` : ""}`
 }
 
+/** One document with field issues, for a `CONTENT_INVALID` that names several. */
+export interface ContentInvalidDocument {
+  collection: string
+  id: string
+  path: string
+  issues: ContentFieldIssue[]
+}
+
+/**
+ * A `CONTENT_INVALID` that names every invalid document of a `publish()` or `schedule()`. `details` keep the first
+ * document's `collection`, `id`, `path`, and `issues`, and list all of them in `documents`.
+ */
+export function contentInvalidDocuments(method: "publish" | "schedule", documents: readonly ContentInvalidDocument[]): ViteHubError {
+  const first = documents[0]!
+  const lines = documents.flatMap(document => document.issues.map((issue) => {
+    const where = [issue.field, ...issue.path].filter(segment => segment !== undefined).join(".")
+    return `- ${document.collection}/${document.id}: ${where ? `${where}: ` : ""}${issue.message}`
+  }))
+  const count = documents.length === 1 ? "1 Content document has" : `${documents.length} Content documents have`
+  return new ViteHubError("CONTENT_INVALID", `[vitehub] ${method}() ${method === "publish" ? "published" : "scheduled"} nothing: ${count} invalid fields:\n${lines.join("\n")}`, {
+    details: { collection: first.collection, id: first.id, path: first.path, issues: first.issues, documents: documents.map(document => ({ ...document })) },
+  })
+}
+
 /** A readable `CONTENT_INVALID` error listing every field issue. */
 export function contentInvalid(collection: string, id: string, path: string, issues: ContentFieldIssue[]): ViteHubError {
   const lines = issues.map((issue) => {

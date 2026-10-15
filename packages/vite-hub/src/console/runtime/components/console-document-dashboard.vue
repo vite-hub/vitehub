@@ -8,6 +8,7 @@ import {
   consoleDocumentStateColor,
   consoleDocumentStateLabel,
   consoleErrorMessage,
+  consoleFixFieldsLabel,
   consolePublishMismatches,
   consoleSingularLabel,
 } from "../client/documents";
@@ -94,7 +95,9 @@ function scheduleTime(at: string): string {
 }
 
 // Writers see the changes, but only collections they may publish count toward the Publish button.
-const publishable = computed(() => pending.value.filter(entry => entry.collection.access.publish));
+// Drafts with field issues stay out of Publish: they would make the whole publish fail.
+const publishable = computed(() => pending.value.filter(entry => entry.collection.access.publish && !entry.change.issues));
+const blocked = computed(() => pending.value.filter(entry => entry.collection.access.publish && entry.change.issues).length);
 const canPublishAny = computed(() => props.collections.some(collection => collection.access.publish));
 // Singletons, such as site settings, have their own page and no New button.
 const listed = computed(() => props.collections.filter(collection => collection.kind !== "singleton"));
@@ -169,6 +172,7 @@ async function publishAll(): Promise<void> {
           <div class="grid max-w-72 gap-3 p-3">
             <p class="text-[13px] text-muted">
               Publish the {{ publishable.length === 1 ? "change" : `${publishable.length} changes` }} listed under Needs publishing, exactly as they are now.
+              <template v-if="blocked"> {{ blocked === 1 ? "1 draft with field issues stays" : `${blocked} drafts with field issues stay` }} unpublished.</template>
             </p>
             <div class="flex justify-end gap-2">
               <UButton variant="ghost" size="sm" label="Cancel" @click="publishOpen = false" />
@@ -250,7 +254,12 @@ async function publishAll(): Promise<void> {
                     <span class="truncate" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': entry.change.state === 'deleted' }">{{ entry.change.title }}</span>
                     <ConsolePresenceAvatars :sessions="sessionsOf(entry.collection.name, entry.change.id)" :user="sessionUser" variant="row" />
                   </span>
-                  <span class="vitehub-dashboard-row__meta">{{ entry.collection.label }}</span>
+                  <span class="vitehub-dashboard-row__meta flex items-center gap-2">
+                    <UTooltip v-if="entry.change.issues" :text="consoleFixFieldsLabel(entry.change.issues)">
+                      <ConsoleStatus tone="error" :label="entry.change.issues === 1 ? '1 issue' : `${entry.change.issues} issues`" />
+                    </UTooltip>
+                    {{ entry.collection.label }}
+                  </span>
                   <span class="vitehub-dashboard-row__time">
                     <ConsoleRelativeTime v-if="entry.change.updatedAt" :value="entry.change.updatedAt" />
                     <span v-else aria-hidden="true">—</span>

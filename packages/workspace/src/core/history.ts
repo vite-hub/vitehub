@@ -192,6 +192,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
           operation: file ? "writeFile" : "rm",
           path: requested.path,
           previous: before,
+          ref,
           workspace: definition.name,
         })
         if (!forwarded) inputs.push(input)

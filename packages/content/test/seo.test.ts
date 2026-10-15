@@ -114,9 +114,8 @@ describe("seo()", () => {
     expect(saved.data.seo).toEqual({ title: "Hello, SEO", image: { pathname: "og/hello.png", contentType: "image/png" } })
     expect((await posts.raw("hello", { ref: "draft" }))?.text).toBe("---\ntitle: Hello\nseo:\n  title: Hello, SEO\n  image:\n    pathname: og/hello.png\n    contentType: image/png\n---\n")
     expectTypeOf(saved.data.seo).toEqualTypeOf<ContentSeo<{ pathname: string, contentType?: string, size?: number }> | undefined>()
-    await expect(posts.save("bad", { data: { title: "Bad", seo: { image: { pathname: "/abs.png", contentType: "image/png" } } } })).rejects.toMatchObject({
-      code: "CONTENT_INVALID",
-      details: { issues: [{ field: "seo", path: ["image", "pathname"] }] },
+    await expect(posts.save("bad", { data: { title: "Bad", seo: { image: { pathname: "/abs.png", contentType: "image/png" } } } })).resolves.toMatchObject({
+      issues: [{ field: "seo", path: ["image", "pathname"] }],
     })
   })
 })
