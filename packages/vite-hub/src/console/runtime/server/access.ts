@@ -88,12 +88,23 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
     // another Fetch implementation can pass its own internal-slot check. The
     // returned clone is validated below, so compatible own methods are allowed.
     const prototype = Object.getPrototypeOf(value)
-    const prototypeClone = prototype && Object.getOwnPropertyDescriptor(prototype, "clone")?.value
-    const prototypeTag = prototype && Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
-    // Genuine Fetch implementations expose both the clone algorithm and Response tag on their prototype.
-    // Requiring those own prototype slots rejects plain objects whose custom prototype only imitates them.
+    let responsePrototype = prototype
+    while (responsePrototype) {
+      const cloneDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, "clone")
+      const tagDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, Symbol.toStringTag)
+      const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
+      if (typeof cloneDescriptor?.value === "function"
+        && tagDescriptor
+        && typeof constructor === "function"
+        && constructor.prototype === responsePrototype
+        && constructor.name === "Response") break
+      responsePrototype = Object.getPrototypeOf(responsePrototype)
+    }
+    // Genuine Fetch implementations expose both the clone algorithm and Response tag
+    // on a Response prototype. Walking the chain accepts subclasses while rejecting
+    // plain objects whose custom prototype only imitates those slots.
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
-    if (typeof prototypeClone !== "function" || !prototypeTag) return invalidAuthorizationResponse
+    if (!responsePrototype) return invalidAuthorizationResponse
     const cloneMethod = Reflect.get(value, "clone")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (typeof cloneMethod !== "function") return invalidAuthorizationResponse
