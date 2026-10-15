@@ -124,20 +124,20 @@ describe("Console access policies", () => {
     const authorize = runInNewContext("({ request }) => request.headers.get('x-role') === 'admin'") as unknown as ConsoleAuthorize
     const handler = runInNewContext("(_event, access) => access.mode") as (_event: ConsoleRequestEvent, access: ConsoleAccess) => string
 
-    installConsoleAccess({ mode: "host-managed", authorize: defineConsoleAuthorize(authorize) })
-    await expect(withConsoleAccess(handler)(event({ "x-role": "admin" }))).resolves.toBe("host-managed")
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    await expect(withConsoleAccess(handler)(event({ "x-role": "admin" }))).resolves.toBe("open")
   })
 
   it("preserves genuine responses and rejects spoofed response-shaped values", async () => {
     const authorize = runInNewContext("() => new Response('Sign in elsewhere.', { status: 401 })", { Response }) as unknown as ConsoleAuthorize
 
-    installConsoleAccess({ mode: "host-managed", authorize: defineConsoleAuthorize(authorize) })
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
     const result = await withConsoleAccess(() => "unreachable")(event())
 
     expect(result).toMatchObject({ status: 401 })
     await expect((result as Response).text()).resolves.toBe("Sign in elsewhere.")
 
-    const spoofed = await run({ mode: "host-managed", authorize: () => ({ [Symbol.toStringTag]: "Response", status: 401, text: () => Promise.resolve("spoofed") }) as unknown as Response })
+    const spoofed = await run({ mode: "open", authorize: () => ({ [Symbol.toStringTag]: "Response", status: 401, text: () => Promise.resolve("spoofed") }) as unknown as Response })
     expect(spoofed.handler).not.toHaveBeenCalled()
     await expect(rejection(spoofed.result)).resolves.toMatchObject({ status: 403 })
   })
