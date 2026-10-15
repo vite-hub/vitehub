@@ -35,15 +35,15 @@ export async function runWorkspaceInspectionCommand(
   const timeout = options.timeout ?? 30_000
   const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
   const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))
-  if (unsupportedSyntax) return unsupportedSyntax
+  if (unsupportedSyntax) return limitInspectionObservation(unsupportedSyntax, maxOutputLength)
   const preflight = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd, options.signal)
-  if (preflight) return preflight
+  if (preflight) return limitInspectionObservation(preflight, maxOutputLength)
   const pipedBroadSearch = preflightPipedSearchWithoutPath(command, options.broadSearchPaths)
-  if (pipedBroadSearch) return pipedBroadSearch
+  if (pipedBroadSearch) return limitInspectionObservation(pipedBroadSearch, maxOutputLength)
   const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd, options.signal)
-  if (missingPath) return missingPath
+  if (missingPath) return limitInspectionObservation(missingPath, maxOutputLength)
   const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands, Boolean(provider))
-  if (unsupported) return unsupported
+  if (unsupported) return limitInspectionObservation(unsupported, maxOutputLength)
   const runtime = createShellRuntime({
     policy: {
       maxOutputLength,
@@ -65,7 +65,34 @@ export async function runWorkspaceInspectionCommand(
   })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
-  return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
+  if (!noMatchFeedback) return result
+  const bounded = limitInspectionFeedback(noMatchFeedback, maxOutputLength)
+  return {
+    ...result,
+    stdout: bounded.stdout,
+    outputTruncated: result.outputTruncated || bounded.outputTruncated,
+    workspaceGuardrail: { kind: "no_match" },
+  }
+}
+
+function limitInspectionFeedback(feedback: string, maxLength: number | undefined) {
+  if (maxLength === undefined || feedback.length <= maxLength) return { stdout: feedback, outputTruncated: false }
+  return {
+    stdout: `${feedback.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`,
+    outputTruncated: true,
+  }
+}
+
+function limitInspectionObservation(observation: ShellObservation, maxLength: number | undefined): ShellObservation {
+  const bounded = limitInspectionFeedback(observation.stdout, maxLength)
+  const boundedError = limitInspectionFeedback(observation.stderr, maxLength)
+  if (!bounded.outputTruncated && !boundedError.outputTruncated) return observation
+  return {
+    ...observation,
+    stdout: bounded.stdout,
+    stderr: boundedError.stdout,
+    outputTruncated: true,
+  }
 }
 
 function normalizeOutputLength(value: number | undefined): number | undefined {
@@ -274,7 +301,11 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
         continue
       }
       const paths = segment.paths
-      const hasBroadPath = paths.some(path => isBroadWorkspacePath(path, broadSearchPaths, currentCwd))
+      const hasBroadPath = paths.some(path => {
+        const resolved = cleanWorkspaceShellPath(resolvedWorkspaceCwd(currentCwd, path))
+        return isBroadWorkspacePath(path, broadSearchPaths, currentCwd)
+          || broadSearchPaths.some(root => resolved.startsWith(`${cleanWorkspaceShellPath(root)}/`))
+      })
       if (!hasBroadPath) {
         if (segment.separatorAfter === "&&") return ""
         continue
