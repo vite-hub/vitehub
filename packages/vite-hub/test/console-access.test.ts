@@ -125,7 +125,7 @@ describe("Console access policies", () => {
     expect(defineConsoleAuthorize(authorize as never)).toBe(authorize)
     const { handler, result } = await run({ mode: "host-managed", authorize })
     expect(handler).toHaveBeenCalledOnce()
-    expect(result).toEqual({ mode: "host-managed" })
+    expect(result).toEqual({ mode: "host-managed", sections: "all" })
   })
   it("returns a custom Response created in another runtime realm", async () => {
     const window = new Window()

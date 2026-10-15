@@ -188,7 +188,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     if (response) return response
     if (result !== true) return rejection(403, "Forbidden.")
   }
-  else if (policy.mode !== "open") {
+  else if (policy.mode === "auth" || policy.mode === "cloudflare-access") {
     if (!policy.check) {
       return rejection(500, policy.mode === "auth"
         ? "[vitehub] console: { auth: \"app\" } requires a discovered ViteHub Auth Definition."
