@@ -320,8 +320,12 @@ function hasResponsePrototype(value: unknown): boolean {
       const bodyGetter = Object.getOwnPropertyDescriptor(current, "body")?.get
       if (typeof bodyGetter === "function") {
         const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-        if (typeof constructor !== "function" || constructor.name !== "Response") return false
+        if (constructor?.name !== "Response") return false
         Reflect.apply(bodyGetter, value, [])
+        const clone = Object.getOwnPropertyDescriptor(current, "clone")?.value
+        if (typeof clone !== "function") return false
+        const cloned = Reflect.apply(clone, value, [])
+        if (cloned === value || Object(cloned) !== cloned) return false
         return true
       }
       current = Object.getPrototypeOf(current)
