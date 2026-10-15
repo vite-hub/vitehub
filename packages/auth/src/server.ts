@@ -360,6 +360,11 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       prototype = Object.getPrototypeOf(prototype)
     }
     if (!locked || !getReader || Reflect.apply(locked, candidate, [])) return false
+    // Let the local Fetch implementation apply its disturbed-stream check.
+    // This catches foreign streams whose reader was consumed and released;
+    // their `locked` accessor is false again, but the stream is no longer
+    // transferable into a response.
+    new Response(candidate)
     // Validate the reader against a fresh stream from the body's realm. This
     // avoids relying on function source text while rejecting unrelated native
     // methods (for example, Array.prototype.values) installed on the stream

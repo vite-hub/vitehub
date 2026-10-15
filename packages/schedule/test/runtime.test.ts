@@ -653,7 +653,6 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
     expect(readTag).not.toHaveBeenCalled()
   })
-  })
 
   it("rejects invalid Date values from another JavaScript realm", async () => {
     const scheduledAt = runInNewContext("new Date('invalid')") as Date
