@@ -362,7 +362,7 @@ export function contentDocumentUrl(url: ContentDocumentUrl<any> | undefined, doc
   if (url instanceof Function) {
     const result: unknown = url({ id: document.id, data: document.data })
     if (result === null || result === undefined) return null
-    if (String(result) !== result || !result.startsWith("/")) {
+    if (String(result) !== result || !result.startsWith("/") || result.startsWith("//")) {
       throw invalidDefinition(`Content url() must return a path that starts with /, or null, received ${JSON.stringify(result)} for ${JSON.stringify(document.id)}.`)
     }
     return result
