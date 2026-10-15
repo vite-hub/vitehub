@@ -113,7 +113,7 @@ describe("package entry result transport", () => {
       `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
       `  const prototype = { clone() { return this }, get body() { return null } }`,
       `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers, extra: 'kept' })`,
-      `  return Object.defineProperties(value, { [Symbol.toStringTag]: { value: 'Response' }, arrayBuffer: { value: async () => new ArrayBuffer() } })`,
+      `  return Object.defineProperties(value, { [Symbol.toStringTag]: { value: 'Response' }, [Symbol('spoofed')]: { value: 'preserved', enumerable: true }, arrayBuffer: { value: async () => new ArrayBuffer() } })`,
       `}`,
     ].join("\n"))
 
