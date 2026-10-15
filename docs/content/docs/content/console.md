@@ -188,7 +188,7 @@ Saves, restores, deletes, and publishes record the user's `name`, `email`, or `i
 - History shows the last 20 saves and the last 20 publishes of a document, then older saves on request. Content scans at most 1,000 revisions per page.
 - Uploads accept files up to 32 MB per request. Hosts may set a lower request limit, such as 4.5 MB on Vercel Functions.
 - Media search scans at most 5,000 files below the open folder and shows at most 60 matches. Open a folder to narrow it.
-- **Used in** reads every document of each collection the user may read, on the draft and published refs, and finds bodies through the collection's [search fields](/docs/content/configure#define-collections), which include the body by default. It does not tell which Blob Store a reference names.
+- **Used in** reads every document of each collection the user may read, on the draft and published refs, and finds bodies through the collection's [search fields](/docs/content/configure#define-collections), which include the body by default. It lists only the documents that `authorize` lets the user read, so the warning before a move or delete does not include the other documents that use the file. It does not tell which Blob Store a reference names.
 - Media edits are last-writer-wins, like [`blob.media`](/docs/blob/media#consistency).
 - A live preview of the page is not available yet.
 - Drafts save on their own only after a document exists. Leaving the page right after typing saves first; closing the tab asks.
