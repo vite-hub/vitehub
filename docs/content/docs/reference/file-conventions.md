@@ -13,17 +13,19 @@ File conventions produce Discovered Definitions. Discovery Identity comes from t
 | Definition | Directory convention | Suffix convention | Discovery Identity |
 | --- | --- | --- | --- |
 | Agent | `server/agents/<name>.ts`, `server/agents/<name>/agent.ts`, or `server/agents/<name>/index.ts` | `<path>.agent.ts` outside `server/` | Relative file or directory path. A leading `src/` is removed from suffix identities. |
-| Auth | `server/auth.ts` | `server.auth.ts` | `default`. Only one Auth Definition is allowed. |
+| Auth | `server/auth.ts` | `server.auth.ts` | `default`. Only one Auth Definition is allowed. An application Definition replaces a Nuxt layer Definition. |
 | Browser | `server/browsers/<path>.ts` | `<path>.browser.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Channel | `server/channels/<path>.ts` | `<path>.channel.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Connection | `server/connections/<path>.ts` | None | Normalized relative path. |
-| Database | `server/databases/config.ts` for one default database, or `server/databases/<name>/config.ts` for named databases | `src/database.ts` for the default database, or `<path>.database.ts` for a named database | `default` or the normalized relative path. Default and named modes cannot be mixed. |
+| Database | `server/databases/config.ts` for one default database, or `server/databases/<name>/config.ts` for named databases | `src/database.ts` for the default database, or `<path>.database.ts` for a named database | `default` or the normalized relative path. Default and named modes cannot be mixed. Nuxt layer Definitions with the same name merge their tables. |
 | Queue | `server/queues/<path>.ts` | `<path>.queue.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Realtime | `server/realtime/<path>.ts` | None | Normalized relative path. |
 | Workflow | `server/workflows/<path>.ts` or a folder containing `index.ts` or numbered step files | `<path>.workflow.ts` | Normalized relative file or folder path. Agent Definitions contribute their Agent identity by default, `workflow(...)` can override it, and `runtime: false` opts out. |
 | Schedule | `server/schedules/<path>.ts` | `<path>.schedule.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Sandbox | `server/sandboxes/<path>/{package.json,index.ts}` | `<path>.sandbox.ts` outside `server/sandboxes/` | Normalized folder or suffix path, without a trailing `.sandbox` segment. |
 | Workspace | `server/workspaces/<path>.ts`, `server/workspaces/<name>/config.ts`, or `server/agents/<name>/agent.ts` when the Agent declares a Workspace | `<path>.workspace.ts` | Normalized relative path or the colocated Agent name. |
+
+In a Nuxt application, `server/` means the server directory of the application and of each layer it extends. Read [Nuxt layers](/docs/frameworks-hosts/nuxt#nuxt-layers).
 
 The table uses `.ts` for brevity. Directory and suffix patterns accept JavaScript and TypeScript module variants where the owning package permits them. `src/database.ts` is the exact default Database suffix-mode file.
 

@@ -357,6 +357,25 @@ describe("ViteHub Nuxt integration", () => {
     expect(Reflect.get(nuxt.options.vite, "__vitehubProjectRoot")).toBe(nuxt.options.rootDir)
   })
 
+  it("discovers Definitions in every Nuxt layer server directory, application first", async () => {
+    const serverDirsHook = vi.fn()
+    const { nuxt, runNitroConfigHook } = createNuxt(true, [{ name: "vite-hub/server-dirs", config: serverDirsHook }])
+    Object.assign(nuxt.options, {
+      _layers: [
+        { config: { rootDir: "/tmp/vitehub-nuxt" }, cwd: "/tmp/vitehub-nuxt" },
+        { config: { rootDir: "/tmp/vitehub-layers/auth", serverDir: "/tmp/vitehub-layers/auth/server" }, cwd: "/tmp/vitehub-layers/auth" },
+        { config: { rootDir: "/tmp/vitehub-layers/blog", serverDir: "/tmp/vitehub-layers/blog/server" }, cwd: "/tmp/vitehub-layers/blog" },
+      ],
+    })
+    const serverDirs = ["/tmp/vitehub-nuxt/custom-server", "/tmp/vitehub-layers/auth/server", "/tmp/vitehub-layers/blog/server"]
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    expect(Reflect.get(nuxt.options.vite, VITEHUB_SERVER_DIRS)).toEqual(serverDirs)
+
+    await runNitroConfigHook(nitroOptions(nuxt))
+    expect(serverDirsHook).toHaveBeenCalledWith(expect.objectContaining({ [VITEHUB_SERVER_DIRS]: serverDirs }), expect.anything())
+  })
+
   it("installs the Email resolver for Nitro Console output", async () => {
     const defaultPlugins = mocks.vitehub()
     const resolveId = vi.fn(function(this: unknown, id: string) {

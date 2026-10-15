@@ -1244,6 +1244,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       // A draft in progress never reaches `published`. Every invalid document is named, and nothing is published.
       if (invalid.length) throw contentInvalidDocuments("publish", invalid)
       if (!documents.length) return { revision: null, documents: [] }
+      const latestDraftHead = await retained.head({ ref: "draft" })
+      if ((latestDraftHead?.id ?? null) !== (draftHead?.id ?? null)) {
+        if (!expectations && attempt < maxCommitAttempts) continue
+        throw contentConflict("[vitehub] The draft Content changed before publish().", {
+          ref: "draft", expected: draftHead?.id ?? null, actual: latestDraftHead?.id ?? null,
+        })
+      }
       try {
         const revision = await contentPublishes.run(true, () => retained.commit({
           ref: "published",
