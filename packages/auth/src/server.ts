@@ -283,15 +283,20 @@ function runAccessAuthorize(
   const directResponse = normalizeAuthorizationResponse(result)
   if (directResponse) return Promise.resolve({ response: directResponse })
 
-  let thenable = false
+  let thenMethod: unknown
   try {
-    thenable = result !== null && (typeof result === "object" || typeof result === "function") && typeof Reflect.get(result, "then") === "function"
+    thenMethod = result !== null && (typeof result === "object" || typeof result === "function")
+      ? Reflect.get(result, "then")
+      : undefined
   }
-  catch {
-    thenable = true
+  catch (error) {
+    return Promise.reject(error)
   }
-  if (!thenable) return Promise.resolve({ response: result !== true ? createForbiddenResponse(context.request) : undefined })
-  return Promise.resolve(result).then(resolved => {
+  if (typeof thenMethod !== "function") return Promise.resolve({ response: result !== true ? createForbiddenResponse(context.request) : undefined })
+  const assimilated = new Promise<unknown>((resolve, reject) => {
+    Reflect.apply(thenMethod, result, [resolve, reject])
+  })
+  return assimilated.then(resolved => {
     const response = normalizeAuthorizationResponse(resolved)
     if (response) return { response }
     if (resolved !== true) return { response: createForbiddenResponse(context.request) }
@@ -410,8 +415,8 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const snapshot = { status, statusText, headers, body }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
-    const ownThen = Object.getOwnPropertyDescriptor(candidate, "then")?.value
-    const hasCallableOwnThen = typeof ownThen === "function"
+    const ownThenDescriptor = Object.getOwnPropertyDescriptor(candidate, "then")
+    const hasCallableOwnThen = typeof ownThenDescriptor?.value === "function" || typeof ownThenDescriptor?.get === "function"
     let nativeProperties = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {

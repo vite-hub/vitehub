@@ -104,6 +104,23 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+  it("assimilates a stateful thenable with one then lookup", async () => {
+    let reads = 0
+    const result = {
+      get then() {
+        reads++
+        if (reads > 1) throw new Error("then getter read twice")
+        return (resolve: (value: boolean) => void) => resolve(true)
+      },
+    }
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => result as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toBeUndefined()
+    expect(reads).toBe(1)
+  })
+
   it("returns a Response with an own then method without assimilating it", async () => {
     const response = new Response("Policy rejected", { status: 409 })
     const then = vi.fn(() => { throw new Error("Response must not be assimilated") })
