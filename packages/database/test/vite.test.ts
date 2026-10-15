@@ -350,14 +350,15 @@ describe("hubDb", () => {
     ].join("\n"))
     await writeFile(definition, [
       "import { defineDatabase } from '@vite-hub/database'",
-      "import { notes } from './schema.ts'",
-      "export default defineDatabase({ schema: { notes } })",
+      "import * as tables from './schema.ts'",
+      "export default defineDatabase({ schema: { ...tables } })",
       "",
     ].join("\n"))
+    // The generated schema exports one binding per table for drizzle-kit. Only a refresh adds a new table there.
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
-      "export const tables = () => Object.keys(useDatabase('default').schema)",
+      `import * as generated from ${JSON.stringify(DB_VIRTUAL_SCHEMA_ID)}`,
+      "export const tables = () => Object.keys(generated).filter(key => key !== 'default' && key !== 'schema').toSorted()",
       "",
     ].join("\n"))
 
