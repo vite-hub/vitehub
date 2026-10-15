@@ -363,7 +363,7 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     if (!/\[native code\]/.test(source)) return false
     // Callable proxies stringify as an anonymous native wrapper. Genuine
     // cross-realm intrinsics retain their operation name in the source.
-    return !expectedName || new RegExp(`(?:function\\s+${expectedName}\\b|^${expectedName}\\s*\\()`).test(source)
+    return !expectedName || new RegExp(`(?:function\\s+${expectedName}\\b|^${expectedName}\\s*\\(|^get\\s+${expectedName}\\s*\\()`).test(source)
   }
   catch {
     return false
