@@ -200,10 +200,31 @@ function isRequestLike(value: unknown): value is Request {
   if (value === null || typeof value !== "object") return false
   try {
     const request = value as Request
-    const method = Object.getOwnPropertyDescriptor(Request.prototype, "method")!.get!.call(request)
-    const url = Object.getOwnPropertyDescriptor(Request.prototype, "url")!.get!.call(request)
-    const headers = Object.getOwnPropertyDescriptor(Request.prototype, "headers")!.get!.call(request)
-    Headers.prototype.get.call(headers, "x-vitehub-brand-check")
+    const findGetter = (key: PropertyKey) => {
+      let prototype: object | null = Object.getPrototypeOf(request)
+      for (let depth = 0; prototype && depth < 32; depth++) {
+        const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get
+        if (typeof getter === "function") return getter
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return undefined
+    }
+    const methodGetter = findGetter("method")
+    const urlGetter = findGetter("url")
+    const headersGetter = findGetter("headers")
+    if (!methodGetter || !urlGetter || !headersGetter) return false
+    const method = Reflect.apply(methodGetter, request, [])
+    const url = Reflect.apply(urlGetter, request, [])
+    const headers = Reflect.apply(headersGetter, request, [])
+    let headersPrototype: object | null = Object.getPrototypeOf(headers)
+    let headersGet: unknown
+    for (let depth = 0; headersPrototype && depth < 32; depth++) {
+      headersGet = Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
+      if (typeof headersGet === "function") break
+      headersPrototype = Object.getPrototypeOf(headersPrototype)
+    }
+    if (typeof headersGet !== "function") return false
+    Reflect.apply(headersGet, headers, ["x-vitehub-brand-check"])
     return typeof method === "string" && typeof url === "string"
   }
   catch {
