@@ -110,6 +110,7 @@
     "./blob": "./dist/blob.js",
     "./blob/client": "./dist/blob/client.js",
     "./blob/content-type": "./dist/blob/content-type.js",
+    "./blob/media": "./dist/blob/media.js",
     "./blob/vue": "./dist/blob/vue.js",
     "./box": "./dist/box.js",
     "./box/ssh": "./dist/box/ssh.js",

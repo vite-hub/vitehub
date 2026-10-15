@@ -20,6 +20,7 @@ import type {
   VercelBlobStoreConfig,
   BlobServeOptions,
 } from "./types.ts"
+import type { BlobImagesOptions } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface BlobResolutionInput {
@@ -178,6 +179,36 @@ function normalizeServeOptions(value: BlobServeOptions | undefined): ResolvedBlo
   }
 }
 
+const imageTransformers = ["auto", "cloudflare-images", "passthrough", "sharp"]
+
+function normalizeImagesOptions(value: unknown): ResolvedBlobModuleOptions["images"] {
+  if (value === undefined || value === false) return value
+  const invalid = (message: string) => blobErrorDiagnostics.BLOB_C0014({ message })
+  if (!isPlainObject(value)) throw invalid("`blob.images` must be false or a plain object.")
+  // SAFETY: `value` is a plain object, and each field below is checked before it is copied.
+  const { binding, quality, sizes, transformer } = value as BlobImagesOptions
+  const images: BlobImagesOptions = {}
+  if (transformer !== undefined) {
+    if (!imageTransformers.includes(transformer)) throw invalid(`\`blob.images.transformer\` must be one of ${imageTransformers.join(", ")}.`)
+    images.transformer = transformer
+  }
+  if (binding !== undefined) {
+    if (!trimmed(binding)) throw invalid("`blob.images.binding` must be a non-empty Cloudflare binding name.")
+    images.binding = trimmed(binding)
+  }
+  if (quality !== undefined) {
+    if (!Number.isInteger(quality) || quality < 1 || quality > 100) throw invalid("`blob.images.quality` must be an integer from 1 to 100.")
+    images.quality = quality
+  }
+  if (sizes !== undefined) {
+    if (!Array.isArray(sizes) || !sizes.length || !sizes.every(size => Number.isInteger(size) && size >= 1 && size <= 10_000)) {
+      throw invalid("`blob.images.sizes` must be a non-empty array of integers from 1 to 10000.")
+    }
+    images.sizes = [...new Set(sizes)].sort((left, right) => left - right)
+  }
+  return images
+}
+
 function assertServeStore(
   serve: ResolvedBlobModuleOptions["serve"],
   stores: Record<string, ResolvedBlobModuleOptions["store"]>,
@@ -190,11 +221,21 @@ function createResolvedConfig(
   store: ResolvedBlobModuleOptions["store"],
   stores?: Record<string, ResolvedBlobModuleOptions["store"]>,
   serve?: ResolvedBlobModuleOptions["serve"],
+  images?: ResolvedBlobModuleOptions["images"],
 ): ResolvedBlobModuleOptions {
   assertServeStore(serve, stores ? { default: store, ...stores } : { default: store })
+  const shared = { ...(serve ? { serve } : {}), ...(images === undefined ? {} : { images }) }
   return stores
-    ? { store, stores: { default: store, ...stores }, ...(serve ? { serve } : {}) }
-    : { store, ...(serve ? { serve } : {}) }
+    ? { store, stores: { default: store, ...stores }, ...shared }
+    : { store, ...shared }
+}
+
+/** One store config from options that also carry module-level `serve` and `images`. */
+function withoutModuleOptions(store: BlobStoreConfig): BlobStoreConfig {
+  const copy = { ...store }
+  Reflect.deleteProperty(copy, "serve")
+  Reflect.deleteProperty(copy, "images")
+  return copy
 }
 
 function hasStoresConfig(options: BlobModuleOptions | undefined): options is BlobStoresConfig {
@@ -229,7 +270,8 @@ export function normalizeBlobOptions(
     throw blobErrorDiagnostics.BLOB_C0013({ message: "`blob.stores` must be a plain object." })
   }
   const serve = normalizeServeOptions(optionRecord?.serve)
-  const { serve: _serve, ...storeOptions } = options || {}
+  const images = normalizeImagesOptions(options?.images)
+  const { serve: _serve, images: _images, ...storeOptions } = options || {}
   const implicitCloudflare = storeOptions as Partial<CloudflareR2BlobStoreConfig> | undefined
 
   if (hasStoresConfig(options)) {
@@ -238,30 +280,30 @@ export function normalizeBlobOptions(
     )
     const defaultStore = resolvedStores.default
     if (!defaultStore) throw blobErrorDiagnostics.BLOB_C0008({ message: "`blob.stores.default` is required when using named Blob stores." })
-    return createResolvedConfig(defaultStore, resolvedStores, serve)
+    return createResolvedConfig(defaultStore, resolvedStores, serve, images)
   }
 
   if (explicit?.driver) {
-    return createResolvedConfig(resolveExplicitStore(storeOptions as unknown as BlobStoreConfig, env), undefined, serve)
+    return createResolvedConfig(resolveExplicitStore(withoutModuleOptions(explicit), env), undefined, serve, images)
   }
 
   if (hosting.includes("cloudflare")) {
-    return createResolvedConfig(resolveCloudflareStore(implicitCloudflare, env), undefined, serve)
+    return createResolvedConfig(resolveCloudflareStore(implicitCloudflare, env), undefined, serve, images)
   }
 
   if (hosting.includes("netlify")) {
-    return createResolvedConfig(resolveNetlifyStore(), undefined, serve)
+    return createResolvedConfig(resolveNetlifyStore(), undefined, serve, images)
   }
 
   if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve)
+    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve, images)
   }
 
   if (hosting.includes("vercel")) {
-    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve)
+    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve, images)
   }
 
-  return createResolvedConfig(resolveFsStore({}, env), undefined, serve)
+  return createResolvedConfig(resolveFsStore({}, env), undefined, serve, images)
 }
 
 export function warnVercelBlobFallback(

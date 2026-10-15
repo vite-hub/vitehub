@@ -65,6 +65,8 @@ Available namespaces:
 | `vitehub blob get` | Available | Blob Package | Download one blob to a file or to stdout, byte for byte. |
 | `vitehub blob put` | Available | Blob Package | Upload one file as a blob and print what changed. |
 | `vitehub blob del` | Available | Blob Package | Delete one blob and print what changed. |
+| `vitehub blob media` | Available | Blob Package | Show the media record of one blob: dimensions, hash, alt text, focal point, and crops. |
+| `vitehub blob variants` | Available | Blob Package | List the cached image variants of one blob. |
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
 | `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
@@ -113,6 +115,8 @@ pnpm vitehub blob get avatars/ada.png --output ./ada.png
 pnpm vitehub blob get reports/2026.csv > report.csv
 pnpm vitehub blob put avatars/ada.png ./ada.png --content-type image/png
 pnpm vitehub blob del avatars/ada.png
+pnpm vitehub blob media avatars/ada.png
+pnpm vitehub blob variants avatars/ada.png --json
 ```
 
 Each write command prints what it changed:
@@ -128,11 +132,13 @@ Every command accepts `--store <name>`, `--json`, `--url <url>` when Vite does n
 - `head` prints the metadata of one blob. A missing blob exits with status 1.
 - `get` writes the file bytes unchanged. Without `--output`, the bytes go to stdout, so redirect them to a file or a pipe. With `--output <file>`, the command writes the file and prints a summary. `--json` needs `--output`, because stdout carries the file bytes otherwise.
 - `put` uploads a file relative to the current directory. Without `--content-type`, the Blob storage detects the type from the pathname. The output says if the blob was created or replaced. The created/replaced label is best-effort because it is based on a metadata read immediately before the write; eventual consistency and concurrent writers can make it stale.
+- `media` prints the [media record](/docs/blob/media) of one blob. A missing record is built from the object and stored, as `blob.media.get()` does. A missing blob exits with status 1.
+- `variants` lists the cached image variants of one blob and its crop replacements, with each transform key, type, and size.
 - `del` says if the blob existed. Deleting a missing blob changes nothing and exits with status 0. The existed/missing label is best-effort for the same reason, and a concurrent writer can change the object between the metadata read and delete.
 
 The Vite dev endpoint forwards a JSON request body, so `put` sends the file as base64 and accepts files up to 8 MiB. The CLI checks the size before it reads the file. `get` returns the raw bytes as a stream. There is no `sign` command.
 
-Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with `--json`. The commands do not print blob URLs, because a signed URL can carry credentials. Metadata values under secret names, such as `token`, are redacted, as the Console Blob page does.
+Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with `--json`. The commands do not print object URLs, because a signed URL can carry credentials. `media` prints the record's served route URL, which carries none. Metadata values under secret names, such as `token`, are redacted, as the Console Blob page does.
 
 The commands use a guarded dev endpoint that `hubBlob()` registers only on the Development Server. The endpoint forwards each operation into the Nitro dev environment, which owns the Blob storage. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 and the CLI prints that the host is not supported. Deployed runtimes do not expose the endpoint.
 

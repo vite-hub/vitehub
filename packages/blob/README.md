@@ -138,6 +138,23 @@ const jsonSchema = cover["~standard"].jsonSchema.input({ target: "draft-2020-12"
 
 The JSON Schema `x-vitehub-blob` keyword tells a form to render a Blob picker. Zod 4 and Valibot object schemas accept only their own schema types, so these validators can't be fields inside `z.object()` or `v.object()`. Use them where a Standard Schema is read directly.
 
+## Media and image variants
+
+`blob.media` keeps a JSON record next to each object under `_vitehub/media/records/`: dimensions read from the file header, a SHA-256 hash, alt text, a caption, a focal point, a placeholder color, and named crops. Records work on every driver, including drivers without custom metadata.
+
+```ts
+import { blob, responsiveImage } from "@vite-hub/blob"
+
+const [, record] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
+await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
+await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
+
+const image = responsiveImage(record!, { sizes: "100vw", art: [{ media: "(max-width: 640px)", crop: "mobile" }] })
+// image.img: { src, srcset, sizes, width, height, alt, style }, image.sources: <picture> sources
+```
+
+The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Sizes snap to an allowed list and never upscale. `blob.images.transformer` picks sharp on Node (optional peer), the Cloudflare Images binding on Workers, or passthrough, which serves originals. `@vite-hub/blob/media` exports the browser-safe helpers.
+
 ## Signed requests
 
 Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.
@@ -242,7 +259,7 @@ blob: {
 
 ## CLI
 
-`hubBlob()` contributes the `vitehub blob` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `head <pathname>`, `get <pathname> [--output <file>]`, `put <pathname> <file> [--content-type]`, and `del <pathname>`. Each command accepts `--store <name>` and `--json`. Write commands print what they changed. The `created` and `deleted` labels are best-effort metadata observations before each mutation. They can be stale with eventual consistency or concurrent writers. Deletion is unconditional and can remove an object replaced concurrently. There is no `sign` command.
+`hubBlob()` contributes the `vitehub blob` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `head <pathname>`, `get <pathname> [--output <file>]`, `put <pathname> <file> [--content-type]`, `del <pathname>`, `media <pathname>`, and `variants <pathname>`. Each command accepts `--store <name>` and `--json`. Write commands print what they changed. The `created` and `deleted` labels are best-effort metadata observations before each mutation. They can be stale with eventual consistency or concurrent writers. Deletion is unconditional and can remove an object replaced concurrently. There is no `sign` command.
 
 The commands call a guarded endpoint that exists only on the Vite Development Server. The endpoint forwards each operation into the Nitro dev environment, so it uses the same Blob storage as the running app. `get` returns the raw bytes. `put` sends the file as base64 JSON, so it accepts files up to 8 MiB. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there. `handleBlobDevRequest()` from `@vite-hub/blob/runtime/dev` is the Nitro handler; it is not a public runtime API.
 

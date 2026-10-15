@@ -65,7 +65,7 @@ describe("signed Blob requests", () => {
     const storage = createR2Storage()
     const sign = awsMock.getSignedUrl.mock.calls.length
     for (const pathname of ["_vitehub", "elsewhere/../_vitehub", "%5Fvitehub", "_vitehub/derived/forged", "elsewhere/../_vitehub/derived/forged", "%5Fvitehub/derived/forged", "_vitehub\\derived\\forged"]) {
-      await expect(storage.sign(pathname, { expiresIn: 60, method: "PUT" })).rejects.toThrow("reserved derived cache")
+      await expect(storage.sign(pathname, { expiresIn: 60, method: "PUT" })).rejects.toThrow("reserved ViteHub namespace")
     }
     expect(awsMock.getSignedUrl).toHaveBeenCalledTimes(sign)
   })

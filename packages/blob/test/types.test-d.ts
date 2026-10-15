@@ -103,7 +103,7 @@ describe("types", () => {
   it("narrows Blob results by the error element", async () => {
     const [error, value] = await blob.put("proof.txt", "value")
     if (error) {
-      expectTypeOf(error.code).toEqualTypeOf<"BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED">()
+      expectTypeOf(error.code).toEqualTypeOf<"BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED">()
       expectTypeOf(value).toEqualTypeOf<undefined>()
       return
     }

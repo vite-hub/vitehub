@@ -118,7 +118,7 @@ function caseInsensitivePattern(value: string): string {
   }).join("")
 }
 
-const pathnamePattern = String.raw`^(?!/)(?!.*\\)(?!.*[\u0000-\u001F\u007F])(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\/$)(?!_[Vv][Ii][Tt][Ee][Hh][Uu][Bb](?:$|/[Dd][Ee][Rr][Ii][Vv][Ee][Dd](?:/|$))).+`
+const pathnamePattern = String.raw`^(?!/)(?!.*\\)(?!.*[\u0000-\u001F\u007F])(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\/$)(?!_[Vv][Ii][Tt][Ee][Hh][Uu][Bb](?:$|/(?:[Dd][Ee][Rr][Ii][Vv][Ee][Dd]|[Mm][Ee][Dd][Ii][Aa])(?:/|$))).+`
 
 function contentTypeSchema(accept: string[] | undefined): Record<string, unknown> {
   const schema: Record<string, unknown> = {
@@ -145,9 +145,9 @@ function pathnameIssue(pathname: string): string | undefined {
   const segments = pathname.split("/")
   if (segments.some(segment => segment === "." || segment === "..")) return "Blob pathname must not contain \".\" or \"..\" segments."
   if (segments.some(segment => !segment)) return "Blob pathname must not contain empty segments or a trailing slash."
-  // Matches the namespace that blob.put() reserves for derived cache objects.
-  if (segments[0]!.toLowerCase() === "_vitehub" && (segments.length === 1 || segments[1]!.toLowerCase() === "derived")) {
-    return "Blob pathname must not point into the reserved _vitehub/derived namespace."
+  // Matches the namespaces that blob.put() reserves for derived cache objects and media records.
+  if (segments[0]!.toLowerCase() === "_vitehub" && (segments.length === 1 || ["derived", "media"].includes(segments[1]!.toLowerCase()))) {
+    return "Blob pathname must not point into a reserved ViteHub namespace: _vitehub/derived or _vitehub/media."
   }
   return undefined
 }
