@@ -162,6 +162,7 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).toContain("overflow: hidden;");
+
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
