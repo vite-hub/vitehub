@@ -187,6 +187,42 @@ describe("server authentication provider boundaries", () => {
     await expect(Promise.resolve(handleAuthRequest(definition, spoofedRequest as never))).resolves.toBe(response)
   })
 
+  it("normalizes a complete structural Request spoof", async () => {
+    const spoofedRequest = runInNewContext(`({
+      url: "https://example.com/api/private",
+      method: "GET",
+      body: null,
+      bodyUsed: false,
+      headers: {
+        get() { return null },
+        has() { return false },
+        set() {},
+        append() {},
+        delete() {},
+        entries() { return [][Symbol.iterator]() },
+        forEach() {},
+        constructor: { name: "Headers" },
+        get [Symbol.toStringTag]() { return "Headers" },
+      },
+      signal: { aborted: false, constructor: { name: "AbortSignal" }, get [Symbol.toStringTag]() { return "AbortSignal" } },
+      clone() { return this },
+      arrayBuffer() { return Promise.resolve(new ArrayBuffer(0)) },
+      blob() { return Promise.resolve(new Blob()) },
+      formData() { return Promise.resolve(new FormData()) },
+      json() { return Promise.resolve({}) },
+      text() { return Promise.resolve("") },
+      get [Symbol.toStringTag]() { return "Request" },
+    })`)
+    const response = new Response("ok")
+    providerMocks.handler.mockImplementationOnce((input: unknown) => {
+      expect(input).toBeInstanceOf(Request)
+      expect(input).not.toBe(spoofedRequest)
+      return response
+    })
+
+    await expect(Promise.resolve(handleAuthRequest(definition, spoofedRequest as never))).resolves.toBe(response)
+  })
+
   it("normalizes a Request spoof with an intermediate prototype", async () => {
     const spoofedRequest = runInNewContext(`(() => {
       class Request {
