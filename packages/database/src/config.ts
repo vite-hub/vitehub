@@ -477,7 +477,9 @@ export function discoverDatabaseDefinitions(rootDir: string, options: { definiti
         mode: contribution.name === "default" ? "default" : "named",
         name: contribution.name,
         reason: contribution.reason,
+        schemaSources: [{ handler: contribution.definition, tableNames: [] }],
         source: "vite-plugin-contribution",
+        tableNames: [],
       } as FoundDatabaseDefinition,
       layer: 0,
     })
@@ -508,8 +510,11 @@ function isWithinDirectory(directory: string, file: string) {
 /** Keeps migrations in the application, also when a Nuxt layer owns the database options. */
 function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
   const [appServerDir, ...layerServerDirs] = serverDirs ?? []
-  const ownedByLayer = appServerDir !== undefined && !isWithinDirectory(appServerDir, definition.handler)
-    && layerServerDirs.some(directory => isWithinDirectory(directory, definition.handler))
+  const ownedByLayer = appServerDir !== undefined && (
+    definition.source === "vite-plugin-contribution"
+    || (!isWithinDirectory(appServerDir, definition.handler)
+      && layerServerDirs.some(directory => isWithinDirectory(directory, definition.handler)))
+  )
   const directory = ownedByLayer
     ? resolve(appServerDir, "databases", ...(definition.mode === "named" ? [definition.name] : []))
     : dirname(definition.handler)
