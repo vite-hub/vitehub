@@ -19,9 +19,18 @@ export type ChannelConnectorMap = Record<string, ChannelConnector<never, object>
 
 type ChannelObjectConstraint<TObject extends object> = Extract<TObject, Function> extends never ? unknown : never
 type ChannelOptionsConstraint<TOptions extends object> = [Extract<TOptions, readonly unknown[] | Function>] extends [never] ? unknown : never
+type FiniteKeys<T> = keyof T extends infer TKey
+  ? TKey extends string
+    ? string extends TKey ? never : TKey
+    : TKey extends number
+      ? number extends TKey ? never : TKey
+      : TKey extends symbol
+        ? symbol extends TKey ? never : TKey
+        : never
+  : never
 type NonArrayOptions<TOptions> = TOptions extends readonly unknown[] ? never : TOptions
 type ChannelOptionExcess<TOptions, TAllowed> = TAllowed extends unknown
-  ? Record<Exclude<keyof TOptions, keyof TAllowed>, never>
+  ? Record<Exclude<FiniteKeys<TOptions>, keyof TAllowed>, never>
   : never
 
 type ConnectorOptions<TConnector> = TConnector extends { send: (text: string, options: infer TOptions) => unknown }
