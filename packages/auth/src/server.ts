@@ -349,31 +349,17 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
-async function copyAuthorizationBody(body: unknown): Promise<Uint8Array | null | undefined> {
+async function copyAuthorizationBody(response: object, body: unknown): Promise<Uint8Array | null | undefined> {
   if (body === null) return null
   if (Object(body) !== body) return
   try {
-    const clone = (globalThis as { structuredClone?: (value: unknown, options?: { transfer: object[] }) => unknown }).structuredClone
-    if (typeof clone !== "function") return
-    const transferred = clone(body, { transfer: [body as object] })
-    if (!(transferred instanceof ReadableStream)) return
-    const reader = transferred.getReader()
-    const chunks: Uint8Array[] = []
-    let total = 0
-    while (true) {
-      const result = await reader.read()
-      if (result.done) break
-      if (!(result.value instanceof Uint8Array)) return
-      chunks.push(result.value)
-      total += result.value.byteLength
-    }
-    const bytes = new Uint8Array(total)
-    let offset = 0
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset)
-      offset += chunk.byteLength
-    }
-    return bytes
+    // Calling the candidate response's native method preserves foreign stream brands
+    // while rejecting lookalike bodies that cannot be consumed by that implementation.
+    const arrayBuffer = responseMethod(response, "arrayBuffer")
+    if (!arrayBuffer) return
+    const result = await Reflect.apply(arrayBuffer, response, [])
+    if (!(result instanceof ArrayBuffer)) return
+    return new Uint8Array(result)
   }
   catch {
     return
@@ -417,7 +403,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
-    const normalizedBody = await copyAuthorizationBody(body)
+    const normalizedBody = await copyAuthorizationBody(candidate, body)
     if (normalizedBody === undefined) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
