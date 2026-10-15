@@ -332,13 +332,11 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  const getReader = ReadableStream.prototype.getReader
-  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-  if (ownReader && ownReader.value !== getReader) return false
-  if (typeof locked !== "function") return false
   try {
-    if (Reflect.apply(locked, body, [])) return false
+    // Use the stream's own realm methods. Native stream brand checks reject
+    // applying this realm's methods to a foreign ReadableStream.
+    const getReader = Reflect.get(body as object, "getReader")
+    if (typeof getReader !== "function") return false
     const reader: unknown = Reflect.apply(getReader, body, [])
     if (Object(reader) !== reader) return false
     const readerObject = reader as object
@@ -353,11 +351,13 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  // Use native operations on native stream state, never caller-supplied reader methods.
-  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
+  // Use operations from the stream's own realm so foreign streams pass their
+  // native brand checks. Validation has already probed these capabilities.
+  const getReader = Reflect.get(body, "getReader") as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
-  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
-  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  const read = Reflect.get(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
+  const cancel = Reflect.get(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
+  const releaseLock = Reflect.get(reader, "releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
   let released = false
   const release = () => {
     if (released) return
