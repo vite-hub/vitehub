@@ -37,6 +37,7 @@ export default defineConfig({
       "src/publish.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
+      "src/runtime/history-dev.ts",
       "src/source-metadata.ts",
       "src/runtime/empty-assets-registry.ts",
       "src/runtime/empty-registry.ts",
@@ -56,12 +57,14 @@ export default defineConfig({
         "runtime/empty-registry",
         "runtime/state",
         "runtime/workspace",
+        "runtime/history-dev",
         "providers/github/store",
       ],
       customExports(exports) {
         exports["./internal/runtime/assets"] = "./dist/runtime/assets.js";
         exports["./internal/runtime/hosted"] = "./dist/hosted.js";
         exports["./internal/runtime/hosted-vercel-blob"] = "./dist/hosted-vercel-blob.js";
+        exports["./internal/runtime/history-dev"] = "./dist/runtime/history-dev.js";
         exports["./internal/runtime/state"] = "./dist/runtime/state.js";
         exports["./internal/runtime/workspace"] = "./dist/runtime/workspace.js";
         exports["./internal/stores/github"] = "./dist/providers/github/store.js";

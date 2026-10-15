@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -294,12 +293,14 @@ const nativeReaderMethods = Object.fromEntries(([
   "read", "cancel", "releaseLock",
 ] as const).map(key => [key, Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, key)?.value])) as Record<string, unknown>
 const functionToString = Function.prototype.toString
+const nativeReaderMethodSources = Object.fromEntries(Object.entries(nativeReaderMethods).map(([key, value]) => [
+  key,
+  typeof value === "function" ? functionToString.call(value) : undefined,
+])) as Record<string, string | undefined>
 function isNativeReaderMethod(value: unknown, key: string): value is (...args: unknown[]) => unknown {
   if (value === nativeReaderMethods[key]) return true
   if (typeof value !== "function") return false
-  // Bound functions stringify as native code but are caller-created wrappers.
-  if (value.name.startsWith("bound ")) return false
-  try { return functionToString.call(value).includes("[native code]") }
+  try { return functionToString.call(value) === nativeReaderMethodSources[key] }
   catch { return false }
 }
 
@@ -557,7 +558,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }
   }
   catch {
-    return
+    return undefined
   }
 }
 
