@@ -47,6 +47,10 @@ const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
 type NuxtPage = { file: string, meta?: Record<string, unknown>, name: string, path: string }
+function hasDefaultAgentInvocations(agent: Parameters<typeof vitehub>[0]["agent"]): boolean {
+  return Boolean(agent && agent !== true && agent.invocations)
+}
+
 type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
   database?: boolean | Exclude<DatabaseNuxtIntegrationOptions, false>
   env?: false | EnvIntegrationOptions & EnvViteConfigOptions
@@ -1359,7 +1363,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       consoleKVStores,
       resolvedConsoleFixture,
       resolveNuxtServerDirs(nuxt.options),
-      !nuxt.options.vitehubCliDiscovery,
+      // The app-wide `agent.invocations` journal exists only in the server runtime, so the host process installs none.
+      !nuxt.options.vitehubCliDiscovery && !hasDefaultAgentInvocations(options.agent),
       !nuxt.options.vitehubCliDiscovery,
       consoleInvokeEnabled && !resolvedConsoleFixture,
       options.console.observations,
