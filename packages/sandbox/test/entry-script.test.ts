@@ -106,6 +106,22 @@ describe("package entry result transport", () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([0, 127, 255]))
   })
 
+  it("preserves response-shaped objects with only an enumerable symbol", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = { clone() { return this }, get body() { return null } }`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers })`,
+      `  return Object.defineProperties(value, { [Symbol('state')]: { value: 'preserved', enumerable: true }, arrayBuffer: { value: async () => new ArrayBuffer() } })`,
+      `}`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ status: 201, statusText: "Created" })
+    expect(execution.output.result).not.toHaveProperty(SANDBOX_VALUE_MARKER)
+  })
+
   it("preserves response-shaped ordinary objects", async () => {
     const execution = await executePackageEntry([
       `export default () => {`,
