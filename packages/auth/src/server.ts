@@ -369,7 +369,12 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // constructor. Preserve the foreign response instead of converting it.
     if (status === 0) return value as Response
     const normalizedHeaders = new Headers()
-    headers.forEach((v, k) => normalizedHeaders.append(k, v))
+    const setCookieHeaders = typeof headers.getSetCookie === "function" ? headers.getSetCookie() : []
+    headers.forEach((v, k) => {
+      if (k.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
+      normalizedHeaders.append(k, v)
+    })
+    for (const cookie of setCookieHeaders) normalizedHeaders.append("set-cookie", cookie)
     return new Response(body, { status, statusText, headers: normalizedHeaders })
   }
   catch {
