@@ -258,7 +258,6 @@ it("sanitizes malformed grants returned by a custom access store", async () => {
 
 
 });
-
 it("rejects malformed grant permissions through the public bridge error", async () => {
   const { bridge } = setup();
   await expect(

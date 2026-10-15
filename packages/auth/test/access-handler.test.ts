@@ -106,11 +106,20 @@ describe("Auth access handlers", () => {
   })
 
   it("returns authorization responses from another realm unchanged", async () => {
-    const foreignResponse = runInNewContext(`new Response("Conflict", { status: 409 })`, { Response })
+    const foreignResponse = runInNewContext(`new Response(null, { status: 409 })`, { Response: ForeignResponse })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+  })
+
+  it("rejects authorization responses with consumed bodies", async () => {
+    const response = new Response("Consumed", { status: 409 })
+    await response.text()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
   })
 
   it("rejects objects that only spoof the Response tag", async () => {

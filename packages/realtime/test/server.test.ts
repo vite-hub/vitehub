@@ -1505,6 +1505,12 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(new Uint8Array([4, 1, 123]))).toBeUndefined()
   })
 
+  it.each(["docs/.git ", "docs/git~1/config", "vitehu~1/config"])("rejects protected Windows path %s", (path) => {
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: path, to: "docs/safe.md" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/safe.md", to: path }))).toBeUndefined()
+  })
+
   it("encodes definition and document room keys without delimiter collisions", () => {
     expect(realtimeRoomKey("public", "private:secret.md"))
       .not.toBe(realtimeRoomKey("public:private", "secret.md"))
