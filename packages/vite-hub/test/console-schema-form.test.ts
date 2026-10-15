@@ -1,28 +1,30 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  compactConsoleFieldValues,
   consoleDocumentSlug,
-  consoleFieldIssueMessage,
   consoleFieldIssues,
-  consoleFieldLabel,
-  consoleFieldValueIssue,
   consoleInvalidDocument,
   consoleListQuery,
   consoleListQueryFor,
   consolePublishMismatches,
-  consoleSchemaDefaults,
   consoleSingularLabel,
-  consoleValueSummary,
-  describeConsoleSchemaFields,
-  groupConsoleFieldIssues,
   groupConsoleRevisionRuns,
   groupConsoleRevisions,
-  humanizeConsoleFieldIssues,
   isConsoleDocumentId,
   parseConsoleListQuery,
   rememberConsoleListQuery,
 } from "../src/console/runtime/client/documents.ts"
+import {
+  compactConsoleFieldValues,
+  consoleFieldIssueMessage,
+  consoleFieldLabel,
+  consoleFieldValueIssue,
+  consoleSchemaDefaults,
+  consoleValueSummary,
+  describeConsoleSchemaFields,
+  groupConsoleFieldIssues,
+  humanizeConsoleFieldIssues,
+} from "../src/console/runtime/client/schema-form.ts"
 import { ConsoleRequestError } from "../src/console/runtime/client/request.ts"
 
 // The frontmatter schema that Content builds for a typical posts collection.

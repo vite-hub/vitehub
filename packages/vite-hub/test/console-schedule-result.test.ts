@@ -4,6 +4,7 @@ import { compile, createSSRApp, defineComponent, h } from "vue"
 import { renderToString } from "vue/server-renderer"
 import { expect, it } from "vitest"
 
+import { consoleStatusValue } from "../src/console/runtime/client/format"
 import { consoleScheduleRunDescription } from "../src/console/runtime/client/schedule-run"
 import type { ConsoleScheduleRunView } from "../src/console/runtime/client/schedule-run"
 
@@ -18,6 +19,11 @@ async function renderResult(selectedRun?: ConsoleScheduleRunView) {
     render: compile(template),
     setup: () => ({
       consoleScheduleRunDescription,
+      // The same mapping as the component's runStatus().
+      runStatus: (run: ConsoleScheduleRunView) => ({
+        label: run.status === "unavailable" ? "Could not run this Schedule" : `Run ${run.status}`,
+        tone: consoleStatusValue(run.status)?.tone ?? "neutral",
+      }),
       recordColumns: [],
       records: [],
       sectionDetails: { view: { notice: "Schedule metadata" } },
@@ -26,10 +32,13 @@ async function renderResult(selectedRun?: ConsoleScheduleRunView) {
       selectedRun,
     }),
   })
-  app.component("UAlert", defineComponent({
-    props: { color: String, title: String, description: String },
-    setup: props => () => h("div", { "data-color": props.color }, [props.title, props.description]),
+  app.component("ConsoleStatus", defineComponent({
+    props: { label: String, pending: Boolean, tone: String },
+    setup: props => () => h("span", { "data-tone": props.tone }, props.label),
   }))
+  for (const name of ["ConsolePropertyList", "ConsoleSetupHint", "ConsoleValue", "UIcon"]) {
+    app.component(name, defineComponent({ props: { hint: Object }, setup: props => () => h("span", props.hint ? String(Reflect.get(props.hint, "message")) : "") }))
+  }
   return renderToString(app)
 }
 
@@ -37,16 +46,17 @@ it.each([
   [{ durationMs: 1250, id: "run_1", status: "succeeded" }, "success", "Run succeeded", "1.3s · run_1"],
   [{ error: "mailbox unavailable", status: "failed" }, "error", "Run failed", "mailbox unavailable"],
   [{ error: "Request failed", status: "unavailable" }, "error", "Could not run this Schedule", "Request failed"],
-] satisfies [ConsoleScheduleRunView, string, string, string][])("renders a record Schedule result %j", async (run, color, title, description) => {
+] satisfies [ConsoleScheduleRunView, string, string, string][])("renders a record Schedule result %j as a status", async (run, tone, title, description) => {
   const html = await renderResult(run)
-  expect(html).toContain(`data-color="${color}"`)
+  expect(html).toContain(`data-tone="${tone}"`)
   expect(html).toContain(title)
   expect(html).toContain(description)
-  expect(html).not.toContain("Read-only records")
+  // The notice stays, and no colored alert replaces it.
+  expect(html).toContain("Schedule metadata")
 })
 
-it("keeps the read-only notice until a record has a run result", async () => {
+it("shows no result before a record runs", async () => {
   const html = await renderResult()
-  expect(html).toContain("Read-only records")
+  expect(html).not.toContain("data-tone")
   expect(html).toContain("Schedule metadata")
 })

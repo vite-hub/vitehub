@@ -15,12 +15,11 @@ import {
   consoleInvalidDocument,
   consoleListQuery,
   consolePublishMismatches,
-  describeConsoleSchemaFields,
-  humanizeConsoleFieldIssues,
   parseConsoleListQuery,
   rememberConsoleListQuery,
   stableConsoleJSON,
-} from "../client/documents";
+} from "../client/documents"
+import { describeConsoleSchemaFields, humanizeConsoleFieldIssues } from "../client/schema-form";
 import { useConsoleDocumentSessions } from "../client/presence";
 import { useConsoleToast } from "../client/toast";
 import ConsolePageHeader from "./console-page-header.vue";
