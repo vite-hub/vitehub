@@ -91,7 +91,8 @@ function isMissingBlobError(error: unknown) {
           // Compare with the accessor produced by the candidate's own native
           // Error constructor. This preserves foreign-realm errors while rejecting
           // proxies that only imitate the native getter's source and behavior.
-          const nativeStackGetter = Object.getOwnPropertyDescriptor(new nativeErrorConstructor(), "stack")?.get
+          const NativeError = nativeErrorConstructor as new () => object
+          const nativeStackGetter = Object.getOwnPropertyDescriptor(new NativeError(), "stack")?.get
           if (typeof nativeStackGetter !== "function" || stack.get !== nativeStackGetter) return false
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter result is the legacy brand check.
           if (typeof stack.get.call(candidate) !== "string") return false
