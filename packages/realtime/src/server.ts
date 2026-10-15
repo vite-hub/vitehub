@@ -439,6 +439,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return descriptor && "value" in descriptor ? descriptor.value : undefined
   }
 
+  function hasOwn(value: unknown, key: PropertyKey): boolean {
+    const carrier = Object(value)
+    return carrier === value && Object.hasOwn(carrier, key)
+  }
+
   async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
     const cloudflare = resolveCloudflare(event)
     const context = cloudflare?.context
@@ -446,7 +451,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       get(id: unknown): { fetch(request: Request): Promise<Response> }
       idFromName(name: string): unknown
     } | undefined
-    if (!binding || ownValue(context, "storage")) return
+    // Presence of an own storage marker means this request already targets a
+    // Durable Object, even when the value is null or not initialized yet.
+    if (!binding || hasOwn(context, "storage")) return
     const { definitionName, documentId, workspaceEvents } = parseRoomPath(event.req.url)
     const key = workspaceEvents
       ? JSON.stringify([definitionName, { workspaceEvents: true }])
