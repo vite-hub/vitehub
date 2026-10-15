@@ -2242,11 +2242,15 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           await write(async () => {
             if (boundToTerminalRecord || Date.now() >= deadline || !await ensureCreated(Math.min(storeTimeoutMs, Math.max(0, deadline - Date.now())))) return
             const recoveryStore = <T>(operation: () => MaybePromise<T>) => boundedStore(operation, Math.min(storeTimeoutMs, Math.max(0, deadline - Date.now())))
-            const claimTask = Promise.resolve().then(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, { replaceExisting: true }))
+            // Recovery attempts can overlap after a bounded wait times out. Keep each
+            // attempt's lease identity separate so late cleanup cannot release a newer
+            // attempt that reused the invocation claim id.
+            const recoveryClaimId = createInvocationId()
+            const claimTask = Promise.resolve().then(() => store.claim(recordId, recoveryClaimId, CLAIM_LEASE_MS, { replaceExisting: true }))
             const claimed = await recoveryStore(() => claimTask)
             if (claimed === storeOperationTimedOut) {
               // The claim may still create a lease after the bounded wait. Release it when it settles.
-              void claimTask.then(owned => owned ? store.release(recordId, claimId) : undefined, () => undefined).catch(() => {})
+              void claimTask.then(owned => owned ? store.release(recordId, recoveryClaimId) : undefined, () => undefined).catch(() => {})
               return
             }
             if (claimed !== true) return
@@ -2257,7 +2261,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               const update = Promise.resolve().then(() => store.update(recordId, {
                 observation: boundedObservation(persistedObservation, undefined, limits),
                 timestamp,
-              }, claimId))
+              }, recoveryClaimId))
               const remaining = Math.max(0, deadline - Date.now())
               const updated = remaining > 0
                 ? await boundedStore(() => update, Math.min(storeTimeoutMs, remaining))
@@ -2265,7 +2269,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               persisted = updated !== undefined && updated !== storeOperationTimedOut
             }
             finally {
-              await recoveryStore(() => store.release(recordId, claimId))
+              await recoveryStore(() => store.release(recordId, recoveryClaimId))
             }
           })
           if (!persisted && Date.now() < deadline) {
