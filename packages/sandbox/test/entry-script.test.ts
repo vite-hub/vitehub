@@ -417,6 +417,21 @@ describe("output transfer limits", () => {
     expect(execution.output.error?.message).toContain("Blob subclasses are not supported")
   })
 
+  it("uses the intrinsic Blob size despite an overridden size property", async () => {
+    const execution = await executePackageEntry([
+      "export default () => {",
+      "  const blob = new Blob(['oversized'])",
+      "  Object.defineProperty(blob, 'size', { value: 1 })",
+      "  blob.arrayBuffer = () => { throw new Error('Blob was read') }",
+      "  return blob",
+      "}",
+    ].join("\n"), { transfer: { maxDepth: 32, maxSidecars: 64, maxSidecarBytes: 3 } })
+
+    expect(execution.code).toBe(1)
+    expect(execution.output.error?.code).toBe("SANDBOX_TRANSFER_LIMIT")
+    expect(execution.output.error?.message).toContain("maxSidecarBytes")
+  })
+
   it.each([true, false])("checks UTF-8 output bytes before writing success (accepted: %s)", async (accepted) => {
     const result = "é".repeat(2048)
     const bytes = Buffer.byteLength(JSON.stringify({ ok: true, result }))

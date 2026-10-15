@@ -28,6 +28,9 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+const blobSizeGetter = typeof Blob !== 'undefined'
+  ? Object.getOwnPropertyDescriptor(Blob.prototype, 'size')?.get
+  : undefined
 
 function isUint8Array(value: unknown): value is Uint8Array {
   return ArrayBuffer.isView(value) && typedArrayTagGetter?.call(value) === 'Uint8Array'
@@ -116,7 +119,11 @@ export async function encodeSandboxValueStaged(
         throw transferLimitError(label, 'maxSidecars', state.nextId + 1, limits.maxSidecars)
       const id = state.nextId++
       // SAFETY: The branch accepts only Blob or Uint8Array, and blob identifies the Blob case.
-      const byteLength = blob ? (entry as Blob).size : (entry as Uint8Array).byteLength
+      // Read the intrinsic Blob size so an own `size` property cannot underreport
+      // the allocation that arrayBuffer() will materialize.
+      const byteLength = blob
+        ? Reflect.apply(blobSizeGetter!, entry as Blob, []) as number
+        : (entry as Uint8Array).byteLength
       if (state.sidecarBytes + byteLength > limits.maxSidecarBytes)
         throw transferLimitError(label, 'maxSidecarBytes', state.sidecarBytes + byteLength, limits.maxSidecarBytes)
       state.sidecarBytes += byteLength
