@@ -113,14 +113,17 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   const saveRequests = ref(0)
   const pendingWorkspaceChanges: RealtimeWorkspaceChange[] = []
   const requestControllers = new Set<AbortController>()
+  const refreshControllers = new Set<AbortController>()
   const resetListeners = new Set<(event: RealtimeResetEvent) => void>()
   if (options.onReset) resetListeners.add(options.onReset)
   let connectedDocumentId: string | undefined
   let workspaceChangeTimer: ReturnType<typeof setTimeout> | undefined
   const enabled = () => options.enabled === undefined || toValue(options.enabled)
 
-  function destroyDocument(keepDocument = false) {
-    for (const controller of requestControllers) controller.abort()
+  function destroyDocument(keepDocument = false, preserveRefresh = false) {
+    for (const controller of requestControllers) {
+      if (!preserveRefresh || !refreshControllers.has(controller)) controller.abort()
+    }
     requestControllers.clear()
     connectedDocumentId = undefined
     provider.value?.destroy()
@@ -255,7 +258,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
 
   function reset(id: string, reason: RealtimeResetReason, epoch: string) {
     const previous = document.value
-    destroyDocument(true)
+    destroyDocument(true, true)
     if (previous) {
       try {
         for (const listener of resetListeners) listener({ epoch, previous, reason })
@@ -279,6 +282,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   async function request(action: "checkpoint" | "refresh" | "save"): Promise<unknown> {
     const controller = new AbortController()
     requestControllers.add(controller)
+    if (action === "refresh") refreshControllers.add(controller)
     try {
       const id = toValue(documentId)
       if (!id) throw realtimeErrorDiagnostics.REALTIME_R0010({ message: "A realtime document is required for this request." })
@@ -329,6 +333,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     }
     finally {
       requestControllers.delete(controller)
+      refreshControllers.delete(controller)
     }
   }
 
