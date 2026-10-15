@@ -338,6 +338,7 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
+
 function streamIntrinsic<T extends PropertyKey>(body: object, key: T): { value: unknown, owner: object } | undefined {
   let current: object | null = body
   const seen = new Set<object>()
@@ -363,6 +364,31 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown): value is (.
   catch {
     return false
   }
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await Reflect.apply(read, reader, [])
+        if (result.done) {
+          release()
+          controller.close()
+        }
+        else controller.enqueue(result.value)
+      }
+      catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await Reflect.apply(cancel, reader, [reason])
+      }
+      finally {
+        release()
+      }
+    },
+  }, { highWaterMark: 0 })
+  return { stream, release }
 }
 
 function readerOperation(readerPrototype: object, key: "read" | "cancel" | "releaseLock"): unknown {
@@ -386,27 +412,12 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   return !Reflect.apply(locked.value, stream, [])
 }
 
-function authorizationHeaderMethods(headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
-  const prototype = Object.getPrototypeOf(headers)
-  const constructor = prototype && Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-  if (typeof constructor !== "function" || constructor.name !== "Headers" || constructor.prototype !== prototype) return
-  try {
-    if (Object.prototype.toString.call(headers) !== "[object Headers]") return
-  }
-  catch {
-    return
-  }
-  const forEach = Object.getOwnPropertyDescriptor(prototype, "forEach")?.value
-  const getSetCookie = Object.getOwnPropertyDescriptor(prototype, "getSetCookie")?.value
-  // Native function source is stable across realms. Arbitrary methods on a
-  // spoofed Headers prototype fail this check and are never invoked.
-  if (typeof forEach !== "function" || forEach.name !== "forEach") return
-  if (getSetCookie !== undefined && (typeof getSetCookie !== "function" || getSetCookie.name !== "getSetCookie")) return
-  try {
-    const source = Function.prototype.toString.call(forEach)
-    if (!source.includes("[native code]") && !source.includes("brandCheck")) return
-  }
-  catch { return }
+function authorizationHeaderMethods(_headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
+  // Always call the host realm's verified intrinsics. Never capture methods
+  // from the response carrier, whose prototype and tag may be spoofed.
+  const forEach = Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value
+  const getSetCookie = Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value
+  if (typeof forEach !== "function") return
   return { forEach: forEach as (...args: never[]) => unknown, getSetCookie: getSetCookie as (...args: never[]) => unknown | undefined }
 }
 
@@ -654,6 +665,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
+
   if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }

@@ -134,6 +134,7 @@ describe("Auth access handlers", () => {
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
+
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
 
@@ -508,6 +509,7 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
     expect(getReader).not.toHaveBeenCalled()
   })
+
 
   it("rejects a polluted stream constructor without invoking it", async () => {
     const source = new ReadableStream<Uint8Array>()
