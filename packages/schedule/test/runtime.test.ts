@@ -620,6 +620,8 @@ describe("Schedule Run bookkeeping", () => {
       // @ts-expect-error Exercise malformed values arriving at the runtime boundary.
       scheduledAt,
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  })
+
   it.each([
     { get [Symbol.toStringTag]() { throw new TypeError("hostile date tag") } },
     new Proxy({}, { get() { throw new TypeError("hostile date proxy") } }),
