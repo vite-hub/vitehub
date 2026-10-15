@@ -297,6 +297,7 @@ function isResponseLike(value: unknown): value is Response {
     // A response from another runtime has a different native brand. Validate
     // its own prototype accessors instead, without consuming or cloning it.
     try {
+      const maxPrototypeDepth = 8
       let prototype: object | null = value
       let statusGetter: (() => unknown) | undefined
       let statusTextGetter: (() => unknown) | undefined
@@ -304,7 +305,9 @@ function isResponseLike(value: unknown): value is Response {
       let bodyGetter: (() => unknown) | undefined
       let cloneMethod: ((this: unknown) => unknown) | undefined
       const seen = new Set<object>()
-      while (prototype && (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !cloneMethod) && !seen.has(prototype)) {
+      let depth = 0
+      while (prototype && depth < maxPrototypeDepth && (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !cloneMethod) && !seen.has(prototype)) {
+        depth++
         seen.add(prototype)
         const descriptors = Object.getOwnPropertyDescriptors(prototype)
         if (descriptors.status?.get) statusGetter ??= descriptors.status.get as () => unknown
@@ -315,6 +318,7 @@ function isResponseLike(value: unknown): value is Response {
         prototype = Object.getPrototypeOf(prototype)
       }
       if (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !cloneMethod) return false
+      if (!Function.prototype.toString.call(cloneMethod).includes("[native code]")) return false
       statusGetter.call(value)
       statusTextGetter.call(value)
       const headers = headersGetter.call(value)
