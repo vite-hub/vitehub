@@ -43,13 +43,17 @@ function splitCombinedSetCookie(value: string | null): string[] {
   for (let index = 0; index < value.length; index++) {
     if (value.slice(index, index + 8).toLowerCase() === "expires=") inExpires = true
     if (inExpires && value[index] === ";") inExpires = false
-    if (value[index] !== "," || inExpires) continue
-    // Combined values conventionally separate cookies with comma+whitespace;
-    // requiring it avoids splitting commas inside extension values.
+    if (value[index] !== ",") continue
+    // A cookie boundary is a comma followed by a cookie name and equals sign.
+    // Check this before the Expires state so dates without a trailing semicolon
+    // still allow the next cookie to be forwarded separately.
     if (/^\s+[!#$%&'*+.^_`|~0-9A-Za-z-]+=/.test(value.slice(index + 1))) {
       result.push(value.slice(start, index).trim())
       start = index + 1
+      inExpires = false
+      continue
     }
+    if (inExpires) continue
   }
   result.push(value.slice(start).trim())
   return result

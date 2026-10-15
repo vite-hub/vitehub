@@ -32,3 +32,17 @@ it("splits fallback cookies with flag-only attributes", async () => {
 
   expect(target.getHeader("set-cookie")).toEqual(["first=1; HttpOnly", "second=2; Secure"])
 })
+
+it("splits fallback cookies after an Expires date without a semicolon", async () => {
+  const response = new Response(null, { status: 204 })
+  Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
+  response.headers.set("set-cookie", "first=1; Expires=Wed, 21 Oct 2037 07:28:00 GMT, second=2")
+  const target = new ServerResponse(new IncomingMessage(new Socket()))
+
+  await sendWebResponse(response, target)
+
+  expect(target.getHeader("set-cookie")).toEqual([
+    "first=1; Expires=Wed, 21 Oct 2037 07:28:00 GMT",
+    "second=2",
+  ])
+})
