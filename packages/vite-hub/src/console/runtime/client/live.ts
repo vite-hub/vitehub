@@ -1,12 +1,10 @@
 import { contentRealtimeEditor } from "@vite-hub/content/editor"
-import { useRealtimeTiptap } from "@vite-hub/realtime/vue"
-import { yXmlFragmentToProsemirrorJSON } from "@tiptap/y-tiptap"
+import { readRealtimeYDoc, useRealtimeTiptap } from "@vite-hub/realtime/vue"
 import { computed, onBeforeUnmount, shallowRef, watch } from "vue"
 
 import type { RealtimeIssue, RealtimeUser } from "@vite-hub/realtime"
 import type { RealtimeResetEvent } from "@vite-hub/realtime/vue"
 import type { ComputedRef, Ref, ShallowRef } from "vue"
-import type * as Y from "yjs"
 import type { ConsoleDocumentComponent } from "../definitions"
 import type { ConsoleDocumentSessionUser } from "./documents"
 
@@ -49,7 +47,7 @@ function fieldValue(value: unknown): unknown {
 
 export interface ConsoleLiveDocument {
   /** The room document. A reset replaces it, so the body editor mounts again for the new one. */
-  document: ShallowRef<Y.Doc | undefined>
+  document: ReturnType<typeof useRealtimeTiptap>["document"]
   /** The y-websocket provider of the room, for carets. */
   provider: ReturnType<typeof useRealtimeTiptap>["provider"]
   /** The room fields as plain JSON, once the room synced. */
@@ -100,17 +98,16 @@ export function useConsoleLiveDocument(options: {
       return identity
     },
     onReset: (event) => {
-      // `previous` is destroyed after listeners return: read it now.
-      const unsaved = unsavedLocal
-        ? { body: yXmlFragmentToProsemirrorJSON(event.previous.getXmlFragment("body")), fields: event.previous.getMap("fields").toJSON() }
-        : undefined
+      const hadUnsaved = unsavedLocal
       unsavedLocal = false
-      if (!unsaved) {
+      if (!hadUnsaved) {
         options.onReset({ reason: event.reason })
         return
       }
-      void Promise.resolve(editor.toMarkdown(unsaved.body)).then(
-        body => options.onReset({ reason: event.reason, unsaved: { body, fields: unsaved.fields } }),
+      // `previous` is destroyed after listeners return. The body is read before the codec's first await, the fields now.
+      const fields = event.previous.getMap("fields").toJSON()
+      void readRealtimeYDoc(editor, event.previous).then(
+        unsaved => options.onReset({ reason: event.reason, unsaved: { body: unsaved.body, fields } }),
         () => options.onReset({ reason: event.reason }),
       )
     },
@@ -135,7 +132,7 @@ export function useConsoleLiveDocument(options: {
   // Local edits since the last room save, so a reset can offer what it dropped.
   watch(realtime.document, (document, _previous, onCleanup) => {
     if (!document) return
-    const onUpdate = (_update: Uint8Array, _origin: unknown, _document: Y.Doc, transaction: Y.Transaction) => {
+    const onUpdate = (_update: Uint8Array, _origin: unknown, _document: unknown, transaction: { local: boolean }) => {
       if (transaction.local) unsavedLocal = true
     }
     document.on("update", onUpdate)

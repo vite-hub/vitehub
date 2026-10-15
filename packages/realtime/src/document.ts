@@ -71,8 +71,10 @@ export function readRealtimeFields(document: Y.Doc): Record<string, RealtimeFiel
 }
 
 export async function readRealtimeYDoc(editor: RealtimeEditor, document: Y.Doc): Promise<Required<RealtimeDocumentSnapshot>> {
+  // Read both before the codec's first await, so a document that is destroyed meanwhile still reads whole.
   const content = yXmlFragmentToProsemirrorJSON(document.getXmlFragment(realtimeDocumentLayout.body))
-  return { body: await editor.toMarkdown(content), fields: readRealtimeFields(document) }
+  const fields = readRealtimeFields(document)
+  return { body: await editor.toMarkdown(content), fields }
 }
 
 /** Whether `fromMarkdown(body)` gives back the body of `document`, where `body` is what `toMarkdown` wrote for it. */
