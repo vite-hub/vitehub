@@ -359,6 +359,10 @@ function hasNativeStreamBrand(body: object): boolean {
   let current: object | null = body
   const seen = new Set<object>()
   try {
+    // The Response constructor performs the native stream state check that
+    // distinguishes an unused stream from one whose body was disturbed.
+    // Unlike acquiring a reader, this probe leaves a valid stream unlocked.
+    new Response(body as ReadableStream<Uint8Array>)
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(current)) return false
       seen.add(current)
