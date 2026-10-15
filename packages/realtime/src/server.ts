@@ -591,7 +591,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   function listen(room: DocumentRoom, document: Y.Doc): void {
     document.on("update", (update: Uint8Array, origin: unknown) => {
       if (room.document !== document) return
-      persistRoomUpdate(room, update)
+      if (origin !== serverOrigin) persistRoomUpdate(room, update)
       const message = encodeSyncUpdate(update)
       const sender = roomPeer(room, origin)
       if (sender) sender.publish(room.channel, message)
@@ -843,9 +843,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const next = await seedDocument(room.editor, source, guard)
     const previous = { awareness: room.awareness, document: room.document }
     const peers = [...room.peers]
-    room.peers.clear()
-    // The clients reconnect to the new seed and hold the room again; the hold timer releases it if nobody does.
-    room.writers.clear()
+    // Keep peers and writers tracked until their close callbacks run so the room is released when reset sockets close.
     room.epoch = crypto.randomUUID()
     room.digest = source.digest
     room.guard = guard
