@@ -89,7 +89,7 @@ describe("Definition inspection parity", () => {
     await writeProjectFile(root, "vendor/history.mjs", "export const historySchema = {}\n")
     const historyOwner = {
       name: "history-owner/vite",
-      vitehub: { databases: () => [{ export: "historySchema", module: tables }] },
+      vitehub: { databases: () => [{ definition: { export: "historySchema", module: tables }, name: "history" }] },
     }
 
     const config = await resolveConfig({
@@ -101,7 +101,7 @@ describe("Definition inspection parity", () => {
     const listed = await inspector!.list()
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, plugins: config.plugins, projectRoot: root, sections: ["databases"] })
 
-    expect(listed[0]?.fields).toContainEqual({ label: "Contributed tables", value: `No tables from ${tables}#historySchema (contributed by "history-owner/vite")` })
+    expect(listed[0]?.fields).toContainEqual({ label: "Contributed tables", value: `No tables from "history" (${tables}#historySchema from plugin "history-owner/vite")` })
     expect(catalog.content.databases).toEqual({ definitions: listed, kind: "definition-catalog" })
   }, 60_000)
 })

@@ -39,6 +39,7 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
         projectRoot,
         rootDir: options.databaseDiscoveryRoot ?? options.discoveryRoot,
         serverDirs: options.databaseDiscoveryRoot ? undefined : serverDirs,
+        viteRoot: options.discoveryRoot,
       }),
       kind: "definition-catalog",
     }

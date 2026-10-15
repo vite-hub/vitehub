@@ -12,7 +12,7 @@ import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 import { hubDb } from "../src/vite.ts"
 
-import type { DatabaseContribution } from "../src/contributions.ts"
+import type { CollectedDatabaseContribution, DatabaseContribution } from "../src/contributions.ts"
 
 const execFileAsync = promisify(execFile)
 const tempDirs: string[] = []
@@ -57,11 +57,11 @@ async function createProject(definitions: Record<string, string[]> = { "server/d
   return rootDir
 }
 
-function contributions(...entries: Array<DatabaseContribution & { contributor?: string }>) {
-  return entries.map(entry => ({ contributor: "history-owner/vite", ...entry }))
+function contributions(...entries: Array<DatabaseContribution & { plugin?: string }>): CollectedDatabaseContribution[] {
+  return entries.map(({ definition, plugin = "history-owner/vite", ...entry }) => ({ ...entry, definition: { export: definition.export ?? "default", module: definition.module }, plugin }))
 }
 
-const historyContribution = { export: "historySchema", module: "history-tables/schema" }
+const historyContribution: DatabaseContribution = { definition: { export: "historySchema", module: "history-tables/schema" }, name: "history" }
 
 async function generate(rootDir: string, contributed = contributions(historyContribution)) {
   const config = resolveDBViteConfig(undefined, rootDir, { contributions: contributed })!
@@ -79,24 +79,39 @@ describe("resolveDefaultDatabase", () => {
 })
 
 describe("collectDatabaseContributions", () => {
-  const context = { rootDir: "/app" }
+  const context = { projectRoot: "/app", root: "/app" }
 
-  it("reads arrays and factories from Vite plugins and keeps duplicates once", async () => {
-    const factory = { name: "factory/vite", vitehub: { databases: async (input: typeof context) => [{ database: "default", module: `${input.rootDir}/tables.ts` }] } }
+  it("reads arrays and factories from Vite plugins and keeps one copy when one plugin is registered twice", async () => {
+    const factory = {
+      name: "factory/vite",
+      vitehub: { databases: async (input: typeof context) => [{ database: "default", definition: { module: `${input.root}/tables.ts` }, dialect: "sqlite" as const, name: "audit", reason: "Audit log." }] },
+    }
     const array = { name: "array/vite", vitehub: { databases: [historyContribution] } }
 
     await expect(collectDatabaseContributions([[array, factory], array, { name: "other" }, null], context)).resolves.toEqual([
-      { contributor: "array/vite", ...historyContribution },
-      { contributor: "factory/vite", database: "default", module: "/app/tables.ts" },
+      { database: "default", definition: { export: "default", module: "/app/tables.ts" }, dialect: "sqlite", name: "audit", plugin: "factory/vite", reason: "Audit log." },
+      { definition: { export: "historySchema", module: "history-tables/schema" }, name: "history", plugin: "array/vite" },
     ])
+  })
+
+  it("fails when two plugins contribute tables with one name and names both plugins", async () => {
+    await expect(collectDatabaseContributions([
+      { name: "first/vite", vitehub: { databases: [historyContribution] } },
+      { name: "second/vite", vitehub: { databases: [{ ...historyContribution, database: "default" }] } },
+    ], context)).rejects.toMatchObject({
+      code: "DATABASE_B0010",
+      message: expect.stringMatching(/Database tables "history" is contributed more than once:[\s\S]*plugin "first\/vite"[\s\S]*plugin "second\/vite"/),
+    })
   })
 
   it.each([
     [{ databases: {} }, "must be an array"],
-    [{ databases: [{ module: "./tables.ts" }] }, "is relative"],
-    [{ databases: [{ module: "" }] }, "`module` must be a non-empty string"],
-    [{ databases: [{ export: "", module: "pkg" }] }, "`export`"],
-    [{ databases: [{ database: " default ", module: "pkg" }] }, "`database`"],
+    [{ databases: [{ definition: { module: "./tables.ts" }, name: "history" }] }, "is relative"],
+    [{ databases: [{ definition: { module: "" }, name: "history" }] }, "`definition.module` of Database tables \"history\" must be a non-empty string"],
+    [{ databases: [{ definition: { export: "", module: "pkg" }, name: "history" }] }, "`definition.export`"],
+    [{ databases: [{ database: " default ", definition: { module: "pkg" }, name: "history" }] }, "`database`"],
+    [{ databases: [{ definition: { module: "pkg" }, dialect: "mysql", name: "history" }] }, "`dialect` of \"history\" must be one of \"sqlite\""],
+    [{ databases: [{ module: "pkg", name: "history" }] }, "needs `definition: { module, export? }`"],
   ])("rejects invalid contributions %#", async (vitehub, message) => {
     await expect(collectDatabaseContributions([{ name: "broken/vite", vitehub }], context)).rejects.toMatchObject({
       code: "DATABASE_B0012",
@@ -110,6 +125,16 @@ describe("contribution targets", () => {
     expect(resolveDatabaseContributionTargets(["analytics", "default"], contributions(historyContribution)).default).toHaveLength(1)
     expect(resolveDatabaseContributionTargets(["analytics"], contributions(historyContribution)).analytics?.[0]?.database).toBe("analytics")
     expect(resolveDatabaseContributionTargets(["analytics", "primary"], contributions({ ...historyContribution, database: "primary" })).primary).toHaveLength(1)
+  })
+
+  it("fails when the target Database uses another dialect", () => {
+    // SAFETY: Only one dialect exists today, so the test widens the type to cover the check.
+    const postgres = "postgresql" as unknown as "sqlite"
+    expect(() => resolveDatabaseContributionTargets(["default"], contributions({ ...historyContribution, dialect: postgres }), { default: "sqlite" })).toThrow(expect.objectContaining({
+      code: "DATABASE_B0011",
+      message: expect.stringContaining("use the \"postgresql\" dialect, but Database \"default\" uses \"sqlite\""),
+    }))
+    expect(resolveDatabaseContributionTargets(["default"], contributions({ ...historyContribution, dialect: "sqlite" }), { default: "sqlite" }).default).toHaveLength(1)
   })
 
   it.each([
@@ -139,7 +164,7 @@ describe("contributed tables in generated artifacts", () => {
       "export default { auditLog: sqliteTable('audit_log', { id: text('id').primaryKey() }) }",
       "",
     ].join("\n"))
-    const config = await generate(rootDir, contributions(historyContribution, { contributor: "audit/vite", module: absolute }))
+    const config = await generate(rootDir, contributions(historyContribution, { definition: { module: absolute }, name: "audit", plugin: "audit/vite" }))
 
     const generated = await readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")
     expect(generated).toContain("import { historySchema as contributedSchema_0 } from \"history-tables/schema\"")
@@ -190,33 +215,33 @@ describe("contributed tables in generated artifacts", () => {
   it.each([
     ["a key of the app schema", ["const historyRefs = sqliteTable('app_refs', { id: text('id') })", "export default defineDatabase({ schema: { notes, historyRefs } })"], [historyContribution], "key \"historyRefs\""],
     ["a SQL table name of the app schema", ["const refs = sqliteTable('history_refs', { id: text('id') })", "export default defineDatabase({ schema: { notes, refs } })"], [historyContribution], "named \"history_refs\""],
-    ["another contribution", ["export default defineDatabase({ schema: { notes } })"], [historyContribution, { export: "legacySchema", module: "history-tables/schema" }], "named \"history_refs\""],
+    ["another contribution", ["export default defineDatabase({ schema: { notes } })"], [historyContribution, { definition: { export: "legacySchema", module: "history-tables/schema" }, name: "legacy" }], "named \"history_refs\""],
   ])("fails when contributed tables collide with %s", async (_, definition, entries, message) => {
     const rootDir = await createProject({ "server/databases/config.ts": definition })
 
     await expect(generate(rootDir, contributions(...entries))).rejects.toMatchObject({
       code: "DATABASE_B0010",
-      message: expect.stringMatching(new RegExp(`${message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*contributed by "history-owner/vite"`)),
+      message: expect.stringMatching(new RegExp(`${message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*from plugin "history-owner/vite"`)),
     })
   })
 
   it("fails when the contributed export is missing or the module cannot load", async () => {
     const rootDir = await createProject()
 
-    await expect(generate(rootDir, contributions({ export: "missing", module: "history-tables/schema" }))).rejects.toMatchObject({ code: "DATABASE_B0012" })
-    await expect(generate(rootDir, contributions({ export: "historyRefs", module: "history-tables/schema" }))).rejects.toMatchObject({ code: "DATABASE_B0012" })
-    await expect(generate(rootDir, contributions({ module: "history-tables/missing" }))).rejects.toMatchObject({ code: "DATABASE_B0007" })
+    await expect(generate(rootDir, contributions({ definition: { export: "missing", module: "history-tables/schema" }, name: "history" }))).rejects.toMatchObject({ code: "DATABASE_B0012" })
+    await expect(generate(rootDir, contributions({ definition: { export: "historyRefs", module: "history-tables/schema" }, name: "history" }))).rejects.toMatchObject({ code: "DATABASE_B0012" })
+    await expect(generate(rootDir, contributions({ definition: { module: "history-tables/missing" }, name: "history" }))).rejects.toMatchObject({ code: "DATABASE_B0007" })
   })
 
   it("marks contributed tables and their plugin in inspection", async () => {
     const rootDir = await createProject()
-    const plugin = { name: "history-owner/vite", vitehub: { databases: [historyContribution] } }
+    const plugin = { name: "history-owner/vite", vitehub: { databases: [{ ...historyContribution, reason: "Stores Workspace history." }] } }
 
     const [definition] = await inspectDatabaseDefinitions({ plugins: [plugin], projectRoot: rootDir, rootDir })
     expect(definition!.fields).toEqual([
       { label: "Mode", value: "Default" },
       { label: "Tables", value: "notes" },
-      { label: "Contributed tables", value: "historyRefs, historyRevisions from history-tables/schema#historySchema (contributed by \"history-owner/vite\")" },
+      { label: "Contributed tables", value: "historyRefs, historyRevisions from \"history\" (history-tables/schema#historySchema from plugin \"history-owner/vite\"). Stores Workspace history." },
     ])
   })
 })
@@ -245,7 +270,7 @@ describe("contributed tables at runtime", () => {
       "}",
       "",
     ].join("\n"))
-    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ export: "historySchema", module: tables }] } }
+    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: tables }, name: "history" }] } }
     const server = await createViteServer({ configFile: false, logLevel: "silent", plugins: [hubDb(), contributor], root: rootDir, server: { middlewareMode: true, watch: null } })
     try {
       // SAFETY: This fixture writes the queried module before Vite loads it.

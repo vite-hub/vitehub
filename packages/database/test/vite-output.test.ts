@@ -1094,7 +1094,7 @@ describe("Vite db provider outputs", () => {
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replace(
       "hubDb()],",
-      "hubDb(), { name: 'history-owner/vite', vitehub: { databases: [{ database: 'analytics', export: 'historySchema', module: resolve(import.meta.dirname, 'vendor/history.ts') }] } }],",
+      "hubDb(), { name: 'history-owner/vite', vitehub: { databases: [{ name: 'history', database: 'analytics', definition: { export: 'historySchema', module: resolve(import.meta.dirname, 'vendor/history.ts') } }] } }],",
     ))
     await writeFile(join(rootDir, "src/server.ts"), [
       "import { databases } from '@vite-hub/database/drizzle'",

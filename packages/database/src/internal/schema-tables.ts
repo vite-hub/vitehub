@@ -1,8 +1,11 @@
+import { isPlainObject } from "@vite-hub/internal/object"
+
 import { describeDatabaseContribution } from "../contributions.ts"
 import { readStaticDatabaseSchema } from "../config.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { DatabaseContribution } from "../contributions.ts"
+import type { CollectedDatabaseContribution } from "../contributions.ts"
+import type { DiscoveredDatabaseDefinition } from "../types.ts"
 
 export interface DatabaseTableNameOptions {
   /** Import aliases the host applies to the Database Definition, such as Vite `resolve.alias`. */
@@ -45,7 +48,7 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
+  return isPlainObject(value)
 }
 
 function errorMessage(error: unknown) {
@@ -114,6 +117,30 @@ export async function loadDatabaseSchema(handler: string, options: DatabaseTable
   return { keys: tableNames, loaded: false, sqlNames: new Map(), tableNames }
 }
 
+/**
+ * Loads every schema source of a Database Definition and merges them as the runtime does: a later source, such as the
+ * application over a Nuxt layer, wins a key.
+ */
+export async function loadDefinitionSchema(definition: Pick<DiscoveredDatabaseDefinition, "schemaSources">, options: DatabaseTableNameOptions = {}): Promise<LoadedDatabaseSchema> {
+  return mergeLoadedSchemas(await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options))))
+}
+
+/** Merges schema sources in order. A later source wins a key. */
+export function mergeLoadedSchemas(schemas: readonly LoadedDatabaseSchema[]): LoadedDatabaseSchema {
+  if (schemas.length === 1) return schemas[0]!
+  const owners = new Map<string, LoadedDatabaseSchema>()
+  for (const schema of schemas) {
+    for (const key of schema.keys) owners.set(key, schema)
+  }
+  const keys = [...owners.keys()]
+  const tableNames = keys.filter(key => owners.get(key)!.tableNames.includes(key))
+  const sqlNames = new Map(tableNames.flatMap((key) => {
+    const name = owners.get(key)!.sqlNames.get(key)
+    return name ? [[key, name] as const] : []
+  }))
+  return { keys, loaded: schemas.every(schema => schema.loaded), sqlNames, tableNames }
+}
+
 /** Lists the schema keys of a Database Definition that hold Drizzle tables or views. */
 export async function loadDatabaseTableNames(handler: string, options: DatabaseTableNameOptions = {}): Promise<string[]> {
   return (await loadDatabaseSchema(handler, options)).tableNames
@@ -125,14 +152,14 @@ export async function loadDatabaseTableNames(handler: string, options: DatabaseT
  * load fails with `DATABASE_B0007`, unless `onFallback` accepts it; its tables are then known only at runtime.
  */
 export async function loadContributedDatabaseSchema(
-  contribution: DatabaseContribution & { contributor?: string },
+  contribution: CollectedDatabaseContribution,
   parent: string,
   options: DatabaseTableNameOptions = {},
 ): Promise<LoadedDatabaseSchema> {
   const source = describeDatabaseContribution(contribution)
   let module: Record<string, unknown>
   try {
-    module = await (await createLoader(parent, options.alias)).import<Record<string, unknown>>(contribution.module)
+    module = await (await createLoader(parent, options.alias)).import<Record<string, unknown>>(contribution.definition.module)
   }
   catch (error) {
     const message = `[vitehub] Contributed Database tables ${source} could not load: ${errorMessage(error)}`
@@ -140,7 +167,7 @@ export async function loadContributedDatabaseSchema(
     options.onFallback(`${message.replace(/\.?$/, ".")} Their tables are not exported for drizzle-kit. \`vitehub db generate\` requires the module to load.`)
     return { keys: [], loaded: false, sqlNames: new Map(), tableNames: [] }
   }
-  const exportName = contribution.export ?? "default"
+  const exportName = contribution.definition.export
   const schema = module[exportName]
   const { isTableOrView } = await loadDrizzleSchemaTools()
   if (!isRecord(schema) || Array.isArray(schema) || isTableOrView(schema)) {

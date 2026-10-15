@@ -1,57 +1,38 @@
-import { isAbsolute } from "pathe"
-
-import { isPlainObject } from "@vite-hub/internal/object"
+import { collectContributions, describeContribution } from "@vite-hub/internal/contributions"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
+
+import type { CollectedContribution, ContributingPlugin, Contribution, ContributionContext, ContributionFactory } from "@vite-hub/internal/contributions"
+import type { DatabaseDialect } from "./types.ts"
+
+const databaseDialects: readonly DatabaseDialect[] = ["sqlite"]
+
+/** Fields that only Database contributions have. */
+export interface DatabaseContributionFields {
+  /** Database Definition that receives the tables. Omit it to target the default or only Database. */
+  database?: string
+  /** SQL dialect of the tables. When set, the target Database must use this dialect. */
+  dialect?: DatabaseDialect
+}
 
 /**
  * Drizzle tables that another package adds to a Database Definition from its Vite plugin. The Database plugin merges
  * them into the generated Drizzle schema, so `vitehub db generate` writes their migrations and
- * `useDatabase(name).schema` holds them, without the application editing its Definition.
+ * `useDatabase(name).schema` holds them, without the application editing its Definition. `name` names the group of
+ * tables, and `definition.export` names an export that holds an object of Drizzle tables.
  */
-export interface DatabaseContribution {
-  /** Database Definition that receives the tables. Omit it to target the default or only Database. */
-  database?: string
-  /**
-   * Module that exports the tables: an absolute file path, or a package specifier that the application can import.
-   * Relative paths are rejected because they have no stable base.
-   */
-  module: string
-  /** Named export that holds an object of Drizzle tables. Defaults to `default`. */
-  export?: string
-}
+export type DatabaseContribution = Contribution & DatabaseContributionFields
 
-/** Discovery roots that the Database plugin passes to contribution factories. */
-export interface DatabaseContributionContext {
-  /** Root that Database Definitions are discovered from, after `database.projectRoot`. */
-  rootDir: string
-  /** Server directories that Database Definitions are discovered from, for example Nuxt's `serverDir`. */
-  serverDirs?: string[]
-}
+/** Roots that ViteHub passes to contribution factories. `root` is the Vite root. */
+export type DatabaseContributionContext = ContributionContext
 
-export type DatabaseContributionFactory = (context: DatabaseContributionContext) =>
-  | readonly DatabaseContribution[]
-  | undefined
-  | Promise<readonly DatabaseContribution[] | undefined>
+export type DatabaseContributionFactory = ContributionFactory<DatabaseContribution>
 
-/** Vite plugin metadata that contributes Database tables. */
-export interface DatabaseContributionPluginMetadata {
-  /**
-   * Tables to add. A factory runs once per discovery pass, so it must be idempotent and must not depend on the order
-   * of Vite config hooks.
-   */
-  databases?: readonly DatabaseContribution[] | DatabaseContributionFactory
-}
+/** A Vite plugin that contributes Database tables through `vitehub.databases`. */
+export type DatabaseContributingPlugin = ContributingPlugin<"databases", DatabaseContribution>
 
-export interface DatabaseContributingPlugin {
-  name?: string
-  vitehub?: DatabaseContributionPluginMetadata
-}
-
-/** A validated contribution with the name of the plugin that contributed it. */
-export interface CollectedDatabaseContribution extends DatabaseContribution {
-  contributor: string
-}
+/** A validated contribution with its export resolved and the name of the plugin that contributed it. */
+export type CollectedDatabaseContribution = CollectedContribution & DatabaseContributionFields
 
 /** A contribution whose target Database is resolved. */
 export interface ResolvedDatabaseContribution extends CollectedDatabaseContribution {
@@ -75,107 +56,80 @@ export function resolveDefaultDatabase(databaseNames: readonly string[]): Defaul
   return { status: "none" }
 }
 
-function flattenPluginOptions(value: unknown, plugins: object[], seen: Set<unknown>): void {
-  if (Array.isArray(value)) {
-    for (const item of value) flattenPluginOptions(item, plugins, seen)
-    return
+function isDatabaseDialect(value: unknown): value is DatabaseDialect {
+  return databaseDialects.some(dialect => dialect === value)
+}
+
+function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (reason: string) => never): DatabaseContributionFields {
+  const { database, dialect } = entry
+  const fields: DatabaseContributionFields = {}
+  if (database !== undefined) {
+    if (String(database) !== database || !database || database.trim() !== database) {
+      fail(`\`database\` of ${JSON.stringify(entry.name)} must be a Database name without surrounding whitespace. Omit it to target the default or only Database.`)
+    }
+    fields.database = String(database)
   }
-  // Vite resolves promised plugin options before `configResolved`; unresolved promises cannot contribute.
-  if (!isPlainObject(value) || seen.has(value) || value.then instanceof Function) return
-  seen.add(value)
-  plugins.push(value)
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Plugin metadata is opaque input; this guard classifies it without coercion.
-  return typeof value === "string" && value.length > 0
-}
-
-function invalidContribution(contributor: string, reason: string): Error {
-  return databaseErrorDiagnostics.DATABASE_B0012({ message: `[vitehub] Plugin "${contributor}" contributed invalid Database tables: ${reason}` })
-}
-
-function validateContribution(value: unknown, contributor: string): CollectedDatabaseContribution {
-  if (!isPlainObject(value)) throw invalidContribution(contributor, "expected { database?, module, export? }.")
-  const { database, export: exportName, module } = value
-  if (!isNonEmptyString(module)) throw invalidContribution(contributor, "`module` must be a non-empty string.")
-  if (!isAbsolute(module) && /^\.\.?(?:[\\/]|$)/.test(module)) {
-    throw invalidContribution(contributor, `module ${JSON.stringify(module)} is relative. Use an absolute file path or a package specifier.`)
+  if (dialect !== undefined) {
+    if (!isDatabaseDialect(dialect)) fail(`\`dialect\` of ${JSON.stringify(entry.name)} must be one of ${databaseDialects.map(name => JSON.stringify(name)).join(", ")}.`)
+    fields.dialect = dialect
   }
-  if (exportName !== undefined && !isNonEmptyString(exportName)) throw invalidContribution(contributor, `\`export\` of ${JSON.stringify(module)} must be a non-empty string.`)
-  if (database !== undefined && (!isNonEmptyString(database) || database.trim() !== database)) {
-    throw invalidContribution(contributor, `\`database\` of ${JSON.stringify(module)} must be a Database name without surrounding whitespace. Omit it to target the default or only Database.`)
-  }
-  const contribution: CollectedDatabaseContribution = { contributor, module }
-  if (database !== undefined) contribution.database = database
-  if (exportName !== undefined && exportName !== "default") contribution.export = exportName
-  return contribution
+  return fields
 }
 
-function sameContribution(left: DatabaseContribution, right: DatabaseContribution): boolean {
-  return left.database === right.database && left.module === right.module && (left.export ?? "default") === (right.export ?? "default")
-}
-
-/** Describes a contribution as `module#export (contributed by "plugin")` for errors and inspection. */
-export function describeDatabaseContribution(contribution: DatabaseContribution & { contributor?: string }): string {
-  const target = contribution.export ? `${contribution.module}#${contribution.export}` : contribution.module
-  return contribution.contributor ? `${target} (contributed by "${contribution.contributor}")` : target
+/** Describes a contribution as `module#export from plugin "name"` for errors and inspection. */
+export function describeDatabaseContribution(contribution: CollectedDatabaseContribution): string {
+  return `${JSON.stringify(contribution.name)} (${describeContribution(contribution)})`
 }
 
 /**
- * Collects `vitehub.databases` contributions from Vite plugins. The same contribution from two plugin instances is
- * kept once.
+ * Collects `vitehub.databases` contributions from Vite plugins. Invalid entries fail with `DATABASE_B0012`. Two
+ * contributions with one name fail with `DATABASE_B0010`.
  */
 export async function collectDatabaseContributions(
   plugins: readonly unknown[] | undefined,
   context: DatabaseContributionContext,
 ): Promise<CollectedDatabaseContribution[]> {
-  const candidates: object[] = []
-  flattenPluginOptions(plugins ?? [], candidates, new Set())
-  const contributions: CollectedDatabaseContribution[] = []
-  for (const plugin of candidates) {
-    if (!Object.hasOwn(plugin, "vitehub")) continue
-    const metadata: unknown = Reflect.get(plugin, "vitehub")
-    const value: unknown = isPlainObject(metadata) ? metadata.databases : undefined
-    if (!value) continue
-    const pluginName: unknown = Reflect.get(plugin, "name")
-    const contributor = isNonEmptyString(pluginName) ? pluginName : "unnamed plugin"
-    const entries: unknown = value instanceof Function ? await Reflect.apply(value, undefined, [context]) : value
-    if (!entries) continue
-    if (!Array.isArray(entries)) throw invalidContribution(contributor, "`vitehub.databases` must be an array or return one.")
-    for (const entry of entries) {
-      const contribution = validateContribution(entry, contributor)
-      if (!contributions.some(existing => sameContribution(existing, contribution))) contributions.push(contribution)
-    }
-  }
-  return contributions
+  return await collectContributions(plugins, {
+    context,
+    duplicate: message => databaseErrorDiagnostics.DATABASE_B0010({ message }),
+    fields: readDatabaseFields,
+    invalid: message => databaseErrorDiagnostics.DATABASE_B0012({ message }),
+    key: "databases",
+    kind: "Database tables",
+  })
 }
 
 /**
  * Assigns each contribution to a Database Definition. A contribution without `database` targets the default or only
- * Database. A missing, ambiguous, or absent target fails with `DATABASE_B0011` and names the choices.
+ * Database. A missing, ambiguous, or absent target, or a target with another dialect, fails with `DATABASE_B0011` and
+ * names the choices.
  */
 export function resolveDatabaseContributionTargets(
   databaseNames: readonly string[],
   contributions: readonly CollectedDatabaseContribution[],
+  dialects: Readonly<Record<string, DatabaseDialect>> = {},
 ): Record<string, ResolvedDatabaseContribution[]> {
   const byDatabase: Record<string, ResolvedDatabaseContribution[]> = Object.create(null)
   const choices = databaseNames.length ? [...databaseNames].sort().map(name => JSON.stringify(name)).join(", ") : "none"
   for (const contribution of contributions) {
-    const source = describeDatabaseContribution(contribution)
+    const source = `Tables ${describeDatabaseContribution(contribution)}`
     let database = contribution.database
     if (database === undefined) {
       const resolution = resolveDefaultDatabase(databaseNames)
       if (resolution.status === "none") {
-        throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] Tables from ${source} need a Database, but the app has no Database Definition. Add \`server/databases/config.ts\` with \`defineDatabase({ schema: {} })\`.` })
+        throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] ${source} need a Database, but the app has no Database Definition. Add \`server/databases/config.ts\` with \`defineDatabase({ schema: {} })\`.` })
       }
       if (resolution.status === "ambiguous") {
-        throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] Tables from ${source} target the default or only Database, but the app has several Database Definitions and none is named "default": ${choices}. Choose one with the contribution's \`database\` option.` })
+        throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] ${source} target the default or only Database, but the app has several Database Definitions and none is named "default": ${choices}. Choose one with the contribution's \`database\` option.` })
       }
       database = resolution.name
     }
     else if (!databaseNames.includes(database)) {
-      throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] Tables from ${source} target Database ${JSON.stringify(database)}, which has no Database Definition. Database Definitions: ${choices}.` })
+      throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] ${source} target Database ${JSON.stringify(database)}, which has no Database Definition. Database Definitions: ${choices}.` })
+    }
+    const targetDialect = dialects[database]
+    if (contribution.dialect && targetDialect && contribution.dialect !== targetDialect) {
+      throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] ${source} use the ${JSON.stringify(contribution.dialect)} dialect, but Database ${JSON.stringify(database)} uses ${JSON.stringify(targetDialect)}.` })
     }
     ;(byDatabase[database] ??= []).push({ ...contribution, database })
   }

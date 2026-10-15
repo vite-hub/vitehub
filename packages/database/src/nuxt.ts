@@ -15,8 +15,8 @@ import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./interna
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDatabaseSchema } from "./internal/schema-tables.ts"
-import { collectDatabaseContributions } from "./contributions.ts"
+import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchema } from "./internal/schema-tables.ts"
+import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
@@ -161,9 +161,8 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           }
           for (const contribution of contributions) {
             try {
-              const file = isAbsolute(contribution.module)
-                ? resolve(contribution.module)
-                : require.resolve(contribution.module)
+              const { module } = contribution.definition
+              const file = isAbsolute(module) ? resolve(module) : require.resolve(module)
               contributionFiles.add(file)
               contributionDirectories.add(dirname(file))
             }
@@ -187,8 +186,13 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         })
       }
       hook("nitro:config", async (config) => {
-        // Vite plugins in the Nuxt config can contribute tables, as they do through `hubDb()` in a Vite app.
-        contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, { rootDir: root, serverDirs })
+        // Vite plugins in the Nuxt config can contribute tables, as they do through `hubDb()` in a Vite app. Nuxt
+        // modules add them to `nuxt.options.vite.plugins` during setup, so this hook sees them after every module ran.
+        contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, {
+          projectRoot: root,
+          root: resolve(nuxtOptions.srcDir || nuxtOptions.rootDir || root),
+          serverDirs,
+        })
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         if (!nuxtOptions.dev && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
           if (d1.unresolved.reason === "missing-database-name") {
@@ -291,14 +295,14 @@ async function installNitroLocalDatabaseRuntime(
   // Nitro dev keeps running when a Definition needs Nuxt auto-imports to load; collisions are then checked on literal keys.
   const tableNameOptions = {
     alias: isRecord(config.alias)
-      ? Object.fromEntries(Object.entries(config.alias).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+      ? Object.fromEntries(Object.entries(config.alias).filter((entry): entry is [string, string] => String(entry[1]) === entry[1]))
       : undefined,
     onFallback: (message: string) => console.warn(message),
   }
   for (const definition of runtime.definitions) {
-    const parts = [{ schema: await loadDatabaseSchema(definition.handler, tableNameOptions), owner: `Database Definition ${definition.handler}` }]
+    const parts = [{ schema: await loadDefinitionSchema(definition, tableNameOptions), owner: `Database Definition ${definition.handler}` }]
     for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
-      parts.push({ schema: await loadContributedDatabaseSchema(contribution, file, tableNameOptions), owner: `contributed tables ${contribution.module}` })
+      parts.push({ schema: await loadContributedDatabaseSchema(contribution, file, tableNameOptions), owner: `contributed tables ${describeDatabaseContribution(contribution)}` })
     }
     assertDistinctLoadedSchemas(definition.name, parts)
   }

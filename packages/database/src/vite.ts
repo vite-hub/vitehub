@@ -27,7 +27,7 @@ import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
-import type { CollectedDatabaseContribution, DatabaseContributionPluginMetadata } from "./contributions.ts"
+import type { CollectedDatabaseContribution, DatabaseContributingPlugin } from "./contributions.ts"
 import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 
@@ -43,7 +43,7 @@ export type {
   DatabaseContribution,
   DatabaseContributionContext,
   DatabaseContributionFactory,
-  DatabaseContributionPluginMetadata,
+  DatabaseContributionFields,
   DefaultDatabaseResolution,
   ResolvedDatabaseContribution,
 } from "./contributions.ts"
@@ -63,7 +63,7 @@ export interface DBVitePluginAPI {
 }
 
 interface DBCliContributingPlugin {
-  vitehub?: DatabaseContributionPluginMetadata & {
+  vitehub?: NonNullable<DatabaseContributingPlugin["vitehub"]> & {
     cli?: () => Promise<ViteHubCliContributor | undefined>
     inspect?: () => ViteHubInspectionContributor | undefined
   }
@@ -87,7 +87,7 @@ export type DBVitePlugin = Plugin & DBCliContributingPlugin & {
 const mergeNoExternal = createNoExternalAddition(dbPackageName)
 
 function viteStringAliases(alias: ResolvedConfig["resolve"]["alias"] | undefined): Record<string, string> {
-  return Object.fromEntries((alias ?? []).flatMap(entry => typeof entry.find === "string" ? [[entry.find, entry.replacement]] : []))
+  return Object.fromEntries((alias ?? []).flatMap(entry => String(entry.find) === entry.find ? [[String(entry.find), entry.replacement]] : []))
 }
 
 function resolveDatabaseVirtualId(id: string) {
@@ -289,6 +289,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
               rootDir: databaseRoot(),
               serverDirs: databaseServerDirs(),
+              viteRoot: resolved?.root,
             }),
           }],
           providerOutput: runtime ? [
@@ -306,11 +307,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       providerOutput = useProviderOutputCatalog(config)
       contributions = resolvedOptions() === false
         ? []
-        : await collectDatabaseContributions(config.plugins, { rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
+        : await collectDatabaseContributions(config.plugins, { projectRoot: resolveViteHubProjectRoot(config.root), root: config.root, serverDirs: databaseServerDirs() })
       const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
       contributionFiles = new Set(contributions.flatMap(contribution => {
         try {
-          return [normalize(require.resolve(contribution.module))]
+          return [normalize(require.resolve(contribution.definition.module))]
         }
         catch {
           return []

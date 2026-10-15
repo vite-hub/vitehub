@@ -100,7 +100,7 @@ ViteHub finds duplicate table keys when `schema` is an object literal. Query the
 
 ## Contribute tables from a package
 
-A package can add Drizzle tables to an application's Database from its own Vite plugin, so the application does not edit its Definition. Add `vitehub.databases` to the plugin object. Each entry names a module and an export that hold an object of tables:
+A package can add Drizzle tables to an application's Database from its own Vite plugin, so the application does not edit its Definition. Add `vitehub.databases` to the plugin object. Each entry has a `name` and a `definition` that names the module and export of an object of tables:
 
 ```ts [my-package/vite.ts]
 import type { Plugin } from 'vite'
@@ -110,7 +110,11 @@ export function myPackage(): Plugin & DatabaseContributingPlugin {
   return {
     name: 'my-package/vite',
     vitehub: {
-      databases: () => [{ module: 'my-package/schema', export: 'historySchema' }],
+      databases: () => [{
+        name: 'history',
+        definition: { module: 'my-package/schema', export: 'historySchema' },
+        reason: 'Stores Workspace history.',
+      }],
     },
   }
 }
@@ -127,11 +131,32 @@ export const historySchema = {
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `database` | `string` | Database that receives the tables. Omit it to target the default or only Database. |
-| `module` | `string` | Absolute file path, or a package specifier that the application can import. Relative paths are rejected. |
-| `export` | `string` | Export that holds the object of tables. Defaults to `default`. |
+| `name` | `string` | Name of this group of tables. Each name has one contribution. Inspection and errors show it. |
+| `definition.module` | `string` | Absolute file path, `file:` URL, or package specifier that the application can import. Relative paths are rejected. |
+| `definition.export` | `string` | Export that holds the object of tables. Defaults to `default`. |
+| `reason` | `string` | Optional. Why the package adds the tables. `vitehub inspect definitions` and the Console show it. |
+| `database` | `string` | Optional. Database that receives the tables. Omit it to target the default or only Database. |
+| `dialect` | `'sqlite'` | Optional. SQL dialect of the tables. When set, the build fails if the target Database uses another dialect. |
 
-`vitehub.databases` accepts an array or a factory. The factory receives `{ rootDir, serverDirs }`, the roots that Database Definitions are discovered from, and can be async. It runs once per discovery pass and must return the same result each time.
+`vitehub.databases` accepts an array or a factory. The factory receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root, and can be async. It runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
+
+### Contribute tables from a Nuxt module
+
+A Nuxt module uses the same contribution. Add the plugin to `nuxt.options.vite.plugins` during module setup:
+
+```ts [my-module/module.ts]
+import { defineNuxtModule } from '@nuxt/kit'
+import { myPackage } from 'my-package/vite'
+
+export default defineNuxtModule({
+  setup(_options, nuxt) {
+    nuxt.options.vite.plugins ||= []
+    nuxt.options.vite.plugins.push(myPackage())
+  },
+})
+```
+
+The Database module reads the contributions after every module has run setup, so the module order does not matter. Do not use `addVitePlugin()` for a contribution. It adds the plugin when Vite starts, after Nitro has built its Database runtime.
 
 Contributed tables join the target Database everywhere the Definition schema goes:
 
@@ -147,9 +172,9 @@ A contribution without `database` targets the Database named `default`, or the o
 
 | Code | Cause |
 | --- | --- |
-| `DATABASE_B0010` | A contributed table uses the key or SQL table name of an application table or another contribution. If the Definition already lists the contributed tables, remove them from its schema. |
-| `DATABASE_B0011` | The target Database does not exist, the app has no Database, or `database` is omitted while several Named Databases exist and none is named `default`. The message lists the Database names to choose from. |
-| `DATABASE_B0012` | The contribution is not `{ database?, module, export? }`, its `module` is relative, or its export is missing or is not an object of tables. |
+| `DATABASE_B0010` | Two plugins contribute tables with one `name`, or a contributed table uses the key or SQL table name of an application table or another contribution. The message names both sources. If the Definition already lists the contributed tables, remove them from its schema. |
+| `DATABASE_B0011` | The target Database does not exist, the app has no Database, `database` is omitted while several Named Databases exist and none is named `default`, or `dialect` does not match the target Database. The message lists the Database names to choose from. |
+| `DATABASE_B0012` | The contribution is not `{ name, definition: { module, export? }, reason?, database?, dialect? }`, its `definition.module` is relative, or its export is missing or is not an object of tables. |
 | `DATABASE_B0007` | The contributed module cannot load. `vitehub db generate` fails. `vite dev` and builds print a warning and keep the tables in the runtime schema, without drizzle-kit exports. |
 
 `collectDatabaseContributions(plugins, context)` and `resolveDatabaseContributionTargets(names, contributions)` from `@vite-hub/database/vite` return the validated contributions and their targets for other build steps.

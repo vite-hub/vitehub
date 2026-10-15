@@ -571,8 +571,11 @@ export function resolveDBViteConfig(
   if (options === false) return
 
   const definitions = discoverDatabaseDefinitions(rootDir, context)
-  const tableContributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions ?? [])
-  if (!definitions.length) return
+  if (!definitions.length) {
+    // Contributed tables need a Database, so this fails when a plugin contributes tables.
+    resolveDatabaseContributionTargets([], context.contributions ?? [])
+    return
+  }
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
   const cloudflareProjections: Record<string, CloudflareD1Projection> = Object.create(null)
@@ -612,6 +615,11 @@ export function resolveDBViteConfig(
     }
   }
 
+  const tableContributionsByDatabase = resolveDatabaseContributionTargets(
+    definitions.map(definition => definition.name),
+    context.contributions ?? [],
+    Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect])),
+  )
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
   if (options && options.driver === "d1") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
   if (options && options.connection) definitionDefaults.connection = options.connection
