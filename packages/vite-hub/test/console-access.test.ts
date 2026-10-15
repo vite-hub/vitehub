@@ -160,6 +160,22 @@ describe("Console access policies", () => {
       await window.happyDOM.close()
     }
   })
+  it("accepts a compatible Response with an own clone method", async () => {
+    const window = new Window()
+    try {
+      const response = new window.Response("Sign in at the host.", { status: 401 })
+      const foreignClone = response.clone.bind(response)
+      Object.defineProperty(response, "clone", { value: () => foreignClone() })
+      const { handler, result } = await run({ mode: "host-managed", authorize: () => response })
+      expect(handler).not.toHaveBeenCalled()
+      expect(result).toBeInstanceOf(Response)
+      if (!(result instanceof Response)) throw new TypeError("Expected a Response")
+      await expect(result.text()).resolves.toBe("Sign in at the host.")
+    }
+    finally {
+      await window.happyDOM.close()
+    }
+  })
   it.each([
     "({ [Symbol.toStringTag]: 'Response' })",
     "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: null })",

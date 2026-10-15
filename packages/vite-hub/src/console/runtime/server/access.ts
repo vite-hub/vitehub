@@ -82,10 +82,9 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     // SAFETY: Headers validates the foreign iterable and all its entries at this boundary.
     const headers = new Headers(value.headers as Headers)
     const init = { headers, status: value.status, statusText: value.statusText }
-    // Use the candidate implementation's inherited clone algorithm so a Response
-    // from another Fetch implementation can pass its own internal-slot check.
-    // An own clone property is untrusted and cannot establish the Response brand.
-    if (Object.prototype.hasOwnProperty.call(value, "clone")) return undefined
+    // Use the candidate implementation's clone algorithm so a Response from
+    // another Fetch implementation can pass its own internal-slot check. The
+    // returned clone is validated below, so compatible own methods are allowed.
     const cloneMethod = Reflect.get(value, "clone")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (typeof cloneMethod !== "function") return undefined
