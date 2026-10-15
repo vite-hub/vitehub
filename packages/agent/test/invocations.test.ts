@@ -2281,6 +2281,35 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it("recognizes foreign errors when stack formatting throws", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-error-throwing-stack",
+      observations: [],
+      status: "running",
+      traceId: "foreign-error-throwing-stack-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('Error.prepareStackTrace = () => { throw new Error("stack failure") }; Object.assign(new Error("message"), { code: "E_THROWING_STACK" })')
+
+    await store.update("foreign-error-throwing-stack", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-error-throwing-stack"))?.observations[0]?.payload).toEqual({
+      value: { error: { code: "E_THROWING_STACK", message: "message", name: "Error" } },
+      visibility: "public",
+    })
+  })
+
   it("does not treat an Error subclass named AggregateError as aggregate", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({

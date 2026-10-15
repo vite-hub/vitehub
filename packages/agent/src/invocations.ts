@@ -585,7 +585,8 @@ function isErrorValue(value: unknown): value is Error {
         if (hasRuntimeType(stack, "string")) return true
       }
       catch {
-        return false
+        // A custom stack formatter can make the intrinsic getter throw. Keep
+        // checking the other Error brands so genuine values are still found.
       }
     }
     if (isInstance(value, Error)) return true
