@@ -53,7 +53,7 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     // Native accessors have a stable engine-generated source form. A broad
     // substring check is forgeable by an ordinary JavaScript getter whose
     // source merely contains "[native code]".
-    const nativeGetterSource = /^function get databaseSize\(\) \{ \[native code\] \}$/
+    const nativeGetterSource = /^function\s+get databaseSize\s*\(\s*\)\s*\{\s*\[native code\]\s*\}$/
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
 
     // The native getter must enforce workerd's internal SqlStorage brand.
