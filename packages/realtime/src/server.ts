@@ -184,16 +184,23 @@ function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName
       return false
     }
     if (descriptor) {
-      if (owner !== value) {
-        const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")
-        if (!constructor || !("value" in constructor) || typeof constructor.value !== "function" || constructor.value.prototype !== owner) return false
-        // A JavaScript class prototype is user-controlled metadata: an
-        // attacker can create `Object.create(FakeNamespace.prototype)` and
-        // make it look like a namespace without ever constructing the host
-        // binding. Only the host binding's branded constructor is trusted.
-        if (constructor.value.name !== "$DurableObject") return false
+      if ("value" in descriptor) {
+        if (typeof descriptor.value !== "function") return false
+        // Durable Object namespace methods are supplied by the host runtime.
+        // Reject JavaScript-authored prototype methods, which can be copied
+        // onto an arbitrary object with `Object.create`.
+        if (owner !== value) {
+          let source: string
+          try {
+            source = Function.prototype.toString.call(descriptor.value)
+          }
+          catch {
+            return false
+          }
+          if (!/\[native code\]/.test(source)) return false
+        }
+        return true
       }
-      if ("value" in descriptor) return typeof descriptor.value === "function"
       try {
         return typeof Reflect.get(value, name) === "function"
       }

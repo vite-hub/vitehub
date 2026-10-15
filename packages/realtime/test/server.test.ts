@@ -271,21 +271,18 @@ describe("realtime server handler", () => {
     expect(idFromName).not.toHaveBeenCalled()
   })
 
-  it("forwards through class-backed Durable Object bindings", async () => {
+  it("forwards through host-backed Durable Object bindings", async () => {
     const fetch = vi.fn(async () => new Response("forwarded"))
-    class $DurableObject {
-      get() {
-        return { fetch }
-      }
-
-      idFromName(name: string) {
-        return name
-      }
-    }
+    // Host-provided namespace methods have native function brands. Bound
+    // built-ins provide the same observable shape without trusting a
+    // JavaScript-authored class name.
+    const get = Function.prototype.bind.call(() => ({ fetch }), null) as () => { fetch: typeof fetch }
+    const idFromName = Function.prototype.bind.call((name: string) => name, null) as (name: string) => string
+    const binding = Object.create({ get, idFromName })
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       method: "POST",
     }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { env: { $DurableObject: new $DurableObject() } } }
+    request.runtime = { cloudflare: { env: { $DurableObject: binding } } }
 
     const handler = createRealtimeHandler(realtimeRegistry())
     const response = await handler.fetch(request)
