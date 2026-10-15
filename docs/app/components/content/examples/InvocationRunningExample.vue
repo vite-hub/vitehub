@@ -76,7 +76,6 @@ onMounted(() => {
   refreshDates(invocation, refreshedAt - now.value);
   now.value = refreshedAt;
 });
-});
 </script>
 
 <template>
