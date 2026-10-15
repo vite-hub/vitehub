@@ -453,6 +453,7 @@ function invocationCapabilityIds(record: Pick<AgentInvocationRecord, "capability
 async function boundedStoreOperation<T>(
   operation: () => MaybePromise<T>,
   timeoutMs = STORE_OPERATION_TIMEOUT_MS,
+  propagateErrors = false,
 ): Promise<T | undefined | typeof storeOperationTimedOut> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -463,7 +464,8 @@ async function boundedStoreOperation<T>(
       }),
     ])
   }
-  catch {
+  catch (error) {
+    if (propagateErrors) throw error
     return undefined
   }
   finally {
@@ -1993,7 +1995,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         }, CLAIM_RENEW_INTERVAL_MS)
         unrefTimer(heartbeat)
       }
-      const ensureCreated = async (): Promise<boolean> => {
+      const ensureCreated = async (timeoutMs = storeTimeoutMs): Promise<boolean> => {
         if (created || creationTimedOut) return created
         if (!creationTask) {
           const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
@@ -2029,7 +2031,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           })
           creationTask = task
         }
-        const result = await boundedStore(() => creationTask!)
+        const result = await boundedStore(() => creationTask!, timeoutMs)
         if (result === storeOperationTimedOut) creationTimedOut = true
         return created
       }
@@ -2238,8 +2240,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         let persisted = false
         while (!persisted && !boundToTerminalRecord && Date.now() < deadline) {
           await write(async () => {
-            if (boundToTerminalRecord || !await ensureCreated()) return
-            const claimed = await boundedStore(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, { replaceExisting: true }))
+            if (boundToTerminalRecord || Date.now() >= deadline || !await ensureCreated(Math.min(storeTimeoutMs, Math.max(0, deadline - Date.now())))) return
+            const recoveryStore = <T>(operation: () => MaybePromise<T>) => boundedStore(operation, Math.min(storeTimeoutMs, Math.max(0, deadline - Date.now())))
+            const claimed = await recoveryStore(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, { replaceExisting: true }))
             if (claimed !== true) return
             try {
               const timestamp = normalizedTimestamp(observation.timestamp)
@@ -2249,14 +2252,14 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 observation: boundedObservation(persistedObservation, undefined, limits),
                 timestamp,
               }, claimId))
-              const boundedUpdate = await boundedStore(() => update)
-              const updated = boundedUpdate === storeOperationTimedOut
-                ? await boundedStore(() => update, Math.max(0, deadline - Date.now()))
-                : boundedUpdate
+              const remaining = Math.max(0, deadline - Date.now())
+              const updated = remaining > 0
+                ? await boundedStore(() => update, Math.min(storeTimeoutMs, remaining))
+                : storeOperationTimedOut
               persisted = updated !== undefined && updated !== storeOperationTimedOut
             }
             finally {
-              await boundedStore(() => store.release(recordId, claimId))
+              await recoveryStore(() => store.release(recordId, claimId))
             }
           })
           if (!persisted && Date.now() < deadline) {
@@ -2383,7 +2386,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const finishingObservations = [activeObservation, ...pendingObservations]
           const observationDeadline = Date.now() + limits.flushTimeoutMs
           while (observationWrite && Date.now() < observationDeadline) {
-            await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
+            await boundedStore(() => observationWrite!, Math.min(storeTimeoutMs, observationDeadline - Date.now()))
           }
           const outcomeObservations = [...finishingObservations, activeObservation, ...pendingObservations]
             .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
@@ -2654,13 +2657,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (notEnforcedBy) result.notEnforcedBy = notEnforcedBy
         return result
       }
-      let summary: AgentInvocationSummary | undefined
-      try {
-        summary = await store.getSummary(id)
+      const cancellationStore = async <T>(operation: () => MaybePromise<T>) => {
+        const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+        if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
+        return result
       }
-      catch (error) {
-        throw error
-      }
+      const summary = await cancellationStore(() => store.getSummary(id))
       if (!summary) return missingResult
       if (terminalStatus(summary.status)) {
         return terminalResult(summary, local)
@@ -2668,8 +2670,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const timestamp = new Date().toISOString()
       // Persist the request first, so a run in another process and a later bind of this record read it.
       let flagged: AgentInvocationRecord | undefined
-      flagged = await store.update(id, { cancelRequestedAt: timestamp, timestamp })
-      let current = await store.getSummary(id) ?? flagged
+      flagged = await cancellationStore(() => store.update(id, { cancelRequestedAt: timestamp, timestamp }))
+      let current = await cancellationStore(() => store.getSummary(id)) ?? flagged
       if (!current) return missingResult
       if (terminalStatus(current.status)) return terminalResult(current, local)
       // The matching local owner can verify dispatch, including cancellation during setup.
@@ -2690,7 +2692,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       // Lease availability and a pending record cannot prove that no Driver started.
       // The durable request is terminalized by an execution owner that observes it.
-      current = await store.getSummary(id)
+      current = await cancellationStore(() => store.getSummary(id))
       if (!current) return missingResult
       const verificationDeadline = Date.now() + CANCELLATION_VERIFICATION_TIMEOUT_MS
       while (!terminalStatus(current.status) && current.cancelWarningPending && !current.cancelNotEnforcedBy) {
