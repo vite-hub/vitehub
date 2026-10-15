@@ -130,7 +130,8 @@ function headerValue(headers: WorkspaceDevHeaders, name: string): string | undef
     : ""
   const isCrossRealmHeaders = hasRuntimeType(constructor, "function")
     && Reflect.get(constructor, "name") === "Headers"
-    && (/^function\s+Headers\(\)\s*\{\s*\[native code\]\s*\}$/.test(constructorSource)
+    && (constructor === (typeof Headers === "function" ? Headers : undefined)
+      || /^function\s+Headers\(\)\s*\{\s*\[native code\]\s*\}$/.test(constructorSource)
       || constructorSource.includes("webidl.brandCheck"))
     && Reflect.get(constructor, "prototype") === prototype
   if (isCrossRealmHeaders) {
