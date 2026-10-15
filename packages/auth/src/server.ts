@@ -335,9 +335,11 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     // Use the stream's own realm methods. Native stream brand checks reject
     // applying this realm's methods to a foreign ReadableStream.
     const getReader = nativeStreamMethod(body, "getReader")
-    if (typeof getReader !== "function" || !hasNativeStreamBrand(body)) return false
+    const locked = streamLockedGetter(body)
+    if (typeof getReader !== "function" || !locked || !hasNativeStreamBrand(body)) return false
+    if (Reflect.apply(locked, body, []) !== false) return false
     const reader: unknown = Reflect.apply(getReader, body, [])
-    if (Object(reader) !== reader) return false
+    if (Object(reader) !== reader || Reflect.apply(locked, body, []) !== true) return false
     const readerObject = reader as object
     let releaseLock: unknown
     try {
@@ -350,15 +352,36 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     finally {
       try {
         if (typeof releaseLock === "function") Reflect.apply(releaseLock, readerObject, [])
+        if (Reflect.apply(locked, body, []) !== false) return false
       }
       catch {
-        // Ignore cleanup failures; validation remains fail-closed.
+        return false
       }
     }
   }
   catch {
     return false
   }
+}
+
+function streamLockedGetter(body: object): (() => boolean) | undefined {
+  let current: object | null = body
+  const seen = new Set<object>()
+  try {
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) return undefined
+      seen.add(current)
+      const descriptor = Object.getOwnPropertyDescriptor(current, "locked")
+      const getter = descriptor?.get
+      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+      if (typeof getter === "function" && constructor?.name === "ReadableStream") return getter as () => boolean
+      current = Object.getPrototypeOf(current)
+    }
+  }
+  catch {
+    return undefined
+  }
+  return undefined
 }
 
 function hasNativeStreamBrand(body: object): boolean {
