@@ -2031,8 +2031,8 @@ describe("agent Vite plugin", () => {
       const standaloneRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
       expect(standaloneRegistry).toContain('registry["agent/support"]')
       expect(standaloneRegistry).toContain('import("../../server/agents/support.ts")')
-      expect(standaloneRegistry).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-      expect(standaloneRegistry).toContain("capabilities: { connections: vitehubConnections, schedule: { schedules: vitehubSchedules } }")
+      expect(standaloneRegistry).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
+      expect(standaloneRegistry).toContain("capabilities: { schedule: { schedules: vitehubSchedules } }")
       expect(standaloneRegistry).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
 
       process.env.VITEHUB_HOSTING = "netlify"
