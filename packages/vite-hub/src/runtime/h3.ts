@@ -77,11 +77,19 @@ function isRequest(value: unknown): value is Request {
       if (typeof headersGet !== "function") continue
       headersGet.call(headers, "x-vite-hub-request-check")
       // Request methods perform an internal-slot brand check on their receiver.
-      // Cancel the clone immediately so validation does not retain an unread body.
-      if (!bodyUsed) {
-        const clone = methods[0]?.call(value) as { body?: { cancel?: () => unknown } } | undefined
+      // Probe clone even for consumed requests: a forged bodyUsed flag with a
+      // no-op clone must not be enough to pass validation. A genuine consumed
+      // request throws because its body is unusable; a fresh request returns a
+      // genuine Request clone, which we cancel immediately.
+      const cloneMethod = methods[0]
+      if (typeof cloneMethod !== "function") continue
+      try {
+        const clone = cloneMethod.call(value) as { body?: { cancel?: () => unknown } } | undefined
+        if (bodyUsed || Object.prototype.toString.call(clone) !== "[object Request]") continue
         const cancel = clone?.body?.cancel
         if (typeof cancel === "function") cancel.call(clone.body)
+      } catch {
+        if (!bodyUsed) continue
       }
       return true
     }
