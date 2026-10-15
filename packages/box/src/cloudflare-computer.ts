@@ -327,6 +327,9 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
           if (signal.aborted) abort();
         })
       : undefined;
+    // The signal can abort between the check above and the first race. Keep
+    // that rejection handled if throwIfAborted() exits before Promise.race.
+    void aborted?.catch(() => {});
     while (true) {
       signal?.throwIfAborted();
       const { done, value } = await (aborted ? Promise.race([reader.read(), aborted]) : reader.read());
