@@ -416,9 +416,9 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     try {
       const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
       const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-      nativeBodyState = Boolean(bodyUsed)
+      nativeBodyState = bodyUsed !== undefined
         && !Reflect.apply(bodyUsed, candidate, [])
-        && (body === null || (Boolean(locked) && !Reflect.apply(locked, body, [])))
+        && (body === null || (locked !== undefined && !Reflect.apply(locked, body, [])))
     }
     catch {
       // A proxy can expose native descriptors without owning native response state.
