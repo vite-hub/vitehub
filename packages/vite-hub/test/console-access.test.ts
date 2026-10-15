@@ -153,6 +153,20 @@ describe("Console access policies", () => {
     const inheritedGetter = await run({ mode: "open", authorize: () => Object.create({ get status() { return 401 } }) as Response })
     expect(inheritedGetter.handler).not.toHaveBeenCalled()
     await expect(rejection(inheritedGetter.result)).resolves.toMatchObject({ status: 403 })
+
+    const completeSpoof = Object.create({
+      [Symbol.toStringTag]: "Response",
+      get status() { return 401 },
+      get statusText() { return "Unauthorized" },
+      get headers() { return new Headers() },
+      get bodyUsed() { return false },
+      get body() { return null },
+      clone() { return this },
+      arrayBuffer() { return new ArrayBuffer(0) },
+    }) as Response
+    const spoofedPrototype = await run({ mode: "open", authorize: () => completeSpoof })
+    expect(spoofedPrototype.handler).not.toHaveBeenCalled()
+    await expect(rejection(spoofedPrototype.result)).resolves.toMatchObject({ status: 403 })
   })
 
   it("preserves a consumed response from another runtime realm", async () => {

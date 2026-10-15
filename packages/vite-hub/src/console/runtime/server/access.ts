@@ -68,12 +68,13 @@ function rejection(status: number, message: string): Response {
   })
 }
 
+const responseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+
 async function authorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value instanceof Response) return value
-  if (value === null || typeof value !== "object") return
+  if (typeof responseStatus !== "function") return
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return
-    if (Object.prototype.hasOwnProperty.call(value, Symbol.toStringTag)) return
+    Reflect.apply(responseStatus, value, [])
     const headers = Reflect.get(value, "headers")
     const status = Reflect.get(value, "status")
     const statusText = Reflect.get(value, "statusText")
