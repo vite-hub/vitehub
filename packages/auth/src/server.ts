@@ -351,7 +351,7 @@ function streamIntrinsic<T extends PropertyKey>(body: object, key: T): { value: 
   }
 }
 
-function isNativeFunction(value: unknown, localIntrinsic?: unknown): value is (...args: never[]) => unknown {
+function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName?: string): value is (...args: never[]) => unknown {
   if (typeof value !== "function") return false
   if (value === localIntrinsic) return true
   try {
@@ -360,7 +360,10 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown): value is (.
     // implementation-defined source text differs from the local intrinsic.
     // The surrounding prototype and descriptor checks establish the brand;
     // source text is only used to reject ordinary caller-defined functions.
-    return /\[native code\]/.test(source)
+    if (!/\[native code\]/.test(source)) return false
+    // Callable proxies stringify as an anonymous native wrapper. Genuine
+    // cross-realm intrinsics retain their operation name in the source.
+    return !expectedName || new RegExp(`(?:function\\s+${expectedName}\\b|^${expectedName}\\s*\\()`).test(source)
   }
   catch {
     return false
@@ -384,7 +387,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   const locked = streamIntrinsic(stream, "locked")
   const getReader = locked && streamIntrinsic(locked.owner, "getReader")
   if (!locked || !getReader || locked.owner !== getReader.owner
-    || !isNativeFunction(locked.value, nativeStreamLocked) || !isNativeFunction(getReader.value, nativeStreamGetReader)) return false
+    || !isNativeFunction(locked.value, nativeStreamLocked, "locked") || !isNativeFunction(getReader.value, nativeStreamGetReader, "getReader")) return false
   return !Reflect.apply(locked.value, stream, [])
 }
 
@@ -393,9 +396,9 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
   // from this carrier's verified native prototype and invoke them on the carrier.
   const forEach = responsePropertyDescriptor(headers, "forEach")?.value
   const getSetCookie = responsePropertyDescriptor(headers, "getSetCookie")?.value
-  if (!isNativeFunction(forEach, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value)
+  if (!isNativeFunction(forEach, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value, "forEach")
     || forEach.name !== "forEach") return
-  if (getSetCookie !== undefined && (!isNativeFunction(getSetCookie, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+  if (getSetCookie !== undefined && (!isNativeFunction(getSetCookie, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie")
     || getSetCookie.name !== "getSetCookie")) return
   return { forEach: forEach as (...args: never[]) => unknown, getSetCookie: getSetCookie as (...args: never[]) => unknown | undefined }
 }
@@ -405,12 +408,12 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const locked = streamIntrinsic(body, "locked")
   const getReaderIntrinsic = locked && streamIntrinsic(locked.owner, "getReader")
   if (!locked || !getReaderIntrinsic || locked.owner !== getReaderIntrinsic.owner
-    || !isNativeFunction(locked.value, nativeStreamLocked)
-    || !isNativeFunction(getReaderIntrinsic.value, nativeStreamGetReader)) throw new Error("Non-native response stream")
+    || !isNativeFunction(locked.value, nativeStreamLocked, "locked")
+    || !isNativeFunction(getReaderIntrinsic.value, nativeStreamGetReader, "getReader")) throw new Error("Non-native response stream")
   const streamPrototype = locked.owner
   const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
   // The constructor is metadata only. Never call or construct a value supplied by the response.
-  if (!isNativeFunction(streamConstructor, ReadableStream) || streamConstructor.name !== "ReadableStream"
+  if (!isNativeFunction(streamConstructor, ReadableStream, "ReadableStream") || streamConstructor.name !== "ReadableStream"
     || streamConstructor.prototype !== streamPrototype) throw new Error("Non-native response stream")
   const getReader = getReaderIntrinsic.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
@@ -426,7 +429,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
       || Object.prototype.hasOwnProperty.call(reader, "cancel")
       || Object.prototype.hasOwnProperty.call(reader, "releaseLock")) throw new Error("Non-native response reader")
     const readerConstructor = Object.getOwnPropertyDescriptor(readerPrototype, "constructor")?.value
-    if (!isNativeFunction(readerConstructor, nativeReaderPrototype.constructor)
+    if (!isNativeFunction(readerConstructor, nativeReaderPrototype.constructor, "ReadableStreamDefaultReader")
       || readerConstructor.name !== "ReadableStreamDefaultReader"
       || readerConstructor.prototype !== readerPrototype) throw new Error("Non-native response reader")
     // The returned reader may have a caller-controlled immediate prototype. Its
@@ -439,9 +442,9 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     // Native reader operations have stable names across realms. This rejects
     // replacements installed on a shared reader prototype before any
     // caller-controlled operation is invoked.
-    if (!isNativeFunction(read, nativeReaderRead) || read.name !== "read"
-    || !isNativeFunction(cancel, nativeReaderCancel) || cancel.name !== "cancel"
-    || !isNativeFunction(releaseLock, nativeReaderReleaseLock) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
+    if (!isNativeFunction(read, nativeReaderRead, "read") || read.name !== "read"
+    || !isNativeFunction(cancel, nativeReaderCancel, "cancel") || cancel.name !== "cancel"
+    || !isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock") || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
     let released = false
     const release = () => {
       if (released) return
