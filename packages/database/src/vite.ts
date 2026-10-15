@@ -12,7 +12,7 @@ import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/buil
 
 import { createDbCliContributor } from "./cli.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, resolveCloudflareD1Bindings } from "./internal/cloudflare.ts"
-import { resolveDBViteConfig } from "./config.ts"
+import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, generateProviderOutputs, prepareProviderOutputs, shouldCreateCloudflareOutput, shouldCreateVercelOutput } from "./internal/vite-build.ts"
@@ -24,7 +24,7 @@ import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
-import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
+import type { DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
 export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
@@ -104,7 +104,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
     `import schema_${index} from ${JSON.stringify(config.generatedSchemaFilesByDatabase[definition.name])}`,
   ].join("\n"))
   const entries = config.definitions.map((definition, index) => [
-    `  ${JSON.stringify(definition.name)}: {`,
+    `  [${JSON.stringify(definition.name)}]: {`,
     `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
     `    schema: schema_${index},`,
     "  },",
@@ -142,6 +142,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
   function databaseServerDirs() {
     const database = resolvedOptions()
+    // The Database Nuxt bridge pins `projectRoot` and forwards the server directories of the application and its layers.
+    if (database && "nuxtServerDirs" in database) {
+      // SAFETY: Only the Database Nuxt bridge sets `nuxtServerDirs`, and it always sets a string array.
+      return (database as NuxtDatabaseViteOptions).nuxtServerDirs
+    }
     return database && "projectRoot" in database && database.projectRoot !== undefined
       ? [resolve(databaseRoot(), "server")]
       : serverDirs
@@ -265,7 +270,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (!runtimeConfig) return
 
       const changedFile = normalize(context.file)
-      const isDatabaseUpdate = runtimeConfig.definitions.some(definition => normalize(definition.handler) === changedFile)
+      const isDatabaseUpdate = runtimeConfig.definitions.some(definition => definition.schemaSources.some(source => normalize(source.handler) === changedFile))
       if (!isDatabaseUpdate) return
 
       await refreshRuntimeConfig()
@@ -298,7 +303,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const retainedSources = await retainProviderOutputSources({
           artifactDir: resolve(contributionArtifactDir, "sources"),
           paths: [
-            ...contributionRuntimeConfig.definitions.map(definition => definition.handler),
+            ...contributionRuntimeConfig.definitions.flatMap(definition => [definition.handler, ...definition.schemaSources.map(source => source.handler)]),
             ...Object.values(contributionRuntimeConfig.generatedSchemaFilesByDatabase),
           ],
           roots: [contributionResolved.root],
@@ -308,6 +313,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           definitions: contributionRuntimeConfig.definitions.map(definition => ({
             ...definition,
             handler: retainedSources.resolve(definition.handler),
+            schemaSources: definition.schemaSources.map(source => ({ ...source, handler: retainedSources.resolve(source.handler) })),
           })),
           generatedSchemaFilesByDatabase: Object.fromEntries(Object.entries(contributionRuntimeConfig.generatedSchemaFilesByDatabase)
             .map(([name, file]) => [name, retainedSources.resolve(file)])),
@@ -355,7 +361,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig)
       if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
         const options = resolvedOptions()
-        return `export default ${JSON.stringify(runtimeConfig?.definitionDefaults ?? {
+        return `export default ${serializeGeneratedRegistry(runtimeConfig?.definitionDefaults ?? {
           ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
           ...(options && options.connection ? { connection: options.connection } : {}),
         })}\n`

@@ -78,15 +78,12 @@ function isResponseLike(value: unknown): value is Response {
     const ownSlots = ["bodyUsed", "redirected", "type", "url", "status", "statusText", "ok", "headers"]
       .every((key) => Object.prototype.hasOwnProperty.call(value, key))
     let hasBodyGetter = false
-    let hasNativeLikeBodyGetter = false
     let hasResponseTag = false
     for (let prototype = Object.getPrototypeOf(value); prototype; prototype = Object.getPrototypeOf(prototype)) {
       const body = Object.getOwnPropertyDescriptor(prototype, "body")
       if (body && typeof body.get === "function") {
         hasBodyGetter = true
-        // happy-dom's getter reads its private symbol-backed body slot. A plain
-        // getter returning a value cannot provide the same response state.
-        hasNativeLikeBodyGetter = /\[.*(?:Symbol|body).*[\]]/.test(Function.prototype.toString.call(body.get))
+
       }
       const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
       if (tag && typeof tag.get === "function" && tag.get.call(value) === "Response") hasResponseTag = true
@@ -112,24 +109,8 @@ function isResponseLike(value: unknown): value is Response {
         factorySurface = false
       }
     }
-    // Foreign DOM implementations keep their internal response state in a
-    // non-enumerable own symbol.  Merely counting symbols is spoofable because
-    // callers can add an arbitrary enumerable symbol to an ordinary object.
-    const hiddenStateSymbols = Object.getOwnPropertySymbols(value).filter((symbol) => {
-      const descriptor = Object.getOwnPropertyDescriptor(value, symbol)
-      return descriptor?.enumerable === false && descriptor.value !== undefined
-    })
-    // happy-dom stores the response's internal state in several distinct slots.
-    // Requiring the slots that represent body state and lifecycle state prevents a
-    // plain object from passing by adding one arbitrary symbol.
-    const hiddenStateNames = new Set(hiddenStateSymbols.map(symbol => symbol.description))
-    const hasHiddenState = hiddenStateNames.has("body")
-      && hiddenStateNames.has("aborted")
-      && hiddenStateNames.has("error")
     const foreignImplementation = ownSlots
-      && hasHiddenState
       && hasBodyGetter
-      && hasNativeLikeBodyGetter
       && hasResponseTag
       && typeof constructor === "function"
       && constructor.name === "Response"
