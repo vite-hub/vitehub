@@ -24,43 +24,54 @@ function renderRetentionLimit(value: number | false | undefined): string {
 }
 /**
  * The Console access policy that generated output installs. Every Console data route checks it.
- * `check.module` is a generated Console Auth middleware that exports `checkConsoleAccess`.
- * `check.appRoutes` lists the Primary Auth access routes that protect the Console.
+ * `check.module` is a generated Console Auth middleware that exports `checkConsoleAccess`, and `readConsoleUser` for a session.
+ * `check.appRoutes` lists the app Auth access routes that protect the Console.
+ * `authorize` is the `console.authorize` server file.
  */
-export type ConsoleAccessBuild =
-  | { mode: "local" }
-  | { mode: "auth" | "cloudflare-access", check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] } }
-  | { mode: "host-managed", authorize?: string }
+export interface ConsoleAccessBuild {
+  mode: "open" | "auth" | "cloudflare-access"
+  authorize?: string
+  check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
+}
 
 function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports: string[], install: string[] } {
   if (!access) return { imports: [], install: [] }
-  if (access.mode === "local") return { imports: [], install: ['installConsoleAccess({ mode: "local" })'] }
-  if (access.mode === "host-managed") {
-    return access.authorize
-      ? {
-          imports: [`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`],
-          install: ['installConsoleAccess({ mode: "host-managed", authorize: vitehubConsoleAuthorize })'],
-        }
-      : { imports: [], install: ['installConsoleAccess({ mode: "host-managed" })'] }
-  }
-  const mode = JSON.stringify(access.mode)
-  if (!access.check) return { imports: [], install: [`installConsoleAccess({ mode: ${mode} })`] }
-  if ("module" in access.check) {
-    return {
-      imports: [`import { checkConsoleAccess as vitehubConsoleAccessCheck } from ${JSON.stringify(pathToFileURL(access.check.module).href)}`],
-      install: [`installConsoleAccess({ mode: ${mode}, check: vitehubConsoleAccessCheck })`],
+  const imports: string[] = []
+  const fields = [`mode: ${JSON.stringify(access.mode)}`]
+  if (access.check && "module" in access.check) {
+    const module = JSON.stringify(pathToFileURL(access.check.module).href)
+    if (access.mode === "auth") {
+      imports.push(`import { checkConsoleAccess as vitehubConsoleAccessCheck, readConsoleUser as vitehubConsoleUser } from ${module}`)
+      fields.push("check: vitehubConsoleAccessCheck", "user: vitehubConsoleUser")
+    }
+    else {
+      imports.push(`import { checkConsoleAccess as vitehubConsoleAccessCheck } from ${module}`)
+      fields.push("check: vitehubConsoleAccessCheck")
     }
   }
-  const routes = JSON.stringify(access.check.appRoutes)
-  return access.check.appRoutes.length
-    ? {
-        imports: ['import { requireAuthAccessRoutes as vitehubRequireAuthAccessRoutes } from "#vitehub/auth/server"'],
-        install: [`installConsoleAccess({ mode: ${mode}, check: event => { const path = event.url.pathname; const method = (event.req?.method ?? event.request?.method ?? "GET").toUpperCase(); const matched = ${routes}.filter(route => { if (route.method && route.method !== method) return false; if (path === route.route) return true; if (!route.route.endsWith("/**")) return false; const base = route.route.slice(0, -3); return path === base || path.startsWith(base + "/") }); const indexes = matched.map(route => route.index); const required = matched.filter(route => route.authorize).map(route => route.index); return vitehubRequireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false }) } })`],
-      }
-    : {
-        imports: ['import { withAuthorization as vitehubWithAuthorization } from "#vitehub/auth/server"'],
-        install: [`installConsoleAccess({ mode: ${mode}, check: vitehubWithAuthorization(true, () => undefined) })`],
-      }
+  else if (access.check) {
+    // App Auth: require a session, and the authorize callbacks of the Auth access routes that match the request.
+    const routes = JSON.stringify(access.check.appRoutes)
+    imports.push(
+      'import { getAuthForRequest as vitehubGetAuthForRequest, requireAuthAccessRoutes as vitehubRequireAuthAccessRoutes, withAuthorization as vitehubWithAuthorization } from "#vitehub/auth/server"',
+      'import { readConsoleSessionUser as vitehubReadConsoleSessionUser } from "vite-hub/console/auth"',
+    )
+    fields.push(
+      `check: event => { const path = event.url.pathname; const method = (event.req?.method ?? event.request?.method ?? "GET").toUpperCase(); const matched = ${routes}.filter(route => { if (route.method && route.method !== method) return false; if (path === route.route) return true; if (!route.route.endsWith("/**")) return false; const base = route.route.slice(0, -3); return path === base || path.startsWith(base + "/") }); if (!matched.length) return vitehubRequireSession(event); const indexes = matched.map(route => route.index); const required = matched.filter(route => route.authorize).map(route => route.index); return vitehubRequireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false }) }`,
+      "user: event => vitehubReadConsoleSessionUser(vitehubGetAuthForRequest(event.req, undefined, event), event.req)",
+    )
+  }
+  if (access.authorize) {
+    imports.push(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`)
+    fields.push("authorize: vitehubConsoleAuthorize")
+  }
+  return {
+    imports,
+    install: [
+      ...(access.check && "appRoutes" in access.check ? ["const vitehubRequireSession = vitehubWithAuthorization(true, () => undefined)"] : []),
+      `installConsoleAccess({ ${fields.join(", ")} })`,
+    ],
+  }
 }
 
 function renderConsoleNitroPlugin(

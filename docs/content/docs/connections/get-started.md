@@ -31,7 +31,7 @@ import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: true, database: true, connections: true }), nitro() as never],
+  plugins: [vitehub({ preset: 'node', console: { auth: false }, database: true, connections: true }), nitro() as never],
   env: {
     server: {
       google: {
