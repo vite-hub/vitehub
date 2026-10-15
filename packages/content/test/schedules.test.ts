@@ -91,6 +91,7 @@ describe("scheduled publishing", { timeout: 30_000 }, () => {
     expect(schedule).toMatchObject({ at: at.toISOString(), status: "pending", expect: [{ collection: "posts", id: "hello", digest: saved.digest }], message: "Launch", metadata: { author: { id: "ada" } } })
     await expect(content.schedules()).resolves.toEqual([schedule])
     await expect(content.schedules({ collection: "posts", id: "hello" })).resolves.toHaveLength(1)
+    await expect(rejection(content.schedules({ id: "hello" }))).resolves.toMatchObject({ code: "CONTENT_R0011", message: expect.stringContaining("requires collection") })
     await expect(content.schedules({ collection: "settings" })).resolves.toEqual([])
     await expect(posts.status("hello")).resolves.toMatchObject({ state: "draft", schedule: { id: schedule.id, at: schedule.at, status: "pending", digest: saved.digest } })
 
