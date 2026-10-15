@@ -77,6 +77,13 @@ function isResponseLike(value: unknown): value is Response {
     }
     const ownSlots = ["bodyUsed", "redirected", "type", "url", "status", "statusText", "ok", "headers"]
       .every((key) => Object.prototype.hasOwnProperty.call(value, key))
+    // happy-dom stores its response state in enumerable own symbols. Require the
+    // complete state set when accepting a shimmed implementation so copied public
+    // slots on an ordinary object still fail closed.
+    const shimStateSymbols = new Set(["cachedResponse", "buffer", "virtualServerFile", "aborted", "error", "body"])
+    const hasShimState = Object.getOwnPropertySymbols(value).every(symbol => shimStateSymbols.has(symbol.description ?? ""))
+      && Object.getOwnPropertySymbols(value).some(symbol => symbol.description === "body")
+      && shimStateSymbols.size === Object.getOwnPropertySymbols(value).length
     let hasBodyGetter = false
     let hasResponseTag = false
     for (let prototype = Object.getPrototypeOf(value); prototype; prototype = Object.getPrototypeOf(prototype)) {
@@ -126,7 +133,7 @@ function isResponseLike(value: unknown): value is Response {
       // Node's Response stores its slots internally, while DOM shims commonly
       // expose them as own properties. Both forms are valid when the inspected
       // body getter accepts the value (or the shim exposes the complete shape).
-      && (ownSlots || nativeBrand)
+      && (nativeBrand || hasShimState)
     return typeof response.status === "number"
       && typeof response.statusText === "string"
       && (nativeBrand || foreignImplementation)
