@@ -84,7 +84,7 @@ channelDelivery({
 - It runs in the same Agent Invocation, with the same tools and counters. `maxCalls` still limits send attempts across all turns. `turns` limits reminder turns.
 - The Driver receives the original messages, the previous final text as an assistant message, and the instruction as a user message. Each further turn appends to that transcript.
 - The previous turn's tool calls and tool results are not replayed. A Driver that resumes its own session sees them. Other Drivers see only the final text, so the reminder asks the Agent to send that text instead of repeating the work.
-- It only runs for a settled result. A stream, a UI message stream, or a `Response` has not run its tools until the caller reads it, so it is checked when it finishes, without a reminder.
+- For streamed results, the reminder check runs after the stream has been consumed and its tools have finished. A stream, UI message stream, or `Response` therefore receives its configured reminder after the caller reads it and the stream settles.
 - When all turns finish without a successful send, the Agent Invocation fails with `CHANNEL_DELIVERY_REQUIRED`. The error `details` include `attempts` and `reminders`.
 - Each turn emits an `agent.channel.delivery.reminder` Trace Event with the turn number, the tool name, the length of the previous final text, and the previous turn's token usage when the Driver reports it.
 - The finish usage record covers the last turn only. Earlier turns are in the reminder Trace Events.
@@ -93,7 +93,7 @@ channelDelivery({
 | --- | --- |
 | Model-backed | A new model call with the transcript. |
 | Provider-backed | Resumes the provider session when the Agent Invocation has a thread or chat session that the provider keeps. Otherwise it starts a new provider session with the transcript as the prompt. |
-| Custom-run-backed | `driver.run` runs again with the transcript in `context.messages` and `context.input.prompt`. A `run` that returns a stream or `Response` gets no reminder. |
+| Custom-run-backed | `driver.run` runs again with the transcript in `context.messages` and `context.input.prompt`. Stream and `Response` results are checked after they settle. |
 
 ## Requirements
 
