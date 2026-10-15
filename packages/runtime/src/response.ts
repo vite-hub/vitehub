@@ -27,17 +27,18 @@ const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
 function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
-    // Blob.prototype.arrayBuffer is an intrinsic operation. Calling it performs
-    // the Web IDL brand check, including for Blob objects from another realm.
+    // Blob.prototype.arrayBuffer and the native type getter are intrinsic
+    // operations. Applying them performs the Web IDL brand check, including
+    // for Blob objects from another realm, without consulting structuredClone's
+    // host-specific clone registry.
     if (typeof blobType !== "function") return undefined
-    const cloned = typeof structuredClone === "function" ? structuredClone(value) : value
-    const type = String(Reflect.apply(blobType, cloned, []))
+    const type = String(Reflect.apply(blobType, value, []))
     return {
       type,
       body: () => new ReadableStream<Uint8Array>({
         async start(controller) {
           try {
-            const bytes = await Reflect.apply(blobArrayBuffer, cloned, []) as ArrayBuffer
+            const bytes = await Reflect.apply(blobArrayBuffer, value, []) as ArrayBuffer
             controller.enqueue(new Uint8Array(bytes))
             controller.close()
           }
