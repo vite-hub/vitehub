@@ -79,5 +79,5 @@ async function channelReplayHandler(event: ConsoleRequestEvent): Promise<Respons
   return await handleChannelReplayRequest(agent, replay, { maxLimit: maximumReplayItemsPerRequest, runtime: context })
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler)
+const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler, { section: "agents" })
 export default guardedHandler
