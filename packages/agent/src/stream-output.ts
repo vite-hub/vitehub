@@ -64,8 +64,12 @@ function hasResponsePrototype(value: unknown): boolean {
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
   try {
-    const bodyGetter = responsePropertyDescriptor(Response.prototype, "body")?.get
-    const headersGetter = responsePropertyDescriptor(Response.prototype, "headers")?.get
+    // Response accessors perform an internal-slot brand check, so the host
+    // realm's getters reject an otherwise genuine Response from another realm.
+    // Select the accessors from the candidate's branded Response prototype.
+    if (!hasResponsePrototype(value)) return false
+    const bodyGetter = responsePropertyDescriptor(value, "body")?.get
+    const headersGetter = responsePropertyDescriptor(value, "headers")?.get
     const body = bodyGetter && Reflect.apply(bodyGetter, value, [])
     const headers = headersGetter && Reflect.apply(headersGetter, value, [])
     const lockedGetter = body && readableStreamDescriptor(body, "locked")?.get
