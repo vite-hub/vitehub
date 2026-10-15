@@ -3,7 +3,7 @@ const MAX_CURSORS_PER_HISTORY = 1_024
 const MAX_CURSOR_LENGTH = 8 * 1_024
 const MAX_CONTINUATION_LENGTH = 128 * 1_024
 type CursorHistory = Set<string>
-interface Continuation { providerCursor: string, history: CursorHistory }
+interface Continuation { providerCursor: string | undefined, history: CursorHistory }
 
 function continuationTag(value: string): string {
   const hashes = [2166136261, 2246822519, 3266489917, 668265263]
@@ -54,7 +54,10 @@ export function createCursorHistory() {
     }
     return token
   }
-  return { take, store }
+  function restore(cursor: string, continuation: Continuation): void {
+    continuations.set(cursor, continuation)
+  }
+  return { take, store, restore }
 }
 
 /** Records a provider cursor, refusing to weaken repeat detection at the bound. */
