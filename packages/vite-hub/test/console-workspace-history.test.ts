@@ -33,4 +33,19 @@ describe("Console Workspace history navigator", () => {
     expect(html).toContain("Open revision on GitHub")
     expect(html).toContain("Load older")
   })
+
+  it("does not render unsafe revision URLs", async () => {
+    const app = createSSRApp({
+      render: () => h(History, {
+        refs: [{ name: "main", head: revision }],
+        revisions: [{ ...revision, metadata: { url: "javascript:alert(1)" } }],
+        selectedRef: "main",
+        selectedRevision: revision.id,
+      }),
+    })
+    app.component("UIcon", { props: { name: String }, template: "<span />" })
+    const html = await renderToString(app)
+    expect(html).not.toContain("Open revision on GitHub")
+    expect(html).not.toContain("javascript:")
+  })
 })

@@ -29,7 +29,13 @@ const selected = computed(() => props.revisions.find(revision => revision.id ===
 const selectedUrl = computed(() => {
   const url = selected.value?.metadata?.url;
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Revision metadata crosses the Console JSON boundary.
-  return typeof url === "string" ? url : undefined;
+  if (typeof url !== "string") return undefined;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : undefined;
+  } catch {
+    return undefined;
+  }
 });
 
 function revisionLabel(revision: WorkspaceRevision): string {
