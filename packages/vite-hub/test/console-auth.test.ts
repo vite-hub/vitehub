@@ -404,7 +404,9 @@ describe("independent Console Auth", () => {
             plugin.onResolve({ filter: /^(#vitehub\/auth\/server|vite-hub\/console\/auth)$/ }, args => ({ path: args.path, namespace: "test-console-auth" }))
             plugin.onLoad({ filter: /.*/, namespace: "test-console-auth" }, (args) => ({
               contents: args.path === "#vitehub/auth/server"
+
                 ? 'export function requireAuthAccessRoutes(event, indexes, definition, routes, options) { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, indexes[0], options?.redirectToSignIn]); return new Response("guarded", {status: 401}) }; export function withAuthorization(authorize, handler) { if (typeof authorize !== "function" || typeof handler !== "function") throw new TypeError("guard"); return async event => { globalThis[Symbol.for("test.console.auth.calls")].push([event.url.pathname, "withAuthorization", handler()]); return new Response("guarded", {status: 403}) } }; export function createAuthForRequest() { return { api: { getSession: async () => ({ user: { id: "ada" } }) } } }'
+ a4cf10ff5fbd8d8e2652aee52d78f537f8491520
                 : "export function createConsoleAuthDefinition() { return {} }; export function prepareConsoleAuth() {}; export function consoleAuthPageResponse(_request, response) { return response }; export async function readConsoleSessionUser(auth, request) { return (await auth.api.getSession({ headers: request.headers }))?.user }",
               loader: "js",
             }))
@@ -415,7 +417,9 @@ describe("independent Console Auth", () => {
       await writeFile(modulePath, bundled.outputFiles![0]!.text)
       const guard = (await import(pathToFileURL(modulePath).href)) as {
         checkConsoleAccess: (event: { url: URL; req?: Request }) => Promise<Response | undefined>
+
         readConsoleUser: (event: { req: Request }) => Promise<{ id: string } | undefined>
+ a4cf10ff5fbd8d8e2652aee52d78f537f8491520
         default: (event: { url: URL; req?: Request }) => Promise<Response | undefined>
       }
       const calls: Array<[string, number, boolean | undefined]> = []
@@ -434,6 +438,8 @@ describe("independent Console Auth", () => {
         expect((await guard.checkConsoleAccess({ url: new URL("https://example.com/api/app"), req: rpcRequest }))?.status).toBe(403)
         // console.authorize and Connections read the signed-in Console Auth user from the same definition.
         await expect(guard.readConsoleUser({ req: rpcRequest })).resolves.toEqual({ id: "ada" })
+
+ a4cf10ff5fbd8d8e2652aee52d78f537f8491520
         expect(calls).toEqual([
           ["/_vitehub", 0, false],
           ["/api/_vitehub/console/status", 1, false],
