@@ -344,9 +344,13 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | false | undefined {
   if (body === null || typeof body !== "object") return
   try {
-    // The platform constructor performs the intrinsic ReadableStream brand check,
-    // including for streams created in another realm.
-    new Response(body as ReadableStream)
+    // Calling the intrinsic method performs the ReadableStream brand check,
+    // including for streams created in another realm. Constructing a Response
+    // is insufficient because arbitrary objects are coerced to text bodies.
+    const reader = Reflect.apply(ReadableStream.prototype.getReader, body, [])
+    const methods = getNativeAuthorizationReaderMethods(reader)
+    if (!methods) return false
+    Reflect.apply(methods.releaseLock, reader, [])
     return ReadableStream.prototype.getReader
   }
   catch {
