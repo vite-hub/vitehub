@@ -352,6 +352,9 @@ function hasResponsePrototype(value: unknown): boolean {
 async function copyAuthorizationBody(body: unknown): Promise<ReadableStream<Uint8Array> | null | undefined> {
   if (body === null) return null
   if (Object(body) !== body) return
+  // An own reader method is an explicit override, so fail closed before
+  // structured cloning can transfer and hide the forged implementation.
+  if (Object.prototype.hasOwnProperty.call(body, "getReader")) return
   try {
     // Structured cloning with transfer performs a non-forgeable ReadableStream
     // brand check and works across fetch realms without trusting an inherited
