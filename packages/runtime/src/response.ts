@@ -55,20 +55,16 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
         const constructor = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "constructor")?.value
         const slicedSlice = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "slice")?.value
         const stream = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "stream")?.value
+        const arrayBuffer = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "arrayBuffer")?.value
+        const text = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "text")?.value
+        const toString = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "toString")?.value
         const sizeGetter = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "size")?.get
-        const constructorSource = hasRuntimeType(constructor, "function")
-          ? Function.prototype.toString.call(constructor)
-          : ""
         if (
           !hasRuntimeType(constructor, "function") || constructor.name !== "Blob" ||
-          // Native Blob implementations expose the intrinsic methods. The
-          // fallback implementation used by tests is a full Blob class; a
-          // small user-defined `class Blob` with forged methods is rejected.
-          !(constructorSource.includes("[native code]") ||
-            (constructorSource.startsWith("class Blob") && constructorSource.length > 1000 &&
-              constructorSource.includes("get size") && constructorSource.includes("stream"))) ||
           constructor.prototype !== slicedPrototype ||
-          slicedSlice !== slice || !hasRuntimeType(stream, "function") || !hasRuntimeType(sizeGetter, "function")
+          slicedSlice !== slice || !hasRuntimeType(stream, "function") ||
+          !hasRuntimeType(arrayBuffer, "function") || !hasRuntimeType(text, "function") ||
+          !hasRuntimeType(toString, "function") || !hasRuntimeType(sizeGetter, "function")
         ) {
           prototype = Object.getPrototypeOf(prototype)
           continue
