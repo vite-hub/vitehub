@@ -1,13 +1,13 @@
 import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { ViteHubError } from "@vite-hub/runtime"
-import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
 import { workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "../core/file-metadata.ts"
 import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, validateHistoryMessage } from "../core/history.ts"
 import { contentToBytes, decodeFile, isExcludedWorkspacePath, isWorkspaceBytes, normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
 import { createMemoryWorkspaceStore, forkMemoryWorkspaceStore } from "./memory.ts"
+import { ownedBlobPrefix } from "./owned-blob-prefix.ts"
 import { workspaceStoreTarget } from "./target.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "./utils.ts"
 import { workspaceHistorySchema, type HistoryManifestFile } from "./history-schema.ts"
@@ -63,10 +63,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
 
   constructor(private options: BlobDatabaseWorkspaceStoreOptions) {
     if (!hasRuntimeType(options.workspace, "string") || !options.workspace) throw workspaceError("[vitehub] Blob + Database Store requires a workspace identity.")
-    if (options.prefix !== undefined && !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(options.prefix)) throw workspaceError("[vitehub] History Blob prefix must contain only letters, numbers, underscores, dashes, and single slashes.")
-    // ViteHub owns every history object, so a custom prefix only nests below the owned root.
-    const root = `${vitehubOwnedPrefix}workspace-history`
-    const prefix = options.prefix === undefined ? root : `${root}/${options.prefix}`
+    const prefix = ownedBlobPrefix("workspace-history", options.prefix, "History")
     this.#namespace = sha256(options.workspace).then(digest => `${prefix}/${digest}`)
   }
 

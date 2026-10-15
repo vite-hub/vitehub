@@ -1,6 +1,7 @@
 import { workspaceConflict, workspaceError } from "../../core/errors.ts"
 import { contentToBytes, isExcludedWorkspacePath, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { createWorkspaceGlobMatcher } from "../../core/glob.ts"
+import { ownedBlobPrefix } from "../../storage/owned-blob-prefix.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../../storage/provider.ts"
 import { createCurrentSnapshotFromStore, diffSnapshots } from "../../storage/utils.ts"
 import * as bundledVercelBlob from "@vercel/blob"
@@ -189,12 +190,11 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   #options: VercelBlobWorkspaceStoreOptions
   #files: ReturnType<typeof createVercelBlobClient> | undefined
 
-  constructor(options: VercelBlobWorkspaceStoreOptions, private workspaceName: string) {
-    this.#options = resolveRuntimeVercelBlobWorkspaceStore(options, typeof process !== "undefined" ? process.env : {})
-  }
+  #root: string
 
-  get #root() {
-    return joinBlobPath(this.#options.prefix || ".vitehub/workspaces", this.workspaceName)
+  constructor(options: VercelBlobWorkspaceStoreOptions, workspaceName: string) {
+    this.#options = resolveRuntimeVercelBlobWorkspaceStore(options, typeof process !== "undefined" ? process.env : {})
+    this.#root = joinBlobPath(ownedBlobPrefix("workspaces", this.#options.prefix, "Workspace"), workspaceName)
   }
 
   #fileKey(path: string, options: { allowEmpty?: boolean } = {}) {

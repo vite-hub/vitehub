@@ -225,7 +225,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VITEHUB_HOSTING: vercel
           VITEHUB_VITE_MODE: e2e
-          VITEHUB_WORKSPACE_BLOB_PREFIX: vitehub/workspace-e2e/vite
+          VITEHUB_WORKSPACE_BLOB_PREFIX: e2e/vite
         run: vp run playground:vite:build
 
       - name: Provider Output Contract (vercel)
