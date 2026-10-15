@@ -8,6 +8,10 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./package-exports": {
+      "types": "./dist/package-exports.d.ts",
+      "import": "./src/package-exports.ts"
+    },
     "./cli": "./dist/cli.js",
     "./console": "./dist/console.js",
     "./env": "./dist/env.js",
