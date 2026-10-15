@@ -80,4 +80,4 @@ ViteHub is in active development and has not reached 1.0. Interfaces can change 
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and the code map. ViteHub uses the [Apache License 2.0](LICENSE). Report vulnerabilities through the [security policy](SECURITY.md).
+See [AGENTS.md](AGENTS.md) for the code map and checks. ViteHub uses the [Apache License 2.0](LICENSE). Report vulnerabilities through the [security policy](SECURITY.md).
