@@ -5,8 +5,6 @@ import { dirname, join } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { loadDatabaseSchema, mergeLoadedSchemas } from "./schema-tables.ts"
-
 import type { DatabaseTableNameOptions, LoadedDatabaseSchema } from "./schema-tables.ts"
 import type { DiscoveredDatabaseDefinition, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
@@ -35,7 +33,7 @@ function createTableExports(definition: DiscoveredDatabaseDefinition, tableNames
 }
 
 /** Renders the schema of a Definition. With Nuxt layers, it imports each schema source and merges them. */
-function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, sources: LoadedDatabaseSchema[]) {
+function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, sources: LoadedDatabaseSchema[], mergeLoadedSchemas: (schemas: readonly LoadedDatabaseSchema[]) => LoadedDatabaseSchema) {
   const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
   const layered = sourceVariables.length > 1
   // Each table comes from the source that wins its key, so drizzle-kit sees every table once.
@@ -144,12 +142,17 @@ export async function removeGeneratedDatabaseTypes(rootDir: string) {
 /** Writes generated schemas, Drizzle configs, and types. Each schema source of a Definition is loaded to list its tables. */
 export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig, options: DatabaseTableNameOptions = {}) {
   const generatedTypesFile = join(config.rootDir, ".vitehub/types/database.d.ts")
-  await Promise.all(config.definitions.map(async (definition) => {
-    const file = config.generatedSchemaFilesByDatabase[definition.name]!
-    const sources = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options)))
-    await mkdir(dirname(file), { recursive: true })
-    await writeFile(file, renderGeneratedDrizzleSchema(file, definition, sources), "utf8")
-  }))
+  if (config.definitions.length) {
+    // Keep Drizzle out of config resolution when no Definitions need evaluation. The loader is only needed while
+    // writing generated schemas, and importing it eagerly would load request-time dependencies for every Vite config.
+    const { loadDatabaseSchema, mergeLoadedSchemas } = await import("./schema-tables.ts")
+    await Promise.all(config.definitions.map(async (definition) => {
+      const file = config.generatedSchemaFilesByDatabase[definition.name]!
+      const sources = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options)))
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, renderGeneratedDrizzleSchema(file, definition, sources, mergeLoadedSchemas), "utf8")
+    }))
+  }
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
   await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config), "utf8")
