@@ -669,13 +669,19 @@ function normalizeFiles<Context>(
       const target = relativePath(path, `${label} target`);
       if (!value || typeof value !== "object")
         throw boxErrorDiagnostics.BOX_R0044({ message: `[vitehub] Box file ${path} requires from or contents.` });
-      if ("from" in value && Object.hasOwn(value, "from")) {
+      const hasFrom = "from" in value;
+      const hasContents = "contents" in value;
+      const ownsFrom = Object.hasOwn(value, "from");
+      const ownsContents = Object.hasOwn(value, "contents");
+      if ((hasFrom && !ownsFrom) || (hasContents && !ownsContents))
+        throw boxErrorDiagnostics.BOX_R0046({ message: `[vitehub] Box file ${path} requires exactly one of from or contents.` });
+      if (hasFrom && ownsFrom) {
         if (Object.keys(value).length !== 1 || typeof value.from !== "string")
           throw boxErrorDiagnostics.BOX_R0045({ message: `[vitehub] Box file ${path} requires exactly one of from or contents.` });
         const source = relativePath(value.from, `${label} source`);
         return [target, { resolve: async () => await readProjectFile(source) }];
       }
-      if (!("contents" in value) || !Object.hasOwn(value, "contents") || Object.keys(value).length !== 1)
+      if (!(hasContents && ownsContents) || Object.keys(value).length !== 1)
         throw boxErrorDiagnostics.BOX_R0046({ message: `[vitehub] Box file ${path} requires exactly one of from or contents.` });
       return [
         target,
