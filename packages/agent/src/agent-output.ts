@@ -815,6 +815,16 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   return false
 }
 
+function getPrototypeMethod(value: object, key: PropertyKey): ((...args: never[]) => unknown) | undefined {
+  let prototype: object | null = Object.getPrototypeOf(value) as object | null
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+    if (descriptor) return hasRuntimeType(descriptor.value, "function") ? descriptor.value as (...args: never[]) => unknown : undefined
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+  return undefined
+}
+
 function isResponseLike(value: unknown): value is Response {
   if (!isRuntimeObject(value)) return false
   try {
@@ -971,7 +981,9 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   if (isResponseLike(value)) {
     const body = value.body
     if (body) {
-      for await (const text of ReadableStream.prototype.pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
+      const pipeThrough = getPrototypeMethod(body, "pipeThrough")
+      if (!pipeThrough) throw new TypeError("Response body does not expose pipeThrough")
+      for await (const text of pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
         if (text) yield { text, type: "text-delta" }
       }
     }
