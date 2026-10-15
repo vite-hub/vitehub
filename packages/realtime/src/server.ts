@@ -174,48 +174,15 @@ interface RealtimeDurableObjectNamespace {
 }
 
 function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName"): boolean {
-  let owner: object | null = value
-  while (owner && owner !== Object.prototype) {
-    let descriptor: PropertyDescriptor | undefined
-    try {
-      descriptor = Object.getOwnPropertyDescriptor(owner, name)
-    }
-    catch {
-      return false
-    }
-    if (descriptor) {
-      if ("value" in descriptor) {
-        if (typeof descriptor.value !== "function") return false
-        // Durable Object namespace methods are supplied by the host runtime.
-        // Reject JavaScript-authored prototype methods, which can be copied
-        // onto an arbitrary object with `Object.create`.
-        if (owner !== value) {
-          let source: string
-          try {
-            source = Function.prototype.toString.call(descriptor.value)
-          }
-          catch {
-            return false
-          }
-          if (!/\[native code\]/.test(source)) return false
-        }
-        return true
-      }
-      try {
-        return typeof Reflect.get(value, name) === "function"
-      }
-      catch {
-        return false
-      }
-    }
-    try {
-      owner = Object.getPrototypeOf(owner)
-    }
-    catch {
-      return false
-    }
+  let descriptor: PropertyDescriptor | undefined
+  try {
+    descriptor = Object.getOwnPropertyDescriptor(value, name)
   }
-  return false
+  catch {
+    return false
+  }
+  if (!descriptor || !("value" in descriptor)) return false
+  return typeof descriptor.value === "function"
 }
 
 function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {

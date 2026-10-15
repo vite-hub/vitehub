@@ -257,7 +257,7 @@ describe("realtime server handler", () => {
   it("does not forward through inherited Durable Object binding methods", async () => {
     const get = vi.fn(() => ({ fetch: vi.fn(async () => new Response("forwarded")) }))
     const idFromName = vi.fn((name: string) => name)
-    const binding = Object.create({ get, idFromName })
+    const binding = Object.create({ get: new Proxy(get, {}), idFromName: new Proxy(idFromName, {}) })
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       method: "POST",
     }) as Request & { runtime?: unknown }
@@ -278,7 +278,7 @@ describe("realtime server handler", () => {
     // JavaScript-authored class name.
     const get = Function.prototype.bind.call(() => ({ fetch }), null) as () => { fetch: typeof fetch }
     const idFromName = Function.prototype.bind.call((name: string) => name, null) as (name: string) => string
-    const binding = Object.create({ get, idFromName })
+    const binding = { get, idFromName }
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       method: "POST",
     }) as Request & { runtime?: unknown }
