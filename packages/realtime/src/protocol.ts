@@ -26,8 +26,7 @@ function validPath(value: unknown): value is string {
     const withoutStream = lower.split(":", 1)[0]!
     const normalized = withoutStream.replace(/[ .]+$/, "")
     const reserved = normalized === ".git" || /^git~\d+$/.test(normalized) || (index === 0 && (normalized === ".vitehub" || /^vitehu~\d+$/.test(normalized)))
-    const canonical = (normalized === ".git" || (index === 0 && normalized === ".vitehub")) && lower === normalized
-    return reserved && !canonical
+    return reserved
   })) return false
   return true
 }
