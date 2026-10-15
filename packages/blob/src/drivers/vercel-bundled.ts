@@ -59,9 +59,7 @@ function isMissingBlobError(error: unknown) {
   try {
     const nativeIsError: unknown = Reflect.get(Error, "isError")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Error.isError is optional in supported runtimes; prefer its native state check when available.
-    const isError = typeof nativeIsError === "function"
-      ? nativeIsError(error) === true
-      : (() => {
+    const isError = (typeof nativeIsError === "function" && nativeIsError(error) === true) || (() => {
           const stack = Object.getOwnPropertyDescriptor(candidate, "stack")
           // Native errors expose their lazily materialized stack through an intrinsic
           // accessor. Verify the accessor's intrinsic behavior rather than its identity:
@@ -95,8 +93,12 @@ function isMissingBlobError(error: unknown) {
           const NativeError = nativeErrorConstructor as new () => object
           const nativeStackGetter = Object.getOwnPropertyDescriptor(new NativeError(), "stack")?.get
           if (typeof nativeStackGetter !== "function" || stack.get !== nativeStackGetter) return false
+          // Native Error proxies do not expose their target's internal stack state
+          // through the getter, but retain the native accessor and Error prototype.
+          // Accept that shape so SDK instrumentation proxies preserve missing errors.
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter result is the legacy brand check.
-          if (typeof stack.get.call(candidate) !== "string") return false
+          const stackValue = stack.get.call(candidate)
+          if (typeof stackValue !== "string" && !(stackValue === undefined && Object.getPrototypeOf(candidate) === prototype)) return false
           // A genuine native getter returns no stack for an object which merely shares
           // the Error prototype. Bound and forged getters instead return their captured
           // or fabricated value, so they cannot establish the candidate's Error brand.
