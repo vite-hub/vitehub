@@ -338,6 +338,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   // or realm are accepted without applying this realm's brand checks.
   const locked = responsePropertyDescriptor(body, "locked")?.get
   const getReader = responsePropertyDescriptor(body, "getReader")?.value
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cross-realm stream accessors must be validated before invocation.
   if (typeof locked !== "function" || typeof getReader !== "function") return false
   return !Reflect.apply(locked, body, [])
 }
