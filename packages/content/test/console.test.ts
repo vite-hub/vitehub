@@ -314,6 +314,44 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     await expect(failure(actions.search({ query: "a", limit: 51 }, reader))).resolves.toMatchObject({ status: 400 })
   })
 
+  it("hides documents a per-document policy denies from the list, dashboard, and search", async () => {
+    const workspace = await historyWorkspace()
+    const { actions: editorActions } = await setup(workspace)
+    await editorActions.save(hello, editor)
+    await editorActions.save({ ...hello, id: "secret", data: { title: "Hello secret", date: "2026-10-03" } }, editor)
+    // A published document that is now deleted on the draft still has a title and activity.
+    await editorActions.save({ ...hello, id: "gone", data: { title: "Hello gone", date: "2026-10-04" } }, editor)
+    await publishAll(editorActions, editor)
+    const gone = await editorActions.get({ collection: "posts", id: "gone" }, editor)
+    await editorActions.remove({ collection: "posts", id: "gone", ifDigest: gone!.digest }, editor)
+
+    const hidden = new Set(["secret", "gone"])
+    const scoped = defineContent({
+      workspace,
+      collections: {
+        posts: documents({ path: "posts/**/*.md", fields: { title: z.string().min(1), date: z.coerce.date(), tags: z.array(z.string()).default([]) } }),
+      },
+      authorize: ({ action, id }) => action === "read" && !(id !== undefined && hidden.has(id)),
+      logger: false,
+    })
+    cleanup.push(() => scoped.dispose())
+    const actions = createContentConsoleActions({ content: scoped })
+
+    const listed = await actions.list({ collection: "posts" }, reader)
+    expect(listed.items.map(item => item.id)).toEqual(["hello"])
+    expect(listed.states).toEqual({ draft: 0, published: 1, changed: 0, deleted: 0 })
+
+    const overview = await actions.overview({}, reader)
+    expect(overview.collections).toEqual([{ name: "posts", states: { draft: 0, published: 1, changed: 0, deleted: 0 }, changes: [] }])
+    const named = overview.activity.flatMap(entry => entry.documents)
+    expect(named.length).toBeGreaterThan(0)
+    expect(named.map(document => document.id)).toEqual(named.map(() => "hello"))
+    expect(JSON.stringify(overview)).not.toMatch(/secret|gone/i)
+
+    expect((await actions.search({ query: "hello" }, reader)).items.map(item => item.id)).toEqual(["hello"])
+    expect((await actions.search({ query: "secret" }, reader)).items).toEqual([])
+  })
+
   it("rejects malformed input without calling the runtime", async () => {
     const { actions } = await setup()
     await expect(failure(actions.save({ ...hello, ifDigest: undefined } as never, editor))).resolves.toMatchObject({ status: 400 })
