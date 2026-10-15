@@ -139,23 +139,55 @@ await workspace.history.usage()
 Commits publish the complete desired file set with an atomic head comparison.
 Catch `isWorkspaceConflict(error)` for a stale `ifHead`. Omitted paths disappear
 from the new revision; earlier versions retain their bytes. Read mode exposes
-`head`, `list`, `open`, and `usage`. Stores without retained history throw
-`WORKSPACE_R0069`. Existing checkpoint and rebase behavior is unchanged.
+`head`, `list`, `refs`, `open`, and `usage`. Stores without retained history
+throw `WORKSPACE_R0069`. Existing checkpoint and rebase behavior is unchanged.
+
+History has named refs. Calls without `ref` use `main`. Each ref has its own head
+and timeline, and revisions and bytes are shared across refs. A `changes` commit
+patches the ref head, so saving one draft file does not resend the folder:
+
+```ts
+const draft = await workspace.history.head({ ref: "draft" })
+await workspace.history.commit({
+  ref: "draft",
+  ifHead: draft?.id ?? null,
+  changes: { put: { "posts/hello.md": markdown }, delete: ["posts/old.md"] },
+})
+await workspace.history.refs() // [{ name: "draft", head }, { name: "main", head }]
+```
+
+Rules, validators, hooks, and Source ownership run on every changed path in both
+forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
+Workspace your package does not define.
 
 File objects use `<prefix>/<sha256(workspace)>/sha256/<digest>` Blob keys.
 Identical bytes share one object within a workspace. Database stores immutable
 manifests, refs, an upload catalog, and Workspace metadata. Usage counts unique
-uncompressed file bytes across published revisions. Workspaces have separate
+uncompressed file bytes across committed revisions on every ref. Workspaces have separate
 namespaces, so deletion needs no cross-workspace reference counts.
 
-Normal file writes stage changes in instance memory until checkpoint or snapshot.
-Only published history is durable. `store.delete()` permanently tombstones the
+Normal file writes stage changes in instance memory until checkpoint or snapshot,
+which commit to `main`. Only committed history is durable; keep drafts on a ref. `store.delete()` permanently tombstones the
 identity and removes its history and objects. Retry deletion after storage errors
 or after stopping abandoned uploads. Failed publications can leave reusable
 objects outside retained usage accounting until deletion. Pruning is not supported.
 Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
+
+During development, read history from the CLI. The commands call the Nitro
+runtime of a running Vite + Nitro Development Server and never write:
+
+```sh
+vitehub workspace history content            # revisions on every ref, newest first
+vitehub workspace history content --ref draft
+vitehub workspace refs content                # each ref and its head revision
+vitehub workspace show content draft          # one revision and its files
+vitehub workspace show content draft posts/hello.md
+```
+
+Add `--json` for machine-readable output. A Store without retained history
+fails with `WORKSPACE_R0069`.
 
 ## JSON collections
 

@@ -536,11 +536,36 @@ function boundedString(value: string | undefined): string | undefined {
   return value === undefined ? undefined : value.slice(0, MAX_METADATA_STRING_LENGTH)
 }
 
-function isArrayBufferValue(value: unknown): value is ArrayBuffer {
-  if (value instanceof ArrayBuffer) return true
+function arrayBufferByteLength(value: unknown): number | undefined {
   try {
-    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
-    return true
+    return Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function isInstance<T>(value: unknown, constructor: Function & { prototype: T }): value is T {
+  try {
+    return value instanceof constructor
+  }
+  catch {
+    return false
+  }
+}
+
+function isArray(value: unknown): value is unknown[] {
+  try {
+    return Array.isArray(value)
+  }
+  catch {
+    return false
+  }
+}
+
+function isArrayBufferView(value: unknown): value is ArrayBufferView {
+  try {
+    return ArrayBuffer.isView(value)
   }
   catch {
     return false
@@ -548,17 +573,33 @@ function isArrayBufferValue(value: unknown): value is ArrayBuffer {
 }
 
 function isErrorValue(value: unknown): value is Error {
-  if (value instanceof Error) return true
-  return hasRuntimeType(value, "object") && Object.prototype.toString.call(value) === "[object Error]"
+  if (!value || !hasRuntimeType(value, "object")) return false
+  try {
+    if (isInstance(value, Error)) return true
+    const prototype = Object.getPrototypeOf(value)
+    if (!prototype || prototype === Object.prototype) return false
+    const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
+    const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
+    return typeof name === "string" && typeof message === "string"
+  }
+  catch {
+    return false
+  }
 }
 
 function isAggregateErrorValue(value: unknown): value is AggregateError {
   if (!isErrorValue(value)) return false
-  return value instanceof AggregateError || (value.name === "AggregateError" && Array.isArray(value.errors))
+  try {
+    if (isInstance(value, AggregateError)) return true
+    const prototype = Object.getPrototypeOf(value)
+    return Object.getOwnPropertyDescriptor(prototype, "name")?.value === "AggregateError"
+  }
+  catch {
+    return false
+  }
 }
 
 function isRegExpValue(value: unknown): value is RegExp {
-  if (value instanceof RegExp) return true
   try {
     Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
     return true
@@ -566,6 +607,31 @@ function isRegExpValue(value: unknown): value is RegExp {
   catch {
     return false
   }
+}
+
+function regExpFlags(value: RegExp): string {
+  const flags = [
+    ["hasIndices", "d"],
+    ["global", "g"],
+    ["ignoreCase", "i"],
+    ["multiline", "m"],
+    ["dotAll", "s"],
+    ["unicode", "u"],
+    ["unicodeSets", "v"],
+    ["sticky", "y"],
+  ] as const
+  return flags.filter(([property]) => {
+    try {
+      return Object.getOwnPropertyDescriptor(RegExp.prototype, property)?.get?.call(value) === true
+    }
+    catch {
+      return false
+    }
+  }).map(([, flag]) => flag).join("")
+}
+
+function regExpLastIndex(value: RegExp): unknown {
+  return Object.getOwnPropertyDescriptor(value, "lastIndex")?.value
 }
 
 function normalizedTimestamp(value: Date | string): string {
@@ -604,6 +670,25 @@ function boxedObservationPrimitive(value: unknown): { type: string, value: bigin
   }
 }
 
+function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
+  try {
+    return Set.prototype.values.call(value)
+  }
+  catch {
+    return
+  }
+}
+
+function reflectedMapEntries(value: unknown): IterableIterator<[unknown, unknown]> | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Map.prototype.entries.call(value)
+  }
+  catch {
+    return
+  }
+}
+
 async function collectBoundedObservationBuiltIns(
   value: unknown,
   builtIns: Map<object, BoundedObservationBuiltIn>,
@@ -612,76 +697,95 @@ async function collectBoundedObservationBuiltIns(
   depth = 0,
 ): Promise<void> {
   if (!value || !hasRuntimeType(value, "object") || seen.has(value) || budget.items <= 0 || depth >= MAX_OBSERVATION_DEPTH) return
-  budget.items--
-  seen.add(value)
-  const BlobConstructor = globalThis.Blob
-  if (hasRuntimeType(BlobConstructor, "function") && value instanceof BlobConstructor) {
-    const FileConstructor = globalThis.File
-    const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
-    const bytes = Array.from(new Uint8Array(await value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
-    const representation: Record<string, unknown> = {
-      bytes,
-      mediaType: value.type,
-      size: value.size,
-      type: file ? "File" : "Blob",
+  try {
+    budget.items--
+    seen.add(value)
+    const BlobConstructor = globalThis.Blob
+    if (hasRuntimeType(BlobConstructor, "function") && isInstance(value, BlobConstructor)) {
+      // SAFETY: isInstance verified the Blob internal brand before this narrowed access.
+      const blob = value as Blob
+      const FileConstructor = globalThis.File
+      // SAFETY: isInstance verified the File internal brand before this narrowed access.
+      const file = hasRuntimeType(FileConstructor, "function") && isInstance(value, FileConstructor) ? value as File : undefined
+      const bytes = Array.from(new Uint8Array(await blob.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
+      const representation: {
+        bytes: number[]
+        mediaType: string
+        size: number
+        type: string
+        lastModified?: number
+        name?: string
+      } = {
+        bytes,
+        mediaType: blob.type,
+        size: blob.size,
+        type: file ? "File" : "Blob",
+      }
+      if (file) {
+        representation.lastModified = file.lastModified
+        representation.name = file.name
+      }
+      builtIns.set(value, {
+        truncated: true,
+        value: representation,
+      })
+      return
     }
-    if (file) {
-      representation.lastModified = file.lastModified
-      representation.name = file.name
+    const primitive = boxedObservationPrimitive(value)
+    if (primitive) {
+      builtIns.set(value, { truncated: true, value: primitive })
+      return
     }
-    builtIns.set(value, {
-      truncated: true,
-      value: representation,
-    })
-    return
-  }
-  const primitive = boxedObservationPrimitive(value)
-  if (primitive) {
-    builtIns.set(value, { truncated: true, value: primitive })
-    return
-  }
-  if (Array.isArray(value)) {
-    const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
-    for (let index = 0; index < length; index++) {
-      if (Object.hasOwn(value, index)) await collectBoundedObservationBuiltIns(value[index], builtIns, budget, seen, depth + 1)
+    if (isArray(value)) {
+      const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+      for (let index = 0; index < length; index++) {
+        if (Object.hasOwn(value, index)) await collectBoundedObservationBuiltIns(value[index], builtIns, budget, seen, depth + 1)
+      }
+      return
     }
-    return
-  }
-  if (value instanceof Map) {
-    let count = 0
-    for (const [key, child] of value) {
-      if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
-      await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
-      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
-    }
-    return
-  }
-  if (value instanceof Set) {
-    let count = 0
-    for (const child of value) {
-      if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
-      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
-    }
-    return
-  }
-  if (isErrorValue(value)) {
-    if (isAggregateErrorValue(value)) {
-      await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
-    }
-    if (Object.hasOwn(value, "cause")) {
-      await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
-    }
-    for (const [key, child] of Object.entries(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
-      if (key !== "cause" && key !== "errors") {
+    const mapEntries = reflectedMapEntries(value)
+    if (mapEntries) {
+      let count = 0
+      for (const [key, child] of mapEntries) {
+        if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
+        await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
         await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
       }
+      return
     }
-    return
+    const setValues = reflectedSetValues(value)
+    if (setValues) {
+      let count = 0
+      while (count++ < MAX_OBSERVATION_COLLECTION_ITEMS) {
+        const next = setValues.next()
+        if (next.done) break
+        const child = next.value
+        await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+      }
+      return
+    }
+    if (isErrorValue(value)) {
+      if (isAggregateErrorValue(value)) {
+        await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
+      }
+      if (Object.hasOwn(value, "cause")) {
+        await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
+      }
+      for (const [key, child] of Object.entries(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
+        if (key !== "cause" && key !== "errors") {
+          await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+        }
+      }
+      return
+    }
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== null && prototype !== Object.prototype) return
+    for (const child of Object.values(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
+      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+    }
   }
-  const prototype = Object.getPrototypeOf(value)
-  if (prototype !== null && prototype !== Object.prototype) return
-  for (const child of Object.values(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
-    await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+  catch {
+    // Hostile objects such as revoked proxies are left to bounded serialization.
   }
 }
 
@@ -734,7 +838,7 @@ function boundedObservationValue(
     budget.truncated = true
     return "[truncated]"
   }
-  if (Array.isArray(value)) {
+  if (isArray(value)) {
     const length = Math.min(value.length, collectionItems, budget.items)
     if (length < value.length) budget.truncated = true
     return Array.from({ length }, (_, index) => {
@@ -745,7 +849,7 @@ function boundedObservationValue(
       return boundedObservationValue(value[index], budget, depth + 1, maxStringLength, builtIns)
     })
   }
-  if (value instanceof Date) {
+  if (isInstance(value, Date)) {
     budget.truncated = true
     return {
       type: "Date",
@@ -758,37 +862,45 @@ function boundedObservationValue(
       ),
     }
   }
-  if (value instanceof Map) {
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
     budget.truncated = true
     const entries: [unknown, unknown][] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
+    for (const entry of mapEntries) {
       if (entries.length >= limit) break
       entries.push(entry)
     }
-    if (entries.length < value.size) budget.truncated = true
     return entries.map(([key, child]) => [
       boundedObservationValue(key, budget, depth + 1, maxStringLength, builtIns),
       boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
     ])
   }
-  if (value instanceof Set) {
+  const setValues = reflectedSetValues(value)
+  if (setValues) {
     budget.truncated = true
     const entries: unknown[] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
-      if (entries.length >= limit) break
-      entries.push(entry)
+    while (entries.length < limit) {
+      const next = setValues.next()
+      if (next.done) break
+      entries.push(next.value)
     }
-    if (entries.length < value.size) budget.truncated = true
     return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns))
   }
-  if (isArrayBufferValue(value)) {
+  const arrayBufferLength = arrayBufferByteLength(value)
+  if (arrayBufferLength !== undefined) {
     budget.truncated = true
-    const length = Math.min(value.byteLength, collectionItems, budget.items)
-    return boundedObservationValue(Array.from(new Uint8Array(value, 0, length)), budget, depth + 1, maxStringLength, builtIns)
+    const length = Math.min(arrayBufferLength, collectionItems, budget.items)
+    try {
+      // SAFETY: The intrinsic byteLength getter validated the ArrayBuffer internal slot above.
+      return boundedObservationValue(Array.from(new Uint8Array(value as ArrayBuffer, 0, length)), budget, depth + 1, maxStringLength, builtIns)
+    }
+    catch {
+      return []
+    }
   }
-  if (ArrayBuffer.isView(value)) {
+  if (isArrayBufferView(value)) {
     budget.truncated = true
     const length = Math.min(value.byteLength, collectionItems, budget.items)
     return {
@@ -804,10 +916,11 @@ function boundedObservationValue(
   }
   if (isRegExpValue(value)) {
     budget.truncated = true
+    const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
     return {
-      flags: boundedObservationValue(value.flags, budget, depth + 1, maxStringLength, builtIns),
-      lastIndex: boundedObservationValue(value.lastIndex, budget, depth + 1, maxStringLength, builtIns),
-      source: boundedObservationValue(value.source, budget, depth + 1, maxStringLength, builtIns),
+      flags: boundedObservationValue(regExpFlags(value), budget, depth + 1, maxStringLength, builtIns),
+      lastIndex: boundedObservationValue(regExpLastIndex(value), budget, depth + 1, maxStringLength, builtIns),
+      source: boundedObservationValue(source, budget, depth + 1, maxStringLength, builtIns),
     }
   }
   if (isErrorValue(value)) {
@@ -833,10 +946,22 @@ function boundedObservationValue(
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
     return boundedString(string)
   }
-  const prototype = Object.getPrototypeOf(value)
+  let prototype: object | null
+  try {
+    prototype = Object.getPrototypeOf(value)
+  }
+  catch {
+    budget.truncated = true
+    return "[unsupported object]"
+  }
   if (prototype !== null && prototype !== Object.prototype) {
     budget.truncated = true
-    return `[unsupported ${Object.prototype.toString.call(value).slice(8, -1)}]`
+    try {
+      return `[unsupported ${Object.prototype.toString.call(value).slice(8, -1)}]`
+    }
+    catch {
+      return "[unsupported object]"
+    }
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   // Match JSON object semantics: optional undefined properties are absent data, not truncated data.

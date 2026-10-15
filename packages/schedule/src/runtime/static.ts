@@ -1,7 +1,9 @@
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunContext } from "../types.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
+import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -49,6 +51,10 @@ export function isScheduleCronAuthorized(authorization: string | null | undefine
   return isViteHubBearerSecretEqual(authorization, cronSecret)
 }
 
+export function normalizeCron(cron: string): string {
+  return cron.trim().split(/\s+/).join(" ")
+}
+
 export function normalizeScheduleRuntimeError(error: unknown): Error {
   if (error instanceof Error) return error
   return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message: String(error) })
@@ -57,7 +63,7 @@ export function normalizeScheduleRuntimeError(error: unknown): Error {
 export function createStaticScheduleRun(
   options: Omit<ExecuteStaticScheduleOptions, "definition" | "waitUntil"> & { waitUntil: NonNullable<ExecuteStaticScheduleOptions["waitUntil"]> },
 ): StaticScheduleRun {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
   return {
     cron: options.cron,
     id: `run_${options.name}_${scheduledAt.toISOString()}`,
@@ -75,14 +81,30 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  if (!hasRuntimeType(options.cron, "string") || !options.cron.trim()) {
+    throw createScheduleError("SCHEDULE_INVALID_CRON", {
+      details: invalidScheduleValueDetails("cron", options.cron),
+    })
+  }
+  const cron = normalizeCron(options.cron)
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
   const runs: Array<Promise<unknown>> = []
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
-    if (!definition || definition.cron !== options.cron) continue
+    if (!definition || normalizeCron(definition.cron) !== cron) continue
     runs.push(executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }))
   }
   return await Promise.all(runs)
+}
+
+function validateScheduledAt(scheduledAt: Date | undefined): Date {
+  const value = scheduledAt ?? new Date()
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+      details: invalidScheduleValueDetails("scheduledAt", value),
+    })
+  }
+  return value
 }
 
 export async function executeCloudflareStaticSchedules(
@@ -103,7 +125,7 @@ export async function executeCloudflareStaticSchedules(
 
 function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cron: string, scheduledAt: Date } {
   const cron = event.controller?.cron ?? event.cron
-  if (!cron) {
+  if (!hasRuntimeType(cron, "string") || !cron.trim()) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0027({ message: "[vitehub:schedule] Cloudflare scheduled event is missing a cron string." })
   }
   const scheduledTime = event.controller?.scheduledTime ?? event.scheduledTime
@@ -236,6 +258,7 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
   return isObjectRecord(value)
     && Object.hasOwn(value, "cron")
+    && hasRuntimeType(value.cron, "string")
     && Object.hasOwn(value, "handler")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"

@@ -166,7 +166,13 @@ export async function readValidatedPayload<TInput>(
   options?: ValidationOptions<TInput>,
 ): Promise<unknown> {
   if (hasStandardValidator<TInput, unknown>(validate)) {
-    const result = await validate['~standard'].validate(payload)
+    let result: StandardSchemaValidationResult<unknown>
+    try {
+      result = await validate['~standard'].validate(payload)
+    }
+    catch (error) {
+      throw createValidationError(error)
+    }
     if (result.issues !== undefined) {
       throw createValidationError(options?.onError?.({
         issues: result.issues,
