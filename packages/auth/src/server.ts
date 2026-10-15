@@ -296,8 +296,29 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (typeof response.headers?.get !== "function" || typeof response.headers.forEach !== "function") return
     if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 100 || response.status > 599) return
     if (typeof response.statusText !== "string") return
-    const headers = new Headers(response.headers)
-    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
+    const headers = new Headers()
+    response.headers.forEach((value, key) => headers.append(key, value))
+    if (response.body === null) return new Response(null, { headers, status: response.status, statusText: response.statusText })
+    if (typeof response.body.getReader !== "function") return
+    const reader = response.body.getReader()
+    if (typeof reader.read !== "function") return
+    const body = new ReadableStream<Uint8Array>({
+      cancel: async reason => {
+        try { await reader.cancel?.(reason) }
+        finally { reader.releaseLock?.() }
+      },
+      pull: async controller => {
+        try {
+          const chunk = await reader.read()
+          if (chunk.done) {
+            reader.releaseLock?.()
+            controller.close()
+          }
+          else controller.enqueue(chunk.value)
+        }
+        catch (error) { controller.error(error) }
+      },
+    })
     return new Response(body, { headers, status: response.status, statusText: response.statusText })
   }
   catch {
