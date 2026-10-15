@@ -166,6 +166,7 @@ export function useCollection<TName extends CollectionName>(
       const filter = options.filter ? toValue(options.filter) : {}
       let cursor = reset ? undefined : nextCursor.value || undefined
       let loadedItems = reset ? [] : [...items.value]
+      let loadedTotal = reset ? undefined : total.value
       let response: TPage
       const seenCursors = new Set(cursors)
       if (cursor) seenCursors.add(cursor)
@@ -183,6 +184,7 @@ export function useCollection<TName extends CollectionName>(
         // SAFETY: The generated endpoint derives its item contract from this registered Collection.
         response = { ...parsed, items: parsed.items as TItem[] }
         if (active !== controller) return
+        if (response.total !== undefined) loadedTotal = response.total
         loadedItems = [...loadedItems, ...response.items]
         cursor = response.nextCursor || undefined
         if (cursor && seenCursors.has(cursor)) {
@@ -194,7 +196,8 @@ export function useCollection<TName extends CollectionName>(
       items.value = loadedItems
       cursors = seenCursors
       nextCursor.value = response.nextCursor
-      total.value = response.total
+      if (loadedTotal !== undefined) response = { ...response, total: loadedTotal }
+      total.value = loadedTotal
       facets.value = response.facets
       loaded = true
       return { ...response, items: loadedItems }
