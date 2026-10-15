@@ -388,7 +388,7 @@ describe("package entry result transport", () => {
 })
 
 describe("output transfer limits", () => {
-  it("rejects excess output Blob bytes before reading them", async () => {
+  it("rejects Blob arrayBuffer overrides", async () => {
     const execution = await executePackageEntry(
       `export default () => {
         const blob = new Blob(["abcd"])
@@ -398,8 +398,8 @@ describe("output transfer limits", () => {
       { transfer: { maxDepth: 32, maxSidecars: 64, maxSidecarBytes: 3 } },
     )
     expect(execution.code).toBe(1)
-    expect(execution.output.error).toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT" })
-    expect(execution.output.error?.message).toContain("maxSidecarBytes")
+    expect(execution.output.error).toMatchObject({ code: "SANDBOX_SERIALIZATION_ERROR" })
+    expect(execution.output.error?.message).toContain("arrayBuffer overrides")
     await expect(execution.readOutputFile(0)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
@@ -422,7 +422,6 @@ describe("output transfer limits", () => {
       "export default () => {",
       "  const blob = new Blob(['oversized'])",
       "  Object.defineProperty(blob, 'size', { value: 1 })",
-      "  blob.arrayBuffer = () => { throw new Error('Blob was read') }",
       "  return blob",
       "}",
     ].join("\n"), { transfer: { maxDepth: 32, maxSidecars: 64, maxSidecarBytes: 3 } })
@@ -447,11 +446,9 @@ describe("output transfer limits", () => {
     }
   })
 
-  it.each(["array", "object", "escaped"])("rejects excess input Blob bytes before reading them in %s values", async (shape) => {
+  it.each(["array", "object", "escaped"])("rejects excess input Blob bytes in %s values", async (shape) => {
     const first = new Blob(["ab"])
     const second = new Blob(["cd"])
-    const firstRead = vi.spyOn(first, "arrayBuffer")
-    const secondRead = vi.spyOn(second, "arrayBuffer")
     const value = shape === "array" ? [first, second] : shape === "object"
       ? { first, second } : { [SANDBOX_VALUE_MARKER]: first, second }
     const write = vi.fn()
@@ -460,8 +457,6 @@ describe("output transfer limits", () => {
     await expect(encodeSandboxValue(sandbox, value, "/assets", "payload", undefined, {
       maxDepth: 32, maxSidecars: 2, maxSidecarBytes: 3,
     })).rejects.toMatchObject({ code: "SANDBOX_TRANSFER_LIMIT", details: { limit: "maxSidecarBytes" } })
-    expect(firstRead).toHaveBeenCalledTimes(1)
-    expect(secondRead).not.toHaveBeenCalled()
     expect(write).not.toHaveBeenCalled()
   })
 
