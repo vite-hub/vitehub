@@ -356,6 +356,9 @@ async function copyAuthorizationBody(response: object, body: unknown): Promise<U
   try {
     const arrayBuffer = responseMethod(response, "arrayBuffer")
     if (!arrayBuffer) return
+    // Native fetch implementations expose this as a native method. Reject
+    // caller-supplied inherited methods before accepting their returned bytes.
+    if (!Function.prototype.toString.call(arrayBuffer).includes("[native code]")) return
     const result = await Reflect.apply(arrayBuffer, response, [])
     if (Object.prototype.toString.call(result) !== "[object ArrayBuffer]") return
     // SAFETY: the brand tag check above accepts ArrayBuffer values across realms.

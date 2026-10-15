@@ -2,6 +2,7 @@ import { randomId } from "@vite-hub/internal/runtime/random"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
 import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleError } from "../errors.ts"
+import { isScheduleDate, validateScheduledAt } from "./date.ts"
 import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
@@ -71,25 +72,7 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
-export function isScheduleDate(value: unknown): value is Date {
-  try {
-    if (Object.prototype.toString.call(value) !== "[object Date]") return false
-    return !Number.isNaN(Date.prototype.getTime.call(value as Date))
-  }
-  catch {
-    return false
-  }
-}
-
-export function validateScheduledAt(scheduledAt: Date | undefined): Date {
-  const value = scheduledAt ?? new Date()
-  if (!isScheduleDate(value)) {
-    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
-      details: invalidScheduleValueDetails("scheduledAt", value),
-    })
-  }
-  return new Date(Date.prototype.getTime.call(value))
-}
+export { isScheduleDate, validateScheduledAt } from "./date.ts"
 
 function toRunError(error: unknown): ScheduleRunError {
   if (error instanceof Error) {

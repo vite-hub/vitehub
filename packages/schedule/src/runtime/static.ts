@@ -2,7 +2,7 @@ import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunContext
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
-import { isScheduleDate, validateScheduledAt } from "./execute.ts"
+import { isScheduleDate, validateScheduledAt } from "./date.ts"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string

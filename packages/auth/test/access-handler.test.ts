@@ -181,6 +181,20 @@ describe("Auth access handlers", () => {
     expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
   })
 
+  it("rejects an inherited forged arrayBuffer response method", async () => {
+    const forgedResponse = Object.create({
+      get status() { return 409 },
+      get statusText() { return "Conflict" },
+      get headers() { return new Headers() },
+      get body() { return null },
+      arrayBuffer() { return new TextEncoder().encode("forged").buffer },
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => forgedResponse as never }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
+  })
+
   it("rejects response-like results without a body accessor", async () => {
     const forgedResponse = Object.create({
       get status() { return 409 },
