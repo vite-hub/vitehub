@@ -78,7 +78,12 @@ const awarenessQueryIntervalMs = 10_000
 const awarenessUpdateIntervalMs = 50
 const workspaceChangeLimit = 100
 const workspaceChangeWindowMs = 1_000
-const syncUpdateIntervalMs = 50
+/**
+ * Document updates per connection: a burst of 40, refilled at 20 per second. Typing sends one update per keystroke, so
+ * fast typing fits; a peer that keeps sending faster is closed rather than having updates dropped.
+ */
+const syncUpdateBurst = 40
+const syncUpdatesPerSecond = 20
 const durableUpdateCompactionInterval = 128
 const maxSaveRetryMs = 60_000
 const holdIntervalMs = 60_000
@@ -464,7 +469,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   const peerPendingAwareness = new WeakMap<WebSocketPeer, { timer: ReturnType<typeof setTimeout>, update: Uint8Array }>()
   const peerWorkspaceChanges = new WeakMap<WebSocketPeer, { count: number, startedAt: number }>()
   const peerInitialSyncStep2 = new WeakSet<WebSocketPeer>()
-  const peerSyncUpdateAt = new WeakMap<WebSocketPeer, number>()
+  const peerSyncUpdates = new WeakMap<WebSocketPeer, { at: number, tokens: number }>()
 
   function resolveCloudflare(event: { context: Record<string, unknown>, req: Request }): Record<string, unknown> | undefined {
     const runtime = (event.req as Request & { runtime?: { cloudflare?: Record<string, unknown> } }).runtime?.cloudflare
@@ -1084,7 +1089,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         peer.close(error instanceof AwarenessOwnershipConflict ? 4500 : 4400, "Invalid awareness update.")
         return
       }
-      peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
+      if (clients.length) peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
     }
 
     return {
@@ -1219,12 +1224,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           if (initialSyncStep2) peerInitialSyncStep2.add(peer)
           else if (syncType === syncProtocol.messageYjsSyncStep2 || syncType === syncProtocol.messageYjsUpdate) {
             const now = Date.now()
-            const previous = peerSyncUpdateAt.get(peer)
-            if (previous !== undefined && now - previous < syncUpdateIntervalMs) {
+            const bucket = peerSyncUpdates.get(peer) ?? { at: now, tokens: syncUpdateBurst }
+            bucket.tokens = Math.min(syncUpdateBurst, bucket.tokens + (now - bucket.at) * syncUpdatesPerSecond / 1_000)
+            bucket.at = now
+            peerSyncUpdates.set(peer, bucket)
+            if (bucket.tokens < 1) {
               peer.close(1013, "Realtime updates are arriving too quickly.")
               return
             }
-            peerSyncUpdateAt.set(peer, now)
+            bucket.tokens--
           }
           const readOnly = room.guard.readOnly ? readOnlyDocumentRejection : !writable
           const response = applyRealtimeSyncMessage(data, room.document, peer, { readOnly })

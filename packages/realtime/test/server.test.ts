@@ -347,7 +347,7 @@ describe("realtime server handler", () => {
     expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
   })
 
-  it("closes peers instead of dropping rapid sync updates", async () => {
+  it("allows bursts of sync updates and closes peers that keep flooding instead of dropping updates", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
@@ -358,18 +358,24 @@ describe("realtime server handler", () => {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
-    const first = new Y.Doc()
-    const second = new Y.Doc()
-    first.getMap("edits").set("first", true)
-    second.getMap("edits").set("second", true)
+    const client = new Y.Doc()
     response.crossws.open(peer)
 
-    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(first)) })
-    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(second)) })
+    // A burst of 40 updates, such as fast typing, passes; the 41st in the same instant closes the peer.
+    for (let index = 0; index < 40; index++) {
+      const before = Y.encodeStateVector(client)
+      client.getMap("edits").set(`key-${index}`, index)
+      const update = Y.encodeStateAsUpdate(client, before)
+      response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(update) })
+    }
+    expect(peer.close).not.toHaveBeenCalled()
+    const before = Y.encodeStateVector(client)
+    client.getMap("edits").set("one-too-many", true)
+    const update = Y.encodeStateAsUpdate(client, before)
+    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(update) })
 
     expect(peer.close).toHaveBeenCalledWith(1013, "Realtime updates are arriving too quickly.")
-    first.destroy()
-    second.destroy()
+    client.destroy()
   })
 
   it("accepts only the initial sync response outside the update throttle", async () => {
@@ -393,7 +399,8 @@ describe("realtime server handler", () => {
     response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client)) })
 
     expect(peer.close).not.toHaveBeenCalled()
-    response.crossws.message(peer, { uint8Array: () => syncStep2 })
+    // Later sync responses count against the update burst like any update.
+    for (let index = 0; index < 40; index++) response.crossws.message(peer, { uint8Array: () => syncStep2 })
     expect(peer.close).toHaveBeenCalledWith(1013, "Realtime updates are arriving too quickly.")
     server.destroy()
     client.destroy()
