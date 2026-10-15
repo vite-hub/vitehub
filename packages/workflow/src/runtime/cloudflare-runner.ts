@@ -55,10 +55,11 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
         }
         catch {
           // A non-configurable non-cloneable field cannot be hidden. Preserve
-          // genuine errors by checking their intrinsic V8 stack accessor, while
-          // still rejecting prototype spoofs that only provide data fields.
+          // genuine errors with a data-valued stack, while rejecting objects
+          // that fabricate an Error tag alongside a caller-controlled stack.
           const stack = Reflect.getOwnPropertyDescriptor(candidate, "stack")
-          return Boolean(stack && "get" in stack && hasRuntimeType(stack.get, "function"))
+          const ownTag = typeof Symbol === "function" && Reflect.getOwnPropertyDescriptor(candidate, Symbol.toStringTag)
+          return Boolean(stack && "value" in stack && !ownTag)
         }
       }
       finally {
