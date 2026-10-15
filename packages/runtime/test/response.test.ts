@@ -38,6 +38,15 @@ describe("durable Response representation", () => {
     const distinctSpoof = Object.create(spoofPrototype, { type: { value: "text/plain", enumerable: true } })
     expect(await toResponse(distinctSpoof).json()).toEqual({ type: "text/plain" })
 
+    class Blob {
+      get size() { return 0 }
+      type = "text/plain"
+      slice() { return Object.create(Blob.prototype) }
+      stream() { throw new Error("class spoof") }
+    }
+    const classSpoof = new Blob()
+    expect(await toResponse(classSpoof).json()).toEqual({ type: "text/plain" })
+
     const blob = new (new Window()).Blob(["test"], { type: "text/plain" })
     Object.defineProperty(blob, "stream", { value: () => { throw new Error("override") } })
     expect(await toResponse(blob).text()).toBe("test")
