@@ -8,9 +8,11 @@ import type { ContentHead } from "vite-hub/content"
 // A published post with head tags from contentHead(): the post's seo() values, then its own fields, then the settings.
 export default defineHandler(async (event) => {
   const id = getRouterParam(event, "id") ?? ""
-  const [settings, post] = await Promise.all([content.collection("settings").get(), content.collection("posts").get(id)])
+  const posts = content.collection("posts")
+  const [settings, post] = await Promise.all([content.collection("settings").get(), posts.get(id)])
   if (!post) return new Response("Not found", { status: 404 })
   const head = contentHead(post, {
+    collection: posts,
     site: { url: new URL(event.req.url).origin, name: settings?.data.title },
     defaults: { description: settings?.data.description, image: settings?.data.socialImage },
     jsonLd: true,

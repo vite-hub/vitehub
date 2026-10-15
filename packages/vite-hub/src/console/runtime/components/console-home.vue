@@ -17,8 +17,8 @@ import {
   resolveConsoleSectionDocs,
   resolveConsoleSectionGroup,
 } from "../sections";
-import { requestConsole } from "../client/request";
-import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
+import { isConsoleSignInRequired, requestConsole } from "../client/request";
+import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/time";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
@@ -118,7 +118,7 @@ const sessionItems = computed(() =>
 const summary = computed(() => {
   const count = availableSections.value.length;
   const groups = sectionGroups.value.length;
-  if (!count) return "No primitives enabled yet.";
+  if (!count) return isConsoleSignInRequired(error.value) ? "Sign in to see what this project enables." : "No primitives enabled yet.";
   return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
 });
 
@@ -136,7 +136,7 @@ async function loadSections(): Promise<void> {
   loading.value = true;
   try {
     const navigation = await loadConsoleNavigation(props.sectionsBase);
-    if (!navigation) throw viteHubErrorDiagnostics.VITE_HUB_R0101({ message: "The console could not load its configuration." });
+    if (!navigation) throw consoleNavigationError(props.sectionsBase) ?? viteHubErrorDiagnostics.VITE_HUB_R0101({ message: "The console could not load its configuration." });
     if (request !== currentRequest) return;
     installedNavigation.value = navigation;
     sections.value = [...new Set(navigation.sections)];
@@ -213,6 +213,17 @@ onBeforeUnmount(() => request++);
               </div>
             </div>
 
+            <!-- With app sign-in, the Console page loads for anyone; its data needs a signed-in user. -->
+            <UAlert
+              v-else-if="error && !availableSections.length && isConsoleSignInRequired(error)"
+              class="mt-10"
+              color="neutral"
+              variant="subtle"
+              icon="i-lucide-log-in"
+              title="Sign in to use the Console"
+              description="You are not signed in, or your session ended. Sign in, then reload this page."
+              :actions="[{ label: 'Reload', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: loadSections }]"
+            />
             <UAlert
               v-else-if="error && !availableSections.length"
               class="mt-10"

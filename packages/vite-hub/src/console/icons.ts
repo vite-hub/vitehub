@@ -98,6 +98,7 @@ export const consoleIcons: readonly string[] = [
   "lucide:loader-circle",
   "lucide:lock",
   "lucide:lock-open",
+  "lucide:log-in",
   "lucide:log-out",
   "lucide:mail",
   "lucide:maximize-2",

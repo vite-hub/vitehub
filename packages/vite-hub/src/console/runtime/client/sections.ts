@@ -17,6 +17,7 @@ export interface ConsoleNavigation {
 
 const navigationRequests = new Map<string, Promise<ConsoleNavigation | undefined>>()
 const navigationSubscribers = new Map<string, Set<(navigation: ConsoleNavigation) => void>>()
+const navigationErrors = new Map<string, unknown>()
 
 function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
@@ -59,17 +60,24 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
   if (!request) {
     request = requestConsole(base)
       .then((value) => {
+        navigationErrors.delete(base)
         const navigation = parseConsoleNavigation(value)
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         navigationRequests.delete(base)
+        navigationErrors.set(base, error)
         return undefined
       })
     navigationRequests.set(base, request)
   }
   return await request
+}
+
+/** Why the last navigation request of `base` failed, such as a 401 when no one is signed in. */
+export function consoleNavigationError(base: string): unknown {
+  return navigationErrors.get(base)
 }
 
 export function subscribeConsoleNavigation(

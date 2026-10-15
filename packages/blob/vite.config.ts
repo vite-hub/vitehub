@@ -89,6 +89,7 @@ export default defineConfig({
       "src/runtime/dev.ts",
       "src/runtime/state.ts",
       "src/runtime/vercel-vite.ts",
+      "src/served.ts",
       "src/virtual.ts",
       "src/vue.ts",
     ],

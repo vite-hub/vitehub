@@ -261,7 +261,7 @@ async function publishAll(): Promise<void> {
 
 const contentActions = computed<CommandPaletteItem[]>(() => [
   ...documentSections.value.flatMap(section => section.collections.filter(collection => collection.access.write && collection.kind !== "singleton").map((collection): CommandPaletteItem => {
-    const noun = consoleSingularLabel(collection.label)
+    const noun = consoleSingularLabel(collection)
     return {
       icon: "i-lucide-plus",
       keywords: ["create", "add", "write", "draft", collection.name, collection.label],

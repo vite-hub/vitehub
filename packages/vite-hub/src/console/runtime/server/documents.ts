@@ -3,7 +3,9 @@ import { readConsoleAccessUser, withConsoleAccess, type ConsoleAccess, type Cons
 import { assertConsoleRequest, consoleRequestError, consoleRequestJSON, consoleRequestURL } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
-import type { ConsoleDocumentCollection } from "../definitions.ts"
+import { parseConsoleDocumentSetup } from "../definitions.ts"
+
+import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 /** The document actions that one Console request may call. It mirrors `ViteHubConsoleDocumentActionName`. */
@@ -25,6 +27,8 @@ export type ConsoleDocumentActions = {
   collections(context: ConsoleDocumentActionContext): readonly ConsoleDocumentCollection[] | Promise<readonly ConsoleDocumentCollection[]>
   /** What the user may do in the media library of the section. */
   mediaAccess(context: ConsoleDocumentActionContext): ConsoleMediaAccess | Promise<ConsoleMediaAccess>
+  /** What the runtime lacks for some editor features, such as an access policy. */
+  setup?(context: ConsoleDocumentActionContext): ConsoleDocumentSetup | Promise<ConsoleDocumentSetup>
 } & Record<ConsoleDocumentActionName, ConsoleDocumentAction>
 
 /** Mirrors `ViteHubConsoleMediaAccess`. */
@@ -126,11 +130,19 @@ export async function runConsoleDocumentAction<T>(action: () => T | Promise<T>):
   }
 }
 
-/** Reads the collections that the signed-in user may read, for the definitions route. */
-export async function readConsoleDocumentCollections(section: string, access: ConsoleAccess): Promise<ConsoleDocumentCollection[]> {
+/**
+ * Reads the collections that the signed-in user may read, for the definitions route, and the setup hints of the owner
+ * runtime merged over the build-time hints.
+ */
+export async function readConsoleDocumentSection(section: string, access: ConsoleAccess, built?: ConsoleDocumentSetup): Promise<{ collections: ConsoleDocumentCollection[], setup?: ConsoleDocumentSetup }> {
   const actions = await loadConsoleDocumentActions(section)
   const user = await consoleDocumentActionContext(access)
-  return [...await runConsoleDocumentAction(() => actions.collections(user))]
+  const [collections, runtime] = await Promise.all([
+    runConsoleDocumentAction(() => actions.collections(user)),
+    actions.setup ? runConsoleDocumentAction(() => actions.setup!(user)) : undefined,
+  ])
+  const setup = parseConsoleDocumentSetup({ ...built, ...runtime })
+  return setup ? { collections: [...collections], setup } : { collections: [...collections] }
 }
 
 function isActionName(value: unknown): value is ConsoleDocumentActionName {

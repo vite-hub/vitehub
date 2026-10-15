@@ -7,6 +7,7 @@ import {
   compactConsoleFieldValues,
   consoleDocumentSlug,
   consoleDocumentHasBody,
+  consoleDocumentScheduleHint,
   consoleDocumentScheduleLabel,
   consoleDocumentScheduleTone,
   consoleDocumentStateColor,
@@ -14,6 +15,7 @@ import {
   consoleErrorMessage,
   consoleFieldIssues,
   consoleFixFieldsLabel,
+  consoleHintText,
   consoleLeaseHolder,
   consoleListQueryFor,
   consolePublishMismatches,
@@ -48,6 +50,7 @@ import type { CalendarDate } from "@internationalized/date";
 import type { RouteLocationRaw } from "vue-router";
 
 import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentSchedule, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleRawDocument } from "../client/documents";
+import type { ConsoleDocumentSetup } from "../definitions";
 
 /**
  * Edits one document as a page: a large title, the fields as property rows, then the body. Drafts save on their own
@@ -64,6 +67,8 @@ const props = defineProps<{
   documentId?: string;
   /** Where Back leads instead of the collection list, such as the Settings page for a singleton. */
   parent?: { label: string, to: RouteLocationRaw };
+  /** What the project lacks, such as a runner for scheduled publishes. */
+  setup?: ConsoleDocumentSetup;
 }>();
 
 const emit = defineEmits<{ changed: [] }>();
@@ -83,7 +88,7 @@ const creating = computed(() => props.documentId === undefined);
 const single = computed(() => props.collection.kind === "singleton");
 const hasBody = computed(() => consoleDocumentHasBody(props.collection));
 const fields = computed(() => describeConsoleSchemaFields(props.collection.schema));
-const noun = computed(() => consoleSingularLabel(props.collection.label));
+const noun = computed(() => consoleSingularLabel(props.collection));
 // A singleton is named by its label, so every field, a `title` too, is a property row.
 const titleField = computed(() => (single.value ? undefined : fields.value.find(field => field.name === props.collection.titleField && field.kind === "string")));
 // A `seo()` field gets its own group of rows, with counters and previews, under the other properties.
@@ -600,19 +605,27 @@ async function publish(): Promise<void> {
 const scheduleAt = computed(() => (scheduleDate.value ? consoleLocalScheduleTime(scheduleDate.value.toString(), scheduleTime.value.toString()) : undefined));
 const scheduleInPast = computed(() => scheduleAt.value !== undefined && Date.parse(scheduleAt.value) <= Date.now());
 const scheduleMinDate = computed(() => today(timeZone));
-const scheduleHint = computed(() => {
-  if (!schedule.value) return "";
-  if (schedule.value.failure) return `${schedule.value.failure} Dismiss it from the menu, then schedule again.`;
-  const when = new Date(schedule.value.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-  return schedule.value.status === "overdue"
-    ? `Was due ${when}. No run has published it yet.`
-    : `Publishes this draft ${when}. Saving it again before then makes the schedule fail.`;
+const scheduleHint = computed(() => (schedule.value ? consoleDocumentScheduleHint(schedule.value, props.setup) : ""));
+// Schedule… is off when nothing would run the schedule; the menu names the fix and links to its docs.
+const publishMenu = computed(() => {
+  const runner = props.setup?.schedule;
+  const scheduleItem = {
+    label: "Schedule…",
+    icon: "i-lucide-calendar-clock",
+    disabled: Boolean(runner) || Boolean(schedule.value && schedule.value.status !== "failed"),
+    ...(runner ? { description: consoleHintText(runner.message) } : {}),
+    onSelect: openSchedule,
+  };
+  return runner?.docs
+    ? [[scheduleItem], [{ label: "Set up scheduling", icon: "i-lucide-book-open", to: runner.docs, target: "_blank" }]]
+    : [[scheduleItem]];
 });
 // Warn once per schedule when an edit makes the scheduled publish fail.
 let scheduleWarned: string | undefined;
 
 /** Saves pending edits first, like Publish, so the schedule covers exactly the draft on screen. */
 async function openSchedule(): Promise<void> {
+  if (props.setup?.schedule) return;
   clearTimeout(autosaveTimer);
   await bodyEditor.value?.commit();
   await settled();
@@ -1011,8 +1024,9 @@ const menuItems = computed(() => [[
         </UTooltip>
         <UDropdownMenu
           v-if="state !== 'deleted'"
-          :items="[{ label: 'Schedule…', icon: 'i-lucide-calendar-clock', disabled: Boolean(schedule && schedule.status !== 'failed'), onSelect: openSchedule }]"
+          :items="publishMenu"
           :content="{ align: 'end' }"
+          :ui="{ content: 'max-w-72', itemDescription: 'whitespace-normal!' }"
         >
           <UButton icon="i-lucide-chevron-down" aria-label="More publish options" :disabled="Boolean(conflict) || publishing || Boolean(errorCount)" :loading="scheduling" class="border-s border-(--ui-bg)/25" />
         </UDropdownMenu>

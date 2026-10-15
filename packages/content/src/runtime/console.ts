@@ -37,12 +37,11 @@ import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
 
 type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions" | "schedule" | "schedules" | "unschedule">
-  & Partial<Pick<ContentDocumentsRuntime, "sessions">>
+  & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "sessions">>
 
 const sessionActions: readonly ViteHubConsoleDocumentSessionAction[] = ["report", "acquire", "takeover", "release"]
 
 const documentStates: readonly ViteHubConsoleDocumentState[] = ["draft", "published", "changed", "deleted"]
-const titleFields = ["title", "name", "label", "heading"]
 const maximumListLimit = 200
 const maximumActivity = 50
 const maximumSearchLimit = 50
@@ -168,11 +167,14 @@ function label(name: string): string {
   return name.split(/[-_/\s]+/).filter(Boolean).map(part => `${part[0]!.toUpperCase()}${part.slice(1)}`).join(" ")
 }
 
-function titleFieldOf(schema: Record<string, unknown>): string | undefined {
-  const properties = isRecord(schema.properties) ? schema.properties : {}
-  const isString = (field: string) => isRecord(properties[field]) && properties[field].type === "string"
-  const required = Array.isArray(schema.required) ? schema.required.filter(field => String(field) === field) : []
-  return titleFields.find(isString) ?? required.find(isString)
+/**
+ * The name of a document: a singleton's label, else its title field, else its id. A singleton is named by its label,
+ * as the editor and the Settings page name it, so the dashboard never shows a file name such as `settings`.
+ */
+function titleOf(collection: AnyContentCollection, data: Record<string, unknown> | undefined, id: string): string {
+  if (collection.kind === "singleton") return collection.label
+  const title = collection.titleField && data ? data[collection.titleField] : undefined
+  return String(title) === title && title.trim() ? title : id
 }
 
 /** The `{ id, digest }` entries of a publish or schedule request. */
@@ -346,12 +348,6 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     return collections.filter((_collection, index) => allowed[index])
   }
 
-  function titleOf(collection: AnyContentCollection, summary: Pick<ContentDocumentSummary, "data" | "id"> | undefined, id: string): string {
-    const field = titleFieldOf(collection.schema)
-    const title = field && summary ? summary.data[field] : undefined
-    return String(title) === title && title.trim() ? title : id
-  }
-
   /** Summaries of some documents in one read per ref: drafts from `draft`, documents deleted on the draft from `published`. */
   async function summaries(collection: AnyContentCollection, ids: ReadonlySet<string>, statuses: ReadonlyMap<string, ContentDocumentStatus>): Promise<Map<string, ContentDocumentSummary>> {
     const onDraft = [...ids].filter(id => statuses.get(id)?.draft != null)
@@ -373,7 +369,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         const schema = json(collection.schema)
         const entry: ViteHubConsoleDocumentCollection = {
           name: collection.name,
-          label: label(collection.name),
+          label: collection.label,
           path: collection.path,
           kind: collection.kind,
           format: collection.format,
@@ -381,8 +377,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           access: { read: Boolean(read), write: Boolean(write), publish: Boolean(publish) },
         }
         if (collection.kind === "singleton") entry.document = collection.id
-        const titleField = titleFieldOf(schema)
-        if (titleField) entry.titleField = titleField
+        if (collection.kind === "documents" && collection.singularLabel) entry.singularLabel = collection.singularLabel
+        if (collection.titleField) entry.titleField = collection.titleField
         const components = Object.entries(collection.kind === "documents" ? collection.components : {}).map(([name, component]) => {
           const described: ViteHubConsoleDocumentComponent = { name, kind: component.kind ?? "block", label: component.label ?? label(name), props: json(component.props ?? {}) }
           if (component.description) described.description = component.description
@@ -392,6 +388,13 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         collections.push(entry)
       }
       return collections
+    },
+
+    setup() {
+      // Without a policy `content.can()` denies everything, so the editor names the fix instead of an empty section.
+      return content.hasPolicy === false
+        ? { access: { message: "Add `authorize` to `defineContent()` to decide who may read, edit, and publish documents.", docs: "https://vitehub.dev/docs/content/configure#access" } }
+        : {}
     },
 
     async list(input: ViteHubConsoleDocumentListInput, context): Promise<ViteHubConsoleDocumentPage> {
@@ -433,15 +436,13 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         if (input.sort) options.sort = { field: text(input.sort.field, "sort.field"), direction: input.sort.direction === "desc" ? "desc" : "asc" }
         if (input.facets?.length) options.facets = input.facets.map(field => text(field, "facets"))
         const page = await collection.list(options)
-        const titleField = titleFieldOf(collection.schema)
         const result: ViteHubConsoleDocumentPage = {
           items: page.items.map((item) => {
-            const title = titleField ? item.data[titleField] : undefined
             const status = statusById.get(item.id)
             const summary: ViteHubConsoleDocumentSummary = {
               id: item.id,
               path: item.path,
-              title: String(title) === title && title.trim() ? title : item.id,
+              title: titleOf(collection, item.data, item.id),
               state: status?.state ?? (ref === "published" ? "deleted" : "draft"),
               data: json(item.data),
               // A deleted document is listed from `published`, but publishing it expects no draft.
@@ -708,7 +709,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           readableMentions.set(collection.name, new Set(visible))
           const withSchedule = statuses.filter(status => status.schedule)
           const found = await summaries(collection, new Set([...pending.map(status => status.id), ...withSchedule.map(status => status.id), ...visible]), byId)
-          for (const [id, summary] of found) titles.set(`${collection.name}\u0000${id}`, titleOf(collection, summary, id))
+          for (const [id, summary] of found) titles.set(`${collection.name}\u0000${id}`, titleOf(collection, summary.data, id))
           const changes: ViteHubConsoleDocumentPendingChange[] = pending.map((status) => {
             const summary = found.get(status.id)
             const change: ViteHubConsoleDocumentPendingChange = {
@@ -716,7 +717,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
               // SAFETY: `pending` leaves out published documents.
               state: status.state as ViteHubConsoleDocumentPendingChange["state"],
               digest: status.draft,
-              title: titleOf(collection, summary, status.id),
+              title: titleOf(collection, summary?.data, status.id),
               updatedAt: status.state === "deleted" ? null : summary?.updatedAt ?? null,
             }
             if (status.issues) change.issues = status.issues
@@ -724,7 +725,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           })
           changes.sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "") || left.id.localeCompare(right.id))
           const scheduled: ViteHubConsoleDocumentScheduledChange[] = withSchedule
-            .flatMap(status => status.schedule ? [{ id: status.id, title: titleOf(collection, found.get(status.id), status.id), schedule: scheduleView(status.schedule) }] : [])
+            .flatMap(status => status.schedule ? [{ id: status.id, title: titleOf(collection, found.get(status.id)?.data, status.id), schedule: scheduleView(status.schedule) }] : [])
             .sort((left, right) => left.schedule.at.localeCompare(right.schedule.at) || left.id.localeCompare(right.id))
           return { name: collection.name, states, changes, scheduled }
         }))
@@ -756,7 +757,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
                 if (!reference.refs.includes(ref)) reference.refs.push(ref)
                 return
               }
-              documents.set(item.id, { collection: collection.name, id: item.id, title: titleOf(collection, item, item.id), refs: [ref] })
+              documents.set(item.id, { collection: collection.name, id: item.id, title: titleOf(collection, item.data, item.id), refs: [ref] })
             }
             // Field values: walk every document once for all pathnames. The collection index is cached per revision.
             let cursor: string | undefined
@@ -821,7 +822,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
             for (const [id, item] of await summaries(collection, new Set(idMatches.map(status => status.id)), byId)) items.set(id, item)
           }
           return [...items.values()].map((item) => {
-            const title = titleOf(collection, item, item.id)
+            const title = titleOf(collection, item.data, item.id)
             const lower = title.toLowerCase()
             const rank = lower.startsWith(needle) ? 0 : lower.includes(needle) ? 1 : item.id.toLowerCase().includes(needle) ? 2 : 3
             const result: ViteHubConsoleDocumentSearchResult = { collection: collection.name, id: item.id, title, state: byId.get(item.id)?.state ?? "draft", updatedAt: item.updatedAt }

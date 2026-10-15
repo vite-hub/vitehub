@@ -103,6 +103,7 @@
     "./runtime/dev": "./dist/runtime/dev.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
+    "./served": "./dist/served.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./vue": "./dist/vue.js",

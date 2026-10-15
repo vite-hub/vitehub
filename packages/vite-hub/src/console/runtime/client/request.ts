@@ -34,6 +34,11 @@ export class ConsoleRequestError extends Diagnostic {
   }
 }
 
+/** Whether a Console request failed because no one is signed in, such as with `auth: "app"` after the session ended. */
+export function isConsoleSignInRequired(error: unknown): boolean {
+  return error instanceof ConsoleRequestError && error.status === 401
+}
+
 function consoleAppBase(path: string): string {
   const url = new URL(path, "http://vitehub.local")
   // The application mount may itself contain the Console API marker. The

@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import {
+  consoleDocumentScheduleHint,
   consoleDocumentScheduleTone,
   consoleDocumentStates,
   consoleDocumentStateColor,
@@ -20,10 +21,11 @@ import { consoleSectionRouteName } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
+import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleStatus from "./console-status.vue";
 
 import type { ConsoleDocumentActivity, ConsoleDocumentOverview, ConsoleDocumentPendingChange, ConsoleDocumentScheduledChange, ConsoleDocumentsClient, ConsoleDocumentState } from "../client/documents";
-import type { ConsoleDocumentCollection } from "../definitions";
+import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions";
 
 /**
  * The dashboard of a document editor section: counts by state, the changes that wait for a publish, the scheduled
@@ -37,6 +39,8 @@ const props = defineProps<{
   loading: boolean;
   overview?: ConsoleDocumentOverview;
   section: string;
+  /** What the project lacks, such as an access policy. */
+  setup?: ConsoleDocumentSetup;
 }>();
 
 const emit = defineEmits<{ changed: [], reload: [] }>();
@@ -103,6 +107,8 @@ const canPublishAny = computed(() => props.collections.some(collection => collec
 const listed = computed(() => props.collections.filter(collection => collection.kind !== "singleton"));
 const writable = computed(() => listed.value.filter(collection => collection.access.write));
 const firstLoad = computed(() => props.loading && !props.overview);
+// Without an access policy no one reads anything, so "Everything is published" would not be true.
+const noAccess = computed(() => !props.collections.length ? props.setup?.access : undefined);
 
 function key(collection: string, id: string): string {
   return `${collection}\u0000${id}`;
@@ -239,6 +245,10 @@ async function publishAll(): Promise<void> {
             <div v-if="firstLoad" class="grid gap-px">
               <USkeleton v-for="index in 3" :key="index" class="h-11 rounded-md" />
             </div>
+            <div v-else-if="!pending.length && noAccess" class="rounded-lg border border-dashed border-default px-4 py-6 text-center">
+              <p class="text-[13px] text-highlighted">No one can read documents yet</p>
+              <p class="mt-1 text-xs text-muted"><ConsoleSetupHint :hint="noAccess" /></p>
+            </div>
             <div v-else-if="!pending.length" class="rounded-lg border border-dashed border-default px-4 py-6 text-center">
               <p class="text-[13px] text-highlighted">Everything is published</p>
               <p class="mt-1 text-xs text-muted">Drafts and edits show here until someone publishes them.</p>
@@ -275,12 +285,13 @@ async function publishAll(): Promise<void> {
               Scheduled
               <span class="ms-1 font-normal text-dimmed tabular-nums">{{ scheduled.length }}</span>
             </h2>
+            <p v-if="setup?.schedule" class="text-xs text-muted"><ConsoleSetupHint :hint="setup.schedule" /></p>
             <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default">
               <li v-for="entry in scheduled.slice(0, 12)" :key="`${entry.collection.name}/${entry.item.id}`">
                 <RouterLink
                   :to="documentRoute(entry.collection.name, entry.item.id)"
                   class="vitehub-dashboard-row"
-                  :title="entry.item.schedule.failure"
+                  :title="consoleDocumentScheduleHint(entry.item.schedule, setup)"
                 >
                   <ConsoleStatus class="vitehub-dashboard-row__status" :tone="consoleDocumentScheduleTone(entry.item.schedule)" :label="scheduleStatus[entry.item.schedule.status]" />
                   <span class="vitehub-dashboard-row__title flex items-center gap-2">
@@ -300,6 +311,7 @@ async function publishAll(): Promise<void> {
             <div v-if="firstLoad && !listed.length" class="grid gap-px">
               <USkeleton v-for="index in 2" :key="index" class="h-11 rounded-md" />
             </div>
+            <p v-else-if="!listed.length" class="text-xs text-muted">No collections you can read.</p>
             <ul v-else class="divide-y divide-default overflow-hidden rounded-lg border border-default">
               <li v-for="collection in listed" :key="collection.name" class="flex h-11 items-center gap-3 px-3">
                 <RouterLink :to="collectionRoute(collection.name)" class="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2">
@@ -315,8 +327,8 @@ async function publishAll(): Promise<void> {
                   size="xs"
                   variant="outline"
                   icon="i-lucide-plus"
-                  :label="consoleSingularLabel(collection.label)"
-                  :aria-label="`New ${consoleSingularLabel(collection.label).toLowerCase()}`"
+                  :label="consoleSingularLabel(collection)"
+                  :aria-label="`New ${consoleSingularLabel(collection).toLowerCase()}`"
                 />
               </li>
             </ul>
