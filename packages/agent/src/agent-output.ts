@@ -717,14 +717,18 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
       : hasRuntimeType(intrinsicIsError, "function")
         ? intrinsicIsError(error) === true
         : (() => {
+          const hasIntrinsicStack = () => {
+            const stack = Object.getOwnPropertyDescriptor(error, "stack")
+            // V8 exposes cross-realm Error.stack as a configurable accessor;
+            // other engines use a configurable, writable data property.
+            return stack !== undefined && stack.configurable === true
+              && ("writable" in stack ? stack.writable === true : typeof stack.get === "function")
+          }
           // Without a native brand check, require the Error's intrinsic stack
           // slot for tagged cross-realm values. A tag alone is user-controllable.
           if (!(Symbol.toStringTag in error)) {
             if (Object.getPrototypeOf(error) !== Error.prototype) return Object.prototype.toString.call(error) === "[object Error]"
-            const message = Object.getOwnPropertyDescriptor(error, "message")
-            const stack = Object.getOwnPropertyDescriptor(error, "stack")
-            return (message === undefined || (message.writable === true && message.configurable === true))
-              && (stack === undefined || (stack.writable === true && stack.configurable === true))
+            return hasIntrinsicStack()
           }
           const prototype = Reflect.getPrototypeOf(error)
           if (prototype === null || prototype === Error.prototype || prototype === Object.prototype) return false
@@ -732,8 +736,7 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
           return hasRuntimeType(constructor, "function")
             && Reflect.get(constructor, "prototype") === prototype
             && (() => {
-              const stack = Object.getOwnPropertyDescriptor(error, "stack")
-              return stack !== undefined && stack.writable === true && stack.configurable === true
+              return hasIntrinsicStack()
             })()
         })()
     if (!branded) return
