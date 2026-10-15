@@ -458,7 +458,21 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     try {
       // The storage carrier must be an own context value, while workerd exposes
       // its native `sql` instance through the carrier's prototype.
-      const sql = Reflect.get(storage as object, "sql")
+      const carrier = storage as object
+      const ownSql = Object.getOwnPropertyDescriptor(carrier, "sql")
+      if (ownSql) {
+        if (!("value" in ownSql)) return undefined
+        return hasCloudflareSqlExec(ownSql.value) ? ownSql.value : undefined
+      }
+      let prototype = Object.getPrototypeOf(carrier)
+      let sqlDescriptor: PropertyDescriptor | undefined
+      while (prototype && prototype !== Object.prototype) {
+        sqlDescriptor = Object.getOwnPropertyDescriptor(prototype, "sql")
+        if (sqlDescriptor) break
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      if (!sqlDescriptor) return undefined
+      const sql = Reflect.get(carrier, "sql")
       return hasCloudflareSqlExec(sql) ? sql : undefined
     }
     catch {
