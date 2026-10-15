@@ -27,21 +27,30 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
     let prototype = Object.getPrototypeOf(value)
     while (prototype) {
       const sliceDescriptor = Object.getOwnPropertyDescriptor(prototype, "slice")
-      const streamDescriptor = Object.getOwnPropertyDescriptor(prototype, "stream")
-      // Blob.prototype owns both operations. Requiring them on the same
-      // prototype skips subclass prototypes that override only stream().
-      if (!sliceDescriptor || !streamDescriptor) {
+      // Resolve the stream from a Blob returned by the brand-checked slice.
+      // This skips own and prototype-level stream overrides on the input.
+      if (!sliceDescriptor) {
         prototype = Object.getPrototypeOf(prototype)
         continue
       }
       const slice = sliceDescriptor.value
-      const stream = streamDescriptor.value
-      if (!hasRuntimeType(slice, "function") || !hasRuntimeType(stream, "function")) {
+      if (!hasRuntimeType(slice, "function")) {
         prototype = Object.getPrototypeOf(prototype)
         continue
       }
       try {
-        Reflect.apply(slice, value, [0, 0])
+        const sliced = Reflect.apply(slice, value, [])
+        const slicedPrototype = Object.getPrototypeOf(sliced)
+        const slicedSlice = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "slice")?.value
+        const stream = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "stream")?.value
+        if (!hasRuntimeType(slicedSlice, "function") || !hasRuntimeType(stream, "function")) {
+          prototype = Object.getPrototypeOf(prototype)
+          continue
+        }
+        // Applying the same slice operation to its result confirms that the
+        // returned object carries the Blob's internal slots, rather than being
+        // an arbitrary object returned by a spoofed slice method.
+        Reflect.apply(slicedSlice, sliced, [0, 0])
         const type = String(Reflect.get(value, "type"))
         return {
           stream: () => Reflect.apply(stream, value, []) as ReadableStream,
