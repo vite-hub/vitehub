@@ -156,14 +156,14 @@ describe("UI documentation", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
 
-    expect(sidebar).toContain("flex: 1 1 0");
+    expect(sidebar).toContain("vh-docs-sidebar-nav");
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
+    expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(layout).toContain("overflow: hidden;");
-    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
-    expect(layout).toContain("flex: 1;");
+    expect(layout).not.toContain("vh-docs-shell > .vh-docs-desktop-nav");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
