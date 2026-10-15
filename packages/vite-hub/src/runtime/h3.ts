@@ -94,6 +94,20 @@ function isRequest(value: unknown): value is Request {
         if (typeof cancel === "function") cancel.call(clone.body)
       } catch {
         if (!bodyUsed) continue
+        // A forged `bodyUsed` flag can make a copied native `clone` throw even
+        // though the receiver has no Request internal slots. Probe another
+        // body method: genuine consumed requests return a rejected promise,
+        // while a native method invoked on a forged receiver throws
+        // synchronously. Attach a rejection handler so the probe is inert.
+        const arrayBufferMethod = methods[1]
+        if (typeof arrayBufferMethod !== "function") continue
+        try {
+          const result = arrayBufferMethod.call(value)
+          if (!result || typeof (result as PromiseLike<unknown>).then !== "function") continue
+          void Promise.resolve(result).catch(() => undefined)
+        } catch {
+          continue
+        }
       }
       return true
     }
