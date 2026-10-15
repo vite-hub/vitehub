@@ -569,7 +569,7 @@ describe("agent output helpers", () => {
       const forged = Object.create(Error.prototype)
       Object.defineProperties(forged, {
         message: { value: "forged" },
-        stack: { value: "Error: forged\n    at provider (provider.js:1:1)" },
+        stack: { value: "Error: forged\n    at provider (provider.js:1:1)", configurable: true, writable: true },
       })
       const event = toAgentStreamEvent({ error: forged, type: "error" })
       expect(event).toMatchObject({ error: "Error: forged", type: "error" })
@@ -635,7 +635,7 @@ describe("agent output helpers", () => {
     const forged = Object.create(Error.prototype)
     Object.defineProperties(forged, {
       message: { value: "forged" },
-      stack: { value: "Error: forged\n    at provider (provider.js:1:1)" },
+      stack: { value: "Error: forged\n    at provider (provider.js:1:1)", configurable: true, writable: true },
     })
     const forgedEvent = toAgentStreamEvent({ error: forged, type: "error" })
     expect(forgedEvent).toMatchObject({ error: "Error: forged", type: "error" })

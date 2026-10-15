@@ -739,10 +739,11 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
         : (() => {
           const hasIntrinsicStack = () => {
             const stack = Object.getOwnPropertyDescriptor(error, "stack")
-            // V8 exposes cross-realm Error.stack as a configurable accessor;
-            // other engines use a configurable, writable data property.
+            // Native Errors expose stack through the engine's intrinsic
+            // accessor. A configurable writable data property can be added
+            // to Object.create(Error.prototype), so it is not brand evidence.
             return stack !== undefined && stack.configurable === true
-              && ("writable" in stack ? stack.writable === true : typeof stack.get === "function")
+              && typeof stack.get === "function"
           }
           // Without a native brand check, require the Error's intrinsic stack
           // slot for tagged cross-realm values. A tag alone is user-controllable.
