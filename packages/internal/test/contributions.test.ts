@@ -93,6 +93,11 @@ describe("collectContributions", () => {
 
     await expect(collect([{ name: "relative", vitehub: { widgets: [{ definition: { module: "./docs.ts" }, name: "docs" }] } }]))
       .rejects.toThrow("INVALID [vitehub] Plugin \"relative\" contributed an invalid Widget: `definition.module` of Widget \"docs\" is relative")
+
+    for (const module of ["file:../docs.ts", "file:./docs.ts", "file:"]) {
+      await expect(collect([{ name: "relative-file", vitehub: { widgets: [{ definition: { module }, name: "docs" }] } }]))
+        .rejects.toThrow("INVALID [vitehub] Plugin \"relative-file\" contributed an invalid Widget: `definition.module` of Widget \"docs\" must be a valid file URL or module specifier.")
+    }
   })
 
   it.each([
