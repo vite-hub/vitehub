@@ -84,10 +84,17 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
   const contributions = config.tableContributionsByDatabase[definition.name] ?? []
   await mkdir(dirname(file), { recursive: true })
   const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
-  const [sources, contributed] = await Promise.all([
+  const [sources, loadedContributions] = await Promise.all([
     Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options))),
-    Promise.all(contributions.map(contribution => loadContributedDatabaseSchema(contribution, file, options))),
+    Promise.all(contributions.map(async contribution => ({
+      contribution,
+      schema: await loadContributedDatabaseSchema(contribution, file, options),
+    }))),
   ])
+  // A failed contribution is intentionally omitted in non-strict mode. Its module cannot be imported by the
+  // generated schema, while the fallback warning already explains that its tables are unavailable.
+  const activeContributions = loadedContributions.filter(item => item.schema.loaded)
+  const contributed = activeContributions.map(item => item.schema)
   // Each table comes from the layer source that wins its key, so drizzle-kit sees every table once.
   const tableSources = new Map<string, string>()
   sources.forEach((source, index) => {
@@ -100,14 +107,14 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
       schema: mergeLoadedSchemas(sources),
       tableSources,
     },
-    ...contributions.map((contribution, index) => ({
+    ...activeContributions.map((item, index) => ({
       expression: `contributedSchema_${index}`,
-      owner: `contributed tables ${describeDatabaseContribution(contribution)}`,
+      owner: `contributed tables ${describeDatabaseContribution(item.contribution)}`,
       schema: contributed[index]!,
     })),
   ]
   assertDistinctLoadedSchemas(definition.name, parts)
-  await writeFile(file, renderGeneratedDrizzleSchema(file, definition, parts, contributions), "utf8")
+  await writeFile(file, renderGeneratedDrizzleSchema(file, definition, parts, activeContributions.map(item => item.contribution)), "utf8")
 }
 
 function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {

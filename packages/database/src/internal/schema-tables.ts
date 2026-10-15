@@ -39,7 +39,7 @@ export function assertDistinctLoadedSchemas(database: string, parts: readonly { 
       if (existing) throw databaseErrorDiagnostics.DATABASE_B0010({ message: `[vitehub] Database "${database}" has two schema entries with the key ${JSON.stringify(key)}:\n  - ${existing}\n  - ${part.owner}\nRename one key, or remove the contribution. If the Definition already lists the contributed tables, remove them from its schema.` })
       keys.set(key, part.owner)
     }
-    for (const sqlName of new Set(part.schema.sqlNames.values())) {
+    for (const sqlName of part.schema.sqlNames.values()) {
       const existing = sqlNames.get(sqlName)
       if (existing) throw databaseErrorDiagnostics.DATABASE_B0010({ message: `[vitehub] Database "${database}" has two tables named ${JSON.stringify(sqlName)}:\n  - ${existing}\n  - ${part.owner}\nRename one table, or remove the contribution. If the Definition already lists the contributed tables, remove them from its schema.` })
       sqlNames.set(sqlName, part.owner)
