@@ -215,7 +215,10 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       if (result instanceof Response || isResponseLike(result)) return result
       if (result === true) return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
       if (result && typeof result === "object" && Array.isArray(result.sections)) {
-        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: result.sections.filter((section): section is ConsoleSectionId => typeof section === "string") })
+        if (!result.sections.every((section): section is ConsoleSectionId => typeof section === "string" && section.length > 0)) {
+          return rejection(500, "[vitehub] console.authorize returned an invalid section list.")
+        }
+        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: result.sections })
       }
       return rejection(403, "Forbidden.")
     }
@@ -233,7 +236,10 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       if (result instanceof Response || isResponseLike(result)) return result
       if (result === true) return consoleAccessGrant.issue(policy.mode, { mode: policy.mode })
       if (result && typeof result === "object" && Array.isArray(result.sections)) {
-        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: result.sections.filter((section): section is ConsoleSectionId => typeof section === "string") })
+        if (!result.sections.every((section): section is ConsoleSectionId => typeof section === "string" && section.length > 0)) {
+          return rejection(500, "[vitehub] console.authorize returned an invalid section list.")
+        }
+        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: result.sections })
       }
       return rejection(403, "Forbidden.")
     }
@@ -275,7 +281,7 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
-  routeScope?: ConsoleRouteScope,
+  routeScope: ConsoleRouteScope,
 ): (event: TEvent) => Promise<TResult | Response> {
   if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
   if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
