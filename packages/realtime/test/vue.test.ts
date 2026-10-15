@@ -15,7 +15,7 @@ const providers = vi.hoisted(() => [] as Array<{
   disconnect: ReturnType<typeof vi.fn<() => void>>
   statusHandler?: (event: { status: string }) => void
   syncHandler?: (value: boolean) => void
-  awareness: { setLocalStateField: ReturnType<typeof vi.fn> }
+  awareness: { on: ReturnType<typeof vi.fn>, setLocalStateField: ReturnType<typeof vi.fn> }
   doc: Y.Doc
   messageHandlers: Array<(encoder: unknown, decoder: decoding.Decoder) => void>
   params: Record<string, string>
@@ -36,6 +36,7 @@ vi.mock("y-websocket", () => ({
   WebsocketProvider: class {
     awareness = {
       getStates: () => new Map(),
+      off: vi.fn(),
       on: vi.fn(),
       setLocalState: vi.fn(),
       setLocalStateField: vi.fn(),
@@ -145,6 +146,21 @@ describe("useRealtimeTiptap", () => {
     scope.stop()
     expect(providers[0]!.destroy).toHaveBeenCalledOnce()
     expect(providers[2]!.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("sends only its own awareness state, never other clients' states that it received", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const scope = effectScope()
+    scope.run(() => useRealtimeTiptap("docs", ref("page.md"), { identity: { id: "ana", name: "Ana" } }))
+    const provider = providers.at(-1)!
+    Object.assign(provider, { wsconnected: true })
+    const handler = provider.awareness.on.mock.calls.find(([event]) => event === "update")![1] as (change: { added: number[], removed: number[], updated: number[] }) => void
+    Object.assign(provider.awareness, { getStates: () => new Map([[provider.doc.clientID, { user: { id: "ana" } }], [42, { user: { id: "ben" } }]]), meta: new Map([[provider.doc.clientID, { clock: 1, lastUpdated: 0 }], [42, { clock: 1, lastUpdated: 0 }]]), states: new Map([[provider.doc.clientID, { user: { id: "ana" } }], [42, { user: { id: "ben" } }]]) })
+    handler({ added: [42], removed: [], updated: [] })
+    expect(provider.ws.send).not.toHaveBeenCalled()
+    handler({ added: [], removed: [], updated: [provider.doc.clientID, 42] })
+    expect(provider.ws.send).toHaveBeenCalledOnce()
+    scope.stop()
   })
 
   it("ignores lifecycle events from replaced document providers", async () => {
