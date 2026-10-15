@@ -364,31 +364,6 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown): value is (.
   catch {
     return false
   }
-  const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const result = await Reflect.apply(read, reader, [])
-        if (result.done) {
-          release()
-          controller.close()
-        }
-        else controller.enqueue(result.value)
-      }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
-    },
-    async cancel(reason) {
-      try {
-        await Reflect.apply(cancel, reader, [reason])
-      }
-      finally {
-        release()
-      }
-    },
-  }, { highWaterMark: 0 })
-  return { stream, release }
 }
 
 function readerOperation(readerPrototype: object, key: "read" | "cancel" | "releaseLock"): unknown {
@@ -412,12 +387,15 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   return !Reflect.apply(locked.value, stream, [])
 }
 
-function authorizationHeaderMethods(_headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
-  // Always call the host realm's verified intrinsics. Never capture methods
-  // from the response carrier, whose prototype and tag may be spoofed.
-  const forEach = Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value
-  const getSetCookie = Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value
-  if (typeof forEach !== "function") return
+function authorizationHeaderMethods(headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
+  // Header methods perform a realm-specific brand check. Capture the methods
+  // from this carrier's verified native prototype and invoke them on the carrier.
+  const forEach = responsePropertyDescriptor(headers, "forEach")?.value
+  const getSetCookie = responsePropertyDescriptor(headers, "getSetCookie")?.value
+  if (!isNativeFunction(forEach, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value)
+    || forEach.name !== "forEach") return
+  if (getSetCookie !== undefined && (!isNativeFunction(getSetCookie, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+    || getSetCookie.name !== "getSetCookie")) return
   return { forEach: forEach as (...args: never[]) => unknown, getSetCookie: getSetCookie as (...args: never[]) => unknown | undefined }
 }
 
