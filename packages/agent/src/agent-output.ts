@@ -869,6 +869,21 @@ function isResponseLike(value: unknown): value is Response {
     // trusted reader operation when it succeeds. Consumption below still
     // surfaces a locked-body error rather than silently taking the generic path.
     if (Object.prototype.toString.call(body) !== "[object ReadableStream]") return false
+    // A spoofed Symbol.toStringTag is not enough to establish stream
+    // provenance. Genuine streams expose the platform `locked` accessor on
+    // their prototype chain; require that non-callable surface before
+    // accepting a failed reader probe as the already-locked case.
+    let lockedAccessor = false
+    let streamPrototype: object | null = Object.getPrototypeOf(body) as object | null
+    while (streamPrototype) {
+      const descriptor = Object.getOwnPropertyDescriptor(streamPrototype, "locked")
+      if (descriptor) {
+        lockedAccessor = hasRuntimeType(descriptor.get, "function")
+        break
+      }
+      streamPrototype = Object.getPrototypeOf(streamPrototype) as object | null
+    }
+    if (!lockedAccessor) return false
     try {
       const reader = ReadableStream.prototype.getReader.call(body as ReadableStream)
       reader.releaseLock()

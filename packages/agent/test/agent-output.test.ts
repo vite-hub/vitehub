@@ -1219,6 +1219,20 @@ describe("agent output helpers", () => {
     expect(events).toEqual([])
   })
 
+  it("rejects a spoofed ReadableStream tag on an incompatible body", async () => {
+    const body = Object.create({ [Symbol.toStringTag]: "ReadableStream" })
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+    })
+    Object.defineProperty(value, Symbol.toStringTag, { value: "Response" })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
   it("does not trust a spoofed Response tag over a genuine stream", async () => {
     const body = new Response("spoofed").body
     const value = Object.create({
