@@ -39,11 +39,15 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
         continue
       }
       try {
-        const sliced: unknown = Reflect.apply(slice, value, [])
+        const sliced: unknown = Reflect.apply(slice, value, [0, 0])
         // A real Blob slice always creates a distinct Blob. Reject methods
         // that simply return their receiver, which can otherwise imitate the
         // prototype checks below without carrying Blob internal slots.
         if (sliced === value) {
+          prototype = Object.getPrototypeOf(prototype)
+          continue
+        }
+        if (sliced === null || (typeof sliced !== "object" && typeof sliced !== "function")) {
           prototype = Object.getPrototypeOf(prototype)
           continue
         }
@@ -58,8 +62,17 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
         // Applying the same slice operation to its result confirms that the
         // returned object carries the Blob's internal slots, rather than being
         // an arbitrary object returned by a spoofed slice method.
-        Reflect.apply(slicedSlice, sliced, [0, 0])
-        Reflect.apply(sizeGetter, sliced, [])
+        const slicedAgain = Reflect.apply(slicedSlice, sliced, [0, 0])
+        if (slicedAgain === sliced) {
+          prototype = Object.getPrototypeOf(prototype)
+          continue
+        }
+        const size = Reflect.apply(sizeGetter, sliced, [])
+        const slicedType = Reflect.getOwnPropertyDescriptor(sliced, "type")
+        if (size !== 0 || !slicedType || !hasRuntimeType(slicedType.value, "string")) {
+          prototype = Object.getPrototypeOf(prototype)
+          continue
+        }
         const type = String(Reflect.get(value, "type"))
         return {
           stream: () => Reflect.apply(stream, value, []) as ReadableStream,
