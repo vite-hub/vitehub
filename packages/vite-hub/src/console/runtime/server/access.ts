@@ -79,14 +79,18 @@ function isResponseLike(value: unknown): value is Response {
       .every((key) => Object.prototype.hasOwnProperty.call(value, key))
     let hasBodyGetter = false
     let hasResponseTag = false
+    let responseBodyGetter: (() => unknown) | undefined
     for (let prototype = Object.getPrototypeOf(value); prototype; prototype = Object.getPrototypeOf(prototype)) {
       const body = Object.getOwnPropertyDescriptor(prototype, "body")
       if (body && typeof body.get === "function") {
         hasBodyGetter = true
-
+        responseBodyGetter = body.get
       }
       const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
-      if (tag && typeof tag.get === "function" && tag.get.call(value) === "Response") hasResponseTag = true
+      if (tag) {
+        const tagValue = typeof tag.get === "function" ? tag.get.call(value) : tag.value
+        if (tagValue === "Response") hasResponseTag = true
+      }
     }
     const constructor = Object.getPrototypeOf(value)?.constructor
     let factorySurface = false
@@ -109,9 +113,8 @@ function isResponseLike(value: unknown): value is Response {
         factorySurface = false
       }
     }
-    const foreignImplementation = ownSlots
+    const foreignImplementation = hasResponseTag
       && hasBodyGetter
-      && hasResponseTag
       && typeof constructor === "function"
       && constructor.name === "Response"
       && typeof (constructor as { json?: unknown }).json === "function"
@@ -135,12 +138,12 @@ function isResponseLike(value: unknown): value is Response {
         }
         return false
       })
-      // Foreign DOM implementations expose a concrete Response subclass. Requiring
-      // the intrinsic class source prevents an ordinary `class Response {}` from
-      // masquerading as the platform constructor while preserving happy-dom.
-      && /^class\s+Response\s+extends\s+/.test(Function.prototype.toString.call(constructor))
       && constructor.prototype === Object.getPrototypeOf(value)
       && factorySurface
+      // Node's Response stores its slots internally, while DOM shims commonly
+      // expose them as own properties. Both forms are valid when the inspected
+      // body getter accepts the value (or the shim exposes the complete shape).
+      && (ownSlots || /\[native code\]/.test(Function.prototype.toString.call(responseBodyGetter)))
     return typeof response.status === "number"
       && typeof response.statusText === "string"
       && (nativeBrand || foreignImplementation)
