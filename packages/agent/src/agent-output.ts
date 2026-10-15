@@ -818,6 +818,16 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
 function isResponseLike(value: unknown): value is Response {
   if (!isRuntimeObject(value)) return false
   try {
+    // Require the platform tag to be a data property on the prototype. A
+    // caller-controlled Symbol.toStringTag getter can otherwise spoof the
+    // intrinsic tag while exposing a response-shaped object.
+    let tagDescriptor: PropertyDescriptor | undefined
+    let tagPrototype: object | null = value
+    while (tagPrototype && !tagDescriptor) {
+      tagDescriptor = Object.getOwnPropertyDescriptor(tagPrototype, Symbol.toStringTag)
+      tagPrototype = Object.getPrototypeOf(tagPrototype) as object | null
+    }
+    if (!tagDescriptor || tagDescriptor.value !== "Response" || tagDescriptor.get || tagDescriptor.set) return false
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
     // The foreign implementation owns its getters. Require the full Response
     // accessor contract before accepting an output as a byte stream.
@@ -946,7 +956,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   if (isResponseLike(value)) {
     const body = value.body
     if (body) {
-      for await (const text of ReadableStream.prototype.pipeThrough.call(body, new TextDecoderStream())) {
+      for await (const text of ReadableStream.prototype.pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
         if (text) yield { text, type: "text-delta" }
       }
     }

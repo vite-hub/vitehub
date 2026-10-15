@@ -1219,6 +1219,20 @@ describe("agent output helpers", () => {
     expect(events).toEqual([])
   })
 
+  it("does not trust a spoofed Response tag over a genuine stream", async () => {
+    const body = new Response("spoofed").body
+    const value = Object.create({
+      get status() { return 200 },
+      get statusText() { return "OK" },
+      get headers() { return new Headers() },
+      get body() { return body },
+      get [Symbol.toStringTag]() { return "Response" },
+    })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
   it("preserves text from a spoofed Response-shaped result", async () => {
     const value = Object.create({
       get status() { return 200 },
