@@ -107,13 +107,13 @@ describe("Postgres Database Definitions", () => {
   it("rejects SQLite-only options and unknown dialects", () => {
     // @ts-expect-error D1 HTTP is a SQLite option.
     expect(() => defineDatabase({ cloudflare: { http: true }, dialect: "postgresql", schema: { notes } }))
-      .toThrow(expect.objectContaining({ code: "DATABASE_C0009", message: expect.stringContaining("cloudflare.http") }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_C0012", message: expect.stringContaining("cloudflare.http") }))
     // @ts-expect-error libSQL auth tokens are a SQLite option.
     expect(() => defineDatabase({ connection: { authToken: "token" }, dialect: "postgresql", schema: { notes } }))
-      .toThrow(expect.objectContaining({ code: "DATABASE_C0009", message: expect.stringContaining("connection.authToken") }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_C0012", message: expect.stringContaining("connection.authToken") }))
     // @ts-expect-error MySQL is not a supported dialect.
     expect(() => defineDatabase({ dialect: "mysql", schema: { notes } }))
-      .toThrow(expect.objectContaining({ code: "DATABASE_C0008" }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_C0011" }))
   })
 })
 
@@ -170,7 +170,7 @@ describe("Postgres build configuration", () => {
     const rootDir = await createTempProject()
     await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: process.env.DATABASE_DIALECT,"])
 
-    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_C0008" }))
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_C0011" }))
   })
 
   it("generates a postgresql Drizzle Kit config and a typed registry", async () => {

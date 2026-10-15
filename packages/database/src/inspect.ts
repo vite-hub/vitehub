@@ -10,7 +10,7 @@ export interface DatabaseInspectionOptions {
   serverDirs?: string[]
 }
 
-/** Lists Database Definitions with their mode, non-default dialect, and discovered tables. */
+/** Lists Database Definitions with their mode, non-default dialect, discovered tables, and the files that add tables to them. */
 export function inspectDatabaseDefinitions(options: DatabaseInspectionOptions): ViteHubDefinitionSummary[] {
   return discoverDatabaseDefinitions(options.rootDir, { serverDirs: options.serverDirs }).map(definition => ({
     fields: [
@@ -18,6 +18,9 @@ export function inspectDatabaseDefinitions(options: DatabaseInspectionOptions): 
       // SQLite is the default and stays implicit.
       ...(readDatabaseDefinitionDialect(definition.handler) === "postgresql" ? [{ label: "Dialect", value: "PostgreSQL" }] : []),
       { label: "Tables", value: definition.tableNames.length ? definition.tableNames.join(", ") : "None discovered" },
+      ...definition.schemaSources.length > 1
+        ? [{ label: "Schema sources", value: definition.schemaSources.map(source => relativeDefinitionFile(options.projectRoot, source.handler)).join(", ") }]
+        : [],
     ],
     file: relativeDefinitionFile(options.projectRoot, definition.handler),
     name: definition.name,

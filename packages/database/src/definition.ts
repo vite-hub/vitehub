@@ -38,7 +38,7 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
 
   const dialect = options.dialect ?? "sqlite"
   if (dialect !== "sqlite" && dialect !== "postgresql") {
-    throw databaseErrorDiagnostics.DATABASE_C0008({ message: "`defineDatabase().dialect` must be `sqlite` or `postgresql`." })
+    throw databaseErrorDiagnostics.DATABASE_C0011({ message: "`defineDatabase().dialect` must be `sqlite` or `postgresql`." })
   }
 
   assertPlainObject(options.schema, "defineDatabase().schema")
@@ -72,7 +72,7 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
       ...Object.keys(options.connection ?? {}).filter(key => !allowedPostgresKeys.connection.has(key)).map(key => `connection.${key}`),
     ][0]
     if (unsupported) {
-      throw databaseErrorDiagnostics.DATABASE_C0009({ message: `\`defineDatabase()\` with \`dialect: "postgresql"\` does not support \`${unsupported}\`.` })
+      throw databaseErrorDiagnostics.DATABASE_C0012({ message: `\`defineDatabase()\` with \`dialect: "postgresql"\` does not support \`${unsupported}\`.` })
     }
     const postgresDefinition: PostgresDatabaseDefinition<TSchema> = {
       dialect: "postgresql",

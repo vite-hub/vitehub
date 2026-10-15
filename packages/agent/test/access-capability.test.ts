@@ -263,7 +263,7 @@ describe("access capability", () => {
       } })],
     }, runtime(), { prompt: "check" }, workspace)
     const history = resolved.workspace!.history
-    for (const inspect of [() => history.head(), () => history.list(), () => history.open("revision"), () => history.usage()]) {
+    for (const inspect of [() => history.head(), () => history.list(), () => history.refs(), () => history.open("revision"), () => history.usage()]) {
       await expect(inspect()).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
     }
     expect(head).not.toHaveBeenCalled()

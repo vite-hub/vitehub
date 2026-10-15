@@ -14,6 +14,7 @@ export type {
   DatabaseLocalRuntimeOptions,
   DatabaseNuxtIntegrationOptions,
   DatabaseRuntimeD1Options,
+  DatabaseSchemaSource,
   DBModulePublicOptions,
   DiscoveredDatabaseDefinition,
   DrizzleCasing,

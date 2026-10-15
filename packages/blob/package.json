@@ -126,6 +126,7 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "fetch-blob": "3.2.0",
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
     "@types/node": "catalog:tooling",
