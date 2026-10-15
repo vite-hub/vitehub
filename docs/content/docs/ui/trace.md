@@ -88,7 +88,7 @@ const runs = computed(() => deriveTraceRuns(events.value));
 
 | Prop     | Type                                | Default     | Description                             |
 | -------- | ----------------------------------- | ----------- | --------------------------------------- |
-| `status` | `"running" \| "error" \| "pending"` | `undefined` | The state of the work that the line reports. |
+| `status` | `"running" \| "error" \| "pending"` |  | The state of the work that the line reports. |
 
 ### TraceCollapsible
 
@@ -97,7 +97,7 @@ const runs = computed(() => deriveTraceRuns(events.value));
 | Prop          | Type      | Default     | Description                                                     |
 | ------------- | --------- | ----------- | --------------------------------------------------------------- |
 | `defaultOpen` | `boolean` | `false`     | Opens the line on the first render.                             |
-| `open`        | `boolean` | `undefined` | The open state. Use `v-model:open` to control it.               |
+| `open`        | `boolean` |  | The open state. Use `v-model:open` to control it.               |
 
 #### Events
 
@@ -105,7 +105,19 @@ const runs = computed(() => deriveTraceRuns(events.value));
 | ------------- | --------- | ----------------------------------- |
 | `update:open` | `boolean` | Emitted when the reader opens or closes the line. |
 
-`Trace`, `TraceIcon`, `TraceTitle`, `TraceDescription`, `TraceCollapsibleTrigger`, and `TraceCollapsibleContent` have no props. `TraceIcon` sets `aria-hidden="true"`. A `class` on `TraceCollapsibleContent` goes to its inner element, so padding does not break the height animation.
+### Trace
+
+### TraceIcon
+
+### TraceTitle
+
+### TraceDescription
+
+### TraceCollapsibleTrigger
+
+### TraceCollapsibleContent
+
+These parts have no props. `TraceIcon` sets `aria-hidden="true"`. A `class` on `TraceCollapsibleContent` goes to its inner element, so padding does not break the height animation.
 
 ### AgentTrace
 

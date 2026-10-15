@@ -41,10 +41,14 @@ Set `as` to render the whole marker as a link or a button:
 
 | Prop      | Type                                   | Default     | Description                                            |
 | --------- | -------------------------------------- | ----------- | ------------------------------------------------------ |
-| `variant` | `"default" \| "border" \| "separator"` | `"default"` | An inline row, a row with a bottom border, or a centered label between lines. |
-| `as`      | `string \| Component`                  | `"div"`     | Renders the marker as another element, such as a link. |
+| `variant` | `"default" \| "border" \| "separator"` | `'default'` | An inline row, a row with a bottom border, or a centered label between lines. |
+| `as`      | `string \| Component`                  | `'div'`     | Renders the marker as another element, such as a link. |
 
-`MarkerIcon` and `MarkerContent` have no props. `MarkerIcon` sets `aria-hidden="true"`.
+### MarkerIcon
+
+### MarkerContent
+
+These parts have no props. `MarkerIcon` sets `aria-hidden="true"`.
 
 ## Accessibility
 
