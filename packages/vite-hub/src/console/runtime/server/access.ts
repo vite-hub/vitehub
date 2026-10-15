@@ -72,20 +72,14 @@ function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return false
   try {
-    let prototype = Object.getPrototypeOf(value)
-    while (prototype) {
-      const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get
-      if (status) {
-        status.call(value)
-        return true
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+    if (status) status.call(value)
+    else return false
+    return true
   }
   catch {
     return false
   }
-  return false
 }
 
 /** Install the Console access policy. Generated Console output calls this before it serves a request. */

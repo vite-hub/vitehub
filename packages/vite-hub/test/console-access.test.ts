@@ -149,6 +149,10 @@ describe("Console access policies", () => {
     const spoofed = await run({ mode: "open", authorize: () => ({ [Symbol.toStringTag]: "Response", status: 401, text: () => Promise.resolve("spoofed") }) as unknown as Response })
     expect(spoofed.handler).not.toHaveBeenCalled()
     await expect(rejection(spoofed.result)).resolves.toMatchObject({ status: 403 })
+
+    const inheritedGetter = await run({ mode: "open", authorize: () => Object.create({ get status() { return 401 } }) as Response })
+    expect(inheritedGetter.handler).not.toHaveBeenCalled()
+    await expect(rejection(inheritedGetter.result)).resolves.toMatchObject({ status: 403 })
   })
 
   it("fails closed when no policy is installed", async () => {
