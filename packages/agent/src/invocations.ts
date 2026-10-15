@@ -2109,7 +2109,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         // retried. If that retry confirms that this claim was lost, stop the
         // active Driver instead of allowing it to overlap the replacement
         // owner. Unavailable results remain best-effort and keep retrying.
-        if (claim === false && driverDispatched && !finished && !runningPersisted) requestCancellation()
+        // A confirmed claim loss must stop an active Driver even when the
+        // running state was already persisted. Otherwise a replacement owner
+        // can overlap this invocation after renewal reports the lost claim.
+        if (claim === false && driverDispatched && !finished) requestCancellation()
         if (ownsRecord) {
           const latest = await boundedStoreOperation(() => store.getSummary(recordId))
           if (latest && latest !== storeOperationTimedOut) {
