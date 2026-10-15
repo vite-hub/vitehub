@@ -57,14 +57,13 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
         const stream = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "stream")?.value
         const arrayBuffer = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "arrayBuffer")?.value
         const text = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "text")?.value
-        const toString = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "toString")?.value
         const sizeGetter = slicedPrototype && Object.getOwnPropertyDescriptor(slicedPrototype, "size")?.get
         if (
           !hasRuntimeType(constructor, "function") || constructor.name !== "Blob" ||
           constructor.prototype !== slicedPrototype ||
           slicedSlice !== slice || !hasRuntimeType(stream, "function") ||
           !hasRuntimeType(arrayBuffer, "function") || !hasRuntimeType(text, "function") ||
-          !hasRuntimeType(toString, "function") || !hasRuntimeType(sizeGetter, "function")
+          !hasRuntimeType(sizeGetter, "function")
         ) {
           prototype = Object.getPrototypeOf(prototype)
           continue
