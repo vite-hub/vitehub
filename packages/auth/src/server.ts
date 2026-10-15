@@ -309,35 +309,20 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   }
 }
 
-// Use accessors from the trusted runtime, never getters supplied by the value.
-// Web IDL accessors recognize native Response internal slots across realms;
-// implementations with private fields also reject objects that only copy the shape.
-const authorizationResponseGetters = authorizationResponseProperties.map(key =>
-  Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
-
 function hasResponseBrand(value: object): boolean {
   try {
-    // First use the current realm's Web IDL accessors. They also recognize
-    // native Response objects created by compatible fetch implementations.
-    if (authorizationResponseGetters.every(getter => getter && Reflect.apply(getter, value, []) !== undefined)) return true
+    // `instanceof` uses the current realm's intrinsic and remains valid when
+    // ordinary accessors on a genuine response have been shadowed.
+    if (value instanceof Response) return true
 
-    // A compatible foreign fetch implementation has its own Response and
-    // Headers intrinsics. Use those intrinsics only as a narrow fallback:
-    // response-shaped objects backed by this realm's Headers remain rejected.
-    const responsePrototype = Object.getPrototypeOf(value)
-    const responseConstructor = responsePropertyDescriptor(responsePrototype, "constructor")?.value
-    if (typeof responseConstructor !== "function" || responseConstructor.name !== "Response") return false
-    const headersGetter = responsePropertyDescriptor(responsePrototype, "headers")?.get
-    if (typeof headersGetter !== "function") return false
-    const headers = Reflect.apply(headersGetter, value, [])
-    if (Object(headers) !== headers || headers instanceof Headers) return false
-    const headersPrototype = Object.getPrototypeOf(headers)
-    const headersConstructor = responsePropertyDescriptor(headersPrototype, "constructor")?.value
-    if (typeof headersConstructor !== "function" || headersConstructor === Headers) return false
-    return ["get", "forEach"].every(key => {
-      const method = responsePropertyDescriptor(headersPrototype, key)?.value
-      return typeof method === "function" && responsePropertyDescriptor(headers, key)?.value === method
-    })
+    // For a supported foreign implementation, invoke its own native clone
+    // method. Fetch implementations brand this method with private/internal
+    // response state, so a copied prototype shape cannot pass this probe.
+    const prototype = Object.getPrototypeOf(value)
+    const clone = responsePropertyDescriptor(prototype, "clone")?.value
+    if (typeof clone !== "function") return false
+    const cloned = Reflect.apply(clone, value, [])
+    return Object(cloned) === cloned && cloned !== value
   }
   catch {
     return false
@@ -383,11 +368,12 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (typeof streamConstructor !== "function") return false
     const freshStream = new streamConstructor()
     const reader = Reflect.apply(getReader, freshStream, [])
-    if (Object(reader) !== reader
-      || typeof Reflect.get(reader, "read") !== "function"
-      || typeof Reflect.get(reader, "cancel") !== "function"
-      || typeof Reflect.get(reader, "releaseLock") !== "function") return false
-    Reflect.apply(Reflect.get(reader, "releaseLock"), reader, [])
+    if (Object(reader) !== reader) return false
+    const readerObject = reader as object
+    if (typeof Reflect.get(readerObject, "read") !== "function"
+      || typeof Reflect.get(readerObject, "cancel") !== "function"
+      || typeof Reflect.get(readerObject, "releaseLock") !== "function") return false
+    Reflect.apply(Reflect.get(readerObject, "releaseLock"), readerObject, [])
     return responsePropertyDescriptor(candidate, "getReader")?.value === getReader
   }
   catch {
@@ -470,7 +456,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
     // a genuine cross-runtime response.
-    if (!nativeProperties && nativeHeaderMethods) return
+    if (!nativeProperties && !(value instanceof Response) && nativeHeaderMethods) return
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
