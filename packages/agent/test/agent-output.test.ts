@@ -620,7 +620,8 @@ describe("agent output helpers", () => {
       const proxyEvent = toAgentStreamEvent({ error: proxySpoof, type: "error" })
       expect(Object.getOwnPropertySymbols(proxyEvent!)).not.toContain(agentStreamErrorSymbol)
 
-      const forgedConstructor = function Error() {}
+      // Source text containing the native marker must not forge a constructor brand.
+      const forgedConstructor = function Error() { return "[native code]" }
       const forgedPrototype = Object.create(Error.prototype)
       Object.defineProperty(forgedConstructor, "prototype", { value: forgedPrototype })
       Object.defineProperty(forgedPrototype, "constructor", { value: forgedConstructor })
