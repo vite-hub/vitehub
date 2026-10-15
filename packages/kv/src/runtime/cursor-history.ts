@@ -41,13 +41,13 @@ export function createCursorHistory(namespace = "default") {
       throw new Error("ViteHub continuation cursor belongs to a different storage backend.")
     }
     if (!continuation) {
+      if (consumedContinuations.has(cursor)) {
+        throw new Error("ViteHub continuation cursor is already in use.")
+      }
       // A prefix alone does not identify a portable token: providers own opaque cursors.
       if (cursor.length > MAX_CURSOR_LENGTH) {
         throw new Error("ViteHub continuation cursor is invalid or exceeds the maximum size.")
       }
-      // A competing request for the same token invalidates any in-flight
-      // restoration owned by the previous request.
-      consumedContinuations.delete(cursor)
       return { providerCursor: cursor, history: new Set([cursor]), epoch, namespace }
     }
     continuations.delete(cursor)

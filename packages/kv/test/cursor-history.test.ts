@@ -15,6 +15,17 @@ it("rejects a continuation owned by another storage namespace", () => {
   expect(() => createCursorHistory("deno-kv").take(cursor)).toThrow("different storage backend")
 })
 
+it("rejects duplicate consumers while a continuation is in flight", () => {
+  const history = createCursorHistory()
+  const cursor = history.store("provider", new Set(["provider"]))
+  const continuation = history.take(cursor)
+
+  expect(() => history.take(cursor)).toThrow("already in use")
+
+  history.restore(cursor, continuation)
+  expect(history.take(cursor)).toMatchObject({ providerCursor: "provider" })
+})
+
 it("preserves a provider cursor that resembles the legacy continuation format", () => {
   const cursor = "vhc:1:%7B%22providerCursor%22%3A%22provider%22%2C%22history%22%3A%5B%5D%7D"
   expect(createCursorHistory().take(cursor)).toMatchObject({ providerCursor: cursor, history: new Set([cursor]) })
