@@ -69,6 +69,9 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if ("authorize" in policy && policy.authorize !== undefined && !(policy.authorize instanceof Function)) {
     throw new TypeError("[vitehub] console.authorize must default-export a function.")
   }
+  if ("user" in policy && policy.user !== undefined && !(policy.user instanceof Function)) {
+    throw new TypeError("[vitehub] Console access user reader must be a function.")
+  }
   if (policy.mode === "open" && !policy.authorize && productionRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
     globalThis.console?.warn(consoleOpenAccessWarning)
