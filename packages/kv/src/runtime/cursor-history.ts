@@ -33,11 +33,22 @@ function encodeContinuation(providerCursor: string, history: CursorHistory): str
 // Continuation ownership is established only by this registry. Never decode a
 // caller-provided cursor, since providers own the complete opaque cursor space.
 const continuations = new Map<string, Continuation>()
+const consumedContinuations = new Map<string, Continuation>()
+const invalidatedContinuations = new Set<string>()
+
+function rememberInvalidated(cursor: string): void {
+  invalidatedContinuations.add(cursor)
+  while (invalidatedContinuations.size > MAX_CURSOR_HISTORIES) {
+    const oldest = invalidatedContinuations.values().next().value as string | undefined
+    if (oldest === undefined) break
+    invalidatedContinuations.delete(oldest)
+  }
+}
 
 /** Keeps continuation history tied to an opaque, traversal-owned token. */
 export function createCursorHistory(namespace = "default") {
   const ownedContinuations = new Set<string>()
-  const consumedContinuations = new Map<string, Continuation>()
+  const ownedConsumedContinuations = new Set<string>()
   let epoch = 0
   function take(cursor: string): Continuation {
     const continuation = continuations.get(cursor)
@@ -48,6 +59,9 @@ export function createCursorHistory(namespace = "default") {
       if (consumedContinuations.has(cursor)) {
         throw new Error("ViteHub continuation cursor is already in use.")
       }
+      if (invalidatedContinuations.has(cursor)) {
+        throw new Error("ViteHub continuation cursor has expired.")
+      }
       // A prefix alone does not identify a portable token: providers own opaque cursors.
       if (cursor.length > MAX_CURSOR_LENGTH) {
         throw new Error("ViteHub continuation cursor is invalid or exceeds the maximum size.")
@@ -57,6 +71,7 @@ export function createCursorHistory(namespace = "default") {
     continuations.delete(cursor)
     ownedContinuations.delete(cursor)
     consumedContinuations.set(cursor, continuation)
+    ownedConsumedContinuations.add(cursor)
     return continuation
   }
   function store(providerCursor: string, history: CursorHistory): string {
@@ -68,6 +83,7 @@ export function createCursorHistory(namespace = "default") {
       if (oldest === undefined) break
       continuations.delete(oldest)
       ownedContinuations.delete(oldest)
+      rememberInvalidated(oldest)
     }
     return token
   }
@@ -76,15 +92,26 @@ export function createCursorHistory(namespace = "default") {
     continuations.set(cursor, continuation)
     ownedContinuations.add(cursor)
     consumedContinuations.delete(cursor)
+    ownedConsumedContinuations.delete(cursor)
   }
   function complete(cursor: string | undefined): void {
-    if (cursor) consumedContinuations.delete(cursor)
+    if (cursor && ownedConsumedContinuations.has(cursor)) {
+      consumedContinuations.delete(cursor)
+      ownedConsumedContinuations.delete(cursor)
+    }
   }
   function clear(): void {
     epoch++
-    for (const token of ownedContinuations) continuations.delete(token)
+    for (const token of ownedContinuations) {
+      continuations.delete(token)
+      rememberInvalidated(token)
+    }
     ownedContinuations.clear()
-    consumedContinuations.clear()
+    for (const token of ownedConsumedContinuations) {
+      consumedContinuations.delete(token)
+      rememberInvalidated(token)
+    }
+    ownedConsumedContinuations.clear()
   }
   return { take, store, restore, complete, clear }
 }

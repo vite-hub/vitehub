@@ -26,6 +26,27 @@ it("rejects duplicate consumers while a continuation is in flight", () => {
   expect(history.take(cursor)).toMatchObject({ providerCursor: "provider" })
 })
 
+it("rejects duplicate consumers across history instances", () => {
+  const owner = createCursorHistory()
+  const other = createCursorHistory()
+  const cursor = owner.store("provider", new Set(["provider"]))
+  owner.take(cursor)
+
+  expect(() => other.take(cursor)).toThrow("already in use")
+})
+
+it("fails closed when another history instance evicts a continuation", () => {
+  const owner = createCursorHistory()
+  const other = createCursorHistory()
+  const cursor = owner.store("provider", new Set(["provider"]))
+
+  for (let index = 0; index < 1_024; index++) {
+    other.store(`provider-${index}`, new Set([`provider-${index}`]))
+  }
+
+  expect(() => createCursorHistory().take(cursor)).toThrow("expired")
+})
+
 it("preserves a provider cursor that resembles the legacy continuation format", () => {
   const cursor = "vhc:1:%7B%22providerCursor%22%3A%22provider%22%2C%22history%22%3A%5B%5D%7D"
   expect(createCursorHistory().take(cursor)).toMatchObject({ providerCursor: cursor, history: new Set([cursor]) })
