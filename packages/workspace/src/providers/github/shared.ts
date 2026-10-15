@@ -648,28 +648,15 @@ export async function commitGitHubChanges(input: {
     }
   }
   else {
-    try {
-      await requestGitHubJson(
-        input.repository,
-        input.token,
-        `/repos/${owner}/${repo}/git/refs`,
-        {
-          body: JSON.stringify({ ref: `refs/heads/${input.branch}`, sha: commit.sha }),
-          method: "POST",
-        },
-      );
-    }
-    catch (error) {
-      const status = githubRequestStatus(error);
-      if (status === 409 || (status === 422 && githubRequestIsNonFastForward(error))) {
-        throw githubBranchMovedConflict({
-          branch: input.branch,
-          expectedHead: input.parentSha,
-          repository: input.repository,
-        });
-      }
-      throw error;
-    }
+    await requestGitHubJson(
+      input.repository,
+      input.token,
+      `/repos/${owner}/${repo}/git/refs`,
+      {
+        body: JSON.stringify({ ref: `refs/heads/${input.branch}`, sha: commit.sha }),
+        method: "POST",
+      },
+    );
   }
   return { commitSha: commit.sha, treeSha: tree.sha };
 }

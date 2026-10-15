@@ -24,6 +24,7 @@ let commitIndex = 0;
 let treeIndex = 0;
 let mirrorRefSha: string | undefined;
 let mirrorRefStatus = 404;
+let mirrorCreateStatus: number | undefined;
 let mainRefUpdateStatus: number | undefined;
 let mainRefUpdateMessage: string | undefined;
 let malformedResponsePath: string | undefined;
@@ -72,6 +73,7 @@ beforeEach(() => {
   treeIndex = 0;
   mirrorRefSha = undefined;
   mirrorRefStatus = 404;
+  mirrorCreateStatus = undefined;
   mainRefUpdateStatus = undefined;
   mainRefUpdateMessage = undefined;
   malformedResponsePath = undefined;
@@ -162,6 +164,12 @@ beforeEach(() => {
       if (url.pathname === "/repos/onmax/repo/git/commits" && method === "POST")
         return jsonResponse({ sha: `commit-sha-${++commitIndex}` });
       if (url.pathname === "/repos/onmax/repo/git/refs" && method === "POST") {
+        if (mirrorCreateStatus) {
+          return new Response("Reference already exists", {
+            status: mirrorCreateStatus,
+            statusText: "Conflict",
+          });
+        }
         if (body?.ref === "refs/heads/mirror" && body.sha) mirrorRefSha = body.sha;
         return jsonResponse({});
       }
@@ -1362,6 +1370,27 @@ describe("GitHub workspace store", () => {
     mainRefUpdateMessage = "Validation Failed";
 
     await expect(store.snapshot({ name: "validation failure" })).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
+    });
+  });
+
+  it("preserves a create-ref conflict when a branch appears after load", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        branch: "mirror",
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
+    mirrorCreateStatus = 409;
+
+    await expect(store.snapshot({ name: "create race" })).rejects.toMatchObject({
       code: "WORKSPACE_FAILED",
     });
   });
