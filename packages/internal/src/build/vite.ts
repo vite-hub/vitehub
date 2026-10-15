@@ -86,7 +86,48 @@ interface NitroVercelConfig {
 export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
 export const VITEHUB_GENERATED_ROOT = "__vitehubGeneratedRoot" as const
 export const VITEHUB_PROJECT_ROOT = "__vitehubProjectRoot" as const
+/**
+ * Server directories that ViteHub scans for Definitions. The first entry is the application.
+ * Later entries are Nuxt layers in Nuxt priority order.
+ */
 export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
+
+interface NuxtLayerDirectoryConfig {
+  rootDir?: string
+  serverDir?: string
+  srcDir?: string
+}
+
+/** The Nuxt options that locate the server directory of each layer. */
+export interface NuxtServerDirOptions extends NuxtLayerDirectoryConfig {
+  _layers?: ReadonlyArray<{ config?: NuxtLayerDirectoryConfig, cwd?: string }>
+}
+
+/**
+ * Lists the server directory of the application and of each Nuxt layer it extends.
+ * The application comes first. Layers follow in Nuxt priority order, like Nuxt's own Nitro scan directories.
+ */
+export function resolveNuxtServerDirs(options: NuxtServerDirOptions): string[] | undefined {
+  const appRoot = options.rootDir ? resolve(options.rootDir) : undefined
+  let appDirectory = options.serverDir ? resolve(options.serverDir) : undefined
+  const layerDirectories: string[] = []
+  for (const layer of options._layers ?? []) {
+    const root = layer.config?.rootDir ?? layer.cwd
+    const isApp = Boolean(root && appRoot && resolve(root) === appRoot)
+    if (isApp && appDirectory) continue
+    // Nuxt resolves the application layer from its own options, as `getLayerDirectories()` in `@nuxt/kit` does.
+    const config = isApp ? options : layer.config ?? {}
+    const sourceDir = config.srcDir ?? layer.cwd ?? root
+    if (!sourceDir) continue
+    const directory = resolve(sourceDir, config.serverDir ?? "server")
+    if (isApp) appDirectory = directory
+    else layerDirectories.push(directory)
+  }
+  // The first entry always stands for the application, so layers never take its precedence.
+  if (!appDirectory && layerDirectories.length && appRoot) appDirectory = resolve(appRoot, "server")
+  const directories = [...new Set([...(appDirectory ? [appDirectory] : []), ...layerDirectories])]
+  return directories.length ? directories : undefined
+}
 
 function includesNitroVitePlugin(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(includesNitroVitePlugin)
