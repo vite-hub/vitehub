@@ -178,9 +178,20 @@ function isDurableObjectNamespaceBrand(value: object): boolean {
   if (typeof constructor === "function") {
     try {
       if (!(value instanceof constructor)) return false
-      const get = Object.getOwnPropertyDescriptor(value, "get")
-      const idFromName = Object.getOwnPropertyDescriptor(value, "idFromName")
-      return get?.value instanceof Function && idFromName?.value instanceof Function
+      const get = Object.getOwnPropertyDescriptor(value, "get")?.value
+      const idFromName = Object.getOwnPropertyDescriptor(value, "idFromName")?.value
+      const isCallableAndUnbound = (method: unknown): method is Function => {
+        if (!(method instanceof Function)) return false
+        try {
+          // Bound JavaScript functions stringify as anonymous native functions.
+          // They are user-created and must not impersonate host namespace methods.
+          return Function.prototype.toString.call(method) !== "function () { [native code] }"
+        }
+        catch {
+          return false
+        }
+      }
+      return isCallableAndUnbound(get) && isCallableAndUnbound(idFromName)
     }
     catch {
       return false
@@ -191,11 +202,17 @@ function isDurableObjectNamespaceBrand(value: object): boolean {
   // JavaScript constructor. In those runtimes, require the callable methods
   // to be provided directly by the binding so inherited prototype pollution
   // cannot opt an arbitrary object into forwarding.
-  const descriptor = (name: "get" | "idFromName") =>
-    Object.getOwnPropertyDescriptor(value, name)
-  const get = descriptor("get")
-  const idFromName = descriptor("idFromName")
-  return get?.value instanceof Function && idFromName?.value instanceof Function
+  const isNativeMethod = (name: "get" | "idFromName"): boolean => {
+    const method = Object.getOwnPropertyDescriptor(value, name)?.value
+    if (!(method instanceof Function)) return false
+    try {
+      return Function.prototype.toString.call(method) === `function ${name}() { [native code] }`
+    }
+    catch {
+      return false
+    }
+  }
+  return isNativeMethod("get") && isNativeMethod("idFromName")
 }
 
 function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
