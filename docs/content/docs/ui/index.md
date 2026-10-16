@@ -23,7 +23,9 @@ Select an Invocation to read its messages, tool calls, and result. The inspector
 ## Components
 
 ::ui-component-gallery
+- **Start:** [Get started](/docs/ui/get-started)
 - **Console:** [Chat app](/docs/ui/blocks/chat-app), [Invocation dashboard](/docs/ui/blocks/invocation-dashboard), [Code review](/docs/ui/blocks/code-review)
+- **Perspective:** [Built for the Vue ecosystem](/docs/getting-started/built-for-vue)
 - **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Chat prompt](/docs/ui/chat-prompt), [Session](/docs/ui/session)
 - **Agent work:** [Invocation list](/docs/ui/invocation-list), [Invocation](/docs/ui/invocation), [Invocation inspector](/docs/ui/invocation-inspector), [Timeline](/docs/ui/timeline), [Capability inspector](/docs/ui/capability-inspector), [Tool list](/docs/ui/tool-list), [Trace](/docs/ui/trace), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree)
 - **Utilities:** [Attachments](/docs/ui/attachments), [Message scroller](/docs/ui/message-scroller)
