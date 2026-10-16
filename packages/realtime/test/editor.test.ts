@@ -29,7 +29,7 @@ describe("realtime editor extensions", () => {
       if (origin !== "relay") Y.applyUpdate(docs[1 - index]!, update, "relay")
     }))
     const editors = docs.map(doc => new Editor({
-      extensions: [...createRealtimeEditorExtensions(), Collaboration.configure({ fragment: doc.getXmlFragment("body") })],
+      extensions: [...createRealtimeEditorExtensions({ collaborative: true }), Collaboration.configure({ fragment: doc.getXmlFragment("body") })],
       injectCSS: false,
     }))
     editors[0]!.commands.setContent({ type: "doc", content: [{ type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "one" }] }] }] }] })

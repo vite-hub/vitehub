@@ -99,7 +99,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     ? useUserSession().user as Ref<Record<string, unknown> | null | undefined>
     : undefined
   const identity = () => options.identity === undefined ? sessionUser?.value : toValue(options.identity)
-  const createExtensions = () => options.editor ? options.editor.extensions() : createRealtimeEditorExtensions()
+  const createExtensions = () => options.editor ? options.editor.extensions() : createRealtimeEditorExtensions({ collaborative: true })
   const document = shallowRef<Y.Doc>()
   const provider = shallowRef<WebsocketProvider>()
   const workspaceProvider = shallowRef<WebsocketProvider>()
