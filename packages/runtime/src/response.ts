@@ -21,7 +21,7 @@ interface BlobMethods {
   readonly type: string
 }
 
-const blobArrayBuffer = Blob.prototype.arrayBuffer
+const blobStream = Blob.prototype.stream
 const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
 
 function getBlobMethods(value: unknown): BlobMethods | undefined {
@@ -31,18 +31,7 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
     // operations. Applying them performs the Web IDL brand check, including
     // for Blob objects from another realm, without consulting structuredClone's
     // host-specific clone registry.
-    let readStream: (value: object) => ReadableStream = candidate => new ReadableStream<Uint8Array>({
-      async start(controller) {
-        try {
-          const bytes = await Reflect.apply(blobArrayBuffer, candidate, []) as ArrayBuffer
-          controller.enqueue(new Uint8Array(bytes))
-          controller.close()
-        }
-        catch (error) {
-          controller.error(error)
-        }
-      },
-    })
+    const readStream: (value: object) => ReadableStream = candidate => Reflect.apply(blobStream, candidate, []) as ReadableStream
     let type: string
     if (typeof blobType !== "function") return undefined
     type = String(Reflect.apply(blobType, value, []))
