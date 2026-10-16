@@ -394,7 +394,7 @@ describe("Agent Invocation cancel", () => {
         expect(await cancellation).toMatchObject({ code: "AGENT_R0974" })
       }
       expect(modelSignal?.aborted).toBe(true)
-      expect(customSignal?.aborted).toBe(true)
+      expect(customSignal?.aborted).toBe(false)
       expect((await backing.getSummary(id))?.cancelRequestedAt).toBeDefined()
     }
     finally {
@@ -712,7 +712,7 @@ describe("Agent Invocation cancel", () => {
         await vi.advanceTimersByTimeAsync(10_000)
         await vi.waitFor(() => expect(attempts).toBeGreaterThan(1))
         const cancellation = remote.cancel(id).then(result => result, error => error)
-        expect(await cancellation).toMatchObject({ code: "AGENT_R0974" })
+        expect(await cancellation).toMatchObject({ delivery: "journal", notEnforcedBy: "run", outcome: "requested", status: "running" })
       }
     }
     finally {
