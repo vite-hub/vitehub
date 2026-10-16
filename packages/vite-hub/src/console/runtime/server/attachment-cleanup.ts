@@ -57,18 +57,22 @@ export async function rollbackConsoleAttachments(storage: Pick<BlobStorage, "put
 
 /** Drain a bounded page before accepting another upload, including after restart. */
 export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "list" | "del" | "get" | "put">): Promise<void> {
-  let remaining = 100
-  for (const [index, cleanupPrefix] of cleanupPrefixes.entries()) {
-    if (!remaining) break
-    const quarantinePrefix = quarantinePrefixes[index]!
-    // Reserve an equal share for each prefix still to be visited. This keeps
-    // a continuously refilled current queue from starving legacy records.
-    const limit = Math.ceil(remaining / (cleanupPrefixes.length - index))
-    const [failure, result] = await storage.list({ prefix: cleanupPrefix, limit })
+  const pages = await Promise.all(cleanupPrefixes.map(async (cleanupPrefix, index) => {
+    const [failure, result] = await storage.list({ prefix: cleanupPrefix, limit: 100 })
     if (failure) throw failure
-    for (const marker of result.blobs) {
+    return result.blobs.map(marker => ({ marker, cleanupPrefix, quarantinePrefix: quarantinePrefixes[index]! }))
+  }))
+  let processed = 0
+  for (let offset = 0; processed < 100; offset++) {
+    let visited = false
+    for (const page of pages) {
+      const entry = page[offset]
+      if (!entry) continue
+      visited = true
+      if (processed >= 100) break
+      const { marker, cleanupPrefix, quarantinePrefix } = entry
       if (!marker.pathname.startsWith(cleanupPrefix)) continue
-      remaining--
+      processed++
       let ids: string[] | undefined
       try { ids = await cleanupIds(storage, marker.pathname, cleanupPrefix) }
       catch (error) {
@@ -81,12 +85,14 @@ export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "
       }
       if (!ids) continue
       for (const id of ids) {
-        const [deleteError] = await storage.del(`${index ? legacyConsoleAttachmentPrefix : consoleAttachmentPrefix}${id}`)
+        const attachmentPrefix = cleanupPrefix === cleanupPrefixes[1] ? legacyConsoleAttachmentPrefix : consoleAttachmentPrefix
+        const [deleteError] = await storage.del(`${attachmentPrefix}${id}`)
         if (deleteError) throw deleteError
       }
       const [recordError] = await storage.del(marker.pathname)
       if (recordError) throw recordError
     }
+    if (!visited) break
   }
 }
 
