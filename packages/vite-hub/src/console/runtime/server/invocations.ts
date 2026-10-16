@@ -148,6 +148,12 @@ interface ConsoleDatabaseOptions {
   url: string
 }
 
+/** Workers have no file system, and the libsql Web client rejects `file:` URLs. */
+function isWorkersRuntime(): boolean {
+  const navigator: unknown = Reflect.get(globalThis, "navigator")
+  return typeof navigator === "object" && navigator !== null && Reflect.get(navigator, "userAgent") === "Cloudflare-Workers"
+}
+
 export function resolveConsoleDatabaseOptions(projectRoot: string, databaseUrl?: string): ConsoleDatabaseOptions {
   const configuredUrl = process.env.VITEHUB_CONSOLE_DATABASE_URL?.trim()
   const url = configuredUrl || databaseUrl || `file:${resolve(projectRoot, ".vitehub/data/console.sqlite")}`
@@ -157,6 +163,8 @@ export function resolveConsoleDatabaseOptions(projectRoot: string, databaseUrl?:
     if (authToken) options.authToken = authToken
     return options
   }
+  // Workers cannot create the journal directory. `createConsoleInvocations` keeps the journal in memory there.
+  if (isWorkersRuntime()) return { url }
 
   const fragmentIndex = url.indexOf("#")
   const urlWithoutFragment = fragmentIndex === -1 ? url : url.slice(0, fragmentIndex)
@@ -279,6 +287,13 @@ export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: 
 /** Console journals keep every terminal record unless `retention` sets a limit. */
 export function createConsoleInvocations(projectRoot: string, observations?: AgentInvocationsOptions["observations"], databaseUrl?: string, retention?: AgentInvocationRetentionOptions): AgentInvocations {
   const database = resolveConsoleDatabaseOptions(projectRoot, databaseUrl)
+  if (/^file:/i.test(database.url) && isWorkersRuntime()) {
+    // A Worker without a D1 binding or a remote URL has no durable journal. Keep it in memory instead of failing at startup.
+    const invocations = defineAgentInvocations({ configuration: "content", metadataContent: consoleMetadataContent, observations, store: createMemoryAgentInvocationStore() })
+    consoleDatabaseConfigurations.set(invocations, database.url)
+    consoleObservationConfigurations.set(invocations, observationConfiguration(observations, retention))
+    return invocations
+  }
   const client = createClient(database)
   let invocations: AgentInvocations
   try {

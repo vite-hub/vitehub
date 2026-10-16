@@ -4624,6 +4624,23 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("keeps the default journal in memory on Workers", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-workers-project-"))
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "")
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
+    try {
+      const invocations = createConsoleInvocations(projectRoot)
+      const agent = defineAgent({ driver: { run: () => "in memory" }, runtime: false, version: "1.0.0", invocations })
+      await runAgent(agent, runtime("console-workers"), {})
+
+      await expect(invocations.getByRunId("console-workers")).resolves.toMatchObject({ status: "completed" })
+      expect(existsSync(join(projectRoot, ".vitehub"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
   it("recognizes one-slash absolute Console database file URLs", () => {
     const databasePath = join(tmpdir(), "vitehub-console-one-slash", "console.sqlite")
     const databaseUrl = pathToFileURL(databasePath).href.replace("file:///", "file:/")
