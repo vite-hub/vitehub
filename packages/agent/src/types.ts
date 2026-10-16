@@ -1829,6 +1829,16 @@ export type AgentDefinitionHooks<
   TData = unknown,
 > = AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, TMessage, TData>
 
+/**
+ * Invocation journal settings that a host adds to `defineAgent({ invocations })`.
+ * The host resolves each added setting to `AgentInvocations` before it calls this package's `defineAgent()`.
+ * For example, `vite-hub/agent` adds the `"database"` and `"memory"` journal names.
+ */
+export interface AgentInvocationsHostSettings {}
+
+/** The `invocations` value of an Agent Definition: a journal, or a setting that the host adds. */
+export type AgentInvocationsInput = AgentInvocations | AgentInvocationsHostSettings[keyof AgentInvocationsHostSettings]
+
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1860,7 +1870,7 @@ type AgentSharedSettings<
   /** Finishes the Invocation before the Driver runs when it returns a value other than `undefined`. */
   intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData, TIntercept>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
-  invocations?: AgentInvocations
+  invocations?: AgentInvocationsInput
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
