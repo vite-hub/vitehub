@@ -73,7 +73,7 @@ function isRequestLike(value: AuthRequest): value is Request {
       }
       return name === "TypeError"
         && typeof message === "string"
-        && /illegal invocation|invalid (this|receiver)|brand/i.test(message)
+        && /illegal invocation|invalid (this|receiver)|brand|cannot read properties of (?:null|undefined)|must be (?:an? )?instance/i.test(message)
     }
     // Independent Fetch implementations do not share native brands or prototype
     // layouts. This checks the API used by Better Auth, not the object's origin:
@@ -98,8 +98,12 @@ function isRequestLike(value: AuthRequest): value is Request {
         if (descriptor) {
           if (typeof descriptor.get !== "function") return false
           try {
-            descriptor.get.call(Object.create(null))
-            return false
+            const probe = descriptor.get.call(Object.create(null))
+            // Some independent Fetch implementations use ordinary accessors
+            // that return an empty value for an invalid receiver instead of
+            // throwing a Web-IDL brand error. Reject concrete values, which
+            // would let a structural prototype spoof pass this probe.
+            if (probe !== undefined && probe !== null) return false
           }
           catch (error) {
             if (!isBrandCheckError(error)) return false
