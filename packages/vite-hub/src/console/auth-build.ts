@@ -289,7 +289,7 @@ export async function writeConsoleConnectionsActor(root: string, sessionActorMod
     'import { consoleConnectionsActor } from "vite-hub/console/sections"',
     ...(sessionActorModule ? [`import { readConsoleUser } from ${JSON.stringify(pathToFileURL(sessionActorModule).href)}`] : []),
     "export default function viteHubConsoleConnectionsActor(_request, event) {",
-    `  return consoleConnectionsActor(event${sessionActorModule ? ', () => readConsoleUser(event)' : ''})`,
+    `  return consoleConnectionsActor(event${sessionActorModule ? ', async () => { const user = await readConsoleUser(event); return user ? "user:" + user.id : undefined }' : ''})`,
     "}",
     "",
   ].join("\n"))

@@ -82,7 +82,6 @@ function isResponseLike(value: unknown): value is Response {
     const headerMethods = ["get", "set", "has", "append", "delete", "forEach"]
     const responseMethods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
     let nativeBrand = false
-    let foreignBrand = false
     try {
       // SAFETY: Response.prototype.body is the platform getter and performs the internal-slot brand check.
       Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value)
@@ -91,8 +90,6 @@ function isResponseLike(value: unknown): value is Response {
     catch {
       // Foreign implementations (for example happy-dom) do not share the platform slots.
     }
-    const ownSlots = ["bodyUsed", "redirected", "type", "url", "status", "statusText", "ok", "headers"]
-      .every((key) => Object.prototype.hasOwnProperty.call(value, key))
     // happy-dom stores its response state in enumerable own symbols. Require the
     // complete state set when accepting a shimmed implementation so copied public
     // slots on an ordinary object still fail closed.
@@ -100,71 +97,11 @@ function isResponseLike(value: unknown): value is Response {
     const hasShimState = Object.getOwnPropertySymbols(value).every(symbol => shimStateSymbols.has(symbol.description ?? ""))
       && Object.getOwnPropertySymbols(value).some(symbol => symbol.description === "body")
       && shimStateSymbols.size === Object.getOwnPropertySymbols(value).length
-    let hasBodyGetter = false
-    let hasResponseTag = false
-    for (let prototype = Object.getPrototypeOf(value); prototype; prototype = Object.getPrototypeOf(prototype)) {
-      const body = Object.getOwnPropertyDescriptor(prototype, "body")
-      if (body && typeof body.get === "function") {
-        hasBodyGetter = true
-        try {
-          body.get.call(value)
-          const bodyUsed = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
-          const status = Object.getOwnPropertyDescriptor(prototype, "status")
-          const headers = Object.getOwnPropertyDescriptor(prototype, "headers")
-          if (bodyUsed?.get && status?.get && headers?.get) {
-            bodyUsed.get.call(value)
-            status.get.call(value)
-            headers.get.call(value)
-            foreignBrand = true
-          }
-        }
-        catch {
-          // A getter that does not recognize the object's internal slots is not a brand check.
-        }
-      }
-      const tag = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
-      if (tag) {
-        const tagValue = typeof tag.get === "function" ? tag.get.call(value) : tag.value
-        if (tagValue === "Response") hasResponseTag = true
-      }
-    }
-    const constructor = Object.getPrototypeOf(value)?.constructor
-    let factorySurface = false
-    if (typeof constructor === "function") {
-      try {
-        // A foreign Response constructor must produce values using its own prototype.
-        // This rejects copied host factory methods, which otherwise look like a
-        // complete static surface on an ordinary object.
-        const factoryResults = [
-          (constructor as { json?: (data: unknown) => unknown }).json?.(null),
-          (constructor as { redirect?: (url: string) => unknown }).redirect?.("https://console.example.test/"),
-          (constructor as { error?: () => unknown }).error?.(),
-        ]
-        factorySurface = factoryResults.every((result, index) => result !== undefined
-          && result !== value
-          && factoryResults.indexOf(result) === index
-          && Object.getPrototypeOf(result) === Object.getPrototypeOf(value))
-      }
-      catch {
-        factorySurface = false
-      }
-    }
-    const hasFactoryMethods = typeof constructor === "function"
-      && ["json", "redirect", "error"].some((name) => typeof (constructor as Record<string, unknown>)[name] === "function")
-    const foreignImplementation = hasResponseTag
-      && hasBodyGetter
-      && typeof constructor === "function"
-      && constructor.name === "Response"
-      && constructor.prototype === Object.getPrototypeOf(value)
-      // DOM shims such as happy-dom do not expose the static factories required
-      // by the Fetch standard. When factories are present, verify that they
-      // produce values from this same prototype; otherwise require the complete
-      // own-slot shape exposed by those shims.
-      && (hasFactoryMethods ? factorySurface : ownSlots)
-      // Node's Response stores its slots internally, while DOM shims commonly
-      // expose them as own properties. Both forms are valid when the inspected
-      // body getter accepts the value (or the shim exposes the complete shape).
-      && (nativeBrand || foreignBrand || hasShimState)
+    // Native Responses are identified by the platform getter's internal-slot
+    // check. Supported DOM shims expose their complete private state symbols;
+    // require that state rather than accepting forgeable public properties,
+    // constructors, or factory methods as a response brand.
+    const foreignImplementation = hasShimState
     return typeof response.status === "number"
       && typeof response.statusText === "string"
       && (nativeBrand || foreignImplementation)
@@ -275,7 +212,8 @@ export async function consoleConnectionsActor(
 
 /** Return whether a checked access may use a Console section. */
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
-  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
+  return consoleAccessGrant.isValid(access)
+    && (access.sections === "all" || (section !== undefined && access.sections.includes(section)))
 }
 
 /** Return the sections visible to a checked access. */
