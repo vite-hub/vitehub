@@ -45,16 +45,17 @@ describe("realtime awareness ownership", () => {
     expect(() => owners.apply(room, {}, update([1]))).not.toThrow()
   })
 
-  it("rejects another peer's clients without claiming any other clients in the update", () => {
+  it("drops another peer's clients from an update, as stock y-websocket clients echo them, and keeps its own", () => {
     const owners = createRealtimeAwarenessOwners()
     const room = roomAwareness()
     const first = {}
     const second = {}
     owners.apply(room, first, update([1]))
 
-    expect(() => owners.apply(room, second, update([2, 1]))).toThrow("already owned")
-    expect(owners.release(second)).toEqual([])
-    expect(owners.apply(room, {}, update([2]))).toEqual([2])
+    // The echo of client 1 is dropped; client 2 is claimed by the peer that sent it.
+    expect(owners.apply(room, second, update([2, 1]))).toEqual([2])
+    expect(owners.apply(room, second, update([1]))).toEqual([])
+    expect(owners.release(second)).toEqual([2])
     expect(owners.release(first)).toEqual([1])
   })
 

@@ -5,6 +5,7 @@ import { createCollectionCursorCodec } from "./collection-cursor.ts"
 import { parseCollectionSchema } from "./schema.ts"
 
 export { CollectionCursorError } from "./collection-cursor.ts"
+export type { CollectionCursorErrorOptions, CollectionCursorErrorReason } from "./collection-cursor.ts"
 
 const defaultPageLimit = 50
 const defaultMaxLimit = 100
@@ -34,9 +35,22 @@ export interface CollectionPageOptions<TQuery extends object> {
   signal?: AbortSignal
 }
 
+/** One distinct value of a faceted field and how many matching items carry it. */
+export interface CollectionFacetValue {
+  count: number
+  value: string
+}
+
+/** Facet counts keyed by field path, computed over every item that matches the query. */
+export type CollectionFacets = Record<string, CollectionFacetValue[]>
+
 export interface CollectionPage<TItem> {
   items: TItem[]
   nextCursor: string | null
+  /** Number of items that match the query across every page, when the Collection can count them. */
+  total?: number
+  /** Facet counts over every item that matches the query, when the Collection declares facets. */
+  facets?: CollectionFacets
 }
 
 export interface Collection<
@@ -140,12 +154,20 @@ export type CollectionLoader<TSourceItem, TQuery extends object, TCursor extends
   options: CollectionLoadOptions<TQuery, TCursor>,
 ) => Promise<readonly TSourceItem[]>
 
+/** Result of a provider-paginated loader. `total` and `facets` reach the page unchanged. */
+export interface ProviderCollectionPage<TSourceItem> {
+  items: readonly TSourceItem[]
+  nextCursor: string | null
+  total?: number
+  facets?: CollectionFacets
+}
+
 export type ProviderCollectionLoader<TSourceItem, TQuery extends object> = (options: {
   cursor?: string
   limit: number
   query: TQuery
   signal?: AbortSignal
-}) => Promise<{ items: readonly TSourceItem[]; nextCursor: string | null }>
+}) => Promise<ProviderCollectionPage<TSourceItem>>
 
 type CollectionTransform<TSourceItem> = (item: NoInfer<TSourceItem>) => unknown
 
@@ -176,6 +198,65 @@ export interface ProviderCollectionOptions<TSourceItem, TQuery extends object, T
   maxLimit?: number
   querySchema?: StandardSchemaV1<unknown, TQuery>
   transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
+}
+
+interface CollectionSourceBase<TSourceItem, TQueryInput extends object, TQuery extends object> {
+  get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
+  defaultLimit?: number
+  maxLimit?: number
+  querySchema?: StandardSchemaV1<TQueryInput, TQuery>
+}
+
+/** A loader whose rows carry their own cursor. The Collection requests one extra row to detect the next page. */
+export interface CursorCollectionSource<
+  TSourceItem,
+  TQuery extends object,
+  TCursorInput extends CollectionCursorValue,
+  TCursorOutput extends CollectionCursorValue = TCursorInput,
+  TQueryInput extends object = TQuery,
+> extends CollectionSourceBase<TSourceItem, TQueryInput, TQuery> {
+  cursor(item: NoInfer<TSourceItem>): Readonly<TCursorInput>
+  cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
+  load: CollectionLoader<TSourceItem, TQuery, TCursorOutput>
+  pagination?: undefined
+}
+
+/** A loader that returns whole pages with its own opaque `nextCursor`, and optionally `total` and `facets`. */
+export interface ProviderCollectionSource<
+  TSourceItem,
+  TQuery extends object,
+  TQueryInput extends object = TQuery,
+> extends CollectionSourceBase<TSourceItem, TQueryInput, TQuery> {
+  load: ProviderCollectionLoader<TSourceItem, TQuery>
+  pagination: "provider"
+  cursor?: undefined
+  cursorSchema?: undefined
+}
+
+/** Where a Collection reads rows from: `array()`, `table()`, `workspaceFile()`, or your own object. */
+export type CollectionSource<
+  TSourceItem,
+  TQuery extends object,
+  TCursorInput extends CollectionCursorValue,
+  TCursorOutput extends CollectionCursorValue = TCursorInput,
+  TQueryInput extends object = TQuery,
+> = CursorCollectionSource<TSourceItem, TQuery, TCursorInput, TCursorOutput, TQueryInput>
+  | ProviderCollectionSource<TSourceItem, TQuery, TQueryInput>
+
+export type AnyCollectionSource = CollectionSource<any, any, any, any, any>
+
+type SourceItemOf<TSource extends AnyCollectionSource> =
+  TSource extends CollectionSource<infer TItem, any, any, any, any> ? TItem : never
+type SourceQueryOf<TSource extends AnyCollectionSource> =
+  TSource extends CollectionSource<any, infer TQuery, any, any, any> ? TQuery : never
+type SourceQueryInputOf<TSource extends AnyCollectionSource> =
+  TSource extends CollectionSource<any, any, any, any, infer TQueryInput> ? TQueryInput : never
+
+export interface SourceCollectionOptions<TSource extends AnyCollectionSource> {
+  /** `true` requires a signed-in Auth session. A callback also decides each request after sign-in. */
+  authorize?: AccessAuthorizeOption
+  route?: false
+  source: TSource
 }
 
 type CollectionDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue> = Omit<
@@ -237,6 +318,15 @@ function resolveLimit(limit: number | undefined, defaultLimit: number, maxLimit:
   return Math.min(limit ?? defaultLimit, maxLimit)
 }
 
+export function defineCollection<
+  TSource extends AnyCollectionSource,
+  TTransform extends (item: NoInfer<SourceItemOf<TSource>>) => unknown,
+>(
+  options: SourceCollectionOptions<TSource> & { transform: TTransform },
+): Collection<Awaited<ReturnType<TTransform>>, SourceQueryOf<TSource>, SourceQueryInputOf<TSource>>
+export function defineCollection<TSource extends AnyCollectionSource>(
+  options: SourceCollectionOptions<TSource> & { transform?: undefined },
+): Collection<SourceItemOf<TSource>, SourceQueryOf<TSource>, SourceQueryInputOf<TSource>>
 export function defineCollection<
   TSourceItem,
   TCursorSchema extends StandardSchemaV1,
@@ -303,11 +393,23 @@ export function defineCollection<
   const TQuery extends object,
   TItem = TSourceItem,
 >(
-  load: CollectionLoader<TSourceItem, TQuery, TCursorOutput> | ProviderCollectionLoader<TSourceItem, TQuery>,
-  definition: (CollectionOptions<TSourceItem, TQuery, TCursorInput, TCursorOutput> | ProviderCollectionOptions<TSourceItem, TQuery, TItem>) & {
+  input:
+    | CollectionLoader<TSourceItem, TQuery, TCursorOutput>
+    | ProviderCollectionLoader<TSourceItem, TQuery>
+    | (SourceCollectionOptions<CollectionSource<TSourceItem, TQuery, TCursorInput, TCursorOutput>> & {
+      transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
+    }),
+  options?: (CollectionOptions<TSourceItem, TQuery, TCursorInput, TCursorOutput> | ProviderCollectionOptions<TSourceItem, TQuery, TItem>) & {
     transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
   },
 ): Collection<TItem, TQuery, object> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection loaders may come from another JavaScript realm.
+  const [load, definition] = typeof input === "function"
+    ? [input, options] as const
+    : sourceDefinition(input)
+  if (!definition) {
+    throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] defineCollection() requires a loader with options, or { source }." })
+  }
   const defaultLimit = definition.defaultLimit ?? defaultPageLimit
   const maxLimit = definition.maxLimit ?? defaultMaxLimit
   assertPositiveInteger(defaultLimit, "defaultLimit")
@@ -318,7 +420,9 @@ export function defineCollection<
   const cursorDefinition = "cursorSchema" in definition ? definition : undefined
   const cursorCodec = cursorDefinition ? createCollectionCursorCodec(cursorDefinition.cursorSchema) : undefined
   const authorize = definition.authorize
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection authorizers are callable callbacks; constructor identity differs across JavaScript realms.
+  // Cross-realm functions do not pass an `instanceof Function` check.
+  // `typeof` accepts callbacks created by another JavaScript realm while
+  // still rejecting non-callable values at runtime.
   if (authorize !== undefined && authorize !== true && typeof authorize !== "function") {
     throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true or a function." })
   }
@@ -337,7 +441,15 @@ export function defineCollection<
         const transformedItems = definition.transform ? await Promise.all(result.items.map(definition.transform)) : result.items
         // SAFETY: Without transform the overload fixes TItem to TSourceItem; otherwise each item was transformed.
         const items = transformedItems as TItem[]
-        return { items, nextCursor: result.nextCursor }
+        const page: CollectionPage<TItem> = { items, nextCursor: result.nextCursor }
+        if (result.total !== undefined) {
+          if (!Number.isSafeInteger(result.total) || result.total < 0) {
+            throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] Provider Collection total must be a non-negative integer." })
+          }
+          page.total = result.total
+        }
+        if (result.facets !== undefined) page.facets = result.facets
+        return page
       }
       // SAFETY: A cursor definition is paired with a cursor loader by the public overloads.
       const sourceItems = await (load as CollectionLoader<TSourceItem, TQuery, TCursorOutput>)({ cursor: await cursorCodec.decode(request.cursor), limit: limit + 1, query: request.query, signal: request.signal })
@@ -376,6 +488,30 @@ export function defineCollection<
     Object.assign(collection, { get: lookup as NonNullable<Collection<TItem>["get"]> })
   }
   return collection
+}
+
+function sourceDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue, TCursorOutput extends CollectionCursorValue, TItem>(
+  input: SourceCollectionOptions<CollectionSource<TSourceItem, TQuery, TCursorInput, TCursorOutput>> & {
+    transform?: (item: NoInfer<TSourceItem>) => Promise<TItem> | TItem
+  },
+) {
+  const { authorize, route, source, transform } = input
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Source loaders may come from another JavaScript realm.
+  if (Object(source) !== source || typeof source.load !== "function") {
+    throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] defineCollection({ source }) requires a Collection source with load()." })
+  }
+  const shared = {
+    authorize,
+    route,
+    get: source.get,
+    defaultLimit: source.defaultLimit,
+    maxLimit: source.maxLimit,
+    querySchema: source.querySchema,
+    transform,
+  }
+  return source.pagination === "provider"
+    ? [source.load, { ...shared, pagination: "provider" as const }] as const
+    : [source.load, { ...shared, cursor: source.cursor, cursorSchema: source.cursorSchema }] as const
 }
 
 function isProviderCursor(value: unknown): value is string {

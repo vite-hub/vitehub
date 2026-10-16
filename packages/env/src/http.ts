@@ -1,4 +1,4 @@
-import { envBridgeError, sanitizeEnvBridgeError } from "./bridge-error.ts";
+import { envBridgeError, envBridgeErrorBody, sanitizeEnvBridgeError } from "./bridge-error.ts";
 import type { EnvAccessContext, EnvActor, EnvBridge, EnvPermission } from "./bridge.ts";
 
 export interface EnvManagement {
@@ -153,7 +153,7 @@ export function createEnvBridgeHandler(
             : safe.code === "ENV_BRIDGE_INVALID"
               ? 400
               : 503;
-      return response({ code: safe.code, message: safe.message }, status);
+      return response(envBridgeErrorBody(safe), status);
     }
   };
 }
