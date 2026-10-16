@@ -56,11 +56,16 @@ function isRequest(value: unknown): value is Request {
       const seen = new Set<object>()
       let branded = false
       let valid = true
+      let reachedObjectPrototype = false
       let prototype: object | null = value
       while (prototype !== null) {
         if (seen.has(prototype)) return false
         seen.add(prototype)
-        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        const objectConstructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (typeof objectConstructor === "function" && objectConstructor.name === "Object" && objectConstructor.prototype === prototype) {
+          reachedObjectPrototype = true
+        }
+        const constructor = objectConstructor
         const getter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
         if (typeof constructor === "function" && constructor.name === "Request"
           && constructor.prototype === prototype && typeof getter === "function") {
@@ -75,7 +80,7 @@ function isRequest(value: unknown): value is Request {
         }
         prototype = Object.getPrototypeOf(prototype)
       }
-      return branded && valid
+      return branded && valid && reachedObjectPrototype
     }
   } catch {
     return false
