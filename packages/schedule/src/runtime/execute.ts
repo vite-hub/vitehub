@@ -74,21 +74,8 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
 function getDateTime(value: unknown): number | undefined {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return
   try {
-    let prototype: object | null = value
-    const visited = new WeakSet<object>()
-    while (prototype && !visited.has(prototype)) {
-      visited.add(prototype)
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, "getTime")
-      if (descriptor && typeof descriptor.value === "function") {
-        const owner = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (typeof owner !== "function" || owner.name !== "Date") return
-        const ownerSource = Function.prototype.toString.call(owner)
-        if (!ownerSource.includes("[native code]")) return
-        const time = descriptor.value.call(value)
-        return typeof time === "number" && !Number.isNaN(time) ? time : undefined
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
+    const time = Reflect.apply(Date.prototype.getTime, value, [])
+    return typeof time === "number" && !Number.isNaN(time) ? time : undefined
   }
   catch {
     return
