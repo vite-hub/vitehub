@@ -197,22 +197,17 @@ function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName
         }
       }
       if (typeof method !== "function") return false
-      if (owner !== value) {
-        let source: string
-        try {
-          source = Function.prototype.toString.call(method)
-        }
-        catch {
-          return false
-        }
-        // Cloudflare's host methods are native functions. JavaScript-authored
-        // prototype methods are rejected so arbitrary inherited bindings do
-        // not reach the forwarding path.
-        if (!/\[native code\]/.test(source)) return false
-        // Proxies of ordinary test/user functions also stringify as native;
-        // their names expose that they are not the host namespace methods.
-        if (method.name !== name && !method.name.startsWith("bound ")) return false
+      let source: string
+      try {
+        source = Function.prototype.toString.call(method)
       }
+      catch {
+        return false
+      }
+      // Durable Object namespace methods are host functions. Apply the same
+      // check to own and inherited properties: user supplied functions (and
+      // bound functions, which stringify as native) must not be trusted.
+      if (!/\[native code\]/.test(source) || method.name !== name) return false
       return true
     }
     try {
