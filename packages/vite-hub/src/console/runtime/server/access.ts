@@ -94,7 +94,14 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       const tagDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, Symbol.toStringTag)
       const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
       const methods = ["arrayBuffer", "blob", "formData", "json", "text"]
-      const hasResponseMethods = methods.every(method => typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.value === "function")
+      const hasResponseMethods = methods.every(method => {
+        let methodPrototype: object | null = responsePrototype
+        while (methodPrototype) {
+          if (typeof Object.getOwnPropertyDescriptor(methodPrototype, method)?.value === "function") return true
+          methodPrototype = Object.getPrototypeOf(methodPrototype)
+        }
+        return false
+      })
       // These accessors are part of the complete Fetch Response surface. A
       // small caller-created prototype can imitate the transferable fields,
       // but it must not be mistaken for a Response implementation without
