@@ -90,6 +90,12 @@ const holdIntervalMs = 60_000
 const messageSync = 0
 /** Marks the request that `refreshRealtimeDocument()` sends to a Durable Object. The Worker strips it from client requests. */
 const internalRefreshHeader = "x-vitehub-realtime-refresh"
+/**
+ * The one Durable Object instance that holds every room. Nitro's `cloudflare-durable` entry hands each WebSocket upgrade
+ * to this instance before the application runs, so saves, checkpoints, and refreshes must reach it too: a Durable
+ * Object per room would have no peers and never match a room's state.
+ */
+const durableRoomsInstance = "server"
 
 export const realtimePersistenceDefaults = Object.freeze({ debounce: 2_000, maxWait: 10_000 })
 
@@ -503,7 +509,7 @@ export async function refreshRealtimeDocument(definition: string, documentId: st
   if (!binding) return reseeded
   try {
     const room = documentId.split("/").map(encodeURIComponent).join("/")
-    const response = await binding.get(binding.idFromName(realtimeRoomKey(definition, documentId))).fetch(new Request(
+    const response = await binding.get(binding.idFromName(durableRoomsInstance)).fetch(new Request(
       `https://vitehub.internal${routePrefix}${encodeURIComponent(definition)}/${room}?document=refresh`,
       { method: "POST", headers: { [internalRefreshHeader]: "1" } },
     ))
@@ -547,10 +553,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       idFromName(name: string): unknown
     } | undefined
     if (!binding || (typeof context === "object" && context !== null && "storage" in context)) return
-    const { definitionName, documentId, workspaceEvents } = parseRoomPath(event.req.url)
-    const key = workspaceEvents
-      ? JSON.stringify([definitionName, { workspaceEvents: true }])
-      : realtimeRoomKey(definitionName, documentId)
     let request = event.req
     if (request.headers.has(internalRefreshHeader)) {
       // Only refreshRealtimeDocument() may send it, straight to the Durable Object.
@@ -558,7 +560,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       headers.delete(internalRefreshHeader)
       request = new Request(request, { headers })
     }
-    return await binding.get(binding.idFromName(key)).fetch(request)
+    return await binding.get(binding.idFromName(durableRoomsInstance)).fetch(request)
   }
 
   function resolveRealtimeRoomSql(event: { context: Record<string, unknown>, req: Request }): RealtimeRoomSql | undefined {
