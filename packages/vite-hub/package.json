@@ -38,6 +38,7 @@
     "./_internal/agent/cloudflare": "./dist/_internal/agent/cloudflare.js",
     "./_internal/agent/cloudflare/state": "./dist/_internal/agent/cloudflare/state.js",
     "./_internal/agent/eve": "./dist/_internal/agent/eve.js",
+    "./_internal/agent/invocations": "./dist/_internal/agent/invocations.js",
     "./_internal/agent/runtime/invocations-dev": "./dist/_internal/agent/runtime/invocations-dev.js",
     "./_internal/agent/runtime/process": "./dist/_internal/agent/runtime/process.js",
     "./_internal/agent/runtime/workflow": "./dist/_internal/agent/runtime/workflow.js",

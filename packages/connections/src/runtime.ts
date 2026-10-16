@@ -3,7 +3,7 @@ import * as v from "valibot"
 
 import { createConnectionTransport } from "./transport.ts"
 import { isApiKeyProvider } from "./api-key.ts"
-import { ConnectionError, isConnectionError, isEnvBridgeError } from "./errors.ts"
+import { ConnectionError, isConnectionError, isEnvBridgeError, normalizeConnectionError } from "./errors.ts"
 import { isConnectionDefinition } from "./definition.ts"
 import { CONNECTION_NAME_MAX_LENGTH, isConnectionReadMethod } from "./types.ts"
 import { callerActor, decide, envActor } from "./policy.ts"
@@ -898,7 +898,19 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
     catch (error) {
       // A check failure message could contain the key, so only Connection errors pass through.
-      if (isConnectionError(error)) throw error
+      const connectionError = normalizeConnectionError(error)
+      if (connectionError) {
+        const details: Record<string, string | number | undefined> = {}
+        for (const [detailKey, value] of Object.entries(connectionError.details ?? {})) {
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Filter untrusted provider details before exposing verification errors.
+          if (detailKey.includes(key) || (typeof value === "string" && value.includes(key))) continue
+          details[detailKey] = value
+        }
+        throw new ConnectionError(connectionError.reason, `Provider "${provider.id}" could not verify the key.`, {
+          details,
+          requestId: connectionError.requestId?.includes(key) ? undefined : connectionError.requestId,
+        })
+      }
       throw new ConnectionError("provider", `Provider "${provider.id}" could not verify the key.`, { details: { connection: name } })
     }
     const verification = v.safeParse(apiKeyVerificationSchema, result)
