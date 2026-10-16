@@ -444,6 +444,9 @@ Unavailable
     await expect(renderMarkdownTemplate('<div :data-onclick="data.handler"></div>', {
       data: { handler: "literal" },
     })).resolves.toContain('data-onclick="literal"')
+    await expect(renderMarkdownTemplate('<div :once="data.handler"></div>', {
+      data: { handler: "literal" },
+    })).resolves.toContain('once="literal"')
     await expect(renderMarkdownTemplate('[link](https://example.com){:onerror="data.handler"}', {
       data: { handler: "globalThis.compromised = true" },
     })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
