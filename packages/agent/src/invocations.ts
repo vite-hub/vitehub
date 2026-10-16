@@ -605,8 +605,12 @@ function isErrorValue(value: unknown): value is Error {
           && constructor.prototype === prototype
         ) {
           const prepareDescriptor = Object.getOwnPropertyDescriptor(constructor, "prepareStackTrace")
+          const stackDescriptor = Object.getOwnPropertyDescriptor(value, "stack")
           const sentinel = {}
           try {
+            // A prior intrinsic read can cache a custom formatter result on the
+            // Error's own lazy stack accessor. Remove that cache before probing.
+            if (stackDescriptor?.configurable) delete (value as object & { stack?: unknown }).stack
             Object.defineProperty(constructor, "prepareStackTrace", {
               configurable: true,
               value: () => sentinel,
@@ -621,6 +625,7 @@ function isErrorValue(value: unknown): value is Error {
             try {
               if (prepareDescriptor) Object.defineProperty(constructor, "prepareStackTrace", prepareDescriptor)
               else delete constructor.prepareStackTrace
+              if (stackDescriptor) Object.defineProperty(value, "stack", stackDescriptor)
             }
             catch {
               // Ignore restoration failures; classification remains bounded.
