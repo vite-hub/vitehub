@@ -141,6 +141,28 @@ describe("realtime server handler", () => {
     expect(getter).not.toHaveBeenCalled()
   })
 
+  it("rejects an unrelated native sql accessor", async () => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    const storagePrototype = Object.create(null)
+    Object.defineProperty(storagePrototype, "exec", { value: exec })
+    Object.defineProperty(storagePrototype, "sql", Object.getOwnPropertyDescriptor(Object.prototype, "__proto__")!)
+    const storage = Object.create(storagePrototype)
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    }) as Request & { runtime?: unknown }
+    request.runtime = { cloudflare: { context: { storage } } }
+
+    const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
+
+    expect(response.crossws).toBeDefined()
+    expect(exec).not.toHaveBeenCalled()
+  })
+
   it.each(["method", "getter"])("ignores polluted Object.prototype SQL %s", async (kind) => {
     const exec = vi.fn(() => ({ toArray: () => [] }))
     const getter = vi.fn(() => exec)
