@@ -417,6 +417,10 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
   try {
     const candidate = Object(value)
     if (!hasResponseBrand(candidate)) return
+    // A response with an own `headers` carrier cannot prove that its header
+    // state comes from the branded implementation. Reject it before walking
+    // that carrier's prototype chain (which may be cyclic or unbounded).
+    if (Object.prototype.hasOwnProperty.call(candidate, "headers")) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
