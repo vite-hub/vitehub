@@ -54,9 +54,19 @@ function readDefinitionObjectBody(file: string, exact = false) {
 function objectLiteralBody(value: string | undefined) {
   let trimmed = value?.trim()
   for (;;) {
-    if (trimmed?.startsWith("(") && findMatching(trimmed, 0, "(", ")") === trimmed.length - 1) {
-      trimmed = trimmed.slice(1, -1).trim()
-      continue
+    if (trimmed?.startsWith("(")) {
+      const closeIndex = findMatching(trimmed, 0, "(", ")")
+      if (closeIndex !== undefined) {
+        const suffix = trimmed.slice(closeIndex + 1).trim()
+        if (/^as\b/.test(suffix)) {
+          trimmed = trimmed.slice(0, closeIndex + 1).trim()
+          continue
+        }
+        if (closeIndex === trimmed.length - 1) {
+          trimmed = trimmed.slice(1, -1).trim()
+          continue
+        }
+      }
     }
     if (trimmed?.startsWith("{")) {
       const closeIndex = findMatching(trimmed, 0, "{", "}")
