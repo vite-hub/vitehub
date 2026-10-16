@@ -694,16 +694,25 @@ describe("Agent Invocation cancel", () => {
     try {
       await markerEntered.promise
       expect(driver).toHaveBeenCalledOnce()
-      const cancellation = remote.cancel(id).then(result => result, error => error)
-      if (failure === "timeout") releaseMarker.resolve()
-      await vi.advanceTimersByTimeAsync(10_000)
-      await vi.waitFor(() => expect(attempts).toBeGreaterThan(1))
-      if (failure === "failure") {
-        expect(await cancellation).toMatchObject({ code: "AGENT_R0974" })
-      }
-      else {
+      if (failure === "timeout") {
+        // Keep the first write blocked beyond its one-second bound, then let
+        // the scheduled retry complete before asking the remote owner to cancel.
+        await vi.advanceTimersByTimeAsync(1_000)
+        releaseMarker.resolve()
+        await vi.advanceTimersByTimeAsync(10_000)
+        await vi.waitFor(() => expect(attempts).toBeGreaterThan(1))
+        const cancellation = remote.cancel(id).then(result => result, error => error)
         expect(await cancellation).toMatchObject({ delivery: "journal", notEnforcedBy: "run", outcome: "requested", status: "running" })
         expect((await backing.getSummary(id))?.cancelNotEnforcedBy).toBe("run")
+      }
+      else {
+        // A rejected first write schedules its retry asynchronously. Observe
+        // that retry before cancellation so it cannot be pre-empted by the
+        // remote request.
+        await vi.advanceTimersByTimeAsync(10_000)
+        await vi.waitFor(() => expect(attempts).toBeGreaterThan(1))
+        const cancellation = remote.cancel(id).then(result => result, error => error)
+        expect(await cancellation).toMatchObject({ code: "AGENT_R0974" })
       }
     }
     finally {
