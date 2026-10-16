@@ -60,7 +60,12 @@ export function findCollectionDefinitionCall(source: string, exportName: string,
       }
       else if (!/\s/.test(char)) previous = char
     }
-    return calls.find(candidate => candidate.start >= initializerStart && candidate.closeParen < end)
+    const matches = calls.filter(candidate => candidate.start >= initializerStart && candidate.closeParen < end)
+    // A conditional (or other expression) can contain more than one
+    // defineCollection call. Without evaluating user code we cannot know
+    // which branch initializes the export, so avoid reporting metadata from
+    // an arbitrary branch.
+    return matches.length === 1 ? matches[0] : undefined
   }
   for (const match of masked.matchAll(declaration)) {
     const initializerStart = (match.index ?? 0) + match[0].length
