@@ -355,14 +355,13 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
       if (!normalized) continue
       if (normalized.startsWith("...")) {
         const spread = readOpaqueResourceOwnership(normalized.slice(3), source, seen)
-        if (spread === true) ownership = true
-        else if (spread === undefined) ownership = undefined
+        ownership = spread
         continue
       }
       const key = readEntryKey(normalized)
       if (key !== "databaseId" && key !== "databaseName") continue
       const value = readEntryValue(normalized)?.trim() ?? key
-      if (value !== "undefined") ownership = true
+      ownership = value === "undefined" ? false : true
     }
     return ownership
   }
@@ -394,7 +393,7 @@ function readOpaqueHttpOnly(expression: string | undefined, source: string, seen
       }
       if (normalized.startsWith("...")) {
         const spread = readOpaqueHttpOnly(normalized.slice(3), source, seen)
-        if (spread !== undefined) httpOnly = spread
+        httpOnly = spread
       }
     }
     return httpOnly
