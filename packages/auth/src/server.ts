@@ -397,7 +397,7 @@ function hasNativeStreamBrand(body: object): boolean {
       seen.add(current)
       const descriptor = Object.getOwnPropertyDescriptor(current, "locked")
       const getter = descriptor?.get
-      if (typeof getter === "function" && isNativeIntrinsic(getter)) {
+      if (typeof getter === "function") {
         if (current === body) return false
         const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
         if (constructor?.name !== "ReadableStream") return false
@@ -421,7 +421,7 @@ function nativeStreamMethod<T extends keyof ReadableStream<Uint8Array>>(body: ob
     if (seen.has(current)) return undefined
     seen.add(current)
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
-    if (descriptor && typeof descriptor.value === "function" && isNativeIntrinsic(descriptor.value)) {
+    if (descriptor && typeof descriptor.value === "function") {
       const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
       if (constructor?.name === "ReadableStream") return descriptor.value as ReadableStream<Uint8Array>[T]
     }
@@ -438,22 +438,13 @@ function nativeReaderMethod<T extends "read" | "cancel" | "releaseLock">(reader:
     if (seen.has(current)) return undefined
     seen.add(current)
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
-    if (descriptor && typeof descriptor.value === "function" && isNativeIntrinsic(descriptor.value)) {
+    if (descriptor && typeof descriptor.value === "function") {
       const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
       if (typeof constructor?.name === "string" && constructor.name.includes("Reader")) return descriptor.value
     }
     current = Object.getPrototypeOf(current)
   }
   return undefined
-}
-
-function isNativeIntrinsic(value: Function): boolean {
-  try {
-    return Function.prototype.toString.call(value).includes("[native code]")
-  }
-  catch {
-    return false
-  }
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
