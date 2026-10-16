@@ -11,6 +11,14 @@ import type { AgentRunMetadata, AgentRunResult, AgentToolDefinition, AgentUsage,
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
 
+// Capture the host Fetch brand operation once. Consumers may replace the
+// global Response constructor after a response is created (for example when
+// crossing a VM or worker boundary), so classification must not resolve it
+// from the mutable global on each call.
+const trustedResponseStatusGetter = typeof Response === "function"
+  ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+  : undefined
+
 export function agentResultKind(result: unknown): string {
   if (result === null) return "null"
   if (isAsyncIterable(result)) return "stream"
@@ -921,11 +929,8 @@ function isResponseLike(value: unknown): value is Response {
     // Use the host Fetch brand when available. This rejects caller-created
     // classes that copy the complete Response surface while still allowing a
     // structurally compatible implementation from another realm below.
-    const nativeStatusGetter = typeof Response === "function"
-      ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-      : undefined
     let trustedResponse = false
-    for (const statusGetter of [nativeStatusGetter]) {
+    for (const statusGetter of [trustedResponseStatusGetter]) {
       if (!hasRuntimeType(statusGetter, "function")) continue
       try {
         statusGetter.call(value)
@@ -984,7 +989,7 @@ function isResponseLike(value: unknown): value is Response {
       if (!isRuntimeObject(reader)) return false
       const releaseLock = (reader as { releaseLock?: unknown }).releaseLock
       if (!hasRuntimeType(releaseLock, "function")) return false
-      ;(releaseLock as () => void)()
+      ;(releaseLock as (this: object) => void).call(reader)
     }
     catch {
       // A locked genuine stream remains a Response. Confirm the lock state
