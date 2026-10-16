@@ -70,8 +70,20 @@ function isRequest(value: unknown): value is Request {
         if (typeof constructor === "function" && constructor.name === "Request"
           && constructor.prototype === prototype && typeof getter === "function") {
           try {
-            getter.call(value)
-            branded = true
+            const prototypeDescriptor = Object.getOwnPropertyDescriptor(constructor, "prototype")
+            if (!prototypeDescriptor || prototypeDescriptor.writable || prototypeDescriptor.configurable) {
+              valid = false
+            } else {
+              // Validate that this constructor and accessor belong together.
+              const probe = new constructor("https://example.test")
+              if (Object.getPrototypeOf(probe) !== prototype) {
+                valid = false
+              } else {
+                getter.call(probe)
+                getter.call(value)
+                branded = true
+              }
+            }
           } catch {
             // Every Request prototype in the chain must accept the receiver.
             // This rejects a forged accessor layered over a native prototype.
