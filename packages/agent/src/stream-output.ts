@@ -91,11 +91,10 @@ function hasResponsePrototype(value: unknown): boolean {
 }
 
 function hasResponseBrand(value: unknown, branded: ResponsePrototype): boolean {
-  // A same-realm Response prototype getter performs the internal-slot check.
-  // This rejects Object.create(Response.prototype) carriers while leaving
-  // genuine foreign Responses to their own realm's accessors.
-  if (branded !== intrinsicResponse.prototype) return true
-  const statusGetter = Object.getOwnPropertyDescriptor(intrinsicResponse.prototype, "status")?.get
+  // The selected realm's intrinsic getter performs the internal-slot check.
+  // This rejects carriers inheriting from a genuine Response prototype while
+  // preserving genuine Responses from other realms.
+  const statusGetter = Object.getOwnPropertyDescriptor(branded, "status")?.get
   if (!statusGetter) return false
   Reflect.apply(statusGetter, value, [])
   return true
