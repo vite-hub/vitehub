@@ -66,7 +66,7 @@ const compactInvocationRules = `  .vh-invocation-thread__content {
     margin-inline-start: 1rem;
   }`;
 
-const componentEntries = componentNames.map((name) => `./${componentEntryName(name)}`);
+const componentEntries = [...new Set(componentNames.map((name) => `./${componentEntryName(name)}`))];
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
@@ -93,24 +93,27 @@ describe("@vite-hub/ui package contract", () => {
       "@nuxt/kit": "4.5.2",
       "@types/node": "catalog:tooling",
       "nostics": "catalog:runtime",
+      "reka-ui": "catalog:ui",
     });
   });
 
-  it("loads every JavaScript entrypoint from the built package", async () => {
-    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [
-      ".",
-      ...componentEntries,
-      "./headless",
-      "./nuxt",
-      "./primitive-rail",
-      "./vite",
-    ]);
+  // Each fresh Node process gets its own timeout and reports the failing entrypoint.
+  it.each([
+    ".",
+    ...componentEntries,
+    "./headless",
+    "./nuxt",
+    "./primitive-rail",
+    "./vite",
+  ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
+    await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
   });
 
   it("keeps component entry exports identical to the root barrel", async () => {
     const root = await import("../dist/index.js");
-    for (const [entry, component] of componentEntries.map((entry, index) => [entry, componentNames[index]!] as const)) {
-      const subpath = await import(`../dist/${entry.slice(2)}.js`);
+    for (const component of componentNames) {
+      const entry = componentEntryName(component);
+      const subpath = await import(`../dist/${entry}.js`);
       expect(subpath[component], entry).toBe(root[component]);
     }
   });

@@ -189,6 +189,18 @@ afterEach(() => {
 })
 
 describe("Workspace Source Resolution", () => {
+  it("does not treat inherited files as a custom source definition", async () => {
+    const source = Object.create({ files: [{ path: "inherited.md", content: "unexpected" }] }) as {
+      getKeys: () => Promise<string[]>
+      getItem: (key: string) => Promise<unknown>
+    }
+    source.getKeys = async () => ["declared.md"]
+    source.getItem = async key => ({ key, path: key, content: "declared" })
+
+    const resolved = custom(source as never)
+    await expect(resolved.getKeys({} as never)).resolves.toEqual(["declared.md"])
+  })
+
   it("exposes invocation context values directly to source resolvers", async () => {
     const values = new Map<string, unknown>([
       ["channel", { meta: { customer: "acme" } }],
@@ -1377,6 +1389,7 @@ describe("Workspace Source Resolution", () => {
       #history = writableFacade(base).history
       async head() { return await this.#history.head() }
       async list(options: Parameters<WritableWorkspaceFacade["history"]["list"]>[0]) { return await this.#history.list(options) }
+      async refs() { return await this.#history.refs() }
       async open(id: string) { return await this.#history.open(id) }
       async usage() { return await this.#history.usage() }
       async commit(options: Parameters<WritableWorkspaceFacade["history"]["commit"]>[0]) { return await this.#history.commit(options) }
