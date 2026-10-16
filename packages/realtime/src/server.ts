@@ -173,26 +173,20 @@ interface RealtimeDurableObjectNamespace {
   idFromName(name: string): unknown
 }
 
-function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName"): boolean {
-  const descriptor = Object.getOwnPropertyDescriptor(value, name)
-  if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "function") return false
-  let source: string
+function isDurableObjectNamespaceBrand(value: object): boolean {
+  const constructor = (globalThis as Record<string, unknown>).DurableObjectNamespace
+  if (typeof constructor !== "function") return false
   try {
-    source = Function.prototype.toString.call(descriptor.value)
+    return value instanceof constructor
   }
   catch {
     return false
   }
-  // Durable Object namespace methods are host functions. Bound functions also
-  // stringify as native, but their intrinsic source has no function name. The
-  // named native form is therefore required so a user function cannot be
-  // rebound and renamed to imitate the binding.
-  return new RegExp(`^function ${name}\\(\\) \\{ \\[native code\\] \\}$`).test(source)
 }
 
 function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false
-  return hasCallableDurableObjectMethod(value, "get") && hasCallableDurableObjectMethod(value, "idFromName")
+  return isDurableObjectNamespaceBrand(value)
 }
 
 export function realtimeRoomKey(definitionName: string, documentId: string): string {
