@@ -337,45 +337,30 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const foreignBody = response.body
     const reader = response.body.getReader()
     let cleaned = false
-    const releaseReader = async () => {
+    const cleanupReader = async (reason?: unknown, cancel = false) => {
       if (cleaned) return
-      try {
-        if (typeof reader.releaseLock === "function") {
-          reader.releaseLock()
+      const operations: Array<() => unknown> = []
+      if (cancel) {
+        if (typeof reader.cancel === "function") operations.push(() => reader.cancel(reason))
+        if (typeof foreignBody.cancel === "function") operations.push(() => foreignBody.cancel(reason))
+        if (typeof reader.releaseLock === "function") operations.push(() => reader.releaseLock())
+      }
+      else {
+        if (typeof reader.releaseLock === "function") operations.push(() => reader.releaseLock())
+        if (typeof reader.cancel === "function") operations.push(() => reader.cancel(reason))
+        if (typeof foreignBody.cancel === "function") operations.push(() => foreignBody.cancel(reason))
+      }
+      for (const operation of operations) {
+        try {
+          await operation()
           cleaned = true
           return
         }
-      }
-      catch {}
-      try {
-        if (typeof reader.cancel === "function") await reader.cancel()
-        else if (typeof foreignBody.cancel === "function") await foreignBody.cancel()
-        else return
-        cleaned = true
-      }
-      catch {}
-    }
-    const cancelReader = async (reason: unknown) => {
-      if (cleaned) return
-      try {
-        if (typeof reader.cancel === "function") await reader.cancel(reason)
-        else if (typeof foreignBody.cancel === "function") await foreignBody.cancel(reason)
-        else return
-        cleaned = true
-      }
-      catch {}
-      finally {
-        if (!cleaned) {
-          try {
-            if (typeof reader.releaseLock === "function") {
-              reader.releaseLock()
-              cleaned = true
-            }
-          }
-          catch {}
-        }
+        catch {}
       }
     }
+    const releaseReader = () => cleanupReader()
+    const cancelReader = (reason: unknown) => cleanupReader(reason, true)
     if (typeof reader.read !== "function") {
       await cancelReader(new TypeError("Authorization response body reader is unusable."))
       return
