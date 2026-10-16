@@ -100,8 +100,7 @@ describe("createMultipartUploader", () => {
 
     let abortFinished = false
     const aborted = task.abort().then(() => { abortFinished = true })
-    await Promise.resolve()
-    expect(abortFinished).toBe(false)
+    await vi.waitFor(() => expect(abortFinished).toBe(true))
     releaseCreate(json({ pathname: "a.txt", uploadId: "u1" }))
 
     await aborted
