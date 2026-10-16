@@ -64,6 +64,8 @@ describe("docs product navigation", () => {
       expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
       // Shared template pages retain their relative order while product-specific pages may be interleaved.
+      const expectedTemplateTitles = template.filter(title => titles.includes(title));
+      expect(templateTitles, sectionId).toEqual(expectedTemplateTitles);
       const templateIndexes = templateTitles.map(title => titles.indexOf(title));
       expect(templateIndexes, sectionId).toEqual([...templateIndexes].sort((a, b) => a - b));
 

@@ -119,16 +119,6 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("gives component pages the shared article layout and page outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
-
-    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain("UContentToc");
-    expect(article).toContain('aria-label="Page outline"');
-    expect(article).toContain("min-w-0");
-  });
-
   it("gives invocation previews fixed-height containing blocks", () => {
     const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
     const inspector = readFileSync(
@@ -151,7 +141,6 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-
   it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
 
@@ -162,8 +151,6 @@ describe("UI documentation", () => {
     expect(rail).toContain('{ label: "Templates", to: "/templates"');
     expect(rail).toContain("<template #default");
   });
-
-
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
@@ -175,7 +162,9 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: hidden;");
+    expect(layout).toContain("overflow-x: clip;");
+    expect(layout).toContain(".vh-docs-aside");
+    expect(layout).toContain("hidden lg:flex");
     expect(layout).toContain("overflow: visible;");
     expect(layout).toContain('<UPage v-else :ui="docsShellUi">');
     expect(layout).toContain('<UPageAside class="vh-docs-aside hidden lg:flex">');

@@ -79,7 +79,7 @@ describe("documentation tutorials", () => {
       expect(source, page).toContain(
         page.endsWith("agents/box-tutorial.md")
           ? "navigation.title: Box tutorial"
-          : "navigation.title: Tutorial",
+          : "navigation.title: Get started",
       );
       expect(source, page).toContain("::tutorial-step");
       expect(source.match(/```[^\n]*\[[^\]]+\]/g)?.length || 0, page).toBeGreaterThan(0);
