@@ -412,7 +412,7 @@ function hasNativeAuthorizationReaderPrototype(reader: object): boolean {
 }
 
 
-function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined {
+async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined> {
   if (body === null || typeof body !== "object") return
   try {
     // An own reader (or a reader supplied by an intermediate prototype) is
@@ -503,20 +503,16 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
           // Exercise every operation in the source runtime. This rejects
           // callable replacements that do not preserve Web Streams behavior,
           // without comparing implementation-specific function source text.
-          const readResult = Reflect.apply(probeMethods.read, probeReader, [])
-          if (readResult === null || (typeof readResult !== "object" && typeof readResult !== "function")
-            || typeof (readResult as PromiseLike<unknown>).then !== "function") return
-          void Promise.resolve(readResult).catch(() => undefined)
+          const readResult = await Promise.resolve(Reflect.apply(probeMethods.read, probeReader, []))
+          if (!readResult || typeof readResult !== "object" || readResult.done !== true || readResult.value !== undefined) return
           const cancelStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
           const cancelReader = Reflect.apply(descriptor.value, cancelStream, []) as object
-          const cancelResult = Reflect.apply(probeMethods.cancel, cancelReader, [])
-          if (cancelResult === null || (typeof cancelResult !== "object" && typeof cancelResult !== "function")
-            || typeof (cancelResult as PromiseLike<unknown>).then !== "function") return
-          void Promise.resolve(cancelResult).catch(() => undefined)
+          const cancelResult = await Promise.resolve(Reflect.apply(probeMethods.cancel, cancelReader, []))
+          if (cancelResult !== undefined || cancelStream.locked) return
           const releaseStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
           const releaseReader = Reflect.apply(descriptor.value, releaseStream, []) as object
-          Reflect.apply(probeMethods.releaseLock, releaseReader, [])
-          if (releaseStream.locked) return
+          const releaseResult = Reflect.apply(probeMethods.releaseLock, releaseReader, [])
+          if (releaseResult !== undefined || releaseStream.locked) return
           foreignReaderMethods.set(descriptor.value, probeMethods)
           return descriptor.value
         }
@@ -671,7 +667,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     const nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
-      : getNativeAuthorizationBodyReader(body)
+      : await getNativeAuthorizationBodyReader(body)
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
