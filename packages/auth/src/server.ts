@@ -459,12 +459,18 @@ async function isSerializableAuthorizationBody(body: unknown): Promise<boolean> 
     const probeResult = await probeReadResult as { done?: unknown; value?: unknown }
     if (typeof probeResult.done !== "boolean") return false
     if (probeResult.done || !(probeResult.value instanceof Uint8Array)) return false
-    const cancelStream = new streamConstructor()
+    let canceled = false
+    const cancelStream = new streamConstructor({
+      cancel() {
+        canceled = true
+      },
+    })
     const cancelReader = Reflect.apply(getReader, cancelStream, [])
     if (Object(cancelReader) !== cancelReader) return false
     const cancelResult = Reflect.apply(cancel, Object(cancelReader), [])
     if (Object(cancelResult) !== cancelResult || typeof Reflect.get(cancelResult as object, "then") !== "function") return false
     if ((await cancelResult) !== undefined) return false
+    if (!canceled) return false
     Reflect.apply(releaseLock, probeReaderObject, [])
     Reflect.apply(releaseLock, Object(cancelReader), [])
     // Validate the reader returned by the candidate body separately. A
