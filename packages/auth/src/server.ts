@@ -290,14 +290,24 @@ function runAccessAuthorize(
   // realms, while ignoring any overridden instance or prototype `then`.
   if (result !== null && (typeof result === "object" || typeof result === "function")) {
     try {
-      return Reflect.apply(intrinsicPromiseThen, result, [
-        (resolved: unknown) => {
-          const response = normalizeAuthorizationResponse(resolved)
-          if (response) return { response }
-          if (resolved !== true) return { response: createForbiddenResponse(context.request) }
-          return {}
-        },
-      ]) as Promise<{ response?: Response }>
+      const adopted = new Promise<{ response?: Response }>((resolve, reject) => {
+        try {
+          const child = Reflect.apply(intrinsicPromiseThen, result, [
+            (resolved: unknown) => {
+              const response = normalizeAuthorizationResponse(resolved)
+              if (response) resolve({ response })
+              else if (resolved !== true) resolve({ response: createForbiddenResponse(context.request) })
+              else resolve({})
+            },
+            reject,
+          ])
+          Reflect.apply(intrinsicPromiseThen, child, [undefined, () => undefined])
+        }
+        catch (error) {
+          reject(error)
+        }
+      })
+      return adopted
     }
     catch {
       // Non-Promise values continue through the guarded thenable reflection below.
