@@ -79,4 +79,40 @@ describe("Definition inspection parity", () => {
       expect({ definitions: listed, kind: "definition-catalog" }, kind).toEqual(content)
     }
   }, 60_000)
+
+  it("lists contributed Schedules in `vitehub inspect` and the Console", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-inspect-contributed-schedule-"))
+    directories.push(root)
+    await writeProjectFile(root, "package.json", "{}\n")
+    await writeProjectFile(root, "server/schedules/report.ts", "export default defineSchedule({ cron: '0 9 * * *', handler() {} })\n")
+    await writeProjectFile(root, ".vitehub/content/publish-schedule.ts", "export default defineSchedule({ cron: '*/5 * * * *', manual: true, handler() {} })\n")
+    const contentOwner = {
+      name: "content-owner/vite",
+      vitehub: { schedules: () => [{ definition: { module: join(root, ".vitehub/content/publish-schedule.ts") }, name: "content/publish", reason: "The cms preset publishes due documents." }] },
+    }
+
+    const config = await resolveConfig({
+      logLevel: "silent",
+      plugins: [vitehub({ blob: false, console: false, env: false, preset: "node", schedule: true }), contentOwner],
+      root,
+    }, "build")
+    const inspector = (await collectViteHubDefinitionInspectors(config.plugins)).find(candidate => candidate.kind === "schedule")
+    const listed = await inspector!.list()
+    const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, plugins: config.plugins, projectRoot: root, sections: ["schedules"] })
+
+    expect(listed.map(definition => [definition.name, definition.source])).toEqual([
+      ["content/publish", "vite-plugin-contribution"],
+      ["report", "server-schedules"],
+    ])
+    expect(listed[0]!.fields).toEqual(expect.arrayContaining([
+      { label: "Contributed by", value: "content-owner/vite" },
+      { label: "Reason", value: "The cms preset publishes due documents." },
+    ]))
+    const content = catalog.content.schedules
+    expect(content?.kind).toBe("record-table")
+    if (content?.kind !== "record-table") return
+    expect(content.records.map(record => record.id)).toEqual(["definition:content/publish", "definition:report"])
+    expect(content.records[0]?.fields).toEqual(expect.arrayContaining([...listed[0]!.fields]))
+    expect(catalog.manualSchedules).toEqual([{ handler: join(root, ".vitehub/content/publish-schedule.ts"), name: "content/publish" }])
+  }, 60_000)
 })

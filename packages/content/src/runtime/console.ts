@@ -264,7 +264,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         if (input.state && !(filter.id as string[]).length) return { items: [], nextCursor: null, total: 0, states, changes }
         if (input.state === "deleted") ref = "published"
         const options: ContentListOptions = { ref, filter, limit }
-        const search = optionalText(input.search?.trim() || undefined, "search")
+        const searchValue = optionalText(input.search, "search")
+        const search = searchValue?.trim() || undefined
         if (search) options.search = search
         if (input.cursor !== undefined) options.cursor = text(input.cursor, "cursor")
         if (input.sort) options.sort = { field: text(input.sort.field, "sort.field"), direction: input.sort.direction === "desc" ? "desc" : "asc" }

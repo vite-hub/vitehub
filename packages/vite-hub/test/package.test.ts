@@ -259,6 +259,7 @@ describe("framework package contract", () => {
         .sort(),
     ).toEqual([
       ".",
+      "./_internal/agent/invocations",
       "./_internal/database/runtime/state",
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
@@ -486,6 +487,10 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/components/console-session-code-preview.vue`,
       "utf8",
     );
+    const workspaceHistory = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-workspace-history.vue`,
+      "utf8",
+    );
     expect(sessionInspector).toContain("Workspace unavailable");
     expect(sessionInspector).toContain(':show-status="false"');
     expect(sessionInspector).toContain(':show-timeline="false"');
@@ -502,6 +507,7 @@ describe("framework package contract", () => {
       /const loadedWorkspace = parseWorkspaceDescriptor\([\s\S]*?if \(workspaceRequest !== controller\) return;[\s\S]*?workspace\.value = loadedWorkspace;/,
     );
     expect(sessionInspector).toContain("<template #identityActions>");
+    expect(workspaceHistory).toContain("Workspace history");
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
