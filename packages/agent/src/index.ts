@@ -8498,10 +8498,11 @@ export async function runAgent<
   // SAFETY: The Runtime Context overload returned above; the remaining third argument contains invocation options.
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
   const schedule = standaloneOptions?.schedule
-  const runtimeContext = standaloneOptions?.runtimeContext
+  // Preserve the caller's runtime-config subtype through standalone context creation.
+  const runtimeContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
   const runtime = createRuntimeContext({
     ...runtimeContext,
-    runtimeConfig: runtimeContext?.runtimeConfig,
+    runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,
     runtime: runtimeContext?.runtime || "unknown",
     run: {
       ...runtimeContext?.run,
