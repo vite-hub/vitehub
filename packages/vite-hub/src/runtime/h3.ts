@@ -79,22 +79,34 @@ function isRequest(value: unknown): value is Request {
               if (Object.getPrototypeOf(probe) !== prototype) {
                 valid = false
               } else {
-                getter.call(probe)
-                getter.call(value)
-                // Validate another Fetch-owned accessor from the same realm.
-                // A forged bodyUsed getter alone must not establish identity.
-                const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
-                if (typeof headersGetter !== "function") {
+                // A genuine Web IDL accessor must reject an unrelated
+                // receiver. This guards against a caller-supplied getter
+                // that simply returns a boolean while its headers getter
+                // returns a genuine Headers instance.
+                try {
+                  getter.call({})
                   valid = false
-                } else {
-                  const headers = headersGetter.call(value)
-                  const headersPrototype = Object.getPrototypeOf(headers)
-                  const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
-                  if (typeof headersGet !== "function") {
+                } catch {
+                  // Expected: the receiver has no Request internal slots.
+                }
+                if (valid) {
+                  getter.call(probe)
+                  getter.call(value)
+                  // Validate another Fetch-owned accessor from the same realm.
+                  // A forged bodyUsed getter alone must not establish identity.
+                  const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
+                  if (typeof headersGetter !== "function") {
                     valid = false
                   } else {
-                    headersGet.call(headers, "x-vite-hub-brand")
-                    branded = true
+                    const headers = headersGetter.call(value)
+                    const headersPrototype = Object.getPrototypeOf(headers)
+                    const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
+                    if (typeof headersGet !== "function") {
+                      valid = false
+                    } else {
+                      headersGet.call(headers, "x-vite-hub-brand")
+                      branded = true
+                    }
                   }
                 }
               }
