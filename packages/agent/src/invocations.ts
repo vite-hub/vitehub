@@ -397,7 +397,7 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   /** Whether the invocation still has a safe claim state at the dispatch boundary. */
   dispatchAllowed(): boolean
   /** Records the Driver dispatch boundary without delaying execution. */
-  driverStarted(): void
+  driverStarted(): boolean
   setAnnotations(annotations: AgentRunMetadata["annotations"]): Promise<void>
   /** Persist resolved run metadata while this journal owns the execution claim. */
   setRunMetadata(run: AgentRunMetadata): Promise<boolean>
@@ -2605,9 +2605,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           return !strict || ownsRecord
         },
         driverStarted() {
-          if (finished || finishing || driverDispatched) return
+          // Keep the final ownership check adjacent to the dispatch marker.
+          // A renewal can confirm a claim loss after the caller's check but
+          // before this boundary is reached; do not start the Driver then.
+          if (cancellation.signal.aborted || claimConflict) return false
+          if (finished || finishing || driverDispatched) return true
           driverDispatched = true
-          if (!cancellationDriver || cancellationDriver.enforced) return
+          if (!cancellationDriver || cancellationDriver.enforced) return true
           cancelNotEnforcedBy = cancellationDriver.name
           const retry = (async () => {
             const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
@@ -2625,6 +2629,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             }
           })()
           registerAgentInvocationRecovery(context, retry)
+          return true
         },
         async setAnnotations(annotations) {
           if (finished || finishing) return

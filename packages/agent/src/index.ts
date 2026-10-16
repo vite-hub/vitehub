@@ -7041,7 +7041,9 @@ async function executeAgentInvocationWithCapacityLease<
     if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.dispatchAllowed()) {
       throw new Error("Could not persist the Invocation running state.")
     }
-    invocationJournal?.driverStarted()
+    if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.driverStarted()) {
+      throw new Error("Could not persist the Invocation running state.")
+    }
     if (customRun) {
       result = await agent.run(invocation)
     }
