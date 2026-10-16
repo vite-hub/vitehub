@@ -58,7 +58,7 @@ function objectLiteralBody(value: string | undefined) {
       const closeIndex = findMatching(trimmed, 0, "(", ")")
       if (closeIndex !== undefined) {
         const suffix = trimmed.slice(closeIndex + 1).trim()
-        if (/^as\b/.test(suffix)) {
+        if (/^(?:as|satisfies)\b/.test(suffix)) {
           trimmed = trimmed.slice(0, closeIndex + 1).trim()
           continue
         }
@@ -71,7 +71,7 @@ function objectLiteralBody(value: string | undefined) {
     if (trimmed?.startsWith("{")) {
       const closeIndex = findMatching(trimmed, 0, "{", "}")
       const suffix = closeIndex === undefined ? undefined : trimmed.slice(closeIndex + 1).trim()
-      if (closeIndex !== undefined && suffix !== undefined && /^as\b/.test(suffix)) {
+      if (closeIndex !== undefined && suffix !== undefined && /^(?:as|satisfies)\b/.test(suffix)) {
         trimmed = trimmed.slice(0, closeIndex + 1).trim()
         continue
       }

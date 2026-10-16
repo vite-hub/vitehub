@@ -470,6 +470,22 @@ describe("resolveDBViteConfig", () => {
       .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
   })
 
+  it("unwraps parenthesized satisfies expressions for opaque bindings", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const shared = ({ binding: 'DB_SHARED' } satisfies CloudflareD1Config)",
+        `export default defineDatabase({ name: '${name}', cloudflare: shared, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
+      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+  })
+
   it("ignores commented opaque declarations when checking ownership", async () => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {
