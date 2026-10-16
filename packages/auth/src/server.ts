@@ -332,6 +332,16 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
+function isNativeFunction(value: unknown): value is (...args: never[]) => unknown {
+  if (typeof value !== "function") return false
+  try {
+    return Function.prototype.toString.call(value).includes("[native code]")
+  }
+  catch {
+    return false
+  }
+}
+
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
@@ -413,7 +423,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // unless the value was created by a Web Headers implementation.
     const headersGet = responsePropertyDescriptor(headerCarrier, "get")?.value
     const headersForEach = responsePropertyDescriptor(headerCarrier, "forEach")?.value
-    if (typeof headersGet !== "function" || typeof headersForEach !== "function") return
+    if (!isNativeFunction(headersGet) || !isNativeFunction(headersForEach)) return
     const headerPrototype = Object.getPrototypeOf(headerCarrier)
     const headerConstructor = headerPrototype && Object.getOwnPropertyDescriptor(headerPrototype, "constructor")?.value
     const headerNativePrototype = typeof headerConstructor === "function" ? headerConstructor.prototype : undefined
