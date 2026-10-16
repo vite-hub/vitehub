@@ -285,6 +285,64 @@ function readDefinitionCloudflareResource(expression: string | undefined): Defin
   return resource
 }
 
+function readOpaqueDeclarationExpression(identifier: string, source: string): string | undefined {
+  const masked = maskCommentsAndStrings(source)
+  const declarations = [...masked.matchAll(/(?:^|[;\n\r])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*/g)]
+  for (let declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    const declaration = declarations[declarationIndex]!
+    let depth = 0
+    for (const char of masked.slice(0, declaration.index)) {
+      if (char === "{") depth++
+      else if (char === "}") depth--
+    }
+    if (depth !== 0) continue
+    const valueStart = declaration.index + declaration[0].length
+    const nextDeclaration = declarations.slice(declarationIndex + 1).find((candidate) => {
+      let candidateDepth = 0
+      for (const char of masked.slice(0, candidate.index)) {
+        if (char === "{") candidateDepth++
+        else if (char === "}") candidateDepth--
+      }
+      return candidateDepth === 0
+    })
+    const limit = nextDeclaration?.index ?? masked.length
+    const remainder = masked.slice(valueStart, limit)
+    if (declaration[1] === identifier) {
+      let expressionEnd = remainder.length
+      let nested = 0
+      for (let index = 0; index < remainder.length; index++) {
+        const char = remainder[index]!
+        if (char === "{" || char === "[" || char === "(") nested++
+        else if (char === "}" || char === "]" || char === ")") nested = Math.max(0, nested - 1)
+        else if (char === ";" && nested === 0) { expressionEnd = index; break }
+      }
+      return stripLeadingEntryComments(source.slice(valueStart, valueStart + expressionEnd))
+    }
+    const parts = splitTopLevel(remainder)
+    let partOffset = 0
+    for (const part of parts) {
+      const name = /^\s*([A-Za-z_$][\w$]*)\s*=/.exec(part)?.[1]
+      if (name !== identifier) {
+        partOffset += part.length + 1
+        continue
+      }
+      const equals = part.indexOf("=")
+      const expressionStart = valueStart + partOffset + equals + 1
+      const expression = masked.slice(expressionStart, valueStart + partOffset + part.length)
+      let expressionEnd = expression.length
+      let nested = 0
+      for (let index = 0; index < expression.length; index++) {
+        const char = expression[index]!
+        if (char === "{" || char === "[" || char === "(") nested++
+        else if (char === "}" || char === "]" || char === ")") nested = Math.max(0, nested - 1)
+        else if (char === ";" && nested === 0) { expressionEnd = index; break }
+      }
+      return stripLeadingEntryComments(source.slice(expressionStart, expressionStart + expressionEnd))
+    }
+  }
+  return undefined
+}
+
 function readOpaqueResourceOwnership(expression: string | undefined, source: string, seen = new Set<string>()): boolean | undefined {
   const trimmed = expression?.trim()
   if (!trimmed) return undefined
@@ -309,38 +367,7 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
   const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
   seen.add(identifier)
-  const masked = maskCommentsAndStrings(source)
-  const declarationPattern = /(?:^|[;\n\r])\s*(?:export\s+)?(?:const|let|var)\s+([^;]+)/g
-  for (const match of masked.matchAll(declarationPattern)) {
-    let depth = 0
-    for (const char of masked.slice(0, match.index)) {
-      if (char === "{") depth++
-      else if (char === "}") depth--
-    }
-    if (depth !== 0) continue
-    const declarations = splitTopLevel(match[1]!)
-    for (const declaration of declarations) {
-      const name = /^\s*([A-Za-z_$][\w$]*)\s*=/.exec(declaration)?.[1]
-      if (name !== identifier) continue
-      const relativeOffset = match[0].indexOf(match[1]!) + declaration.indexOf("=") + 1
-      const sourceOffset = match.index + relativeOffset
-      const remainder = masked.slice(sourceOffset)
-      let depth = 0
-      let end = remainder.length
-      for (let index = 0; index < remainder.length; index++) {
-        const char = remainder[index]!
-        if (char === "{" || char === "[" || char === "(") depth++
-        else if (char === "}" || char === "]" || char === ")") depth = Math.max(0, depth - 1)
-        else if (char === ";" && depth === 0) {
-          end = index
-          break
-        }
-      }
-      const value = stripLeadingEntryComments(source.slice(sourceOffset, sourceOffset + end))
-      return readOpaqueResourceOwnership(value, source, seen)
-    }
-  }
-  return undefined
+  return readOpaqueResourceOwnership(readOpaqueDeclarationExpression(identifier, source), source, seen)
 }
 
 function readOpaqueHttpOnly(expression: string | undefined, source: string, seen = new Set<string>()): boolean | undefined {
@@ -370,33 +397,7 @@ function readOpaqueHttpOnly(expression: string | undefined, source: string, seen
   const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
   seen.add(identifier)
-  const masked = maskCommentsAndStrings(source)
-  const declarationPattern = /(?:^|[;\n\r])\s*(?:export\s+)?(?:const|let|var)\s+([^;]+)/g
-  for (const match of masked.matchAll(declarationPattern)) {
-    let depth = 0
-    for (const char of masked.slice(0, match.index)) {
-      if (char === "{") depth++
-      else if (char === "}") depth--
-    }
-    if (depth !== 0) continue
-    for (const declaration of splitTopLevel(match[1]!)) {
-      const name = /^\s*([A-Za-z_$][\w$]*)\s*=/.exec(declaration)?.[1]
-      if (name !== identifier) continue
-      const relativeOffset = match[0].indexOf(match[1]!) + declaration.indexOf("=") + 1
-      const sourceOffset = match.index + relativeOffset
-      const remainder = masked.slice(sourceOffset)
-      let nested = 0
-      let end = remainder.length
-      for (let index = 0; index < remainder.length; index++) {
-        const char = remainder[index]!
-        if (char === "{" || char === "[" || char === "(") nested++
-        else if (char === "}" || char === "]" || char === ")") nested = Math.max(0, nested - 1)
-        else if (char === ";" && nested === 0) { end = index; break }
-      }
-      return readOpaqueHttpOnly(source.slice(sourceOffset, sourceOffset + end), source, seen)
-    }
-  }
-  return undefined
+  return readOpaqueHttpOnly(readOpaqueDeclarationExpression(identifier, source), source, seen)
 }
 
 function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource?: boolean, opaqueHttpOnly?: boolean, value?: CloudflareD1BindingConfig } {
