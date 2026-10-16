@@ -664,6 +664,64 @@ describe("executeSandboxDefinition", () => {
     })
   })
 
+  it("classifies a payload toJSON getter failure as a serialization error", async () => {
+    const { sandbox } = createFakeSandbox()
+    const payload = Object.defineProperty({}, "toJSON", {
+      enumerable: true,
+      get() { throw new Error("broken JSON getter") },
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "invalid-json-getter",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      payload,
+      {},
+    )).rejects.toMatchObject({
+      code: "SANDBOX_SERIALIZATION_ERROR",
+      cause: expect.objectContaining({ message: "broken JSON getter" }),
+    })
+  })
+
+  it("classifies a generated result toJSON getter failure as a serialization error", async () => {
+    const { sandbox } = createFakeSandbox({
+      onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
+          ok: false,
+          error: {
+            code: "SANDBOX_SERIALIZATION_ERROR",
+            message: "Sandbox result must be JSON-serializable.",
+          },
+        })))
+        return Promise.resolve({ code: 1, ok: false, stderr: "", stdout: "" })
+      },
+    })
+
+    await expect(executeSandboxDefinition(
+      sandbox,
+      "invalid-result-json-getter",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: {
+          "definition.mjs": `export default async () => Object.defineProperty({}, "toJSON", {
+            get() { throw new Error("broken result JSON getter") },
+          })`,
+        },
+      },
+      {},
+      {},
+    )).rejects.toMatchObject({
+      code: "SANDBOX_SERIALIZATION_ERROR",
+    })
+  })
+
   it("classifies payload traversal failures as serialization errors", async () => {
     const { sandbox } = createFakeSandbox()
     const payload = Object.defineProperty({}, "broken", {

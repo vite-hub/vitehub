@@ -20,7 +20,7 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md", "get-started.md"].includes(page.name) && !page.name.startsWith("blocks/"),
+  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -119,6 +119,16 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
+  it("renders docs through the shared article and tutorial layouts", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
+
+    expect(page).toContain('<DocsTutorial v-else-if="page && isTutorialPage"');
+    expect(page).toContain('<DocsArticle v-else-if="page"');
+    expect(article).toContain('class="vh-docs-article"');
+    expect(article).toContain('aria-label="Page outline"');
+  });
+
   it("gives invocation previews fixed-height containing blocks", () => {
     const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
     const inspector = readFileSync(
@@ -164,16 +174,16 @@ describe("UI documentation", () => {
     expect(sidebarPanel).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: visible;");
-    expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toContain("hidden lg:block");
+    expect(layout).toContain("<UPage v-else :ui=\"docsShellUi\">");
+    expect(layout).toContain("class=\"vh-docs-aside\"");
+    expect(layout).toContain("lg:!flex-1 lg:!min-w-0");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
-    const page = readFileSync(resolve(docsRoot, "content/docs/getting-started/built-for-vue.md"), "utf8");
+    const page = readFileSync(resolve(docsRoot, "content/docs/ui/built-for-vue.md"), "utf8");
 
     expect(page).not.toContain("navigation: false");
-    expect(page).toContain("navigation.title: Built for the Vue ecosystem");
-    expect(page).toContain("I am Maxi");
-    expect(page).toContain("ViteHub is a server primitive library.");
+    expect(page).toContain("navigation.title: Why Vue?");
+    expect(page).toContain("The server packages work independently of Vue.");
   });
 });
