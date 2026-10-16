@@ -321,14 +321,16 @@ describe("Auth access handlers", () => {
     const body = vi.fn()
       .mockReturnValueOnce(sourceBody)
       .mockImplementation(() => { throw new Error("unstable body") })
+    const ResponseConstructor = function Response() {}
     const prototype = Object.defineProperties({}, {
-      constructor: { value: function Response() {} },
+      constructor: { value: ResponseConstructor },
       [Symbol.toStringTag]: { value: "Response" },
       status: { get: () => 409 },
       statusText: { get: () => "Conflict" },
       headers: { get: headers },
       body: { get: body },
     })
+    ResponseConstructor.prototype = prototype
     const candidate = Object.create(prototype)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => candidate }] },
