@@ -5172,10 +5172,16 @@ function withEagerStreamUsageExtensions<
     }
     catch (error) {
       if (!extensionsRun) {
-        const usageRecord = result && hasRuntimeType(result, "object") && "usageRecord" in result
-          ? usageRecordFromStreamChunk({ type: "usage", usageRecord: result.usageRecord }, result, context.run)
-          : undefined
-        await runExtensions(usageRecord)
+        // The source has terminated, so it is safe to resolve asynchronous usage
+        // exposed through any of the supported result shapes before rethrowing the
+        // source error. Keep that error as the observable failure if an eager
+        // extension also fails while processing the usage.
+        try {
+          await runExtensions(await resolveAgentUsageRecord(result, context.run))
+        }
+        catch {
+          // Preserve the original source error.
+        }
       }
       throw error
     }
