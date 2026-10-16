@@ -389,7 +389,19 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   const getReader = locked && streamIntrinsic(locked.owner, "getReader")
   if (!locked || !getReader || locked.owner !== getReader.owner
     || !isNativeFunction(locked.value, nativeStreamLocked, "locked") || !isNativeFunction(getReader.value, nativeStreamGetReader, "getReader")) return false
-  return !Reflect.apply(locked.value, stream, [])
+  if (Reflect.apply(locked.value, stream, [])) return false
+  // The Web Streams API exposes the disturbed state only through brand checks:
+  // constructing a Response rejects a stream that has already been consumed,
+  // even after its reader has released the lock. Keep this probe before the
+  // bridge acquires ownership so response-shaped values cannot silently turn
+  // into empty bodies.
+  try {
+    new Response(stream)
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function authorizationHeaderMethods(headers: object): { forEach: (...args: never[]) => unknown, getSetCookie?: (...args: never[]) => unknown } | undefined {
