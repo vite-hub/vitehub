@@ -281,7 +281,7 @@ async function runAccessAuthorize(
 ): Promise<Response | undefined> {
   const result = await authorize(context)
   if (result === true) return
-  const response = normalizeAuthorizationResponse(result)
+  const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   return createForbiddenResponse(context.request)
 }
@@ -307,38 +307,37 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   }
 }
 
-function hasResponsePrototype(value: unknown): boolean {
+let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+
+async function getUndiciResponse(): Promise<typeof Response | undefined> {
+  if (undiciResponsePromise) return undiciResponsePromise
+  undiciResponsePromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.Response as typeof Response)
+    .catch(() => undefined)
+  return undiciResponsePromise
+}
+
+async function hasResponsePrototype(value: unknown): Promise<boolean> {
+  const UndiciResponse = await getUndiciResponse()
   try {
-    if (value instanceof Response) return true
     let current: object | null = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(current)) return false
-      seen.add(current)
-      const bodyGetter = Object.getOwnPropertyDescriptor(current, "body")?.get
-      if (typeof bodyGetter === "function") {
-        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-        // A Response subclass may override `body`; keep walking until the
-        // native Response prototype provides the brand-checked accessor.
-        if (constructor?.name === "Response") {
-          Reflect.apply(bodyGetter, value, [])
-          const clone = Object.getOwnPropertyDescriptor(current, "clone")?.value
-          if (typeof clone !== "function") return false
-          const cloned = Reflect.apply(clone, value, [])
-          if (cloned === value || Object(cloned) !== cloned) return false
-          let clonedPrototype: object | null = Object.getPrototypeOf(cloned)
-          let reachesResponsePrototype = false
-          for (let cloneDepth = 0; clonedPrototype && cloneDepth < authorizationResponsePrototypeLimit; cloneDepth++) {
-            if (clonedPrototype === current) {
-              reachesResponsePrototype = true
-              break
-            }
-            clonedPrototype = Object.getPrototypeOf(clonedPrototype)
+      const target = current === Response.prototype ? Response : UndiciResponse
+      if (target) {
+        const getter = Object.getOwnPropertyDescriptor(target.prototype, "status")?.get
+        if (getter) {
+          try {
+            Reflect.apply(getter, value, [])
+            return true
           }
-          if (!reachesResponsePrototype) return false
-          return true
+          catch {
+            return false
+          }
         }
       }
+      if (seen.has(current)) return false
+      seen.add(current)
       current = Object.getPrototypeOf(current)
     }
     return false
@@ -396,11 +395,11 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   return { stream, release }
 }
 
-function normalizeAuthorizationResponse(value: unknown): Response | undefined {
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
   try {
     const candidate = Object(value)
-    if (!hasResponsePrototype(candidate)) return
+    if (!await hasResponsePrototype(candidate)) return
     // Validate local responses through their native accessors before reading
     // any proxy-trapped properties. Proxies cannot satisfy Response's
     // internal-slot checks, so reject them without trusting their snapshots.
@@ -481,9 +480,22 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
+    let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
-      if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, value)
+      if (key.toLowerCase() === "set-cookie") {
+        if (cookies.length === 0) combinedCookies = value
+        return
+      }
+      normalizedHeaders.append(key, value)
     }])
+    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // followed by another cookie assignment at the cookie-pair boundary proves that
+    // multiple values were merged. Assignment-like text after an extension attribute
+    // can still be part of that attribute's value, so do not reject it as a merge.
+    if (combinedCookies !== undefined) {
+      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      normalizedHeaders.append("set-cookie", combinedCookies)
+    }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
     // Preserve the standard error response before constructing a local response.
@@ -522,7 +534,8 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = route instanceof Object ? route.authorize : undefined
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route configuration crosses JavaScript realms; runtime object narrowing preserves foreign authorize callbacks.
+      const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }

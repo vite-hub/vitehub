@@ -2,9 +2,9 @@
 title: Render your first Markdown template
 description: "Install the Markdown Template package, bind data, and return rendered Markdown."
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 52
-navigation.group: Tutorial
+navigation.group: Get started
 icon: i-lucide-rocket
 ---
 

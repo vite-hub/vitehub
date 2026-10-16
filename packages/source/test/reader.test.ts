@@ -72,6 +72,18 @@ describe("direct Source readers", () => {
     await expect(reader.list("missing")).resolves.toEqual([])
   })
 
+  it("reconciles normalized file keys with directory entries", async () => {
+    const reader = createSource(defineSource({
+      name: "docs",
+      async getKeys() { return ["guide\\api", "guide/api/deep/example.md"] },
+      async getItem(key: string) { return { key, content: key } },
+    }))
+
+    await expect(reader.list("guide")).resolves.toEqual([
+      { key: "guide\\api", type: "file" },
+    ])
+  })
+
   it("normalizes separators when deriving directories from Source keys", async () => {
     const reader = createSource(defineSource({
       name: "docs",
@@ -82,6 +94,16 @@ describe("direct Source readers", () => {
     await expect(reader.list("guide")).resolves.toEqual([
       { key: "guide/nested", type: "directory" },
       { key: "guide/windows", type: "directory" },
+    ])
+
+    await expect(reader.list("guide/windows")).resolves.toEqual([
+      { key: "guide\\windows\\example.md", type: "file" },
+    ])
+    await expect(reader.list("guide/nested")).resolves.toEqual([
+      { key: "guide//nested///example.md", type: "file" },
+    ])
+    await expect(reader.list("guide//nested///")).resolves.toEqual([
+      { key: "guide//nested///example.md", type: "file" },
     ])
   })
 
