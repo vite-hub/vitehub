@@ -1829,6 +1829,16 @@ export type AgentDefinitionHooks<
   TData = unknown,
 > = AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues, TOutput, TMessage, TData>
 
+/**
+ * Invocation journal settings that a host adds to `defineAgent({ invocations })`.
+ * The host resolves each added setting to `AgentInvocations` before it calls this package's `defineAgent()`.
+ * For example, `vite-hub/agent` adds the `"database"` and `"memory"` journal names.
+ */
+export interface AgentInvocationsHostSettings {}
+
+/** The `invocations` value of an Agent Definition: a journal, or a setting that the host adds. */
+export type AgentInvocationsInput = AgentInvocations | AgentInvocationsHostSettings[keyof AgentInvocationsHostSettings]
+
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -1842,6 +1852,8 @@ type AgentSharedSettings<
 > = {
   /** Run the built-in provider Driver inside this Box. Each invocation opens a new Box session. */
   box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Per-invocation token and cost limits. */
+  budget?: AgentBudgetOptions
   /**
    * GitHub identity for this Agent. Provider Drivers receive its `access().env`,
    * and the pull request checkout and `git()` use its token.
@@ -1858,7 +1870,7 @@ type AgentSharedSettings<
   /** Finishes the Invocation before the Driver runs when it returns a value other than `undefined`. */
   intercept?: AgentInterceptHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues, TData, TIntercept>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
-  invocations?: AgentInvocations
+  invocations?: AgentInvocationsInput
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
   runtime?: AgentRuntimeBinding
@@ -1920,6 +1932,8 @@ export interface AgentDefinition<
 > extends AgentDataCarrier<TDataInput>, AgentDataOutputCarrier<TData>, AgentDriverOutputCarrier<TDriverOutput>, AgentInterceptOutputCarrier<TInterceptOutput> {
   [agentOutputType]?: TOutput
   box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Per-invocation token and cost limits. */
+  budget?: AgentBudgetOptions
   github?: AgentGitHub
   health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
@@ -2228,6 +2242,11 @@ export interface AgentChatFinishExtension {
 export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   commentary?: "hidden" | "message"
   concurrency?: AgentMessageConcurrency
+  /**
+   * With `concurrency: "steer"`, wait this many milliseconds after the first message of a burst,
+   * then start one handler with every message received in that window. Unset keeps the default behavior.
+   */
+  debounceMs?: number
   dedupeTtlMs?: number
   delivery?: "automatic" | "manual"
   durable?: boolean
@@ -2242,7 +2261,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   }) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   final?: {
-    delivery: "new-message"
+    delivery: "new-message" | "placeholder"
   }
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
@@ -2777,6 +2796,8 @@ export interface AgentBudgetOptions {
   tokens?: number | AgentBudgetTokenLimits
   /** Maximum estimated or provider-reported cost in US dollars. */
   usd?: number | string
+  /** Driver admission for concurrent Invocations. This field applies to the top-level Agent option. */
+  capacity?: AgentDriverCapacityOptions
   /** Report exceedance or reject the completed Invocation. */
   mode?: "observe" | "enforce"
   /** Optional pricing resolver used when the provider does not report a cost. */

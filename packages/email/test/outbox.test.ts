@@ -111,6 +111,12 @@ describe("Email development outbox", () => {
     expect(getEmailOutbox()).toBeUndefined()
   })
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])("uses the default limit for non-finite runtime option %s", async (limit) => {
+    await createEmailDevOutboxDriver({ deliver: false, driver: providerDriver(), limit, provider: "resend" })
+
+    expect(getEmailOutbox()?.limit).toBe(defaultEmailOutboxLimit)
+  })
+
   it("captures messages without delivery and never creates the provider driver", async () => {
     const createProviderDriver = vi.fn(() => providerDriver())
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: false, driver: createProviderDriver, provider: "resend" }) })
@@ -189,6 +195,22 @@ describe("Email development outbox", () => {
     expect(driver.initialize).toHaveBeenCalledOnce()
     expect(driver.send).toHaveBeenCalledOnce()
     expect(getEmailOutbox()?.list()[0]).toMatchObject({ delivery: { id: "re_1", status: "sent" }, id: "outbox-1", provider: "resend" })
+  })
+
+  it("does not record malformed provider ids as sent", async () => {
+    const driver = providerDriver(() => ({ data: { at: new Date(), driver: "resend", id: "" }, error: null }))
+    const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver, provider: "resend" }) })
+
+    await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    expect(getEmailOutbox()?.list()[0]?.delivery).toEqual({ error: { message: "Email driver returned an invalid message id." }, status: "failed" })
+  })
+
+  it("does not throw before recording a non-string provider id as failed", async () => {
+    const driver = providerDriver(() => ({ data: { at: new Date(), driver: "resend", id: 123 as unknown as string }, error: null }))
+    const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver, provider: "resend" }) })
+
+    await expect(email.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    expect(getEmailOutbox()?.list()[0]?.delivery).toEqual({ error: { message: "Email driver returned an invalid message id." }, status: "failed" })
   })
 
   it("resolves and initializes a provider for every generated factory send", async () => {

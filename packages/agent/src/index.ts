@@ -10,7 +10,7 @@ import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, i
 import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
-import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
 import { createAgentHealthHandler } from "./health.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
@@ -46,6 +46,7 @@ import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveChatMessageContextInstructions, resolveChatMessageRunMetadata, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
+import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
@@ -79,7 +80,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { isAttachmentPart, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
+import { blobArrayBuffer, isArrayBufferValue, isAttachmentPart, isBlobValue, isUint8ArrayValue, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasUnreplayableAgentInputContext,
@@ -183,6 +184,7 @@ import type {
   AgentChannelDeliveryFinishEffectContext,
   AgentDataCarrier,
   AgentDataOutputCarrier,
+  AgentBudgetOptions,
   AgentRunInputContextValues,
   AgentInterceptHandler,
   AgentDefinition,
@@ -457,6 +459,8 @@ export type {
   AgentInvocationContextValues,
   AgentInvocationHooks,
   AgentInvocationReference,
+  AgentInvocationsHostSettings,
+  AgentInvocationsInput,
   AgentIntegrationsOptions,
   AgentInvoker,
   AgentInvokerMeta,
@@ -827,6 +831,8 @@ export interface ScheduleRunContextLike {
 /** Options supplied by trusted invocation code; callable tools are never persisted as input. */
 export interface RunAgentOptions<TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>> {
   tools?: TTools
+  /** Runtime context values supplied by trusted standalone callers, such as generated host capabilities. */
+  runtimeContext?: Partial<AgentRuntimeContext>
   schedule?: ScheduleRunContextLike
   /** Consume streamed output and finish its lifecycle before resolving. */
   output?: "drained"
@@ -1014,9 +1020,9 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       if (!isAttachmentPart(part)) return cloneWorkflowJsonValue(part) as typeof part
       let data = part.data
-      if (data instanceof Blob) data = await data.arrayBuffer()
-      if (data instanceof ArrayBuffer) data = new Uint8Array(data)
-      const portable = data instanceof Uint8Array
+      if (isBlobValue(data)) data = await blobArrayBuffer(data)
+      if (isArrayBufferValue(data)) data = new Uint8Array(data)
+      const portable = isUint8ArrayValue(data)
         ? { ...part, data: `data:${part.mediaType};base64,${workflowBytesToBase64(data)}` }
         : part
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -2221,10 +2227,18 @@ function defineBaseAgent<
     throw agentDiagnostics.AGENT_R0426({ message: "[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels })." })
   }
   const chat = chatCapability || channelChat
+  const configuredBudget = options.budget && (options.budget.tokens !== undefined || options.budget.usd !== undefined
+    ? (() => {
+        const { capacity: _capacity, ...budgetOptions } = options.budget
+        return budgetCapability(budgetOptions)
+      })()
+    : options.budget.capacity === undefined
+      ? budgetCapability(options.budget)
+      : undefined)
   const normalizedCapabilities = channelChat
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
-    : baseCapabilities
+    ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>, ...(configuredBudget ? [configuredBudget] : [])]
+    : [...baseCapabilities, ...(configuredBudget ? [configuredBudget] : [])]
   if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
     driverKind: driver.kind,
     hasWorkspace: false,
@@ -2284,6 +2298,7 @@ function defineBaseAgent<
     [baseAgentResolve]: resolveBaseAgent,
     health: options.health || { handler: (request: Request, healthOptions?: Record<string, unknown>) => createAgentHealthHandler(definition)(request, healthOptions) },
     box,
+    ...(options.budget ? { budget: options.budget } : {}),
     ...(github ? { github } : {}),
     channels,
     chat,
@@ -2333,7 +2348,9 @@ function defineBaseAgent<
     [baseAgentDefinitionHealth]: { value: options.health ? undefined : definition.health },
     [baseAgentDefinitionStatus]: { value: definition.status },
   })
-  configureAgentCapacity(definition, driver.capacity)
+  configureAgentCapacity(definition, options.budget?.capacity === undefined
+    ? driver.capacity
+    : normalizeAgentDriverCapacity(options.budget.capacity))
   Object.defineProperty(definition, "__vitehubAgentSettings", {
     value: channels === options.channels ? options : { ...options, channels },
   })
@@ -3212,6 +3229,11 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   }, name => {
     throw new TypeError(`[vitehub] Unknown Agent preset "${name}". Import the preset definition and pass it to extends.`)
   }) as AgentSettings
+  const invocations: unknown = agentOptions.invocations
+  // Host settings, such as a journal name, must be resolved by the host's defineAgent().
+  if (hasRuntimeType(invocations, "string") || hasRuntimeType(invocations, "boolean") || (isRuntimeRecord(invocations) && "store" in invocations)) {
+    throw new TypeError("[vitehub] Agent invocations must be a journal from defineAgentInvocations(). Import defineAgent from vite-hub/agent to select a journal by name.")
+  }
   const channels = normalizeAgentChannels(agentOptions.channels)
   const name = agentOptions.name?.trim()
   if (name && name.length > 512) {
@@ -5080,6 +5102,30 @@ function maybeTraceAgentStream<
   })()
 }
 
+function immediateAgentUsageRecord(
+  value: unknown,
+  run: Partial<AgentRunMetadata> | undefined,
+): ReturnType<typeof usageRecordFromStreamChunk> {
+  if (!value || !hasRuntimeType(value, "object")) return
+  // SAFETY: The runtime object guard establishes a record-shaped value for property inspection.
+  const record = value as Record<string, unknown>
+  // SAFETY: The runtime object guard establishes a record-shaped candidate before reading `then`.
+  const isPending = (candidate: unknown): candidate is PromiseLike<unknown> =>
+    Boolean(candidate && hasRuntimeType(candidate, "object") && hasRuntimeType((candidate as Record<string, unknown>).then, "function"))
+  const usageRecord = record.usageRecord
+  if (usageRecord && !isPending(usageRecord)) {
+    const resolved = usageRecordFromStreamChunk({ type: "usage", usageRecord }, value, run)
+    if (resolved) return resolved
+  }
+  for (const usage of [record.usage, record.totalUsage]) {
+    if (usage && !isPending(usage)) {
+      const resolved = usageRecordFromStreamChunk({ type: "finish", usage }, value, run)
+      if (resolved) return resolved
+    }
+  }
+  return immediateAgentUsageRecord(record.raw, run)
+}
+
 function withEagerStreamUsageExtensions<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -5091,12 +5137,13 @@ function withEagerStreamUsageExtensions<
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
-    let extensionApplied = false
-    async function* finalizeUsage(): AsyncIterable<unknown> {
-      if (extensionApplied) return
-      const usageRecord = await resolveAgentUsageRecord(result, context.run)
-      if (!usageRecord) return
-      const usage = { ...usageRecord }
+    let extensionsRun = false
+    let sourceCompleted = false
+    // Finish extensions enrich the record they receive, so callers yield the returned record.
+    const runExtensions = async (usageRecord: ReturnType<typeof usageRecordFromStreamChunk>) => {
+      if (!usageRecord || extensionsRun) return usageRecord
+      extensionsRun = true
+      const usage = usageRecord ? { ...usageRecord } : undefined
       const eventBase = {
         actor: context.actor,
         input: context.input,
@@ -5104,43 +5151,7 @@ function withEagerStreamUsageExtensions<
         invocation: {
           durationMs: Date.now() - context.startedAt,
           ...(context.run ? { run: context.run } : {}),
-          usage,
-        },
-        result,
-        runtime: context.runtimeContext,
-        toolResults: [...context.toolResults],
-      } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
-      // SAFETY: The event and eager providers share this invocation's normalized Agent runtime and call-option contracts.
-      await createAgentInvocationExtensions(eventBase as never, providers)
-      extensionApplied = true
-      assignResolvedUsageRecord(result, usage)
-      // Keep deferred usage observable to stream consumers even when the provider
-      // never emitted a usage chunk during iteration.
-      yield { type: "usage", usageRecord: usage }
-    }
-    for await (const chunk of stream) {
-      const usageRecord = usageRecordFromStreamChunk(chunk, result)
-      if (!usageRecord) {
-        if (isRuntimeRecord(chunk) && chunk.type === "finish") {
-          // A terminal event must not be held until an async source closes. If
-          // no usage chunk was emitted, resolve the fallback now so consumers
-          // still observe usage before finish.
-          yield* finalizeUsage()
-          yield chunk
-          continue
-        }
-        yield chunk
-        continue
-      }
-      const usage = { ...usageRecord }
-      const eventBase = {
-        actor: context.actor,
-        input: context.input,
-        invoker: context.invoker,
-        invocation: {
-          durationMs: Date.now() - context.startedAt,
-          ...(context.run ? { run: context.run } : {}),
-          usage,
+          ...(usage ? { usage } : {}),
         },
         result,
         runtime: context.runtimeContext,
@@ -5148,36 +5159,81 @@ function withEagerStreamUsageExtensions<
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await createAgentInvocationExtensions(eventBase as never, providers)
-      extensionApplied = true
-      if (chunk && hasRuntimeType(chunk, "object")) {
-        const prototype = Object.getPrototypeOf(chunk)
-        if (prototype !== Object.prototype && prototype !== null) {
-          if (Object.isExtensible(chunk)) {
-            try {
-              Object.defineProperty(chunk, "usageRecord", {
-                configurable: true,
-                enumerable: true,
-                value: usage,
-                writable: true,
-              })
-              yield chunk
-              continue
-            }
-            catch {
-              // Preserve the custom chunk and emit the canonical record separately.
-            }
+      return usage
+    }
+
+    try {
+      for await (const chunk of stream) {
+        const usageRecord = usageRecordFromStreamChunk(chunk, result)
+        if (!usageRecord) {
+          if (isRuntimeRecord(chunk) && chunk.type === "finish") {
+            const fallbackUsage = await runExtensions(await resolveAgentUsageRecord(result, context.run))
+            if (fallbackUsage) yield { type: "usage", usageRecord: fallbackUsage }
           }
           yield chunk
-          yield { type: "usage", usageRecord: usage }
           continue
         }
-        yield { ...chunk, usageRecord: usage }
-        continue
+        const usage = { ...await runExtensions(usageRecord) }
+        if (chunk && hasRuntimeType(chunk, "object")) {
+          const prototype = Object.getPrototypeOf(chunk)
+          if (prototype !== Object.prototype && prototype !== null) {
+            if (Object.isExtensible(chunk)) {
+              try {
+                Object.defineProperty(chunk, "usageRecord", {
+                  configurable: true,
+                  enumerable: true,
+                  value: usage,
+                  writable: true,
+                })
+                yield chunk
+                continue
+              }
+              catch {
+                // Preserve the custom chunk and emit the canonical record separately.
+              }
+            }
+            yield chunk
+            yield { type: "usage", usageRecord: usage }
+            continue
+          }
+          yield { ...chunk, usageRecord: usage }
+          continue
+        }
+        yield { type: "usage", usageRecord: usage }
       }
-      yield { type: "usage", usageRecord: usage }
+      sourceCompleted = true
     }
-    yield* finalizeUsage()
-    })()
+    catch (error) {
+      if (!extensionsRun) {
+        // Preserve source errors without waiting for unrelated provider promises.
+        try {
+          const usageRecord = immediateAgentUsageRecord(result, context.run)
+          if (usageRecord) await runExtensions(usageRecord)
+        }
+        catch {
+          // Preserve the original source error.
+        }
+      }
+      throw error
+    }
+    finally {
+      if (!extensionsRun) {
+        const immediateUsage = !sourceCompleted && result && hasRuntimeType(result, "object") && "usageRecord" in result
+          ? usageRecordFromStreamChunk({ type: "usage", usageRecord: result.usageRecord }, result, context.run)
+          : undefined
+        const usageRecord = immediateUsage ?? (sourceCompleted
+          ? await resolveAgentUsageRecord(result, context.run)
+          : undefined)
+        // Consumer cancellation can close the source before a usage record is
+        // available. Do not run finish extensions with undefined usage in that
+        // case: finish hooks may perform side effects or reject cancellation.
+        if (usageRecord) {
+          const enrichedUsage = await runExtensions(usageRecord)
+          if (sourceCompleted && enrichedUsage) yield { type: "usage", usageRecord: enrichedUsage }
+        }
+      }
+    }
+  })()
 }
 
 function withEagerUiMessageStreamUsageExtensions<
@@ -8484,8 +8540,19 @@ export async function runAgent<
   // SAFETY: The Runtime Context overload returned above; the remaining third argument contains invocation options.
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
   const schedule = standaloneOptions?.schedule
-  const runtime = createRuntimeContext({ runtime: "unknown", run: { runId: schedule?.runId || schedule?.id || createTraceId() } })
+  // Preserve the caller's runtime-config subtype through standalone context creation.
+  const runtimeContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
+  const runtime = createRuntimeContext({
+    ...runtimeContext,
+    runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,
+    runtime: runtimeContext?.runtime || "unknown",
+    run: {
+      ...runtimeContext?.run,
+      runId: schedule?.runId || schedule?.id || runtimeContext?.run?.runId || createTraceId(),
+    },
+  })
   const context: AgentRuntimeContext<TRuntimeConfig> = {
+    ...runtimeContext,
     memo: runtime.memo,
     run: runtime.run,
     runtime: runtime.runtime,

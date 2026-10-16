@@ -138,7 +138,12 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
     try {
       return serializeCollectionPage(await collection.page({ cursor, limit, query, signal: event.req.signal }))
     } catch (cause) {
-      if (cause instanceof CollectionCursorError) invalidRequest(cause)
+      if (cause instanceof CollectionCursorError) {
+        if (cause.reason === "stale") {
+          throw createError({ cause, statusCode: 409, statusMessage: cause.message })
+        }
+        invalidRequest(cause)
+      }
       throw cause
     }
   }

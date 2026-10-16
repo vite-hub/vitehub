@@ -5,6 +5,7 @@ import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
 import { ConnectionError, isConnectionError } from "../errors.ts";
 import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts";
 import { connectionsRuntimeFor } from "./http-access.ts";
+import { managementErrorBody } from "./http-diagnostics.ts";
 
 import type { ConnectionsRuntime } from "../runtime.ts";
 import type { ConnectionsAccess } from "./http-access.ts";
@@ -15,7 +16,7 @@ const MAX_APPROVAL_COUNT_PAGES = 10_000;
 
 // Discovery preserves filesystem-valid characters, including symbols such as `+`.
 // Keep management validation in step with the generated registry.
-const name = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH));
+const name = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace."));
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(256));
 const actionSchema = v.variant("action", [
   v.object({ action: v.literal("list") }),
@@ -71,18 +72,9 @@ export function errorStatus(error: unknown): number {
 }
 
 export function errorResponse(error: unknown): Response {
-  if (isConnectionError(error)) {
-    const body: { code: string; message: string; requestId?: string } = {
-      code: error.code,
-      message: error.message,
-    };
-    if (error.requestId) body.requestId = error.requestId;
-    return json({ error: body }, errorStatus(error));
-  }
-  return json(
-    { error: { code: "CONNECTION_FAILED", message: "The Connections request failed." } },
-    500,
-  );
+  if (isConnectionError(error))
+    return json({ error: managementErrorBody(error.code, error.message, error.requestId) }, errorStatus(error));
+  return json({ error: managementErrorBody("CONNECTION_FAILED", "The Connections request failed.") }, 500);
 }
 
 function escapeHtml(value: string): string {
@@ -111,10 +103,29 @@ function cookie(request: Request, key: string): string | undefined {
   return undefined;
 }
 
-function sameOrigin(request: Request, url: URL): boolean {
+/**
+ * The same-origin check of the action route. `url` is the request URL that the server sees. Behind a
+ * TLS-terminating proxy that the server does not trust, it can be `http:` while the browser sends an `https:` Origin.
+ */
+function originRejection(request: Request, url: URL): Response | undefined {
   const origin = request.headers.get("origin");
-  if (origin && origin !== url.origin) return false;
-  return request.headers.get("sec-fetch-site") !== "cross-site";
+  if (origin && origin !== url.origin) {
+    const received = origin.slice(0, 256);
+    return json({
+      error: managementErrorBody(
+        "CONNECTION_ORIGIN_REJECTED",
+        `The request Origin ${received} does not match the server origin ${url.origin}.`,
+        undefined,
+        { expectedOrigin: url.origin, receivedOrigin: received },
+      ),
+    }, 403);
+  }
+  if (request.headers.get("sec-fetch-site") === "cross-site") {
+    return json({
+      error: managementErrorBody("CONNECTION_ORIGIN_REJECTED", "The browser marked this request as cross-site.", undefined, { expectedOrigin: url.origin }),
+    }, 403);
+  }
+  return undefined;
 }
 
 async function readBody(request: Request): Promise<unknown> {
@@ -230,24 +241,18 @@ const action: ConnectionsRoute = {
   async handle(access) {
     const runtime = connectionsRuntimeFor(access);
     const { actor, request } = access;
-    if (
-      !request.headers.get("content-type")?.toLowerCase().startsWith("application/json") ||
-      !sameOrigin(request, new URL(request.url))
-    ) {
+    if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
       return json(
-        {
-          error: {
-            code: "CONNECTION_FORBIDDEN",
-            message: "Cross-origin or non-JSON requests are not allowed.",
-          },
-        },
+        { error: managementErrorBody("CONNECTION_CONTENT_TYPE_REJECTED", "Connections management accepts only application/json requests.") },
         403,
       );
     }
+    const rejected = originRejection(request, new URL(request.url));
+    if (rejected) return rejected;
     const parsed = v.safeParse(actionSchema, await readBody(request));
     if (!parsed.success)
       return json(
-        { error: { code: "CONNECTION_INVALID", message: "Invalid Connections request." } },
+        { error: managementErrorBody("CONNECTION_INVALID", "Invalid Connections request.") },
         400,
       );
     const input = parsed.output;
@@ -280,7 +285,7 @@ const action: ConnectionsRoute = {
         return json({ ...result, approvals: result.approvals.map(approvalSummary) });
       }
       case "approval-counts": {
-        const counts: Record<string, number> = {};
+        const counts: Record<string, number> = Object.create(null);
         for (const connection of await connections.list()) {
           let before: string | undefined;
           const seenCursors = new Set<string>();

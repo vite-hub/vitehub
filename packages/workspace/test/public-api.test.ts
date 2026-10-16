@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -168,7 +169,6 @@ describe("workspace public API", () => {
   it("keeps workspace declarations installable without optional integration peers", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
-    const builtCollectionsClient = await readFile(new URL("../dist/collections/client.js", import.meta.url), "utf8")
     const builtCloudflareArtifactsStore = await readBuiltSourceModule("src/providers/cloudflare/artifacts-store.ts")
     const builtMountx = await readFile(new URL("../dist/mountx.js", import.meta.url), "utf8")
     const distDir = new URL("../dist/", import.meta.url)
@@ -184,7 +184,7 @@ describe("workspace public API", () => {
       "providers/github/store.js",
     ].map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
     const effectImport = /(?:from\s*|import\s*(?:\(\s*)?)["']effect(?:\/[^"']*)?["']/
-    const vueFreeBundles = (await Promise.all(["index.js", "server.js", "collections.js"]
+    const vueFreeBundles = (await Promise.all(["index.js", "server.js"]
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
     expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
@@ -193,11 +193,11 @@ describe("workspace public API", () => {
     expect(packageJson.devDependencies?.vite).toBe("catalog:vite")
     expect(packageJson.peerDependencies?.vite).toBe("catalog:vite-compat")
     expect(packageJson.peerDependenciesMeta?.vite).toEqual({ optional: true })
-    expect(packageJson.exports).toHaveProperty("./collections")
-    expect(packageJson.exports).toHaveProperty("./collections/client")
+    expect(packageJson.exports).not.toHaveProperty("./collections")
+    expect(packageJson.exports).not.toHaveProperty("./collections/client")
     expect(packageJson.exports).toHaveProperty("./mountx")
-    expect(packageJson.peerDependencies?.vue).toBe("catalog:ui")
-    expect(packageJson.peerDependenciesMeta?.vue).toEqual({ optional: true })
+    expect(packageJson.peerDependencies?.vue).toBeUndefined()
+    expect(packageJson.peerDependenciesMeta?.vue).toBeUndefined()
     expect(packageJson.dependencies?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependencies?.h3).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.h3).toBeUndefined()
@@ -217,7 +217,6 @@ describe("workspace public API", () => {
     expect(builtMountx).toContain('from "mountx/drivers/unstorage"')
     expect(vueFreeBundles).not.toContain('from "mountx')
     expect(vueFreeBundles).not.toMatch(/from\s*["']vue["']/)
-    expect(builtCollectionsClient).toMatch(/from\s*["']vue["']/)
   })
 
   it("keeps hosted runtime setup off the public Workspace surface", async () => {
@@ -773,6 +772,24 @@ describe("workspace public API", () => {
     await expect(serverB.validateWorkspaceDevToken(runtimeRoot, new Headers({
       [serverB.workspaceDevTokenHeader]: token,
     }), tokenOptions)).resolves.toBe(true)
+  })
+
+  it("accepts workspace dev tokens from cross-realm Headers", async () => {
+    const root = await createRoot()
+    const { refreshWorkspaceDevToken, validateWorkspaceDevToken, workspaceDevTokenHeader } = await import("../src/server.ts")
+    const token = await refreshWorkspaceDevToken(root)
+    const headers = runInNewContext(`(() => {
+      class Headers {
+        #values = new Map()
+        constructor(entries) {
+          for (const [key, value] of entries) this.#values.set(key.toLowerCase(), value)
+        }
+        get(name) { return this.#values.get(name.toLowerCase()) ?? null }
+      }
+      return new Headers([[name, token]])
+    })()`, { name: workspaceDevTokenHeader, token }) as Headers
+
+    await expect(validateWorkspaceDevToken(root, headers)).resolves.toBe(true)
   })
 
   it("uses runtime workspace root for default local stores", async () => {

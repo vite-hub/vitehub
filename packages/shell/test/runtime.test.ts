@@ -129,6 +129,32 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
   })
 
+  it("bounds streaming callbacks for limited sessions", async () => {
+    const stdout: string[] = []
+    const stderr: string[] = []
+    const runtime = createShellRuntime({
+      provider: {
+        boundary: {
+          cwd: true, env: true, filesystem: { writable: false }, network: false,
+          processes: { background: false, interactive: false }, streaming: true,
+          timeout: { enforcedBy: "runtime", supported: true },
+        },
+        async exec(_command, options) {
+          options?.onStdout?.("abcdef")
+          options?.onStdout?.("ghi")
+          options?.onStderr?.("123456")
+          return { event: "command_finished", exitCode: 0, stderr: "123456", stdout: "abcdefghi" }
+        },
+      },
+    })
+    await runtime.createSession({ policy: { maxOutputLength: 4 } }).exec("echo", {
+      onStdout: value => stdout.push(value),
+      onStderr: value => stderr.push(value),
+    })
+    expect(stdout.join("")).toBe("abcd")
+    expect(stderr.join("")).toBe("1234")
+  })
+
   it.each([
     { maxOutputLength: undefined, stderr: "error-message", stdout: "output-message", limit: 100 },
     { maxOutputLength: Number.POSITIVE_INFINITY, stderr: "error-message", stdout: "output-message", limit: 100 },
@@ -916,6 +942,25 @@ describe("@vite-hub/shell cloudflare runtime", () => {
 })
 
 describe("@vite-hub/shell analyzer", () => {
+  it("ignores pipeline operators inside shell comments", async () => {
+    await expect(analyzeShellCommand("echo hi # | cat")).resolves.toMatchObject({
+      commands: ["echo"],
+      hasPipelines: false,
+      ok: true,
+    })
+  })
+
+  it.each([
+    ["echo foo\\ #bar", ["echo"]],
+    ["echo foo\\|#bar | cat", ["echo", "cat"]],
+  ] as const)("preserves hashes after escaped shell separators in %s", async (command, commands) => {
+    await expect(analyzeShellCommand(command)).resolves.toMatchObject({
+      commands,
+      hasPipelines: command.includes(" | "),
+      ok: true,
+    })
+  })
+
   it.each([
     ["echo 'a|b'", ["echo"], false],
     ["echo a\\|b", ["echo"], false],

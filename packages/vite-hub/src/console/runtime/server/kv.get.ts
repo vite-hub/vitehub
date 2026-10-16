@@ -276,5 +276,5 @@ async function consoleKVHandler(event: ConsoleRequestEvent): Promise<
   return page.cursor ? { ...listed, cursor: page.cursor } : listed
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof consoleKVHandler> = withConsoleAccess(consoleKVHandler)
+const guardedHandler: ConsoleAccessRoute<typeof consoleKVHandler> = withConsoleAccess(consoleKVHandler, { section: "kv" })
 export default guardedHandler

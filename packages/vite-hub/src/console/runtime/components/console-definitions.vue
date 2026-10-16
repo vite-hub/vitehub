@@ -10,6 +10,7 @@ import { parseConsoleSectionContent } from "../definitions";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -35,7 +36,7 @@ const content = ref<ConsoleSectionContent>();
 const selectedName = ref<string>();
 const loading = ref(true);
 const error = ref<unknown>();
-const scheduleRuns = ref<Record<string, ConsoleScheduleRunView>>({});
+const scheduleRuns = ref(new Map<string, ConsoleScheduleRunView>());
 const runningSchedule = ref<string>();
 let request: AbortController | undefined;
 
@@ -64,17 +65,10 @@ const canRunSelected = computed(() =>
   Boolean(props.scheduleRunBase && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable)),
 );
 const selectedRun = computed(() =>
-  selectedName.value ? scheduleRuns.value[selectedName.value] : undefined,
+  selectedName.value ? scheduleRuns.value.get(selectedName.value) : undefined,
 );
 const selectedEntry = computed(() => entries.value.find((entry) => entry.id === selectedName.value));
 
-function errorMessage(value: unknown): string | undefined {
-  return value instanceof Error
-    ? value.message
-    : value
-      ? "The Console could not load these definitions."
-      : undefined;
-}
 
 async function runSelectedSchedule(): Promise<void> {
   const name = selectedRecord.value?.cells.schedule || selectedName.value;
@@ -84,7 +78,7 @@ async function runSelectedSchedule(): Promise<void> {
   runningSchedule.value = selection;
   try {
     const run = await runConsoleScheduleDefinition(props.scheduleRunBase, name);
-    scheduleRuns.value = { ...scheduleRuns.value, [selection]: run };
+    scheduleRuns.value.set(selection, run);
   } finally {
     runningSchedule.value = undefined;
   }
@@ -168,7 +162,7 @@ onMounted(() => {
 
 watch(section, (current) => {
   rememberConsoleSection(current);
-  scheduleRuns.value = {};
+  scheduleRuns.value.clear();
   content.value = undefined;
   error.value = undefined;
   selectedName.value = queryValue();
@@ -232,17 +226,8 @@ onBeforeUnmount(() => request?.abort());
       </template>
 
       <template #default="{ collapsed }">
-        <div v-if="!collapsed && errorMessage(error)" class="px-3">
-          <UAlert
-            color="error"
-            variant="subtle"
-            icon="i-ph-cloud-slash-light"
-            title="Could not load definitions"
-            :description="errorMessage(error)"
-            :actions="[
-              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadDefinitions },
-            ]"
-          />
+        <div v-if="!collapsed && error" class="px-3">
+          <ConsoleState compact :error="error" title="Could not load definitions" :retry="loadDefinitions" />
         </div>
         <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
           <div class="grid gap-1 px-2 py-1">
@@ -286,12 +271,12 @@ onBeforeUnmount(() => request?.abort());
             </span>
           </UButton>
         </nav>
-        <UEmpty
+        <ConsoleState
           v-else-if="!loading && !error && !collapsed"
-          class="min-h-0 flex-1 px-4"
+          :section="section"
           :icon="sectionDetails.icon"
-          :title="`No ${itemsTitle}`"
-          :description="catalogView ? `Add a discovered ${sectionDetails.label.slice(0, -1)} Definition to this project.` : 'The owner package returned no records.'"
+          :title="catalogView ? 'No definitions yet' : 'No records yet'"
+          :description="catalogView ? `Add a definition to this project. ${sectionDetails.label} lists it after the next build.` : 'Records appear here after the application creates them.'"
         />
       </template>
 

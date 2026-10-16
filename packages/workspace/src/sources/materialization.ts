@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { isDeepStrictEqual } from "node:util"
 
 import { workspaceError } from "../core/errors.ts"
-import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentStreamChunks, contentStreamToBytes, decodeFile, isWorkspaceBytes, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeMetadataValue, normalizeSourceFileMetadata } from "./file-metadata.ts"
@@ -257,7 +257,7 @@ function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
 }
 
 function contentSize(content: string | Uint8Array) {
-  return content instanceof Uint8Array ? content.byteLength : new TextEncoder().encode(content).byteLength
+  return isWorkspaceBytes(content) ? content.byteLength : new TextEncoder().encode(content).byteLength
 }
 
 function observableFileMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -346,8 +346,8 @@ function materializationPaths(options: WorkspaceMaterializeSourcesOptions | unde
 }
 
 function contentEquals(left: string | Uint8Array, right: string | Uint8Array) {
-  const leftBytes = left instanceof Uint8Array ? left : new TextEncoder().encode(left)
-  const rightBytes = right instanceof Uint8Array ? right : new TextEncoder().encode(right)
+  const leftBytes = isWorkspaceBytes(left) ? left : new TextEncoder().encode(left)
+  const rightBytes = isWorkspaceBytes(right) ? right : new TextEncoder().encode(right)
   return leftBytes.byteLength === rightBytes.byteLength && leftBytes.every((byte, index) => byte === rightBytes[index])
 }
 
@@ -1401,7 +1401,7 @@ export async function searchMaterializedStore(store: WorkspaceStore, query: Work
     if (entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     if (!file) continue
-    const text = file.content instanceof Uint8Array ? new TextDecoder().decode(file.content) : file.content
+    const text = isWorkspaceBytes(file.content) ? new TextDecoder().decode(file.content) : file.content
     result.push(...searchText(entry.path, text, { ...query, limit: limit - result.length }))
     if (result.length >= limit) break
   }

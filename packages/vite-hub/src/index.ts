@@ -36,12 +36,14 @@ import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPrese
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
+import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
-import { consoleInvocationRootPlugin, consoleVitePlugin, type ConsoleOptions } from "./console/vite.ts"
+import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentModuleOptions } from "@vite-hub/agent"
+import type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { BlobModuleOptions } from "@vite-hub/blob"
 import type { BrowserModuleOptions } from "@vite-hub/browser/vite"
@@ -69,6 +71,7 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
+export type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies, `@vite-hub/${string}`>
 type DeploymentServicesManifest = Record<DeploymentService, object>
@@ -158,6 +161,14 @@ const frameworkPackageName = "vite-hub"
 const generatedImportBase = "vite-hub/_internal"
 const upstashDriverSpecifier = "@vite-hub/kv/runtime/upstash-driver"
 const disabledUpstashDriver = fileURLToPath(import.meta.resolve(`${generatedImportBase}/kv/runtime/disabled-upstash`))
+function packageExportImportTarget(target: unknown): string | undefined {
+  if (typeof target === "string") return target
+  if (!target || typeof target !== "object" || Array.isArray(target)) return undefined
+
+  const importTarget = Reflect.get(target, "import")
+  return typeof importTarget === "string" ? importTarget : undefined
+}
+
 function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
   return {
     ...(sandbox
@@ -171,7 +182,7 @@ function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
 }
 const frameworkProviderImportAliases = Object.fromEntries(
   Object.entries(frameworkPackageManifest.exports)
-    .filter(([subpath, target]) => subpath.startsWith("./") && target.endsWith(".js"))
+    .filter(([subpath, target]) => subpath.startsWith("./") && packageExportImportTarget(target)?.endsWith(".js"))
     .map(([subpath]) => {
       const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
       return [specifier, fileURLToPath(import.meta.resolve(specifier))]
@@ -257,6 +268,16 @@ function frameworkDependencyResolver(
   }
 }
 
+/** Agent options of `vitehub()`. */
+export interface ViteHubAgentOptions extends AgentModuleOptions {
+  /**
+   * Invocation journal for Agent Definitions from `vite-hub/agent` that do not set `invocations`.
+   * `"database"` uses the app's ViteHub Database. `"memory"` keeps records in the server process.
+   * Omit it or set `false` to record no journal outside the Console.
+   */
+  invocations?: AgentInvocationsDefault
+}
+
 export interface ViteHubOptions {
   /** Local storage defaults for a Node host with a persistent filesystem. Relative to the working directory. */
   dataDir?: string
@@ -268,7 +289,7 @@ export interface ViteHubOptions {
    * A function receives each discovered Agent name. Builds only; `vite dev` uses the request origin.
    */
   publicUrl?: string | ((agentName: string) => string)
-  agent?: boolean | AgentModuleOptions
+  agent?: boolean | ViteHubAgentOptions
   auth?: true | AuthModuleOptions
   blob?: boolean | BlobModuleOptions
   browser?: boolean | BrowserModuleOptions
@@ -281,7 +302,8 @@ export interface ViteHubOptions {
   channels?: boolean | ChannelsVitePluginOptions
   /** App-owned OAuth Connections in `server/connections/`. Requires `database`. */
   connections?: boolean | ConnectionsVitePluginOptions
-  console?: boolean | ConsoleOptions
+  /** The ViteHub Console at `/_vitehub`. Off by default. `auth` is required: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
+  console?: false | ConsoleOptions
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
@@ -771,7 +793,10 @@ function presetBlobOptions(
 
 function normalizePublicUrl(value: string): string {
   const url = URL.canParse(value) ? new URL(value) : undefined
-  if (!url || !["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.hash) {
+  // WHATWG URL parsing drops empty userinfo, so inspect the original authority
+  // to reject credential syntax such as `https://@host` as well.
+  const authority = value.trim().match(/^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i)?.[1]
+  if (!url || !["http:", "https:"].includes(url.protocol) || url.pathname !== "/" || url.search || url.hash || url.username || url.password || authority?.includes("@")) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: `[vitehub] publicUrl must be an http(s) origin without a path, received ${JSON.stringify(value)}.` })
   }
   return url.origin
@@ -819,13 +844,24 @@ function doctorPlugin(): Plugin {
 
 export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
-  options = withDataDir(options)
+  options = withDataDir({ ...options, console: resolveConsoleOptions(options.console) })
   const plan = resolveDeploymentPlan(options.preset)
   if (options.schedule && plan.preset === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0086({ message: "[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration." })
   }
   if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.preset === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0087({ message: "[vitehub] The \"deno\" preset cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the preset's Nitro runtime or compose an explicit Deno Agent deployment." })
+  }
+  const configuredAgent = options.agent && options.agent !== true ? options.agent : undefined
+  const defaultInvocations = configuredAgent?.invocations
+  if (defaultInvocations !== undefined && defaultInvocations !== false) {
+    const store = defaultInvocations === "database" || defaultInvocations === "memory" ? defaultInvocations : defaultInvocations.store
+    if (store === "database" && !options.database) {
+      throw viteHubErrorDiagnostics.VITE_HUB_R0131({ message: "[vitehub] agent.invocations \"database\" requires database. Set database in vitehub()." })
+    }
+    if (configuredAgent?.runtime === "deno" || plan.preset === "netlify") {
+      throw viteHubErrorDiagnostics.VITE_HUB_R0132({ message: "[vitehub] agent.invocations requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported. Set invocations on each Agent Definition." })
+    }
   }
   if (options.browser && plan.preset !== "cloudflare") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0088({ message: "[vitehub] Browser currently requires the Cloudflare deployment preset." })
@@ -909,12 +945,22 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (envPlugin) plugins.push(envPlugin)
 
+  const runtimeCapabilityImports = {
+    blob: blobEnabled ? `${generatedImportBase}/blob` : false,
+    connections: options.connections ? "vite-hub/connections/agent" : false,
+    console: options.console ? "vite-hub/console/server" : false,
+    db: options.database ? "vite-hub/database/drizzle" : false,
+    email: "vite-hub/email/server",
+    kv: `${generatedImportBase}/kv`,
+  } satisfies Record<string, false | string>
+
   if (options.console) {
     const invocationRootState = {}
     plugins.push(consoleVitePlugin({
       blobStores: consoleBlobStores,
-      console: options.console === true ? true : options.console,
+      console: options.console,
       connections: options.connections,
+      runtimeCapabilityImports,
       resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { root, serverDirs }),
       databaseUrl: consoleDatabaseUrl(options),
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
@@ -957,7 +1003,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     if (options.agent) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
-  if (options.auth || (options.console && options.console !== true && options.console.access === "auth" && options.console.auth)) {
+  if (options.auth || consoleAuthConfig(options.console)) {
     plugins.push(hubAuth(
       options.auth === true ? {} : options.auth || false,
       {
@@ -974,21 +1020,18 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     } as SandboxPublicOptions))
   }
   if (options.agent) {
-    const agentOptions = options.agent === true ? {} : options.agent
+    // The Agent package does not own journal selection; the generated plugin below installs it.
+    const { invocations: _invocations, ...agentOptions } = options.agent === true ? {} : options.agent
+    if (options.database || (defaultInvocations !== undefined && defaultInvocations !== false)) {
+      plugins.push(agentInvocationsVitePlugin({ database: Boolean(options.database), default: defaultInvocations }))
+    }
     plugins.push(hubAgent({
       ...agentOptions,
       cloudflareStateImport: `${generatedImportBase}/agent/cloudflare/state`,
       importBase: `${generatedImportBase}/agent`,
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
-      runtimeCapabilityImports: {
-        blob: blobEnabled ? `${generatedImportBase}/blob` : false,
-        connections: options.connections ? "vite-hub/connections/agent" : false,
-        console: options.console ? "vite-hub/console/server" : false,
-        db: options.database ? "vite-hub/database/drizzle" : false,
-        email: "vite-hub/email/server",
-        kv: `${generatedImportBase}/kv`,
-      },
+      runtimeCapabilityImports,
       scheduleRuntimeImport: `${generatedImportBase}/schedule/runtime`,
       workflowImportBase: `${generatedImportBase}/workflow`,
       workspaceDependencyRuntimeImports,
@@ -999,7 +1042,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.channels) plugins.push(hubChannels(options.channels === true ? undefined : options.channels))
   if (options.connections) {
     if (options.connections !== true && options.connections.management && !options.console) {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires Console production access. Set console: { access: "auth" } or console: { exposure: "host-managed" }.' })
+      throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" }, console: { auth: { ... } }, or console: { auth: false }.' })
     }
     const connectionsOptions: ConnectionsVitePluginOptions = options.connections === true
       ? { database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
