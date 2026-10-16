@@ -292,6 +292,7 @@ const authorizationResponsePrototypeLimit = 32
 const nativeReaderMethods = Object.fromEntries(([
   "read", "cancel", "releaseLock",
 ] as const).map(key => [key, Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, key)?.value])) as Record<string, unknown>
+const nativeStreamGetReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
 function isNativeReaderMethod(value: unknown, key: string): value is (...args: unknown[]) => unknown {
   return value === nativeReaderMethods[key]
 }
@@ -450,6 +451,12 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
             Object.getOwnPropertyDescriptor(probePrototype, key)?.value,
           ])) as Record<string, Function>
           if (Object.values(probeMethods).some(method => typeof method !== "function")) return
+          // The local realm has immutable references captured above. A patched
+          // local prototype must not become trusted merely because its
+          // replacements return promise-shaped values during the probe.
+          if (constructor === ReadableStream
+            && (descriptor.value !== nativeStreamGetReader
+              || (["read", "cancel", "releaseLock"] as const).some(key => probeMethods[key] !== nativeReaderMethods[key]))) return
           // Exercise every operation in the source runtime. This rejects
           // callable replacements that do not preserve Web Streams behavior,
           // without comparing implementation-specific function source text.
