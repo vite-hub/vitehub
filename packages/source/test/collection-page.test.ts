@@ -253,4 +253,42 @@ describe("Collections", () => {
       "Collection cursor() must return a JSON-serializable value",
     )
   })
+
+  it("accepts a Collection source object with transform, authorize, and route", async () => {
+    const collection = defineCollection({
+      authorize: true,
+      route: false,
+      source: {
+        cursor: (row: Row) => [row.createdAt, row.id] as const,
+        cursorSchema: v.tuple([v.number(), v.string()]),
+        defaultLimit: 1,
+        get: async (key: string) => ({ createdAt: 1, id: key, photoPath: "p" }),
+        async load({ cursor }: { cursor?: readonly [number, string] }): Promise<Row[]> {
+          const rows = [{ createdAt: 2, id: "b", photoPath: "b" }, { createdAt: 1, id: "a", photoPath: "a" }]
+          return cursor ? rows.filter(row => row.createdAt < cursor[0]) : rows
+        },
+      },
+      transform: (row: Row) => ({ id: row.id }),
+    })
+
+    expect(collection.authorize).toBe(true)
+    expect(collection.route).toBe(false)
+    const first = await collection.page({ query: {} })
+    expect(first.items).toEqual([{ id: "b" }])
+    await expect(collection.page({ cursor: first.nextCursor!, query: {} })).resolves.toEqual({ items: [{ id: "a" }], nextCursor: null })
+    await expect(collection.get?.("z")).resolves.toEqual({ id: "z" })
+  })
+
+  it("passes provider total and facets through and validates total", async () => {
+    const collection = defineCollection({
+      source: {
+        pagination: "provider",
+        load: async () => ({ facets: { kind: [{ count: 1, value: "a" }] }, items: [{ id: 1 }], nextCursor: null, total: 1 }),
+      },
+    })
+    await expect(collection.page({ query: {} })).resolves.toEqual({ facets: { kind: [{ count: 1, value: "a" }] }, items: [{ id: 1 }], nextCursor: null, total: 1 })
+
+    const invalid = defineCollection(async () => ({ items: [], nextCursor: null, total: -1 }), { pagination: "provider" })
+    await expect(invalid.page({ query: {} })).rejects.toThrow("total must be a non-negative integer")
+  })
 })

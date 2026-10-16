@@ -16,7 +16,7 @@ export const markdownMath: ComarkPlugin = {
       const contentStart = start + opening.length;
       if (!bracket && /\s/.test(state.src[contentStart] || " ")) return false;
       let end = state.src.indexOf(closing, contentStart);
-      while (end !== -1 && state.src[end - 1] === "\\") end = state.src.indexOf(closing, end + closing.length);
+      while (end !== -1 && isEscapedDelimiter(state.src, end)) end = state.src.indexOf(closing, end + closing.length);
       if (end === -1 || end === contentStart) return false;
       const content = state.src.slice(contentStart, end);
       if (content.includes("\n") || content.includes("`")) return false;
@@ -57,3 +57,9 @@ export const markdownMath: ComarkPlugin = {
     }, { alt: ["paragraph", "reference", "blockquote", "list"] });
   }],
 };
+
+function isEscapedDelimiter(source: string, index: number): boolean {
+  let backslashes = 0;
+  for (let position = index - 1; position >= 0 && source[position] === "\\"; position--) backslashes++;
+  return backslashes % 2 === 1;
+}
