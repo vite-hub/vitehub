@@ -106,7 +106,7 @@ function parseTreeEntry(value: unknown): GitHubTreeEntry {
   }
 }
 
-function parseTree(value: unknown): GitHubTreeEntry[] {
+function parseTree(value: unknown): { entries: GitHubTreeEntry[], truncated: boolean } {
   if (!isRecord(value) || !Array.isArray(value.tree) || value.tree.some(entry => {
     try {
       parseTreeEntry(entry)
@@ -116,8 +116,7 @@ function parseTree(value: unknown): GitHubTreeEntry[] {
       return true
     }
   })) malformed("tree")
-  if (value.truncated === true) throw workspaceError("[vitehub] GitHub workspace returned a truncated history tree.")
-  return value.tree.map(parseTreeEntry)
+  return { entries: value.tree.map(parseTreeEntry), truncated: value.truncated === true }
 }
 
 function parsePerson(value: unknown): GitHubPerson | undefined {
@@ -306,11 +305,34 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
       options.token,
       `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(commit.tree)}?recursive=1`,
     )
-    const entries = parseTree(value).flatMap(entry => {
+    const parsed = parseTree(value)
+    const treeEntries = parsed.truncated ? await readTreeWithoutRecursion(commit.tree) : parsed.entries
+    const entries = treeEntries.flatMap(entry => {
       const historyEntry = asHistoryEntry(entry, options.root)
       return historyEntry ? [historyEntry] : []
     }).sort((left, right) => left.path.localeCompare(right.path))
     treeCache.set(commit.sha, entries)
+    return entries
+  }
+
+  const readTreeWithoutRecursion = async (treeSha: string): Promise<GitHubTreeEntry[]> => {
+    const root = options.root.replace(/^\/+|\/+$/g, "")
+    const entries: GitHubTreeEntry[] = []
+    const walk = async (sha: string, prefix: string): Promise<void> => {
+      const { value } = await requestGitHubJsonResponse<unknown>(
+        options.repository,
+        options.token,
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(sha)}`,
+      )
+      for (const entry of parseTree(value).entries) {
+        const path = prefix ? `${prefix}/${entry.path}` : entry.path
+        const relevant = !root || path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`)
+        if (!relevant) continue
+        if (entry.type === "tree") await walk(entry.sha, path)
+        else entries.push({ ...entry, path })
+      }
+    }
+    await walk(treeSha, "")
     return entries
   }
 
@@ -409,7 +431,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
       const { value } = await requestGitHubJsonResponse<unknown>(
         options.repository,
         options.token,
-        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?commit_sha=${encodeURIComponent(id)}&per_page=100`,
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(id)}/branches-where-head?per_page=100`,
       )
       const branches = parseBranches(value)
       const ref = branches.find(branch => branch.name === options.branch)?.name || branches[0]?.name || options.branch
