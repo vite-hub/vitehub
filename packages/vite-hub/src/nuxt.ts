@@ -48,6 +48,10 @@ const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
 type NuxtPage = { file: string, meta?: Record<string, unknown>, name: string, path: string }
+function hasDefaultAgentInvocations(agent: Parameters<typeof vitehub>[0]["agent"]): boolean {
+  return Boolean(agent && agent !== true && agent.invocations)
+}
+
 type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
   database?: boolean | Exclude<DatabaseNuxtIntegrationOptions, false>
   env?: false | EnvIntegrationOptions & EnvViteConfigOptions
@@ -297,11 +301,12 @@ async function installConsole(
   observations: AgentInvocationsOptions["observations"] = undefined,
   invocationRootState?: ConsoleInvocationRootState,
   canDiscoverDefinitions: () => boolean = () => true,
-  discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
+  discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "plugins" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
   journal?: ConsoleJournal,
   independentAuth: ConsoleAuthMode | false = false,
   retention?: AgentInvocationRetentionOptions,
   access?: ConsoleAccessBuild,
+  runtimeCapabilityImports?: Record<string, false | string>,
 ): Promise<string> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
@@ -448,6 +453,7 @@ async function installConsole(
       independentAuth,
       retention,
       access,
+      runtimeCapabilityImports,
     )
     if (invocationRootState) {
       updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
@@ -847,6 +853,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const consoleKVStores = resolvedConsoleKV
     ? Object.keys(resolvedConsoleKV.stores || { default: resolvedConsoleKV.store })
     : []
+  const runtimeCapabilityImports = {
+    blob: consoleBlobEnabled ? "vite-hub/_internal/blob" : false,
+    connections: options.connections ? "vite-hub/connections/agent" : false,
+    console: options.console ? "vite-hub/console/server" : false,
+    db: options.database ? "vite-hub/database/drizzle" : false,
+    email: "vite-hub/email/server",
+    kv: "vite-hub/_internal/kv",
+  } satisfies Record<string, false | string>
   const consoleInvocationRootState = createConsoleInvocationRootState()
   const consoleInvokeEnabled = options.console ? options.console.invoke ?? Boolean(nuxt.options.dev) : false
   let resolvedConsoleFixture: string | undefined
@@ -1266,6 +1280,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           ? replayedDatabaseDiscoveryRoot
           : configuredDatabaseDiscoveryRoot,
         discoveryRoot: viteRoot,
+        plugins: nuxt.options.vite?.plugins,
         projectRoot,
         queueDiscoveryRoot: rootDir,
         rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
@@ -1293,6 +1308,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         registeredConsoleAuthMode(consoleAuthConfig(options.console), Boolean(nuxt.options.dev)),
         options.console.retention,
         consoleAccess,
+        runtimeCapabilityImports,
       )
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
@@ -1362,7 +1378,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       consoleKVStores,
       resolvedConsoleFixture,
       resolveNuxtServerDirs(nuxt.options),
-      !nuxt.options.vitehubCliDiscovery,
+      // The app-wide `agent.invocations` journal exists only in the server runtime, so the host process installs none.
+      !nuxt.options.vitehubCliDiscovery && !hasDefaultAgentInvocations(options.agent),
       !nuxt.options.vitehubCliDiscovery,
       consoleInvokeEnabled && !resolvedConsoleFixture,
       options.console.observations,
@@ -1370,6 +1387,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       () => consoleWorkflowConfigResolved,
       {
         databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot,
+        plugins: nuxt.options.vite?.plugins,
         rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.rateLimit ?? options.rateLimit),
         rateLimitScanDirs: configuredScanDirs(nuxt.options.vite.rateLimit ?? options.rateLimit),
         scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
@@ -1379,6 +1397,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       registeredConsoleAuthMode(consoleAuthConfig(options.console), Boolean(nuxt.options.dev)),
       options.console.retention,
       consoleAccess,
+      runtimeCapabilityImports,
     )
   }
 }

@@ -538,9 +538,22 @@ function boundedString(value: string | undefined): string | undefined {
 
 function arrayBufferByteLength(value: unknown): number | undefined {
   try {
-    return Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+    const length = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+    // SAFETY: The intrinsic byteLength getter returns a number for a branded ArrayBuffer.
+    return length as number
   }
   catch {
+    const SharedArrayBufferConstructor = globalThis.SharedArrayBuffer
+    if (hasRuntimeType(SharedArrayBufferConstructor, "function")) {
+      try {
+        const length = Object.getOwnPropertyDescriptor(SharedArrayBufferConstructor.prototype, "byteLength")!.get!.call(value)
+        // SAFETY: The intrinsic byteLength getter returns a number for a branded SharedArrayBuffer.
+        return length as number
+      }
+      catch {
+        // Not an ArrayBuffer or SharedArrayBuffer.
+      }
+    }
     return undefined
   }
 }
@@ -570,6 +583,41 @@ function isArrayBufferView(value: unknown): value is ArrayBufferView {
   catch {
     return false
   }
+}
+
+function isRegExpValue(value: unknown): value is RegExp {
+  try {
+    Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function regExpFlags(value: RegExp): string {
+  const flags = [
+    ["hasIndices", "d"],
+    ["global", "g"],
+    ["ignoreCase", "i"],
+    ["multiline", "m"],
+    ["dotAll", "s"],
+    ["unicode", "u"],
+    ["unicodeSets", "v"],
+    ["sticky", "y"],
+  ] as const
+  return flags.filter(([property]) => {
+    try {
+      return Object.getOwnPropertyDescriptor(RegExp.prototype, property)?.get?.call(value) === true
+    }
+    catch {
+      return false
+    }
+  }).map(([, flag]) => flag).join("")
+}
+
+function regExpLastIndex(value: RegExp): unknown {
+  return Object.getOwnPropertyDescriptor(value, "lastIndex")?.value
 }
 
 function normalizedTimestamp(value: Date | string): string {
@@ -852,12 +900,13 @@ function boundedObservationValue(
       type: value.constructor.name,
     }
   }
-  if (isInstance(value, RegExp)) {
+  if (isRegExpValue(value)) {
     budget.truncated = true
+    const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
     return {
-      flags: boundedObservationValue(value.flags, budget, depth + 1, maxStringLength, builtIns),
-      lastIndex: boundedObservationValue(value.lastIndex, budget, depth + 1, maxStringLength, builtIns),
-      source: boundedObservationValue(value.source, budget, depth + 1, maxStringLength, builtIns),
+      flags: boundedObservationValue(regExpFlags(value), budget, depth + 1, maxStringLength, builtIns),
+      lastIndex: boundedObservationValue(regExpLastIndex(value), budget, depth + 1, maxStringLength, builtIns),
+      source: boundedObservationValue(source, budget, depth + 1, maxStringLength, builtIns),
     }
   }
   if (isInstance(value, Error)) {

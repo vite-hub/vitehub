@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus";
 
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
@@ -44,7 +46,7 @@ export default defineConfig({
     ],
     exports: {
       customExports(exports) {
-        return {
+        return normalizePackageExports({
           ...Object.fromEntries(
             Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-")),
           ),
@@ -53,7 +55,7 @@ export default defineConfig({
             import: "./dist/virtual.js",
           },
           "./runtime/cloudflare-env": "./dist/runtime/state.js",
-        }
+        });
       },
       inlinedDependencies: false,
     },
