@@ -852,10 +852,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     }, wait)
   }
 
-  async function reseedRoom(room: DocumentRoom, reason: RealtimeResetReason, loaded?: RealtimeLoadedDocument): Promise<void> {
+  async function reseedRoom(room: DocumentRoom, reason: RealtimeResetReason, loaded?: RealtimeLoadedDocument, preserveEdits = false): Promise<boolean> {
+    const revision = room.revision
     const source = loaded ?? await room.resolved.adapter.load(room.context)
     const guard = await verifyDocument(room.editor, source)
     const next = await seedDocument(room.editor, source, guard)
+    // Verification and seeding are asynchronous. Preserve edits that arrive while they run.
+    if (room.destroyed || (preserveEdits && (room.dirty || room.revision !== revision))) return false
     const previous = { awareness: room.awareness, document: room.document }
     const peers = [...room.peers]
     // Keep peers and writers tracked until their close callbacks run so the room is released when reset sockets close.
@@ -878,6 +881,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       peer.send(reset)
       peer.close(realtimeResetCloseCode, "The realtime document was re-seeded.")
     }
+    return true
   }
 
   async function saveRoom(room: DocumentRoom, reason: RealtimeSaveOptions["reason"], force: boolean): Promise<RealtimeSaved | undefined> {
@@ -980,8 +984,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     // and let the normal save path reconcile the external change.
     if (room.dirty || room.revision !== revision) return { digest: room.digest, reseeded: false }
     if (loaded.digest === room.digest) return { digest: room.digest, reseeded: false }
-    await reseedRoom(room, "source-changed", loaded)
-    return { digest: room.digest, reseeded: true }
+    const reseeded = await reseedRoom(room, "source-changed", loaded, true)
+    return { digest: room.digest, reseeded }
   }
 
   /** Refreshes an open room without unsaved edits. A dirty room finds the outside change at its next save. */
