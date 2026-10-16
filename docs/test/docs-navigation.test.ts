@@ -51,7 +51,7 @@ describe("docs product navigation", () => {
   });
 
   it("orders every Server Primitive section by the product page template", () => {
-    const template = ["Overview", "Tutorial", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
+    const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
 
     for (const sectionId of serverPrimitiveSections) {
       const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
@@ -61,7 +61,7 @@ describe("docs product navigation", () => {
 
       expect(pages[0]?.path, sectionId).toBe(`/docs/${sectionId}`);
       expect(titles[0], sectionId).toBe("Overview");
-      expect(templateTitles, sectionId).toContain("Tutorial");
+      expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
       // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
@@ -145,7 +145,7 @@ describe("docs product navigation", () => {
     expect(isDocsLandingPath(docsManifest.sections, "/docs/ui")).toBe(false);
 
     const kv = docsManifest.sections.find(section => section.id === "kv");
-    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Tutorial");
+    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Get started");
     expect(getDocsSectionSubpages(kv!).some(page => page.id === "index")).toBe(false);
   });
 

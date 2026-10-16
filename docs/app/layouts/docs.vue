@@ -4,10 +4,7 @@ import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-na
 
 const route = useRoute();
 const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
-// The catalog and every product Overview are landing pages: no sidebar, one centered column.
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
-
-// On docs pages the sidebar sits on the left edge of the viewport. The page content centers in the remaining space.
 const docsShellUi = {
   root: "lg:!flex lg:!flex-row lg:!items-start lg:!gap-0",
   left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
@@ -17,25 +14,31 @@ const docsShellUi = {
 
 <template>
   <UMain>
-    <UContainer v-if="isSupportMatrix" class="vh-docs-content">
-      <AnnouncementBanner />
-      <slot />
-      <AppFooter class="vh-docs-footer" />
-    </UContainer>
+    <UPage v-if="isSupportMatrix" :ui="docsShellUi">
+      <template #left>
+        <UPageAside class="vh-docs-aside hidden lg:block">
+          <DocsSidebars :panel="false" />
+        </UPageAside>
+      </template>
+      <div class="vh-docs-main vh-docs-support-matrix">
+        <AnnouncementBanner />
+        <slot />
+        <AppFooter class="vh-docs-footer" />
+      </div>
+    </UPage>
 
-    <div v-else-if="isLanding" class="vh-docs-landing vh-docs-content">
+    <div v-else-if="isLanding" class="vh-docs-landing">
       <slot />
       <AppFooter class="vh-docs-footer" />
     </div>
 
     <UPage v-else :ui="docsShellUi">
       <template #left>
-        <UPageAside class="vh-docs-aside">
+        <UPageAside class="vh-docs-aside hidden lg:block">
           <DocsSidebars panel />
         </UPageAside>
       </template>
-
-      <div class="vh-docs-main vh-docs-content">
+      <div class="vh-docs-main">
         <AnnouncementBanner />
         <slot />
         <AppFooter class="vh-docs-footer" />
@@ -55,21 +58,13 @@ const docsShellUi = {
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
 }
 
-/* The content fills the space next to the sidebars. The page header, the page body, and the table of contents set their own insets.
-   The site footer sits in this column, so the sidebars run the full height beside it. On short pages it rests at the bottom of the viewport. */
-.vh-docs-content {
-  display: flex;
-  min-width: 0;
-  min-height: calc(100dvh - var(--ui-header-height));
-  flex-direction: column;
+.vh-docs-support-matrix {
+  max-width: none;
+  width: 100%;
 }
 
-.vh-docs-footer {
-  margin-top: auto;
-}
-
-.vh-docs-aside {
-  display: none;
+.vh-docs-landing {
+  max-width: var(--vh-landing-width);
 }
 
 @media (min-width: 40rem) {
@@ -87,30 +82,14 @@ const docsShellUi = {
     height: calc(100dvh - var(--ui-header-height));
     max-height: calc(100dvh - var(--ui-header-height));
     min-height: calc(100dvh - var(--ui-header-height));
+    flex: 0 0 auto;
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
-    display: flex;
-  }
-
-  .vh-docs-content {
-    flex: 1;
   }
 
   :deep(.vh-docs-sidebars) {
-    height: 100%;
-    min-height: 0;
-  }
-
-  :deep(.vh-docs-panel) {
-    max-height: calc(100dvh - var(--ui-header-height));
-  }
-
-  /* Keep the actual sidebar element's columns and border constrained to the viewport. */
-  :deep(.vh-docs-sidebars) {
-    flex-direction: row;
     overflow: visible;
-    border-right: 1px solid var(--ui-border);
   }
 }
 </style>
