@@ -151,7 +151,6 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-
   it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
 
@@ -162,8 +161,6 @@ describe("UI documentation", () => {
     expect(rail).toContain('{ label: "Templates", to: "/templates"');
     expect(rail).toContain("<template #default");
   });
-
-
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");

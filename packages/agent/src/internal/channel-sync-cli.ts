@@ -35,6 +35,7 @@ interface ChannelSyncLoadInput {
   resolveDefaultThread?: boolean
   rootDir: string
   stage: string
+  stderr?: ChannelSyncCliContext["stderr"]
 }
 
 export interface LoadedChannelTarget {
@@ -450,6 +451,7 @@ export async function runAgentChannelSyncCli(
       env: context.env,
       rootDir: options.rootDir || context.rootDir,
       stage: parsed.stage,
+      stderr: context.stderr,
     })
     const targets = allTargets.filter(
       (target) =>

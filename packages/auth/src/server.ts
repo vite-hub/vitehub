@@ -323,17 +323,17 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         catch {}
         if (!validReader) {
           try {
-            if (typeof reader?.releaseLock === "function") {
-              reader.releaseLock()
-              return
-            }
+            if (typeof reader?.cancel === "function") await reader.cancel()
+          }
+          catch {}
+          try {
+            if (typeof reader?.releaseLock === "function") reader.releaseLock()
           }
           catch {}
           try {
             if (typeof body.cancel === "function") await body.cancel()
-            else return
           }
-          catch { return }
+          catch {}
           return
         }
         try {
@@ -397,7 +397,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         }
         catch {}
       }
-      if (released || bodyCancelled) cleaned = true
+      if (released || (!operations.some(operation => operation.kind === "release") && bodyCancelled)) cleaned = true
     }
     const releaseReader = () => cleanupReader()
     const cancelReader = (reason: unknown) => cleanupReader(reason, true)
@@ -455,7 +455,8 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = route instanceof Object ? route.authorize : undefined
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route configuration crosses JavaScript realms; runtime object narrowing preserves foreign authorize callbacks.
+      const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }

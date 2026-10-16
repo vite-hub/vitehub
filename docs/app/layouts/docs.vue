@@ -86,17 +86,13 @@ const docsShellUi = {
   :deep(.vh-docs-sidebars) {
     height: 100%;
     min-height: 0;
+    flex-direction: row;
+    overflow: visible;
+    border-right: 1px solid var(--ui-border);
   }
 
   :deep(.vh-docs-panel) {
     max-height: calc(100dvh - var(--ui-header-height));
-  }
-
-  /* Keep the actual sidebar element's columns and border constrained to the viewport. */
-  :deep(.vh-docs-sidebars) {
-    flex-direction: row;
-    overflow: visible;
-    border-right: 1px solid var(--ui-border);
   }
 }
 </style>
