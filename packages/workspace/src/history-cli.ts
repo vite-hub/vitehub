@@ -353,13 +353,13 @@ export async function runWorkspaceHistoryCli(
   if (!token) return writeFailure(parsed.json, context, { message: "No private Workspace History token found. Start the Compatible Vite Development Server first." })
   let response: Response
   try {
-    const requestOptions: RequestInit = {
+    const requestOptions: Omit<RequestInit, "headers"> & { headers?: Record<string, string> } = {
       body: JSON.stringify(request),
       headers: { accept: "application/json", "content-type": "application/json", [viteHubDevTokenHeader]: token, [workspaceHistoryDevTokenServerHeader]: serverId },
       method: "POST",
     }
     if (signal) requestOptions.signal = signal
-    response = await fetchViteHubDevEndpoint(fetchImpl, server.url, workspaceHistoryDevEndpoint, requestOptions as Omit<RequestInit, "headers"> & { headers?: Record<string, string> })
+    response = await fetchViteHubDevEndpoint(fetchImpl, server.url, workspaceHistoryDevEndpoint, requestOptions)
   }
   catch (error) {
     return writeFailure(parsed.json, context, { message: `Workspace history request failed: ${error instanceof Error ? error.message : String(error)}` })
