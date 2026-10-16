@@ -8,6 +8,10 @@ icon: i-lucide-circle-alert
 
 These limits and recovery steps apply to Workspace Stores.
 
+## Workspace discovery
+
+Each Workspace name has one definition. A discovered file and a [contributed Workspace](/docs/workspace/configure#contribute-workspace-definitions-from-a-package) with the same name, or two different contributions with one name, fail the build with `WORKSPACE_B0003`. A contribution that is not `{ name, definition: { module, export? }, reason? }`, or that has a relative `definition.module`, fails with `WORKSPACE_B0004`.
+
 ## Retained history
 
 Retained-history methods require a Store with `history`. Unsupported Stores and partial Workspace scopes throw `WORKSPACE_R0069`. `vitehub workspace history`, `refs`, and `show` report the same code and name the Blob + Database Store. Invalid list limits and cursors from another ref throw `WORKSPACE_R0070`; limits must be integers from `1` to `100`. Invalid ref names throw `WORKSPACE_R0071`.

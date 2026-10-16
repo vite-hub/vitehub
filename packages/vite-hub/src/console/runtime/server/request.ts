@@ -1,5 +1,5 @@
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
-interface ConsoleHeaders {
+export interface ConsoleHeaders {
   get(name: string): string | null
 }
 
