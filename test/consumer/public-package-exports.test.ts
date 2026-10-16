@@ -159,6 +159,15 @@ function packageExportTargets(value: unknown): string[] {
   return []
 }
 
+function packedTargetMatches(files: Set<string>, target: string) {
+  const normalized = target.replace(/^\.\//, "")
+  const wildcardCount = normalized.split("*").length - 1
+  if (wildcardCount === 0) return files.has(`package/${normalized}`)
+  if (wildcardCount > 1) throw new Error(`Export target ${target} contains more than one wildcard`)
+  const pattern = new RegExp(`^package/${normalized.split("*").map(part => part.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")).join("(.+)")}$`)
+  return [...files].some(file => pattern.test(file))
+}
+
 async function assertPackedTargets(packageName: string, tarball: string) {
   const [{ stdout: listing }, { stdout: manifestSource }] = await Promise.all([
     run("tar", ["-tzf", tarball], repoRoot),
@@ -172,14 +181,12 @@ async function assertPackedTargets(packageName: string, tarball: string) {
 
   for (const [subpath, value] of Object.entries(manifest.exports || {})) {
     for (const target of packageExportTargets(value)) {
-      const packedPath = `package/${target.replace(/^\.\//, "")}`
-      expect(files, `${packageName} ${subpath} is missing packed export ${target}`).toContain(packedPath)
+      expect(packedTargetMatches(files, target), `${packageName} ${subpath} is missing packed export ${target}`).toBe(true)
     }
   }
 
   for (const [binName, target] of Object.entries(manifest.bin || {})) {
-    const packedPath = `package/${target.replace(/^\.\//, "")}`
-    expect(files, `${packageName} ${binName} is missing packed binary ${target}`).toContain(packedPath)
+    expect(packedTargetMatches(files, target), `${packageName} ${binName} is missing packed binary ${target}`).toBe(true)
   }
 }
 
