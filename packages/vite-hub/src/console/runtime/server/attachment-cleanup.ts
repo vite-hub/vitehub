@@ -72,7 +72,6 @@ export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "
       if (processed >= 100) break
       const { marker, cleanupPrefix, quarantinePrefix } = entry
       if (!marker.pathname.startsWith(cleanupPrefix)) continue
-      processed++
       let ids: string[] | undefined
       try { ids = await cleanupIds(storage, marker.pathname, cleanupPrefix) }
       catch (error) {
@@ -84,6 +83,7 @@ export async function retryConsoleAttachmentCleanup(storage: Pick<BlobStorage, "
         continue
       }
       if (!ids) continue
+      processed++
       for (const id of ids) {
         const attachmentPrefix = cleanupPrefix === cleanupPrefixes[1] ? legacyConsoleAttachmentPrefix : consoleAttachmentPrefix
         const [deleteError] = await storage.del(`${attachmentPrefix}${id}`)

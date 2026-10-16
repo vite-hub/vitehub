@@ -10,8 +10,10 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import { defineCollection } from "@vite-hub/source"
 
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
+import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import channelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
 
+import type { AgentRunContext } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import "./support/console-access.ts"
 
@@ -19,6 +21,7 @@ const messages = [{ id: "m1", subject: "Invoice" }, { id: "m2", subject: "Receip
 
 function labeller() {
   const label = vi.fn()
+  let runContext: AgentRunContext | undefined
   const history = defineCollection(async ({ cursor, limit }) => {
     const offset = cursor ? messages.findIndex(message => message.id === cursor) + 1 : 0
     return messages.slice(offset, offset + limit)
@@ -40,7 +43,7 @@ function labeller() {
         },
       }),
     },
-    driver: { run: () => "Finance" },
+    driver: { run: (context: AgentRunContext) => { runContext = context; return "Finance" } },
     hooks: {
       async "agent:finish"(event) {
         if (event.message?.channel === "mailbox") await event.message.label(String(event.text))
@@ -50,7 +53,7 @@ function labeller() {
     name: "labeller",
     runtime: false,
   })
-  return { agent, label }
+  return { agent, label, get runContext() { return runContext } }
 }
 
 function replayEvent(body: unknown, headers: Record<string, string> = { "content-type": "application/json" }): ConsoleRequestEvent {
@@ -157,6 +160,22 @@ describe("Console Channel replay route", () => {
     const response = await channelReplayHandler(nodeReplayEvent({ agent: "labeller", channel: "mailbox", dryRun: true }))
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({ processed: 2 })
+  })
+
+  it("passes the verified Console user and request headers to Channel replay", async () => {
+    const fixture = labeller()
+    installConsoleAgentDefinitions([{ definition: { default: fixture.agent }, fallbackName: "labeller" }], { invoke: true, projectRoot: root })
+    installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ({ id: "console-user" }) })
+    try {
+      const response = await channelReplayHandler(replayEvent({ agent: "labeller", channel: "mailbox" }, { "content-type": "application/json", cookie: "session=verified" }))
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ processed: 2 })
+      expect(fixture.runContext?.request?.headers.get("cookie")).toBe("session=verified")
+      expect(fixture.runContext?.actor).toMatchObject({ id: "console-user", kind: "authUser" })
+    }
+    finally {
+      installConsoleAccess({ mode: "open" })
+    }
   })
 
   it("stays unavailable while Console invocation is disabled", async () => {
