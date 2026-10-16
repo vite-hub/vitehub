@@ -291,10 +291,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       if (value.status < 200 || value.status > 599) return
       const nativeHeaders = value.headers
       if (typeof nativeHeaders?.forEach !== "function") return
+      const nativeHeadersPrototype = Object.getPrototypeOf(nativeHeaders)
+      if (nativeHeadersPrototype && nativeHeaders.forEach !== nativeHeadersPrototype.forEach) return
       // Access and validate the optional cookie accessor while still inside
       // the guarded normalization path. A foreign/overridden getter may
       // throw, and the HTTP adapter reads it again when sending the response.
       const nativeGetSetCookie = (nativeHeaders as Headers & { getSetCookie?: () => unknown }).getSetCookie
+      const prototypeGetSetCookie = (nativeHeadersPrototype as (Headers & { getSetCookie?: () => unknown }) | null)?.getSetCookie
+      if (nativeGetSetCookie !== undefined && nativeGetSetCookie !== prototypeGetSetCookie) return
       if (typeof nativeGetSetCookie === "function") {
         const values = nativeGetSetCookie.call(nativeHeaders)
         if (!Array.isArray(values) || !values.every(cookie => typeof cookie === "string")) return
@@ -332,13 +336,21 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (typeof response.body.getReader !== "function") return
     const reader = response.body.getReader()
     let cleaned = false
-    const releaseReader = () => {
+    const releaseReader = async () => {
       if (cleaned) return
-      cleaned = true
       try {
-        if (typeof reader.releaseLock === "function") reader.releaseLock()
+        if (typeof reader.releaseLock === "function") {
+          reader.releaseLock()
+          cleaned = true
+          return
+        }
       }
       catch {}
+      try {
+        if (typeof reader.cancel === "function") await reader.cancel()
+      }
+      catch {}
+      cleaned = true
     }
     const cancelReader = async (reason: unknown) => {
       if (cleaned) return
@@ -371,7 +383,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         try {
           const chunk = await reader.read()
           if (chunk.done) {
-            releaseReader()
+            await releaseReader()
             controller.close()
           }
           else controller.enqueue(chunk.value)
