@@ -21,9 +21,10 @@ function createMarked(): typeof import("marked").marked {
   return instance as typeof import("marked").marked
 }
 
-export function createRealtimeEditorExtensions() {
+export function createRealtimeEditorExtensions(options: { collaborative?: boolean } = {}) {
   return [
-    StarterKit.configure({ document: false, undoRedo: false }),
+    // Each collaborator's trailing node appends its own empty paragraph to the shared document, and the room keeps them all.
+    StarterKit.configure({ document: false, trailingNode: options.collaborative === true ? false : undefined, undoRedo: false }),
     RealtimeDocument,
     Image,
     TableKit,
