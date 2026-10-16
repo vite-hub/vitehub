@@ -10,7 +10,7 @@ import {
   getDocsSectionForPath,
   getDocsSidebarGroups,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
-import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
+import { sidebarPageIcon, sidebarSectionIcon } from "~/utils/docs-sidebar-icons";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
