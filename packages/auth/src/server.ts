@@ -1,7 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 import { Response as UndiciResponse } from "undici"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -312,75 +311,7 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 
 function hasResponsePrototype(value: unknown): boolean {
   try {
-    if (value instanceof Response || value instanceof UndiciResponse) return true
-    return false
-    /*
-    let current: object | null = Object.getPrototypeOf(Object(value))
-    const seen = new Set<object>()
-    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(current)) return false
-      seen.add(current)
-      const accessors = authorizationResponseProperties.map(key =>
-        Object.getOwnPropertyDescriptor(current, key)?.get)
-      if (accessors.every(accessor => typeof accessor === "function")) {
-        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-        // A Response subclass may override accessors; keep walking until a
-        // complete Response prototype provides the brand-checked accessors.
-        if (constructor?.name === "Response") {
-          for (const accessor of accessors) Reflect.apply(accessor as (...args: never[]) => unknown, value, [])
-          // A foreign implementation must carry its own Headers brand. A
-          // caller-created prototype can copy every Response accessor and
-          // method, but it cannot make a host Headers instance belong to that
-          // foreign Response implementation. Same-realm responses returned
-          // above already take the native fast path.
-          const headers = Reflect.get(Object(value), "headers")
-          if (headers instanceof Headers) return false
-          const headerPrototype = Object.getPrototypeOf(Object(headers))
-          const hostHeaderPrototype = Headers.prototype
-          if (!headerPrototype || headerPrototype === hostHeaderPrototype) return false
-          const headerConstructor = Object.getOwnPropertyDescriptor(headerPrototype, "constructor")?.value
-          if (typeof headerConstructor !== "function" || headerConstructor.name !== "Headers") return false
-          // A genuine Headers implementation exposes the complete mutable and
-          // iterable carrier surface. Requiring the full prototype contract
-          // prevents a forged response from reusing a single foreign-looking
-          // object with only get/forEach stubs.
-          const headerMethods = ["append", "delete", "get", "has", "set", "forEach", "keys", "values", "entries"]
-          if (headerMethods.some(method =>
-            typeof Object.getOwnPropertyDescriptor(headerPrototype, method)?.value !== "function")) return false
-          try {
-            const get = Object.getOwnPropertyDescriptor(headerPrototype, "get")!.value as (name: string) => unknown
-            const probe = Reflect.apply(get, headers, ["__vitehub_probe__"])
-            if (probe !== null && typeof probe !== "string") return false
-          }
-          catch {
-            return false
-          }
-          // Check the complete Response method surface without invoking clone.
-          // Calling clone() rejects valid responses whose body is already used
-          // or locked, while a forged prototype that only supplies accessors is
-          // not a usable Response implementation.
-          const methods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
-          if (methods.some(method => typeof Object.getOwnPropertyDescriptor(current, method)?.value !== "function")) return false
-          // A genuine null-body Response can be cloned without consuming a
-          // stream. Probe the clone's independent header state; forged method
-          // surfaces commonly return the same object or omit this state.
-          if (Reflect.get(Object(value), "body") === null) {
-            const clone = Reflect.apply(
-              Object.getOwnPropertyDescriptor(current, "clone")!.value as (...args: never[]) => unknown,
-              value,
-              [],
-            )
-            if (Object(clone) !== clone || clone === value) return false
-            const cloneHeaders = Reflect.get(Object(clone), "headers")
-            if (cloneHeaders === headers) return false
-          }
-          return true
-        }
-      }
-      current = Object.getPrototypeOf(current)
-    }
-    return false
-    */
+    return value instanceof Response || value instanceof UndiciResponse
   }
   catch {
     return false
@@ -499,7 +430,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }
   }
   catch {
-    return
+    return undefined
   }
 }
 
