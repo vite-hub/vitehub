@@ -1,5 +1,5 @@
 import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
-import { existsSync, watch as watchFs, type FSWatcher } from "node:fs"
+import { watch as watchFs, type FSWatcher } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -147,7 +147,6 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       let contributions: CollectedDatabaseContribution[] = []
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
-      const contributionDirectories = new Set<string>()
       const contributionWatchers = new Map<string, FSWatcher>()
       const require = createRequire(pathToFileURL(resolve(root, "package.json")))
       const definitionDirectories = new Set([
@@ -167,26 +166,20 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               const { module } = contribution.definition
               const file = isAbsolute(module) ? resolve(module) : require.resolve(module)
               await collectWatchedModuleFiles(file, require, contributionFiles)
-              collectModuleWatchDirectories(file, contributionDirectories)
             }
             catch {
               // The runtime loader reports unresolved contributions; there is no file to watch yet.
             }
           }
-          nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles, ...contributionDirectories])]
-          // Nuxt's builder ignores node_modules, so also watch contribution packages directly.
-          for (const directory of contributionDirectories) {
-            if (contributionWatchers.has(directory)) continue
+          nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
+          // Nuxt's builder ignores node_modules, so watch each resolved dependency directly.
+          for (const watchedFile of contributionFiles) {
+            if (contributionWatchers.has(watchedFile)) continue
             try {
-              contributionWatchers.set(directory, watchFs(directory, { recursive: true }, () => { void refreshLocalRuntime() }))
+              contributionWatchers.set(watchedFile, watchFs(watchedFile, () => { void refreshLocalRuntime() }))
             }
             catch {
-              try {
-                contributionWatchers.set(directory, watchFs(directory, () => { void refreshLocalRuntime() }))
-              }
-              catch {
-                // The Nuxt watch list remains the fallback when native watching is unavailable.
-              }
+              // The Nuxt watch list remains the fallback when native watching is unavailable.
             }
           }
         }
@@ -198,7 +191,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories])]
         hook("builder:watch", async (_event, path) => {
           const file = resolve(nuxtOptions.srcDir || nuxtOptions.rootDir || root, path)
-          if (definitionFiles.has(file) || contributionFiles.has(file) || [...definitionDirectories, ...contributionDirectories].some(directory => file === directory || file.startsWith(`${directory}${sep}`))) {
+          if (definitionFiles.has(file) || contributionFiles.has(file) || [...definitionDirectories].some(directory => file === directory || file.startsWith(`${directory}${sep}`))) {
             await refreshLocalRuntime()
           }
         })
@@ -293,17 +286,6 @@ async function collectWatchedModuleFiles(file: string, require: NodeRequire, fil
       if (resolved) await collectWatchedModuleFiles(resolved, require, files, seen)
     }
     catch { /* unresolved aliases are handled by Nuxt */ }
-  }
-}
-
-function collectModuleWatchDirectories(file: string, directories: Set<string>) {
-  let current = dirname(file)
-  while (true) {
-    directories.add(current)
-    if (existsSync(join(current, "package.json"))) return
-    const parent = dirname(current)
-    if (parent === current) return
-    current = parent
   }
 }
 
