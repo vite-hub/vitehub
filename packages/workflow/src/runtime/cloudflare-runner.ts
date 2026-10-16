@@ -55,12 +55,9 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
         }
         catch {
           // A non-configurable non-cloneable field cannot be hidden safely.
-          // The intrinsic string tag remains useful for an ordinary Error,
-          // but never trust a caller-supplied tag in this last-resort path.
-          for (let current: object | null = candidate; current; current = Object.getPrototypeOf(current)) {
-            if (Reflect.has(current, Symbol.toStringTag)) return false
-          }
-          return Object.prototype.toString.call(candidate) === "[object Error]"
+          // There is no reliable cross-realm brand primitive in this branch;
+          // accepting a string tag would allow proxies and forged objects.
+          return false
         }
       }
       finally {
