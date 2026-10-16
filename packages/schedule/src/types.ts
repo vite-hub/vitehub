@@ -179,9 +179,13 @@ export interface ScheduleRunStore {
 export interface DiscoveredScheduleDefinition {
   manual?: boolean
   allowRuntimeSchedules?: boolean
+  /** Plugin that contributed the Definition through `vitehub.schedules`. Only set for contributed Definitions. */
+  contributor?: string
   handler: string
   name: string
+  /** Why the plugin contributed the Definition. Only set for contributed Definitions. */
+  reason?: string
   runtimeOnly?: boolean
-  source?: "server-schedules" | "vite-suffix"
+  source?: "server-schedules" | "vite-plugin-contribution" | "vite-suffix"
 }
 import type { SerializedResponse } from "@vite-hub/runtime"
