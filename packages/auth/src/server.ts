@@ -394,9 +394,6 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     let cancel: ((...args: [unknown?]) => unknown) | undefined
     let releaseLock: (() => void) | undefined
     let closed: (() => unknown) | undefined
-    let readOwner: object | undefined
-    let cancelOwner: object | undefined
-    let releaseOwner: object | undefined
     const readerPrototypes = new Set<object>()
     for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (readerPrototypes.has(readerPrototype)) return false
@@ -405,14 +402,14 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       const cancelDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")
       const descriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
       const closedDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "closed")
-      if (!read && typeof readDescriptor?.value === "function") { read = readDescriptor.value; readOwner = readerPrototype }
-      if (!cancel && typeof cancelDescriptor?.value === "function") { cancel = cancelDescriptor.value; cancelOwner = readerPrototype }
+      if (!read && typeof readDescriptor?.value === "function") read = readDescriptor.value
+      if (!cancel && typeof cancelDescriptor?.value === "function") cancel = cancelDescriptor.value
       if (!closed && typeof closedDescriptor?.get === "function") closed = closedDescriptor.get
-      if (!releaseLock && typeof descriptor?.value === "function") { releaseLock = descriptor.value; releaseOwner = readerPrototype }
+      if (!releaseLock && typeof descriptor?.value === "function") releaseLock = descriptor.value
       if (read && cancel && releaseLock && closed) break
       readerPrototype = Object.getPrototypeOf(readerPrototype)
     }
-    if (!read || !cancel || !releaseLock || !closed || readOwner !== releaseOwner || cancelOwner !== releaseOwner) return false
+    if (!read || !cancel || !releaseLock || !closed) return false
     // The stream probe must validate every operation that the bridge will
     // invoke. A shadowed read or cancel method can otherwise fabricate data
     // or fail during consumption while releaseLock still appears genuine.
@@ -485,7 +482,7 @@ function bridgeAuthorizationBody(
 ) {
   const reader = Reflect.apply(getReader, body, [])
   let readerPrototype: object | null = Object.getPrototypeOf(Object(reader))
-  let read: ((...args: []) => Promise<ReadableStreamReadResult<Uint8Array>>) | undefined
+  let read: ((...args: []) => Promise<{ done: boolean; value: Uint8Array }>) | undefined
   let cancel: ((...args: [unknown?]) => Promise<void>) | undefined
   let releaseLock: (() => void) | undefined
   const seen = new Set<object>()
