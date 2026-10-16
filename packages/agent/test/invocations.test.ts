@@ -4891,6 +4891,29 @@ describe("Agent Invocations", () => {
     expect(record && await memory.claim(record.id, "post-terminal", 30_000)).toBe(true)
   })
 
+  it("dispatches the Driver when storeTimeoutMs covers a slow running write", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const store: AgentInvocationStore = {
+      ...memory,
+      async update(id, input, claimId) {
+        // A D1 primary in another region needs several round trips for one update.
+        if (input.status === "running") await new Promise(resolve => setTimeout(resolve, 1_200))
+        return memory.update(id, input, claimId)
+      },
+    }
+    const run = vi.fn(() => "done")
+    const invocations = defineAgentInvocations({ store, storeTimeoutMs: 10_000 })
+
+    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("slow-running-write"), {})).resolves.toBe("done")
+    expect(run).toHaveBeenCalledOnce()
+    await expect(invocations.getByRunId("slow-running-write")).resolves.toMatchObject({ status: "completed" })
+  })
+
+  it.each([0, 1.5, 60_001])("rejects storeTimeoutMs %s", (storeTimeoutMs) => {
+    expect(() => defineAgentInvocations({ store: createMemoryAgentInvocationStore(), storeTimeoutMs }))
+      .toThrow("storeTimeoutMs must be an integer between 1 and 60000")
+  })
+
   it("normalizes limits while preserving opaque custom-store cursors", async () => {
     const list = vi.fn(() => ({ cursor: "next/token", invocations: [] }))
     const store: AgentInvocationStore = {
