@@ -114,9 +114,20 @@ function isRequestLike(value: AuthRequest): value is Request {
             if (target !== value) return false
             const ownSymbols = Object.getOwnPropertySymbols(value)
             const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
-            const happyDomState = ["method", "body", "headers", "signal", "bodyUsed", "url"].every(name =>
+            // Happy DOM stores its Request state in a fixed set of private
+            // symbols. Require the complete state shape before accepting an
+            // implementation whose accessors do not expose a Web-IDL brand
+            // error. A caller-created lookalike with a few arbitrary symbols
+            // must stay on the normalization path.
+            const happyDomSymbols = [
+              "method", "body", "mode", "headers", "redirect", "referrerPolicy",
+              "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
+              "contentType", "referrer", "url", "bodyBuffer",
+            ]
+            const happyDomState = happyDomSymbols.every(name =>
               ownSymbols.some(symbol => symbol.description === name),
-            ) && prototypeSymbols.some(symbol => symbol.description === "window")
+            ) && ownSymbols.length === happyDomSymbols.length
+              && prototypeSymbols.some(symbol => symbol.description === "window")
             return happyDomState
           }
           catch (error) {
