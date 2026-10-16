@@ -394,6 +394,8 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
    * Best-effort journals allow it unless the store reported another owner or a cancellation request, and log one warning.
    */
   startsUnconfirmed(): boolean
+  /** Whether the invocation still has a safe claim state at the dispatch boundary. */
+  dispatchAllowed(): boolean
   /** Records the Driver dispatch boundary without delaying execution. */
   driverStarted(): void
   setAnnotations(annotations: AgentRunMetadata["annotations"]): Promise<void>
@@ -2359,7 +2361,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         abortSignal: cancellation.signal,
         get createdNew() { return createdNew },
         get reusedTerminal() { return finished && !createdNew },
-        get claimStatus() { return ownsRecord ? "owned" : claimUnavailable ? "unavailable" : "conflict" },
+        get claimStatus() { return ownsRecord ? "owned" : claimConflict ? "conflict" : claimUnavailable ? "unavailable" : "conflict" },
         async getWorkflowDispatchAttempted() {
           const record = await boundedStoreOperation(() => store.getSummary(recordId))
           if (!record || record === storeOperationTimedOut) return undefined
@@ -2598,6 +2600,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           if (strict || conflict || cancellation.signal.aborted) return false
           warnUnconfirmed("running state")
           return true
+        },
+        dispatchAllowed() {
+          if (cancellation.signal.aborted || claimConflict) return false
+          return !strict || ownsRecord
         },
         driverStarted() {
           if (finished || finishing || driverDispatched) return
