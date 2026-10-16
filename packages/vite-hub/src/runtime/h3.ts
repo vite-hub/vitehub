@@ -90,10 +90,23 @@ function isRequest(value: unknown): value is Request {
       const cloneMethod = methods[0]
       if (typeof cloneMethod !== "function") continue
       try {
+        // A caller-owned clone method can return a genuine Request for a
+        // forged receiver. Require the method itself to perform a native
+        // receiver brand check before accepting its result.
+        try {
+          cloneMethod.call({})
+          continue
+        } catch {
+          // Expected for a host-validated Request method.
+        }
         const clone = cloneMethod.call(value) as { body?: { cancel?: () => unknown } } | undefined
         if (bodyUsed || Object.prototype.toString.call(clone) !== "[object Request]") continue
         const cancel = clone?.body?.cancel
-        if (typeof cancel === "function") cancel.call(clone.body)
+        if (typeof cancel === "function") {
+          // Cancellation can reject when the source stream's cancel
+          // algorithm fails; keep that rejection from becoming unhandled.
+          void Promise.resolve(cancel.call(clone.body)).catch(() => undefined)
+        }
       } catch {
         if (!bodyUsed) continue
         // A forged `bodyUsed` flag can make a copied native `clone` throw even
