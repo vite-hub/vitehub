@@ -572,8 +572,10 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
     for (const [path, file] of desired) {
       if (!isHistoryFileInput(file)) throw workspaceError(`[vitehub] Invalid history file content: ${path}.`)
       const bytes = new Uint8Array(contentToBytes(file.content))
-      const mode = file.metadata?.gitMode === "120000" || file.metadata?.gitMode === "100755" ? file.metadata.gitMode : undefined
       const current = state.files.get(path)
+      const mode = file.metadata?.gitMode === "120000" || file.metadata?.gitMode === "100755"
+        ? file.metadata.gitMode
+        : current?.mode
       const gitSha = await gitBlobSha(bytes)
       if (current?.sha === gitSha && (current.mode || "100644") === (mode || "100644")) continue
       updates.push({ bytes, fullPath: joinGitPath(options.root, path), gitSha, ...(mode ? { mode } : {}) })
