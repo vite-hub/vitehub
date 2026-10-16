@@ -7,7 +7,7 @@ import * as awarenessProtocol from "y-protocols/awareness"
 import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
-import type { WebSocketMessage, WebSocketPeer } from "h3"
+import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeIdentity } from "./presence.ts"
 import type {
   RealtimeCheckpoint,
@@ -520,6 +520,21 @@ export async function refreshRealtimeDocument(definition: string, documentId: st
     return reseeded
   }
 }
+
+/**
+ * A rejected upgrade keeps its status, and carries crossws hooks that refuse the socket. Without hooks, crossws (and
+ * Nitro's adapters) still upgrade the request into a socket that never answers.
+ */
+function refuseUpgrade(request: Request, status: number): Response {
+  const hooks: Partial<WebSocketHooks> = { upgrade: () => new Response(null, { status }) }
+  // The same places h3's defineWebSocketHandler leaves hooks for adapters.
+  const target = request as Request & { context?: Record<symbol, unknown>, [webSocketHooksKey]?: Partial<WebSocketHooks> }
+  target[webSocketHooksKey] = hooks
+  if (target.context) target.context[webSocketHooksKey] = hooks
+  return Object.assign(new Response(null, { status }), { crossws: hooks })
+}
+
+const webSocketHooksKey = Symbol.for("crossws.hooks")
 
 export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandler {
   const inactiveMemoryRoomKeys = new Set<string>()
@@ -1351,9 +1366,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       const { definitionName, documentId } = parseRoomPath(event.req.url)
       return { reseeded: await refreshOpenRoom(definitionName, documentId) }
     }
-    return event.req.headers.get("upgrade")?.toLowerCase() === "websocket"
-      ? websocketHandler(event)
-      : httpHandler(event)
+    if (event.req.headers.get("upgrade")?.toLowerCase() !== "websocket") return httpHandler(event)
+    try {
+      return await websocketHandler(event)
+    }
+    catch (error) {
+      return refuseUpgrade(event.req, error instanceof HTTPError ? error.status : 500)
+    }
   })
   // SAFETY: H3 attaches a Fetch-compatible method to every defined event handler.
   return handler as RealtimeHandler

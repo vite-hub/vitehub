@@ -96,6 +96,7 @@ type Hooks = {
   close(peer: object): void
   message(peer: object, message: { uint8Array(): Uint8Array }): void
   open(peer: object): void
+  upgrade?(request: Request): Response | void | Promise<Response | void>
 }
 
 export interface TestClient {
@@ -140,8 +141,10 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
       peer: undefined as never,
       response,
     }
-    if (!response.crossws) {
-      client.closed = { code: response.status, reason: "rejected" }
+    // crossws calls `upgrade` first; a Response refuses the socket with its status.
+    const refusal = await response.crossws?.upgrade?.(new Request("https://example.com", { headers: { upgrade: "websocket" } }))
+    if (!response.crossws || refusal instanceof Response) {
+      client.closed = { code: refusal instanceof Response ? refusal.status : response.status, reason: "rejected" }
       return client
     }
     const hooks = response.crossws
