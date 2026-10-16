@@ -121,7 +121,7 @@ describe("Cloudflare workflow errors", () => {
     }
   })
 
-  it("translates a cross-realm error with a non-configurable non-cloneable field when Error.isError is unavailable", async () => {
+  it("does not translate a sealed non-cloneable error without a trusted brand predicate when Error.isError is unavailable", async () => {
     const original = runInNewContext("(() => { const error = new Error('sealed non-cloneable input'); Object.defineProperty(error, 'context', { value: () => {}, configurable: false }); error.isRetryable = false; return error })()") as Error & { isRetryable: false }
     const createNonRetryableError = vi.fn((_error: Error & { isRetryable: false }) => new Error("converted"))
     const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
@@ -138,17 +138,26 @@ describe("Cloudflare workflow errors", () => {
             default: { handler: async () => { throw original } },
           }),
         },
-      })).rejects.toMatchObject({ message: "converted" })
-      expect(createNonRetryableError).toHaveBeenCalledWith(original)
+      })).rejects.toBe(original)
+      expect(createNonRetryableError).not.toHaveBeenCalled()
     }
     finally {
       if (descriptor) Object.defineProperty(Error, "isError", descriptor)
     }
   })
 
-  it("does not trust a candidate prototype Error.isError predicate", async () => {
-    const constructor = { isError: () => true }
-    const original = Object.create({ constructor }) as Error & { isRetryable: false }
+  it("does not trust a proxy-backed candidate Error.isError predicate", async () => {
+    const spoofConstructor = new Proxy(function Error() {}, {
+      get(target, property, receiver) {
+        if (property === "name") return "Error"
+        if (property === "prototype") return receiverPrototype
+        if (property === "isError") return () => true
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const receiverPrototype = Object.create(null) as Record<PropertyKey, unknown>
+    Object.defineProperty(receiverPrototype, "constructor", { value: spoofConstructor })
+    const original = Object.create(receiverPrototype) as Error & { isRetryable: false }
     original.isRetryable = false
     const createNonRetryableError = vi.fn((_error: Error & { isRetryable: false }) => new Error("converted"))
     const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")

@@ -34,24 +34,6 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
       return (nativeIsError as (value: unknown) => unknown)(candidate) === true
     }
 
-    // A foreign realm can provide the intrinsic brand predicate even when the
-    // current realm does not. Check it before structured cloning so sealed,
-    // non-cloneable own fields cannot hide a genuine Error.
-    let prototype: object | null = Reflect.getPrototypeOf(candidate)
-    while (prototype) {
-      const constructorDescriptor = Reflect.getOwnPropertyDescriptor(prototype, "constructor")
-      const constructor = constructorDescriptor && "value" in constructorDescriptor ? constructorDescriptor.value : undefined
-      if (hasRuntimeType(constructor, "function")) {
-        const nativeSource = Reflect.apply(Function.prototype.toString, constructor, [])
-        if (nativeSource.includes("[native code]") && Reflect.get(constructor, "prototype") === prototype && Reflect.get(constructor, "name") === "Error") {
-          const foreignIsError = Reflect.getOwnPropertyDescriptor(constructor, "isError")
-          if (foreignIsError && "value" in foreignIsError && hasRuntimeType(foreignIsError.value, "function")) {
-            return Reflect.apply(foreignIsError.value, constructor, [candidate]) === true
-          }
-        }
-      }
-      prototype = Reflect.getPrototypeOf(prototype)
-    }
 
     const clone = Reflect.get(globalThis, "structuredClone")
     if (!hasRuntimeType(clone, "function")) return false
@@ -73,25 +55,6 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
           return (clone as (value: unknown) => unknown)(candidate) instanceof Error
         }
         catch {
-          // A non-configurable enumerable field cannot be hidden safely. Use a
-          // foreign realm's intrinsic Error.isError predicate when available.
-          // The constructor must be native and point back to this prototype;
-          // candidate-provided predicate functions are never invoked.
-          prototype = Reflect.getPrototypeOf(candidate)
-          while (prototype) {
-            const constructorDescriptor = Reflect.getOwnPropertyDescriptor(prototype, "constructor")
-            const constructor = constructorDescriptor && "value" in constructorDescriptor ? constructorDescriptor.value : undefined
-            if (hasRuntimeType(constructor, "function")) {
-              const nativeSource = Reflect.apply(Function.prototype.toString, constructor, [])
-              if (nativeSource.includes("[native code]") && Reflect.get(constructor, "prototype") === prototype && Reflect.get(constructor, "name") === "Error") {
-                const foreignIsError = Reflect.getOwnPropertyDescriptor(constructor, "isError")
-                if (foreignIsError && "value" in foreignIsError && hasRuntimeType(foreignIsError.value, "function")) {
-                  return Reflect.apply(foreignIsError.value, constructor, [candidate]) === true
-                }
-              }
-            }
-            prototype = Reflect.getPrototypeOf(prototype)
-          }
           return false
         }
       }
