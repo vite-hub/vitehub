@@ -80,9 +80,10 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
 
-      # Vite+ combines formatting, lint, and TypeScript checks into one
-      # deterministic PR gate. Broader validation runs after the merge on main.
-      - run: vp check
+      # Vite+ combines lint and TypeScript checks into one deterministic PR gate.
+      # Formatting currently loads generated fixture configs, so the full format
+      # check remains on the push-to-main validation path.
+      - run: vp check --no-fmt
 
   # Split from checks, which took 9 minutes because typecheck, contracts and
   # examples each ran a full build in sequence.
