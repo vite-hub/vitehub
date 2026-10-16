@@ -221,6 +221,11 @@ function usesPathname(value: unknown, pathnames: ReadonlySet<string>, found: Set
   for (const entry of Object.values(value)) usesPathname(entry, pathnames, found)
 }
 
+function bodyUsesPathname(body: string, pathname: string): boolean {
+  const escaped = pathname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return new RegExp(`(?:^|[\\s\\\"'\\`(])${escaped}(?=$|[\\s\\\"'\\`),])`).test(body)
+}
+
 /**
  * Create the Console document actions for the `content` export of `server/content.ts`. Every action checks
  * `content.can()` with the signed-in Console user before it calls the trusted runtime method.
@@ -647,7 +652,10 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
               let cursor: string | undefined
               do {
                 const page = await collection.list(cursor ? { ref, search: pathname, limit: referencePageSize, cursor } : { ref, search: pathname, limit: referencePageSize })
-                for (const item of page.items) add(pathname, item)
+                for (const item of page.items) {
+                  const document = await collection.get(item.id, { ref })
+                  if (document && bodyUsesPathname(document.body, pathname)) add(pathname, item)
+                }
                 cursor = page.nextCursor ?? undefined
               } while (cursor)
             }
