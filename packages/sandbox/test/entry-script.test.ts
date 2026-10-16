@@ -122,6 +122,23 @@ describe("package entry result transport", () => {
     expect(execution.output.result).not.toHaveProperty(SANDBOX_VALUE_MARKER)
   })
 
+  it("rejects non-enumerable spoofs with a structurally valid clone result", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = {}`,
+      `  Object.defineProperties(prototype, { clone: { value() { return { status: 201, statusText: 'Created', headers, arrayBuffer: async () => new ArrayBuffer(), [Symbol.toStringTag]: 'Response' } } }, body: { get() { return null } } })`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers })`,
+      `  return Object.defineProperty(value, 'arrayBuffer', { value: async () => new ArrayBuffer() })`,
+      `}`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ status: 201, statusText: "Created" })
+    expect(execution.output.result).not.toHaveProperty(SANDBOX_VALUE_MARKER)
+  })
+
   it("preserves ordinary objects with non-enumerable response-like prototype members", async () => {
     const execution = await executePackageEntry([
       `export default () => {`,
