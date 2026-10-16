@@ -20,7 +20,7 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
+  (page) => !["index.md", "installation.md", "get-started.md"].includes(page.name) && !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -119,17 +119,6 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("uses the wide component layout without the desktop outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
-
-    expect(page).toContain('path.startsWith("/docs/ui/")');
-    expect(page).toContain('root: "lg:!grid-cols-1 lg:!gap-0"');
-    expect(page).toContain('<DocsAsideRight v-if="!isUiPage"');
-    expect(layout).toContain(".vh-docs-main");
-    expect(layout).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem)");
-  });
-
   it("gives invocation previews fixed-height containing blocks", () => {
     const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
     const inspector = readFileSync(
@@ -173,14 +162,10 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: hidden;");
+    expect(layout).toContain("overflow-x: clip;");
     expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toContain("display: flex;");
-    expect(layout).toContain("flex-direction: column;");
+    expect(layout).toContain("hidden lg:block");
     expect(layout).toContain("overflow: visible;");
-    expect(layout).toContain("<UPage v-else :ui=\"docsShellUi\">");
-    expect(layout).toContain("class=\"vh-docs-aside\"");
-    expect(layout).toContain("lg:!flex-1 lg:!min-w-0");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {

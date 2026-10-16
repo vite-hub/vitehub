@@ -154,11 +154,27 @@
       "require": "./dist/agent-unresolved-file.js",
       "default": "./dist/agent-unresolved-file.js"
     },
+    "./attachment": {
+      "types": "./dist/attachment.d.ts",
+      "import": "./dist/attachment.js"
+    },
+    "./bubble": {
+      "types": "./dist/bubble.d.ts",
+      "import": "./dist/bubble.js"
+    },
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js",
       "require": "./dist/headless.js",
       "default": "./dist/headless.js"
+    },
+    "./marker": {
+      "types": "./dist/marker.d.ts",
+      "import": "./dist/marker.js"
+    },
+    "./message": {
+      "types": "./dist/message.d.ts",
+      "import": "./dist/message.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
@@ -171,6 +187,10 @@
       "import": "./dist/primitive-rail.js",
       "require": "./dist/primitive-rail.js",
       "default": "./dist/primitive-rail.js"
+    },
+    "./trace": {
+      "types": "./dist/trace.d.ts",
+      "import": "./dist/trace.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -196,7 +216,8 @@
     "@vueuse/core": "catalog:ui",
     "katex": "^0.17.0",
     "@json-render/vue": "0.21.0",
-    "@json-render/core": "0.21.0"
+    "@json-render/core": "0.21.0",
+    "reka-ui": "catalog:ui"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",
