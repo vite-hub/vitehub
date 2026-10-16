@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -451,7 +450,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
   }
   catch {
-    return
+    return undefined
   }
 }
 
