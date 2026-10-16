@@ -11,7 +11,6 @@ interface D1HttpQuery {
 }
 
 type D1HttpMethod = "run" | "all" | "values" | "get"
-
 type D1HttpExecutionQuery = D1HttpQuery & { method: D1HttpMethod }
 
 interface D1HttpPayload {
@@ -19,13 +18,11 @@ interface D1HttpPayload {
   result?: Array<{
     error?: string
     errors?: D1HttpErrorInfo[]
-    results?: unknown
+    results?: { rows?: unknown[][] }
     success?: boolean
   }>
   success?: boolean
 }
-
-type D1HttpResult = NonNullable<D1HttpPayload["result"]>[number]
 
 interface D1HttpErrorInfo {
   message?: string
@@ -65,11 +62,7 @@ function isD1HttpPayload(value: unknown): value is D1HttpPayload {
   if (!isRecord(value)) return false
   const result = "result" in value ? value.result : undefined
   return result === undefined
-    || (Array.isArray(result) && result.every(isD1HttpResult))
-}
-
-function isD1HttpResult(value: unknown): value is D1HttpResult {
-  return isRecord(value) && (value.success === true || value.success === false)
+    || (Array.isArray(result) && result.every(item => isRecord(item)))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -143,15 +136,13 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
       if (query.method === "run" && result.results === undefined) return []
-      if (!isRecord(result.results)) {
-        throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
-      }
+      if (!isRecord(result.results)) throw databaseErrorDiagnostics.DATABASE_R0011({ message: "Invalid D1 response" })
       if (!("rows" in result.results) || result.results.rows === undefined) {
         if (query.method === "run") return []
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
       if (!isRowMatrix(result.results.rows)) {
-        throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
+        throw databaseErrorDiagnostics.DATABASE_R0011({ message: "Invalid D1 response" })
       }
       return result.results.rows
     })
