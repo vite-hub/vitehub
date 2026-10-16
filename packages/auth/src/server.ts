@@ -304,10 +304,19 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         if (!Array.isArray(values) || !values.every(cookie => typeof cookie === "string")) return
       }
       if (value.body !== null) {
-        if (value.body.locked) return
-        if (typeof value.body.getReader !== "function") return
-        const reader = value.body.getReader()
-        if (typeof reader.read !== "function" || typeof reader.releaseLock !== "function") return
+        const body = value.body
+        if (body.locked) return
+        const bodyPrototype = Object.getPrototypeOf(body)
+        const nativeGetReader = bodyPrototype?.getReader
+        if (typeof nativeGetReader !== "function" || body.getReader !== nativeGetReader) return
+        const reader = nativeGetReader.call(body)
+        const readerPrototype = Object.getPrototypeOf(reader)
+        if (
+          typeof readerPrototype?.read !== "function"
+          || typeof readerPrototype?.releaseLock !== "function"
+          || reader.read !== readerPrototype.read
+          || reader.releaseLock !== readerPrototype.releaseLock
+        ) return
         reader.releaseLock()
       }
       return value

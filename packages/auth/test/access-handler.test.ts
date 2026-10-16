@@ -114,6 +114,15 @@ describe("Auth access handlers", () => {
     expect((await handler(new Request("https://app.example/")))!.status).toBe(403)
   })
 
+  it("rejects native responses with a shadowed body reader", async () => {
+    const response = new Response("Policy rejected", { status: 409 })
+    Object.defineProperty(response.body!, "getReader", { value: () => ({ read: () => Promise.resolve({ done: true }) }) })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))!.status).toBe(403)
+  })
+
   it("rejects native responses with unusable headers", async () => {
     const response = new Response("Policy rejected", { status: 409 })
     Object.defineProperty(response.headers, "forEach", { value: undefined })
