@@ -17,7 +17,7 @@ import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
-import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchema } from "./internal/schema-tables.ts"
+import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDatabaseSchema, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
@@ -330,8 +330,11 @@ async function installNitroLocalDatabaseRuntime(
     onFallback: (message: string) => console.warn(message),
   }
   const loadedContributionsByDatabase = new Map<string, Set<CollectedDatabaseContribution>>()
+  const loadedDefinitionSources = new Map<string, Set<string>>()
   for (const definition of runtime.definitions) {
-    const parts = [{ schema: await loadDefinitionSchema(definition, tableNameOptions), owner: `Database Definition ${definition.handler}` }]
+    const sourceSchemas = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, tableNameOptions)))
+    const parts = [{ schema: mergeLoadedSchemas(sourceSchemas), owner: `Database Definition ${definition.handler}` }]
+    loadedDefinitionSources.set(definition.name, new Set(definition.schemaSources.filter((_, index) => sourceSchemas[index]!.loaded).map(source => source.handler)))
     const loadedContributions = new Set<CollectedDatabaseContribution>()
     for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
       const schema = await loadContributedDatabaseSchema(contribution, file, tableNameOptions)
@@ -350,29 +353,38 @@ async function installNitroLocalDatabaseRuntime(
         : []))
   const layered = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1
   const merged = (index: number) => layered(runtime.definitions[index]!) || contributedSchemas[index]!.length > 0
-  const imports = runtime.definitions.flatMap((definition, index) => [
-    `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
-    ...layered(definition)
-      ? definition.schemaSources.map((source, sourceIndex) =>
-          `import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`)
-      : [],
-    ...contributedSchemas[index]!.map(({ contribution, variable }) => renderContributionImport(file, contribution, variable)),
-  ])
+  const imports = runtime.definitions.flatMap((definition, index) => {
+    const loadedSources = loadedDefinitionSources.get(definition.name) ?? new Set<string>()
+    const definitionLoaded = loadedSources.has(definition.handler)
+    if (!definitionLoaded) return []
+    return [
+      `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
+      ...definition.schemaSources.flatMap((source, sourceIndex) => loadedSources.has(source.handler)
+        ? [`import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`]
+        : []),
+      ...contributedSchemas[index]!.map(({ contribution, variable }) => renderContributionImport(file, contribution, variable)),
+    ]
+  })
   const schemas = runtime.definitions.flatMap((definition, index) => {
-    if (!merged(index)) return []
-    const definitionSchemas = layered(definition)
-      ? definition.schemaSources.map((_, sourceIndex) => `...schemaSource_${index}_${sourceIndex}.schema`)
-      : [`...definition_${index}.schema`]
+    if (!merged(index) || !(loadedDefinitionSources.get(definition.name)?.has(definition.handler))) return []
+    const loadedSources = loadedDefinitionSources.get(definition.name) ?? new Set<string>()
+    const definitionSchemas = definition.schemaSources
+      .map((source, sourceIndex) => loadedSources.has(source.handler) ? `...schemaSource_${index}_${sourceIndex}.schema` : undefined)
+      .filter((source): source is string => source !== undefined)
+    if (!definitionSchemas.length) definitionSchemas.push(`...definition_${index}.schema`)
     return [`const schema_${index} = { ${[...definitionSchemas, ...contributedSchemas[index]!.map(({ variable }) => `...${variable}`)].join(", ")} }`]
   })
-  const entries = runtime.definitions.map((definition, index) => [
-    `  [${JSON.stringify(definition.name)}]: {`,
-    merged(index)
-      ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
-      : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
-    `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
-    "  },",
-  ].join("\n"))
+  const entries = runtime.definitions.flatMap((definition, index) => {
+    if (!loadedDefinitionSources.get(definition.name)?.has(definition.handler)) return []
+    return [[
+      `  [${JSON.stringify(definition.name)}]: {`,
+      merged(index)
+        ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
+        : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
+      `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
+      "  },",
+    ].join("\n")]
+  })
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,
