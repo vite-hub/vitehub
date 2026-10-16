@@ -28,11 +28,9 @@ import type { SyncStatusValue } from "@vite-hub/ui";
 import { useRealtimeTiptap } from "vite-hub/realtime/vue";
 
 const realtime = useRealtimeTiptap("docs", "guides/welcome.md");
-const sync = computed<SyncStatusValue>(() => {
-  if (!realtime.synced.value) return "loading";
-  if (realtime.saving.value) return "synchronizing";
-  return realtime.saveStatus.value.error ? "error" : "synchronized";
-});
+// `useRealtimeTiptap` exposes the loading/saved signal. Wire saving and
+// persistence errors from the editor or your save layer when available.
+const sync = computed<SyncStatusValue>(() => realtime.synced.value ? "synchronized" : "loading");
 ```
 
 ```vue
