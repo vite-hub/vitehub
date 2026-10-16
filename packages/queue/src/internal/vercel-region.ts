@@ -54,6 +54,11 @@ function isHeadersLike(value: unknown): value is Headers {
 function isBrandedMethod(value: unknown, receiver: object, owner: object | undefined): value is (this: unknown, ...args: unknown[]) => unknown {
   if (typeof value !== "function") return false
   try {
+    const source = Function.prototype.toString.call(value)
+    // Browser Fetch methods stringify as native functions. Node's Undici
+    // implementation is a JavaScript wrapper that performs an internal Web
+    // IDL brand check; ordinary user-defined methods do neither.
+    if (!source.includes("[native code]") && !source.includes("webidl.brandCheck")) return false
     if (!owner || Object.getPrototypeOf(owner) === null) return false
     const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
     if (typeof constructor !== "function" || constructor.prototype !== owner) return false
@@ -76,7 +81,8 @@ function getRequestHeaders(value: unknown) {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
     const descriptor = getPrototypeDescriptor(value, "headers")
-    const headers = typeof descriptor?.get === "function" ? descriptor.get.call(value) : undefined
+    if (!descriptor?.get || !isBrandedMethod(descriptor.get, value, descriptor.owner)) return undefined
+    const headers = descriptor.get.call(value)
     return isHeadersLike(headers) ? headers : undefined
   }
   catch {
