@@ -366,11 +366,22 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string): void {
   )
   for (const row of updates) {
     const legacyUpdate = storedUpdate(row.update_blob)
-    if (legacyUpdate) {
+    if (!legacyUpdate) continue
+    const blob = Uint8Array.from(legacyUpdate).buffer
+    try {
       sql.exec(
         "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
         key,
-        Uint8Array.from(legacyUpdate).buffer,
+        blob,
+      )
+    }
+    catch {
+      // Hosts that reject ALTER TABLE may still expose the intermediate
+      // two-column journal schema. Preserve those rows so the room can open.
+      sql.exec(
+        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
+        key,
+        blob,
       )
     }
   }
@@ -548,6 +559,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   const peerInitialSyncStep2 = new WeakSet<WebSocketPeer>()
   const peerSyncUpdates = new WeakMap<WebSocketPeer, { at: number, tokens: number }>()
   const peerHeldUpdates = new WeakMap<WebSocketPeer, { bytes: number, timer: ReturnType<typeof setTimeout>, updates: Uint8Array[] }>()
+  const terminalPeers = new WeakSet<WebSocketPeer>()
+  function clearHeldUpdates(peer: WebSocketPeer): void {
+    const held = peerHeldUpdates.get(peer)
+    if (!held) return
+    peerHeldUpdates.delete(peer)
+    clearTimeout(held.timer)
+  }
 
   function resolveCloudflare(event: { context: Record<string, unknown>, req: Request }): Record<string, unknown> | undefined {
     const runtime = (event.req as Request & { runtime?: { cloudflare?: Record<string, unknown> } }).runtime?.cloudflare
@@ -964,6 +982,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     persistRoom(room)
     const reset = encodeRealtimeControl({ type: "reset", epoch: room.epoch, reason })
     for (const peer of peers) {
+      terminalPeers.add(peer)
+      clearHeldUpdates(peer)
       peer.unsubscribe(room.channel)
       peer.send(reset)
       peer.close(realtimeResetCloseCode, "The realtime document was re-seeded.")
@@ -1164,7 +1184,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const clientEpoch = request.searchParams.get("epoch")
 
     function leave(peer: WebSocketPeer) {
-      applyHeldUpdates(peer)
+      if (terminalPeers.has(peer)) clearHeldUpdates(peer)
+      else applyHeldUpdates(peer)
       if (!room.peers.delete(peer)) return
       const pendingAwareness = peerPendingAwareness.get(peer)
       if (pendingAwareness) clearTimeout(pendingAwareness.timer)
@@ -1230,6 +1251,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
 
     /** Applies the updates a peer sent past its budget as one merged update, for one token. */
     function applyHeldUpdates(peer: WebSocketPeer) {
+      if (terminalPeers.has(peer)) {
+        clearHeldUpdates(peer)
+        return
+      }
       const held = peerHeldUpdates.get(peer)
       if (!held) return
       peerHeldUpdates.delete(peer)

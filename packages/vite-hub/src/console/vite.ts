@@ -105,6 +105,7 @@ interface ConsoleVitePluginOptions {
   blobStores?: readonly string[]
   console: ConsoleOptions
   connections?: unknown
+  runtimeCapabilityImports?: Record<string, false | string>
   /** D1 binding that stores the journal in production Cloudflare builds. */
   resolveD1Binding?: (root: string, serverDirs: string[] | undefined) => string | undefined
   databaseUrl?: string
@@ -402,7 +403,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess())
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -550,6 +551,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           consoleAuthMode,
           retention,
           consoleAccess(),
+          options.runtimeCapabilityImports,
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
