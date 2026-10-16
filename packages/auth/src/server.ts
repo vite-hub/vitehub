@@ -415,6 +415,10 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
         return false
       }
     })()
+    // A proxy around a local Response still passes `instanceof Response`, but
+    // native accessors reject the proxy. Reject that path before trusting any
+    // proxy-trapped fields in the foreign-response normalization below.
+    if (!localResponse && value instanceof Response) return
     if (localResponse) {
       try {
         const nativeStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
