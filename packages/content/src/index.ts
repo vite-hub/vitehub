@@ -13,10 +13,53 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { H3Event } from "h3"
+import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
+import { isDocumentsDefinition } from "./documents.ts"
+import type {
+  ContentCollection,
+  ContentCollectionsRuntime,
+  ContentHistorySource,
+  ContentPublishOptions,
+  ContentPublishResult,
+  ContentRevisionsOptions,
+  ContentRevisionsResult,
+} from "./collections.ts"
 import type { ContentSourceInput } from "./content-source.ts"
+import type { ContentFields, DocumentsDefinition } from "./documents.ts"
 export { contentSource } from "./content-source.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
+export { documents, optional } from "./documents.ts"
+export type {
+  ContentField,
+  ContentFieldIssue,
+  ContentFields,
+  ContentFieldsInput,
+  ContentFieldsOutput,
+  DocumentsDefinition,
+  DocumentsOptions,
+} from "./documents.ts"
+export type {
+  ContentCollection,
+  ContentDocument,
+  ContentDocumentState,
+  ContentDocumentStatus,
+  ContentDocumentSummary,
+  ContentListOptions,
+  ContentPage,
+  ContentPublishedDocument,
+  ContentPublishExpectation,
+  ContentPublishMismatch,
+  ContentPublishOptions,
+  ContentPublishResult,
+  ContentRawDocument,
+  ContentReadOptions,
+  ContentRef,
+  ContentRevisionsOptions,
+  ContentRevisionsResult,
+  ContentSaveInput,
+  ContentWriteOptions,
+} from "./collections.ts"
 
 export interface ContentHandler {
   (event: unknown): Promise<unknown>
@@ -63,12 +106,75 @@ type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) e
 type ContentMethods<TPlugins extends ReadonlyArray<ContentPlugin<any, any>>> =
   TPlugins["length"] extends 0 ? unknown : UnionToIntersection<PluginMethods<TPlugins[number]>>
 
+/** What a Content surface asks permission for: reading drafts, saving or removing documents, or publishing. */
+export type ContentAction = "read" | "write" | "publish"
+
+/** The signed-in Auth user a surface passes to `authorize`, such as the Auth session user. */
+export type ContentUser = Record<string, unknown>
+
+/** The Actor of an Agent Invocation. It has the shape of an Agent Actor, so Content does not depend on the Agent package. */
+export interface ContentActor {
+  id: string
+  kind?: "anonymous" | "chat" | (string & {})
+  label?: string
+  meta?: Record<string, unknown>
+}
+
+export interface ContentAuthorizeContext<TCollection extends string = string> {
+  /** The signed-in Auth user, or null. An Agent passes the Auth user its Actor stands for, when there is one. */
+  user: ContentUser | null
+  /** The invoking Actor when an Agent makes the call, otherwise undefined. */
+  actor?: ContentActor
+  collection: TCollection
+  action: ContentAction
+  /** The document, when the action targets one. */
+  id?: string
+}
+
+/** What `content.can()` takes. `user` defaults to null, so an Agent without an Auth user passes only `actor`. */
+export type ContentCanContext<TCollection extends string = string> =
+  Omit<ContentAuthorizeContext<TCollection>, "user"> & { user?: ContentUser | null | undefined }
+
+/**
+ * Decide whether a user or an Agent Actor may take a Content action. Surfaces such as the Console editor and the
+ * Content Agent Capability call it through `content.can()`. The runtime methods themselves are trusted server API and do not.
+ */
+export type ContentAuthorize<TCollection extends string = string> =
+  (context: ContentAuthorizeContext<TCollection>) => boolean | Promise<boolean>
+
+type ContentCollections = Record<string, DocumentsDefinition<any>>
+type CollectionName<TCollections> = Extract<keyof TCollections, string>
+type FieldsOf<TDefinition> = TDefinition extends DocumentsDefinition<infer TFields> ? TFields : ContentFields
+
 export type DefineContentOptions<
   TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = ReadonlyArray<ContentPlugin<any, any>>,
+  TCollections extends ContentCollections = ContentCollections,
 > = Omit<ContentOptions, "basePath" | "plugins" | "source" | "sources"> & {
   plugins?: TPlugins
+  /** One read-only Source, served as the `default` instance. */
   source?: ContentSourceInput
+  /** Named read-only Sources. Each name becomes a Content instance. */
   sources?: Record<string, ContentSourceInput>
+  /** Workspace that stores `collections`. It needs retained history, such as the Blob + Database Store. */
+  workspace?: string
+  /** Editable document collections. Each name becomes a Content instance that serves the `published` ref. */
+  collections?: TCollections
+  /** Policy for Content surfaces. Without it, `content.can()` denies every action. */
+  authorize?: ContentAuthorize<CollectionName<TCollections>>
+}
+
+/** Document operations added by `collections`. */
+export interface ContentDocumentsRuntime<TCollections extends ContentCollections = ContentCollections> {
+  /** Every document collection in definition order, with its `name`, `path`, `fields`, and `schema`. Empty without `collections`. */
+  collections(): ContentCollection[]
+  /** Open one collection to list, read, save, remove, restore, and compare documents. */
+  collection<TName extends CollectionName<TCollections>>(name: TName): ContentCollection<FieldsOf<TCollections[TName]>>
+  /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
+  publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
+  /** Revisions that saved, removed, restored, or published one document, newest first. */
+  revisions(collection: CollectionName<TCollections>, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
+  can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
 }
 
 /** Named-source operations retained across the Comark instance API migration. */
@@ -84,18 +190,86 @@ export type ContentRuntime = Omit<ContentHub<ComarkContent[]>, "list" | "search"
   }
 }
 
+const contentActions: ReadonlySet<string> = new Set<ContentAction>(["read", "write", "publish"])
+
 /** Define the Comark Content runtime served by ViteHub from `server/content.ts`. */
 export function defineContent<
   const TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = [],
->(options: DefineContentOptions<TPlugins> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> {
+  const TCollections extends ContentCollections = {},
+>(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
-  const { source, sources, ...sharedOptions } = options
-  const inputs = sources ?? { default: source }
+  const { source, sources, workspace, collections, authorize, ...sharedOptions } = options
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization is a public callback boundary and must accept functions from other realms.
+  if (authorize !== undefined && typeof authorize !== "function") {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
+  }
+  const collectionEntries = Object.entries(collections ?? {})
+  for (const [name, definition] of collectionEntries) {
+    if (!isDocumentsDefinition(definition)) {
+      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents().` })
+    }
+  }
+  if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires workspace: the name of a Workspace with retained history." })
+  }
+  const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
   const instances = Object.entries(inputs).map(([name, input]) => {
     if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
     return createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" })
   })
+  const documentsRuntime: ContentCollectionsRuntime | undefined = collectionEntries.length
+    // SAFETY: Each definition was checked with isDocumentsDefinition() above.
+    ? createContentCollections({ workspace: workspace!, collections: Object.fromEntries(collectionEntries) })
+    : undefined
+  const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
+  for (const [name] of collectionEntries) {
+    if (Object.hasOwn(inputs, name)) {
+      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} has the same name as a Content source.` })
+    }
+    const historySource = documentsRuntime!.comarkSource(name)
+    const instance = createContentInstance(name, historySource, { ...sharedOptions, basePath: "/api/content" })
+    instances.push(instance)
+    collectionInstances.push({ instance, source: historySource })
+  }
   const hub = contentHub(instances, { basePath: "/api/content", logger: options.logger })
+
+  // Published collections are refreshed when another writer, process, or host moved the `published` head.
+  let syncing: Promise<void> | undefined
+  async function syncPublished(): Promise<void> {
+    if (!documentsRuntime) return
+    syncing ??= (async () => {
+      const loaded = collectionInstances.filter(({ instance }) => instance.status !== "created" && instance.status !== "disposed")
+      if (!loaded.length) return
+      const head = await documentsRuntime.publishedHead()
+      const stale: Array<Promise<unknown>> = []
+      for (const { instance, source } of loaded) {
+        if (source.loadedRevision !== head) stale.push(instance.refresh())
+      }
+      await Promise.all(stale)
+    })().finally(() => {
+      syncing = undefined
+    })
+    await syncing
+  }
+  documentsRuntime?.onPublish(async (names) => {
+    const refreshes: Array<Promise<unknown>> = []
+    for (const { instance } of collectionInstances) {
+      if (names.includes(instance.name) && instance.status !== "created" && instance.status !== "disposed") refreshes.push(instance.refresh())
+    }
+    await Promise.all(refreshes)
+  })
+  function fresh<TArgs extends unknown[], TResult>(method: (...args: TArgs) => Promise<TResult>): (...args: TArgs) => Promise<TResult> {
+    return async (...args) => {
+      await syncPublished()
+      return await method(...args)
+    }
+  }
+  function requireDocuments(): ContentCollectionsRuntime {
+    if (!documentsRuntime) {
+      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] This Content runtime has no collections. Add defineContent({ workspace, collections })." })
+    }
+    return documentsRuntime
+  }
   const byName = new Map(instances.map(instance => [instance.name, instance]))
   function from(name: string) {
     const instance = byName.get(name)
@@ -107,10 +281,44 @@ export function defineContent<
     if (!instance) throw new Error(`Unknown content cache key ${JSON.stringify(key)}.`)
     return instance.cache
   }
-  const runtime = {
+  // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
+  const documentsApi = {
+    collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
+    collection: (name: string) => requireDocuments().collection(name),
+    publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
+    revisions: (collection: string, id: string, revisionOptions?: ContentRevisionsOptions) => requireDocuments().revisions(collection, id, revisionOptions),
+    async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
+      if (context === null || Object(context) !== context || !contentActions.has(context.action)) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() requires { user?, actor?, collection, action: 'read' | 'write' | 'publish', id? }." })
+      }
+      const { user = null, actor, collection, action, id } = context
+      if (user !== null && Object(user) !== user) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() user must be the Auth user object or null." })
+      }
+      if (actor !== undefined && (actor === null || Object(actor) !== actor || String(actor.id) !== actor.id)) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() actor must be an Agent Actor with an id, or undefined." })
+      }
+      requireDocuments().collection(collection)
+      if (!authorize) return false
+      const decision: ContentAuthorizeContext<CollectionName<TCollections>> = { user, collection, action }
+      if (actor !== undefined) decision.actor = actor
+      if (id !== undefined) decision.id = id
+      return await authorize(decision) === true
+    },
+  } as ContentDocumentsRuntime<TCollections>
+  const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {
     ...hub,
-    list: (names?: string | string[]) => hub.list(Array.isArray(names) ? names : names ? [names] : undefined),
-    search: (names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => hub.search(query, { ...opts, instances: names }),
+    ...documentsApi,
+    // SAFETY: The wrapper forwards the path and options without changing the generic document result.
+    get: fresh(hub.get.bind(hub)) as ContentHub["get"],
+    navigation: fresh(hub.navigation.bind(hub)),
+    handler: fresh(hub.handler.bind(hub)),
+    list: fresh((names?: string | string[]) => hub.list(Array.isArray(names) ? names : names ? [names] : undefined)),
+    search: fresh((names: string[], query: string, opts?: Parameters<ContentHub["search"]>[1]) => hub.search(query, { ...opts, instances: names })),
+    async dispose() {
+      documentsRuntime?.dispose()
+      await hub.dispose()
+    },
     getSource: (name = "default") => byName.get(name)?.getSource(name),
     cache: {
       get: <T = ContentFile>(key: string) => cacheForKey(key).get<T>(key),
@@ -139,7 +347,7 @@ export function defineContent<
     }
   }
   // SAFETY: The instances install the declared plugin methods and the hub composes built-in methods.
-  return runtime as ContentRuntime & Omit<ContentMethods<TPlugins>, "search">
+  return runtime as ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections>
 }
 
 /** Adapt a Comark Content Web handler to an H3/Nitro route. */

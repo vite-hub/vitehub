@@ -35,6 +35,28 @@ interface CloudflareScheduledEventLike {
   scheduledTime?: number | string | Date
 }
 
+const intrinsicErrorIsError = (Error as ErrorConstructor & { isError?: (value: unknown) => boolean }).isError
+const intrinsicNativeErrorIsError = (() => {
+  try {
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Node's optional process bridge is inspected at runtime to avoid importing Node-only modules in provider bundles.
+    const process = (globalThis as typeof globalThis & {
+      process?: { getBuiltinModule?: (name: string) => unknown }
+    }).process
+    const getBuiltinModule = process?.getBuiltinModule
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before invocation.
+    if (typeof getBuiltinModule !== "function") return undefined
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- getBuiltinModule returns an unknown namespace that is narrowed by the guarded predicate below.
+    const util = getBuiltinModule.call(process, "util") as {
+      types?: { isNativeError?: (value: unknown) => boolean }
+    } | undefined
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before capture.
+    return typeof util?.types?.isNativeError === "function" ? util.types.isNativeError : undefined
+  }
+  catch {
+    return undefined
+  }
+})()
+
 export interface StaticScheduleRun extends ScheduleRunContext {
   cron: string
   scheduleId: string
@@ -56,8 +78,48 @@ export function normalizeCron(cron: string): string {
 }
 
 export function normalizeScheduleRuntimeError(error: unknown): Error {
-  if (error instanceof Error) return error
-  return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message: String(error) })
+  if (isScheduleRuntimeError(error)) return error
+  let message: string | undefined
+  try {
+    message = String(error)
+  }
+  catch {
+    message = "[unprintable thrown value]"
+  }
+  try {
+    return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message })
+  }
+  catch {
+    const fallback = new Error(message)
+    Object.defineProperty(fallback, "code", { value: "SCHEDULE_R0035", enumerable: true })
+    Object.defineProperty(fallback, "cause", { value: error })
+    return fallback
+  }
+}
+
+function isScheduleRuntimeError(error: unknown): error is Error {
+  try {
+    if (error instanceof Error) return true
+  }
+  catch {
+    return false
+  }
+  if (error === null || typeof error !== "object") return false
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional intrinsic predicate is captured from the host at module load.
+  if (typeof intrinsicNativeErrorIsError === "function") {
+    try {
+      return intrinsicNativeErrorIsError(error)
+    }
+    catch {
+      // Continue with the captured Error.isError predicate when the host utility rejects the value.
+    }
+  }
+  try {
+    return typeof intrinsicErrorIsError === "function" && intrinsicErrorIsError(error) === true
+  }
+  catch {
+    return false
+  }
 }
 
 export function createStaticScheduleRun(
