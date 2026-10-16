@@ -26,6 +26,7 @@
     "./provision": "./dist/provision.js",
     "./provision-state": "./dist/provision-state.js",
     "./source-scanner": "./dist/source-scanner.js",
+    "./standard-schema": "./dist/standard-schema.js",
     "./vite-stage": "./dist/vite-stage.js",
     "./runtime/app": "./dist/runtime/app.js",
     "./runtime/cloudflare-hosted": "./dist/runtime/cloudflare-hosted.js",
@@ -76,6 +77,7 @@
     "semver": "^7.8.5"
   },
   "devDependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
     "exsolve": "catalog:unjs",
