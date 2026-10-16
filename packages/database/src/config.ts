@@ -86,7 +86,9 @@ function maskCommentsAndStrings(source: string) {
     else if (char === "/" && next !== "/" && next !== "*") {
       let previous = index - 1
       while (previous >= 0 && /\s/.test(source[previous]!)) previous--
-      if (previous < 0 || /[=([{,:;!&|?]/.test(source[previous]!)) {
+      const preceding = source.slice(0, previous + 1)
+      const followsExpressionKeyword = /(?:return|throw|case|delete|void|typeof|instanceof|in|of|yield|await|else|do)\s*$/.test(preceding)
+      if (previous < 0 || /[=([{,:;!&|?]/.test(source[previous]!) || followsExpressionKeyword) {
         result += " "
         index++
         let inClass = false
