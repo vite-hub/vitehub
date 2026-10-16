@@ -6,12 +6,14 @@ export function relativeDuration(elapsed: number): string {
 
 /**
  * Returns a short label for a recent timestamp: `now`, `5m ago`, or `3h ago` within one day, else a UTC date such as `Aug 30`.
+ * With `seconds`, the first minute counts up as `3s ago` after five seconds of `now`, as a save status does.
  * Returns undefined for an invalid timestamp.
  */
-export function recentTimestamp(value: string, now: number): string | undefined {
+export function recentTimestamp(value: string, now: number, options: { seconds?: boolean } = {}): string | undefined {
   const time = Date.parse(value)
   if (!Number.isFinite(time)) return undefined
   const elapsed = Math.max(0, now - time)
+  if (options.seconds && elapsed >= 5_000 && elapsed < 60_000) return `${relativeDuration(elapsed)} ago`
   if (elapsed < 60_000) return "now"
   if (elapsed < 86_400_000) return `${relativeDuration(elapsed)} ago`
   return new Intl.DateTimeFormat("en", { day: "numeric", month: "short", timeZone: "UTC" }).format(time)

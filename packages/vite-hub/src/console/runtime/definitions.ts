@@ -48,6 +48,41 @@ export interface ConsoleDocumentCollection {
   path: string
   schema: Record<string, unknown>
   titleField?: string
+  /** Comark components that bodies may use, for the body editor's insert menu. */
+  components?: readonly ConsoleDocumentComponent[]
+}
+
+/** A Comark component that document bodies may use. It mirrors `ViteHubConsoleDocumentComponent`. */
+export interface ConsoleDocumentComponent {
+  description?: string
+  kind: "block" | "inline"
+  label: string
+  name: string
+  props: Record<string, { default?: unknown, type: "boolean" | "json" | "number" | "string" }>
+}
+
+const componentPropTypes = ["boolean", "json", "number", "string"] as const
+
+function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponent[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    const component = record(entry)
+    if (!component || !text(component.name) || !/^[a-z][a-z0-9-]*$/.test(component.name)) return []
+    const props: ConsoleDocumentComponent["props"] = {}
+    for (const [name, prop] of Object.entries(record(component.props) ?? {})) {
+      const type = componentPropTypes.find(entry => entry === record(prop)?.type)
+      if (!type) continue
+      props[name] = record(prop)?.default === undefined ? { type } : { default: record(prop)?.default, type }
+    }
+    const parsed: ConsoleDocumentComponent = {
+      kind: component.kind === "inline" ? "inline" : "block",
+      label: text(component.label) ? component.label : component.name,
+      name: component.name,
+      props,
+    }
+    if (text(component.description)) parsed.description = component.description
+    return [parsed]
+  })
 }
 
 /** Serializable descriptor of a Console section that an owner package contributes. */
@@ -164,6 +199,8 @@ export function parseConsoleDocumentCollections(value: unknown): ConsoleDocument
       schema,
     }
     if (text(collection.titleField)) parsed.titleField = collection.titleField
+    const components = parseConsoleDocumentComponents(collection.components)
+    if (components.length) parsed.components = components
     return [parsed]
   })
 }

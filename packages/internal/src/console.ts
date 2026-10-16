@@ -147,7 +147,20 @@ export interface ViteHubConsoleDocumentCollection {
   schema: Record<string, unknown>
   /** String field that names a document in lists, for example `title`. Lists use the id without it. */
   titleField?: string
+  /** Comark components that bodies may use. The editor offers them in its insert menu. */
+  components?: readonly ViteHubConsoleDocumentComponent[]
   access: ViteHubConsoleDocumentAccess
+}
+
+/** A Comark component that document bodies may use, such as `::alert`. */
+export interface ViteHubConsoleDocumentComponent {
+  /** Comark tag, such as `alert`. */
+  name: string
+  kind: "block" | "inline"
+  label: string
+  description?: string
+  /** Each prop's Comark type and the value a new component starts with. */
+  props: Record<string, { type: "string" | "number" | "boolean" | "json", default?: unknown }>
 }
 
 /**
