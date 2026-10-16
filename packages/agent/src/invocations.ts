@@ -668,7 +668,7 @@ function isAggregateErrorValue(value: unknown): value is AggregateError {
         && isNativeConstructor(constructor, nativeAggregateErrorConstructorSource)
         && constructor.prototype === prototype
         && Object.hasOwn(value, "errors")
-        && isArray((value as Record<string, unknown>).errors)
+        && isArray((value as unknown as Record<string, unknown>).errors)
       ) return true
       prototype = Object.getPrototypeOf(prototype)
     }
@@ -857,7 +857,7 @@ async function collectBoundedObservationBuiltIns(
         if (steps++ >= MAX_OBSERVATION_COLLECTION_ITEMS || count >= MAX_OBSERVATION_COLLECTION_ITEMS) break
         if (key === "cause" || key === "errors") continue
         count++
-        await collectBoundedObservationBuiltIns(value[key], builtIns, budget, seen, depth + 1)
+        await collectBoundedObservationBuiltIns((value as unknown as Record<string, unknown>)[key], builtIns, budget, seen, depth + 1)
       }
       return
     }
@@ -1009,7 +1009,7 @@ function boundedObservationValue(
   if (isErrorValue(value)) {
     budget.truncated = true
     const read = (key: string): unknown => {
-      try { return (value as Record<string, unknown>)[key] }
+      try { return (value as unknown as Record<string, unknown>)[key] }
       catch { budget.truncated = true; return undefined }
     }
     const details: Array<[string, unknown]> = [
