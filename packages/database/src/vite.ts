@@ -22,6 +22,7 @@ import { dbPackageName, generateProviderOutputs, prepareProviderOutputs, shouldC
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions } from "./inspect.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
+import { resolveSourceImport } from "./internal/source-dependencies.ts"
 
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
@@ -182,8 +183,8 @@ async function collectSourceDependencies(file: string, require: NodeRequire, fil
   const imports = source.matchAll(/(?:from\s*["']|import\s*\(\s*["']|import\s*["']|export\s+[^;]*?from\s*["'])([^"']+)["']/g)
   for (const match of imports) {
     try {
-      const resolved = normalize(require.resolve(match[1]!, { paths: [dirname(file)] }))
-      await collectSourceDependencies(resolved, require, files, seen)
+      const resolved = resolveSourceImport(match[1]!, file, require)
+      if (resolved) await collectSourceDependencies(normalize(resolved), require, files, seen)
     }
     catch { /* unresolved aliases are handled by the host module graph */ }
   }

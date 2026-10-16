@@ -83,7 +83,6 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
   const file = config.generatedSchemaFilesByDatabase[definition.name]!
   const contributions = config.tableContributionsByDatabase[definition.name] ?? []
   await mkdir(dirname(file), { recursive: true })
-  const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
   const [sources, loadedContributions] = await Promise.all([
     Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options))),
     Promise.all(contributions.map(async contribution => ({
@@ -94,17 +93,21 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
   // A failed contribution is intentionally omitted in non-strict mode. Its module cannot be imported by the
   // generated schema, while the fallback warning already explains that its tables are unavailable.
   const activeContributions = loadedContributions.filter(item => item.schema.loaded)
+  const loadedSources = sources.filter(source => source.loaded)
+  const activeSourceDefinitions = definition.schemaSources.filter((_, index) => sources[index]!.loaded)
+  const activeDefinition = { ...definition, schemaSources: activeSourceDefinitions }
+  const sourceVariables = schemaSourceVariables(activeDefinition, "databaseDefinition", "schemaSource_")
   const contributed = activeContributions.map(item => item.schema)
   // Each table comes from the layer source that wins its key, so drizzle-kit sees every table once.
   const tableSources = new Map<string, string>()
-  sources.forEach((source, index) => {
+  loadedSources.forEach((source, index) => {
     for (const key of source.keys) tableSources.set(key, `${sourceVariables[index]}.schema`)
   })
   const parts: SchemaPart[] = [
     {
-      expression: definition.schemaSources.length > 1 ? "definitionSchema" : "databaseDefinition.schema",
+      expression: loadedSources.length > 1 ? "definitionSchema" : loadedSources.length === 1 ? "databaseDefinition.schema" : "{}",
       owner: `Database Definition "${definition.handler}"`,
-      schema: mergeLoadedSchemas(sources),
+      schema: mergeLoadedSchemas(loadedSources),
       tableSources,
     },
     ...activeContributions.map((item, index) => ({
@@ -114,7 +117,7 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
     })),
   ]
   assertDistinctLoadedSchemas(definition.name, parts)
-  await writeFile(file, renderGeneratedDrizzleSchema(file, definition, parts, activeContributions.map(item => item.contribution)), "utf8")
+  await writeFile(file, renderGeneratedDrizzleSchema(file, activeDefinition, parts, activeContributions.map(item => item.contribution)), "utf8")
 }
 
 function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {

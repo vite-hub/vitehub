@@ -16,6 +16,7 @@ import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./interna
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchema } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
@@ -288,8 +289,8 @@ async function collectWatchedModuleFiles(file: string, require: NodeRequire, fil
   const imports = source.matchAll(/(?:from\s*["']|import\s*\(\s*["']|import\s*["']|export\s+[^;]*?from\s*["'])([^"']+)["']/g)
   for (const match of imports) {
     try {
-      const resolved = require.resolve(match[1]!, { paths: [dirname(file)] })
-      await collectWatchedModuleFiles(resolved, require, files, seen)
+      const resolved = resolveSourceImport(match[1]!, file, require)
+      if (resolved) await collectWatchedModuleFiles(resolved, require, files, seen)
     }
     catch { /* unresolved aliases are handled by Nuxt */ }
   }
