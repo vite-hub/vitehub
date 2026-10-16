@@ -805,14 +805,15 @@ export function resolveDBViteConfig(
   const cloudflareBindings = new Map<string, string>()
   for (const definition of definitions) {
     const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
-    // An opaque expression can only participate in native binding checks when
-    // we can prove it does not own a resource. Unknown ownership may describe
-    // an HTTP-only or remote resource, which does not emit a native D1 binding.
-    if (definitionCloudflare.resource === "opaque" && (definitionCloudflare.ownsOpaqueResource !== false || definitionCloudflare.opaqueHttpOnly === true)) continue
+    // Opaque definitions that prove resource ownership or HTTP-only behavior
+    // do not emit native D1 bindings and must stay out of this check.
+    if (definitionCloudflare.resource === "opaque" && (definitionCloudflare.ownsOpaqueResource === true || definitionCloudflare.opaqueHttpOnly === true)) continue
     const effectiveCloudflare = databases[definition.name]?.cloudflare
     if (effectiveCloudflare?.http) continue
     const binding = effectiveCloudflare?.binding
-      ?? (definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
+      ?? (definitionCloudflare.resource !== "opaque" || (definitionCloudflare.ownsOpaqueResource === false && definitionCloudflare.opaqueHttpOnly !== undefined)
+        ? (definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
+        : undefined)
     if (!binding) continue
     const previousName = cloudflareBindings.get(binding)
     if (previousName && previousName !== definition.name) {
