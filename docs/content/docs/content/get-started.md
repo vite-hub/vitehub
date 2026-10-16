@@ -3,7 +3,7 @@
 title: Read your first Content document
 description: Parse a local Markdown file and read its Content document from a route.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---

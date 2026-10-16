@@ -280,7 +280,7 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  const response = normalizeAuthorizationResponse(result)
+  const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
@@ -318,18 +318,28 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   }
 }
 
-function hasResponsePrototype(value: unknown): boolean {
+let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+
+async function getUndiciResponse(): Promise<typeof Response | undefined> {
+  if (undiciResponsePromise) return undiciResponsePromise
+  undiciResponsePromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.Response as typeof Response)
+    .catch(() => undefined)
+  return undiciResponsePromise
+}
+
+async function hasResponsePrototype(value: unknown): Promise<boolean> {
+  const targets = new Set<object>([Response.prototype])
+  const UndiciResponse = await getUndiciResponse()
+  if (UndiciResponse) targets.add(UndiciResponse.prototype)
   try {
-    let prototype: object | null = Object.getPrototypeOf(Object(value))
+    let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
-      seen.add(prototype)
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      const owner = prototype
-      if (constructor?.name === "Response"
-        && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
-      prototype = Object.getPrototypeOf(prototype)
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (targets.has(current)) return true
+      if (seen.has(current)) return false
+      seen.add(current)
+      current = Object.getPrototypeOf(current)
     }
   }
   catch {
@@ -467,11 +477,18 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
           // the happy path on a probe reader, but it cannot pass this check
           // without reproducing the runtime's internal-slot guard.
           for (const key of ["read", "cancel", "releaseLock"] as const) {
+            let invalidReceiverThrew = false
             try {
               const invalidReceiverResult = Reflect.apply(probeMethods[key], {}, key === "cancel" ? [undefined] : [])
+              if (key === "releaseLock") {
+                // Native releaseLock performs its brand check synchronously and
+                // returns undefined for a valid reader.
+                if (invalidReceiverResult !== undefined) return
+                continue
+              }
               if (invalidReceiverResult === null
-                || (typeof invalidReceiverResult !== "object" && typeof invalidReceiverResult !== "function")) return
-              if (typeof (invalidReceiverResult as PromiseLike<unknown>).then !== "function") return
+                || (typeof invalidReceiverResult !== "object" && typeof invalidReceiverResult !== "function")
+                || typeof (invalidReceiverResult as PromiseLike<unknown>).then !== "function") return
               // Native read/cancel reject asynchronously for an invalid
               // receiver. Observe that rejection so probing never leaks an
               // unhandled promise while retaining the brand check.
@@ -479,7 +496,9 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
             }
             catch {
               // Expected: the operation rejects a non-reader receiver.
+              invalidReceiverThrew = true
             }
+            if (key === "releaseLock" && !invalidReceiverThrew) return
           }
           // Exercise every operation in the source runtime. This rejects
           // callable replacements that do not preserve Web Streams behavior,
@@ -614,11 +633,11 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
   return { stream, release }
 }
 
-function normalizeAuthorizationResponse(value: unknown): Response | undefined {
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
   try {
     const candidate = Object(value)
-    if (!hasResponsePrototype(candidate)) return
+    if (!await hasResponsePrototype(candidate)) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
@@ -661,9 +680,22 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
+    let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
-      if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, value)
+      if (key.toLowerCase() === "set-cookie") {
+        if (cookies.length === 0) combinedCookies = value
+        return
+      }
+      normalizedHeaders.append(key, value)
     }])
+    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // followed by another cookie assignment at the cookie-pair boundary proves that
+    // multiple values were merged. Assignment-like text after an extension attribute
+    // can still be part of that attribute's value, so do not reject it as a merge.
+    if (combinedCookies !== undefined) {
+      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      normalizedHeaders.append("set-cookie", combinedCookies)
+    }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
 
@@ -705,7 +737,8 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = route instanceof Object ? route.authorize : undefined
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route configuration crosses JavaScript realms; runtime object narrowing preserves foreign authorize callbacks.
+      const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }
