@@ -327,6 +327,9 @@ function isResponseLike(value: unknown): value is Response {
     // A response from another runtime has a different native brand. Validate
     // its own prototype accessors instead, without consuming or cloning it.
     try {
+      // Foreign responses must also reject caller-owned fields that shadow
+      // the native accessors used by host serialization.
+      if (hasResponseShadow(value)) return false
       const maxPrototypeDepth = 8
       let prototype: object | null = value
       let statusGetter: (() => unknown) | undefined
