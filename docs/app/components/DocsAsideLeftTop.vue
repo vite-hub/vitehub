@@ -8,9 +8,10 @@ const sectionPath = computed(() => currentSection.value?.path || "/docs");
 const sectionTitle = computed(() => currentSection.value?.title || "All products");
 const sectionCategory = computed(() => {
   const category = currentSection.value?.category;
-  return category || "Getting started";
+  if (!category) return "Getting started";
+  return category === currentSection.value?.title ? "" : category;
 });
-const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDocsPath(sectionPath.value));
+const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
 </script>
 
 <template>
@@ -88,6 +89,43 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDo
   overflow: hidden;
   color: inherit;
   font-size: 0.875rem;
+}
+
+.vh-docs-context {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 3.25rem;
+  border-bottom: 1px solid var(--ui-border);
+  padding: 0.5rem 1.25rem;
+  color: var(--ui-text-muted);
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.vh-docs-context:hover,
+.vh-docs-context:focus-visible,
+.vh-docs-context.is-current {
+  background: color-mix(in srgb, var(--ui-text-highlighted) 5%, transparent);
+  color: var(--ui-text-highlighted);
+}
+
+.vh-docs-context-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.vh-docs-context-category {
+  color: var(--ui-text-dimmed);
+  font-size: 0.625rem;
+  font-weight: 600;
+
+
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vh-docs-context-arrow {

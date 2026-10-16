@@ -4,6 +4,8 @@ import type { FileUIPart } from "ai";
 import { computed, ref, watch } from "vue";
 
 import { startConsoleAgentInvocation, useConsoleInvocationTarget } from "../client/invocation";
+import { ConsoleRequestError } from "../client/request";
+import ConsoleState from "./console-state.vue";
 
 interface ConsoleAgentProfile {
   id: string;
@@ -80,8 +82,14 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
 <template>
   <div class="console-invocation-composer shrink-0 bg-default px-3 pb-4 pt-2 sm:px-5 sm:pb-5">
     <div class="mx-auto grid w-full max-w-3xl gap-2">
+      <ConsoleState
+        v-if="error instanceof ConsoleRequestError"
+        compact
+        :error="error"
+        title="Could not start Agent"
+      />
       <UAlert
-        v-if="error"
+        v-else-if="error"
         color="error"
         icon="i-ph-warning-circle-light"
         title="Could not start Agent"

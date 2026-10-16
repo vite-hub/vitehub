@@ -29,7 +29,7 @@ function renderRetentionLimit(value: number | false | undefined): string {
  * `authorize` is the `console.authorize` server file.
  */
 export interface ConsoleAccessBuild {
-  mode: "open" | "auth" | "cloudflare-access"
+  mode: "open" | "auth" | "cloudflare-access" | "host-managed" | "local"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
 }

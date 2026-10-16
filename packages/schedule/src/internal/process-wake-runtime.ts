@@ -48,6 +48,7 @@ interface ProcessWakeState {
   readonly dispatched: Set<string>
   readonly occurrenceMinute?: number
   readonly queued: Map<string, RuntimeScheduleWake>
+  readonly scannedThrough?: number
   readonly schedules: Map<string, RuntimeScheduleRecord>
   readonly started: boolean
 }
@@ -60,6 +61,8 @@ export interface ProcessWakeRuntime {
 }
 
 export interface ProcessWakeRuntimeOptions {
+  /** How far back the driver dispatches due minutes that no scan checked. `0` checks only the current minute. */
+  readonly catchUpMs: number
   readonly concurrency: number
   readonly context: RuntimeScheduleWakeDriverContext
   readonly intervalMs: number
@@ -74,10 +77,13 @@ function cloneState(state: ProcessWakeState, patch: Partial<ProcessWakeState>): 
     dispatched: patch.dispatched ?? state.dispatched,
     occurrenceMinute: patch.occurrenceMinute ?? state.occurrenceMinute,
     queued: patch.queued ?? state.queued,
+    scannedThrough: patch.scannedThrough ?? state.scannedThrough,
     schedules: patch.schedules ?? state.schedules,
     started: patch.started ?? state.started,
   }
 }
+
+const minuteMs = 60_000
 
 function floorUTCMinute(date: Date): Date {
   return new Date(
@@ -220,38 +226,56 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
     { discard: true },
   )
 
-  const scanUnlocked = Effect.fn("ScheduleProcessDriver.scan")(function* () {
-    const scheduledAt = floorUTCMinute(yield* currentDate)
-    const snapshot = yield* Ref.get(state)
-    const dueIds: string[] = []
-    for (const schedule of snapshot.schedules.values()) {
+  /** Due occurrences of `schedules` from `first` through `last`, oldest first. */
+  const dueOccurrences = Effect.fn("ScheduleProcessDriver.due")(function* (
+    schedules: Iterable<RuntimeScheduleRecord>,
+    first: number,
+    last: number,
+  ) {
+    const due: RuntimeScheduleWake[] = []
+    for (const schedule of schedules) {
       if (!schedule.enabled) continue
-      const result = yield* wrapBoundary(() => isRuntimeScheduleDue(schedule, scheduledAt)).pipe(
-        Effect.match({
-          onFailure: (error) => ({ error }),
-          onSuccess: (due) => ({ due }),
-        }),
-      )
-      if ("error" in result) {
-        yield* reportError(options.context, result.error.cause)
-      } else if (result.due) {
-        dueIds.push(schedule.id)
+      for (let minute = first; minute <= last; minute += minuteMs) {
+        const scheduledAt = new Date(minute)
+        const result = yield* wrapBoundary(() => isRuntimeScheduleDue(schedule, scheduledAt)).pipe(
+          Effect.match({
+            onFailure: (error) => ({ error }),
+            onSuccess: (isDue) => ({ isDue }),
+          }),
+        )
+        if ("error" in result) {
+          yield* reportError(options.context, result.error.cause)
+          break
+        }
+        if (result.isDue) due.push({ scheduleId: schedule.id, scheduledAt })
       }
     }
+    return due.sort((left, right) => left.scheduledAt.getTime() - right.scheduledAt.getTime())
+  })
 
-    const occurrences = yield* Ref.modify(state, (current) => {
+  /** Queues occurrences that are not queued or running yet. The current minute dispatches each Schedule once. */
+  const queueOccurrences = (due: readonly RuntimeScheduleWake[], currentMinute: number) =>
+    Ref.modify(state, (current) => {
       if (current.closed || current.closing) return [[] as RuntimeScheduleWake[], current] as const
+      // A wall-clock correction can move the process into an earlier minute. Do not
+      // reset the per-minute deduplication state, or that minute may run twice when
+      // the clock moves forward again.
+      if (current.occurrenceMinute !== undefined && currentMinute < current.occurrenceMinute) {
+        return [[] as RuntimeScheduleWake[], current] as const
+      }
       const dispatched =
-        current.occurrenceMinute === scheduledAt.getTime()
+        current.occurrenceMinute === currentMinute
           ? new Set(current.dispatched)
           : new Set<string>()
       const queued = new Map(current.queued)
       const occurrences: RuntimeScheduleWake[] = []
-      for (const scheduleId of dueIds) {
-        const input = { scheduleId, scheduledAt }
+      for (const input of due) {
         const key = occurrenceKey(input)
-        if (dispatched.has(scheduleId) || queued.has(key) || current.active.has(key)) continue
-        dispatched.add(scheduleId)
+        if (queued.has(key) || current.active.has(key)) continue
+        if (input.scheduledAt.getTime() === currentMinute) {
+          if (dispatched.has(input.scheduleId)) continue
+          dispatched.add(input.scheduleId)
+        }
         queued.set(key, input)
         occurrences.push(input)
       }
@@ -259,13 +283,46 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
         occurrences,
         cloneState(current, {
           dispatched,
-          occurrenceMinute: scheduledAt.getTime(),
+          occurrenceMinute: currentMinute,
           queued,
+          scannedThrough: Math.max(current.scannedThrough ?? currentMinute, currentMinute),
         }),
       ] as const
     })
 
-    return occurrences
+  const scanUnlocked = Effect.fn("ScheduleProcessDriver.scan")(function* () {
+    const currentMinute = floorUTCMinute(yield* currentDate).getTime()
+    const snapshot = yield* Ref.get(state)
+    // A late timer can skip a minute. Check every minute after the previous scan.
+    const first = snapshot.scannedThrough === undefined
+      ? currentMinute
+      : Math.min(currentMinute, Math.max(snapshot.scannedThrough + minuteMs, currentMinute - options.catchUpMs))
+    const due = yield* dueOccurrences(snapshot.schedules.values(), first, currentMinute)
+    return yield* queueOccurrences(due, currentMinute)
+  })
+
+  // After a restart, dispatch the minutes that no process checked: those after each Schedule's
+  // latest run, within `catchUpMs`. Run ids are deterministic, so a minute that already ran does not run again.
+  const catchUpUnlocked = Effect.fn("ScheduleProcessDriver.catchUp")(function* (
+    schedules: readonly RuntimeScheduleRecord[],
+  ) {
+    const latestScheduledAt = options.context.latestScheduledAt
+    if (!latestScheduledAt || options.catchUpMs <= 0) return [] as RuntimeScheduleWake[]
+    const currentMinute = floorUTCMinute(yield* currentDate).getTime()
+    const due: RuntimeScheduleWake[] = []
+    for (const schedule of schedules) {
+      if (!schedule.enabled) continue
+      const latest = yield* Effect.tryPromise({
+        try: () => Promise.resolve(latestScheduledAt(schedule.id)),
+        catch: (cause) => new ProcessWakeBoundaryError({ cause }),
+      }).pipe(Effect.catchTag("ProcessWakeBoundaryError", (error) =>
+        Effect.as(reportError(options.context, error.cause), undefined),
+      ))
+      if (!latest) continue
+      const first = Math.max(floorUTCMinute(latest).getTime() + minuteMs, currentMinute - options.catchUpMs)
+      due.push(...yield* dueOccurrences([schedule], first, currentMinute - minuteMs))
+    }
+    return yield* queueOccurrences(due.sort((left, right) => left.scheduledAt.getTime() - right.scheduledAt.getTime()), currentMinute)
   })
 
   const enqueue = (occurrences: readonly RuntimeScheduleWake[]) =>
@@ -331,6 +388,7 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
         })
 
         if (!snapshot.closing) {
+          if (startScanner) yield* Effect.flatMap(catchUpUnlocked(records), enqueue)
           yield* Effect.flatMap(scanUnlocked(), enqueue)
           if (startScanner) {
             yield* FiberSet.run(scannerFibers, scanLoop, { startImmediately: true })
