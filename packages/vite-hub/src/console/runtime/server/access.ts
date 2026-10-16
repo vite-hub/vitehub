@@ -89,7 +89,7 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
       cloned = Reflect.apply(clone, value, [])
     }
     catch {
-      if (bodyUsed) return new Response(null, init)
+      if (bodyUsed) return
       return
     }
     if (!cloned || typeof cloned !== "object" || cloned === value || Object.getPrototypeOf(cloned) !== Object.getPrototypeOf(value)) return

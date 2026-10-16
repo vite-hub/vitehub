@@ -169,13 +169,14 @@ describe("Console access policies", () => {
     await expect(rejection(spoofedPrototype.result)).resolves.toMatchObject({ status: 403 })
   })
 
-  it("preserves a consumed response from another runtime realm", async () => {
+  it("rejects a consumed response from another runtime realm", async () => {
     const authorize = runInNewContext("async () => { const response = new Response('Consumed.', { status: 401 }); await response.text(); return response }", { Response }) as unknown as ConsoleAuthorize
 
     installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
     const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
 
-    expect(result).toMatchObject({ status: 401 })
+    expect(result).toMatchObject({ status: 500 })
+    await expect((result as Response).json()).resolves.toMatchObject({ status: 500 })
   })
 
   it("fails closed when no policy is installed", async () => {
