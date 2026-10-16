@@ -165,12 +165,47 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const limit = options.limit ?? 20
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: "[vitehub] History list limit must be an integer from 1 to 100." })
     const ref = normalizeHistoryRef(options.ref)
+    const path = options.path === undefined ? undefined : normalizeHistoryPath(options.path)
     const workspace = await this.#key()
     const cursor = options.cursor ? await this.#revision(options.cursor) : undefined
     if (cursor && cursor.ref !== ref) throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: `[vitehub] History cursor belongs to ref "${cursor.ref}". Pass it with the ref that returned it.` })
+    const previousEntries = sql`
+      coalesce((
+        select previous.entries
+        from ${revisions} as previous
+        where previous.workspace = ${revisions.workspace}
+          and previous.id = ${revisions.parentId}
+          and previous.committed = 1
+      ), '{}')
+    `
+    const pathFilter = path === undefined ? undefined : sql`(
+      exists (
+        select 1
+        from json_each(${revisions.entries}) as current_file
+        left join json_each(${previousEntries}) as previous_file
+          on previous_file.key = current_file.key
+        where (current_file.key = ${path} or substr(current_file.key, 1, length(${path}) + 1) = ${path} || '/')
+          and (
+            previous_file.key is null
+            or json_extract(current_file.value, '$.digest') is not json_extract(previous_file.value, '$.digest')
+            or json_extract(current_file.value, '$.size') is not json_extract(previous_file.value, '$.size')
+            or json_extract(current_file.value, '$.mediaType') is not json_extract(previous_file.value, '$.mediaType')
+            or json_extract(current_file.value, '$.metadata') is not json_extract(previous_file.value, '$.metadata')
+          )
+      )
+      or exists (
+        select 1
+        from json_each(${previousEntries}) as previous_file
+        left join json_each(${revisions.entries}) as current_file
+          on current_file.key = previous_file.key
+        where (previous_file.key = ${path} or substr(previous_file.key, 1, length(${path}) + 1) = ${path} || '/')
+          and current_file.key is null
+      )
+    )`
     const rows = await this.options.database.select().from(revisions).where(and(
       eq(revisions.workspace, workspace), eq(revisions.ref, ref), eq(revisions.committed, true),
       cursor ? lt(revisions.sequence, cursor.sequence) : undefined,
+      pathFilter,
       this.#active(workspace),
     )).orderBy(desc(revisions.sequence)).limit(limit + 1)
     const result: WorkspaceHistoryListResult = { revisions: rows.slice(0, limit).map(publicRevision) }
