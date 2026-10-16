@@ -50,9 +50,9 @@ export function createCursorHistory(namespace = "default") {
   const ownedContinuations = new Set<string>()
   const ownedConsumedContinuations = new Set<string>()
   let epoch = 0
-  function take(cursor: string): Continuation {
+  function take(cursor: string, requestedNamespace = namespace): Continuation {
     const continuation = continuations.get(cursor)
-    if (continuation && continuation.namespace !== namespace) {
+    if (continuation && continuation.namespace !== requestedNamespace) {
       throw new Error("ViteHub continuation cursor belongs to a different storage backend.")
     }
     if (!continuation) {
@@ -74,9 +74,9 @@ export function createCursorHistory(namespace = "default") {
     ownedConsumedContinuations.add(cursor)
     return continuation
   }
-  function store(providerCursor: string, history: CursorHistory): string {
+  function store(providerCursor: string, history: CursorHistory, requestedNamespace = namespace): string {
     const token = encodeContinuation(providerCursor, history)
-    continuations.set(token, { providerCursor, history, epoch, namespace })
+    continuations.set(token, { providerCursor, history, epoch, namespace: requestedNamespace })
     ownedContinuations.add(token)
     while (continuations.size > MAX_CURSOR_HISTORIES) {
       const oldest = continuations.keys().next().value as string | undefined

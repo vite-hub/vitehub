@@ -38,6 +38,23 @@ function isCloudflareKVListPage(value: unknown): value is CloudflareKVListPage {
   return page.list_complete || (isCloudflareKVString(page.cursor) && page.cursor.length > 0)
 }
 
+const cloudflareBindingIds = new WeakMap<object, string>()
+let nextCloudflareBindingId = 0
+function cloudflareBindingNamespace(bindingName: unknown): string {
+  const binding = typeof bindingName === "string"
+    ? getActiveCloudflareBinding<CloudflareKVNamespace>(bindingName)
+    : undefined
+  if (binding && (typeof binding === "object" || typeof binding === "function")) {
+    let id = cloudflareBindingIds.get(binding)
+    if (!id) {
+      id = `object-${++nextCloudflareBindingId}`
+      cloudflareBindingIds.set(binding, id)
+    }
+    return `cloudflare-kv:${id}`
+  }
+  return `cloudflare-kv:${typeof bindingName === "string" ? bindingName : "default"}`
+}
+
 function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriver {
   const bindingName = options.binding
   // unstorage reads `binding` on every operation and finds a binding name only on globals.
@@ -71,7 +88,8 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
-    const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: cursorNamespace }
+    const requestNamespace = cloudflareBindingNamespace(bindingName)
+    const continuation = cursor ? cursorHistories.take(cursor, requestNamespace) : { providerCursor: undefined, history: new Set<string>(), namespace: requestNamespace }
     try {
       if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor
       const cursors = continuation.history
@@ -88,7 +106,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
         if (!recordCursor(cursors, page.cursor!)) {
           throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected pagination after the cursor history limit was reached." })
         }
-        result.cursor = cursorHistories.store(page.cursor!, cursors)
+        result.cursor = cursorHistories.store(page.cursor!, cursors, requestNamespace)
       }
       cursorHistories.complete(cursor)
       return result
