@@ -355,6 +355,11 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
   if (typeof value !== "function") return false
   if (value === localIntrinsic) return true
   try {
+    // Web platform operations are prototype methods (including accessors),
+    // never ordinary function declarations with their own prototype object.
+    // Reject those declarations before their body can be invoked. This also
+    // excludes the common forged `function namedLikeAnIntrinsic() {}` shape.
+    if (Object.getOwnPropertyDescriptor(value, "prototype")) return false
     // Function source text is implementation-defined and differs across
     // runtimes. The surrounding verified prototype/descriptor checks establish
     // the operation's carrier realm; use only its stable intrinsic name here.
@@ -402,8 +407,8 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
   }
   const forEachEntry = findMethod("forEach")
   const cookieEntry = findMethod("getSetCookie")
-  if (!forEachEntry || typeof forEachEntry.value !== "function" || forEachEntry.value.name !== "forEach") return
-  if (cookieEntry && (typeof cookieEntry.value !== "function" || cookieEntry.value.name !== "getSetCookie")) return
+  if (!forEachEntry || !isNativeFunction(forEachEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value, "forEach")) return
+  if (cookieEntry && !isNativeFunction(cookieEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie")) return
   if (cookieEntry && cookieEntry.owner !== forEachEntry.owner) return
   const owner = forEachEntry.owner
   const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
