@@ -55,6 +55,10 @@ function getForeignBlobMethods(value: object): { stream: (value: object) => Read
       (typeof typeDescriptor?.get === "function" || typeof ownType === "string") &&
       typeof slice === "function" && typeof constructor === "function" && constructor.name === "Blob") {
       try {
+        // Require the candidate to belong to the implementation that supplied
+        // this prototype before invoking any of its methods. This rejects
+        // lookalike objects whose methods merely imitate a Blob surface.
+        if (!(value instanceof (constructor as Function))) return undefined
         // Calling the foreign implementation's own slice operation validates its
         // internal slots without invoking any property supplied by the instance.
         const sliced = Reflect.apply(slice, value, [0, 0])
