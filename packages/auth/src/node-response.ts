@@ -64,8 +64,9 @@ function splitCombinedSetCookie(value: string | null): string[] {
     // A cookie boundary is a comma followed by a cookie name and equals sign.
     // Check this before the Expires state so dates without a trailing semicolon
     // still allow the next cookie to be forwarded separately.
-    if (/^\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+=/.test(value.slice(index + 1))
-      && isKnownCookieAttribute(value.slice(start, index))) {
+    const remainder = value.slice(index + 1)
+    if (/^\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+=/.test(remainder)
+      && isKnownCookieAttribute(value.slice(start, index), /^\s/.test(remainder))) {
       result.push(value.slice(start, index).trim())
       start = index + 1
       inExpires = false
@@ -77,9 +78,16 @@ function splitCombinedSetCookie(value: string | null): string[] {
   return result
 }
 
-function isKnownCookieAttribute(cookie: string): boolean {
+function isKnownCookieAttribute(cookie: string, hasBoundaryWhitespace: boolean): boolean {
   const attributes = cookie.match(/;\s*([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:=|\s|$)/g)
   if (!attributes?.length) return true
   const known = new Set(["expires", "max-age", "domain", "path", "samesite", "secure", "httponly", "partitioned", "priority"])
-  return attributes.every(attribute => known.has(attribute.slice(1).trim().split(/[=\s]/, 1)[0]!.toLowerCase()))
+  if (!attributes.every(attribute => known.has(attribute.slice(1).trim().split(/[=\s]/, 1)[0]!.toLowerCase()))) return false
+  // A comma without whitespace can be part of a value-bearing attribute
+  // (for example, `Path=/a,x=1`). Keep it intact unless the attribute is a
+  // flag, where compact combined-cookie boundaries are unambiguous.
+  const lastAttribute = attributes.at(-1)!.slice(1).trim()
+  const lastSemicolon = cookie.lastIndexOf(";")
+  if (lastSemicolon >= 0 && cookie.slice(lastSemicolon + 1).includes(",") && !/^expires\s*=/i.test(lastAttribute)) return false
+  return hasBoundaryWhitespace || !lastAttribute.includes("=")
 }
