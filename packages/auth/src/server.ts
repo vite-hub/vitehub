@@ -447,6 +447,10 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           if (Object.getOwnPropertyDescriptor(parent, "getReader")) return
           parent = Object.getPrototypeOf(parent)
         }
+        // Only the captured Web Streams constructor is trusted. A foreign
+        // constructor can reproduce every observable probe result while
+        // retaining caller-controlled reader methods.
+        if (constructor !== ReadableStream) return
         if (typeof descriptor.value === "function"
           && constructor?.name === "ReadableStream") {
           // Probe the source runtime's reader prototype before acquiring the
