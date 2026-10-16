@@ -7,6 +7,7 @@ import { defineComponent, h, inject, type InjectionKey, type PropType, provide, 
 /** Where local changes stand: not loaded yet, on their way, stored, or rejected. */
 export type SyncStatusValue = "loading" | "synchronizing" | "synchronized" | "error";
 
+// SAFETY: the symbol is private to this module and always provides this ref type.
 const statusKey: InjectionKey<Ref<SyncStatusValue>> = Symbol("SyncStatus");
 
 const labels: Record<SyncStatusValue, string> = {
@@ -19,6 +20,7 @@ const labels: Record<SyncStatusValue, string> = {
 export const SyncStatus = defineComponent({
   name: "SyncStatus",
   props: {
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
     status: { required: true, type: String as PropType<SyncStatusValue> },
   },
   setup(props, { slots }) {

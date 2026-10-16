@@ -17,6 +17,7 @@ export type AvatarStackVariant = "default" | "outline";
 
 function initials(name: string) {
   const words = name.trim().split(/\s+/).filter(Boolean);
+  // SAFETY: `words.at(-1)` exists when `words.length > 1`.
   return ((words[0]?.[0] ?? "") + (words.length > 1 ? words.at(-1)![0] : (words[0]?.[1] ?? ""))).toUpperCase() || "?";
 }
 
@@ -24,9 +25,12 @@ export const AvatarStack = defineComponent({
   name: "AvatarStack",
   props: {
     /** Each person once: entries with the same `id` (a person in two tabs) show one avatar. */
+    // SAFETY: Vue uses this constructor only for runtime validation; the generic preserves the public prop type.
     people: { required: true, type: Array as PropType<AvatarStackPerson[]> },
     /** The most items to show, counting the "+N" item. `null` shows everyone. */
+    // SAFETY: Vue's runtime constructors cannot express nullable numeric props or string literal unions.
     max: { default: 3, type: [Number, null] as PropType<number | null> },
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
     size: { default: "default", type: String as PropType<AvatarStackSize> },
     variant: { default: "default", type: String as PropType<AvatarStackVariant> },
   },

@@ -8,6 +8,7 @@ export type ConnectionStatusValue = "connecting" | "connected" | "disconnected";
 /** What the parts show: the first connection, a live connection, or a lost one that is coming back. */
 export type ConnectionStatusState = "connecting" | "connected" | "reconnecting";
 
+// SAFETY: the symbol is private to this module and always provides this ref type.
 const stateKey: InjectionKey<Ref<ConnectionStatusState>> = Symbol("ConnectionStatus");
 
 const labels: Record<ConnectionStatusState, string> = {
@@ -19,6 +20,7 @@ const labels: Record<ConnectionStatusState, string> = {
 export const ConnectionStatus = defineComponent({
   name: "ConnectionStatus",
   props: {
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
     status: { required: true, type: String as PropType<ConnectionStatusValue> },
     /** How long, in ms, a lost connection stays "connected" before it shows "reconnecting". Most drops are back sooner. */
     delay: { default: 1_500, type: Number },
