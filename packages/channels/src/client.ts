@@ -89,7 +89,7 @@ export function createChannel<
         }
 
         // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Public send validates JavaScript options before reading the selector.
-        if (!options || typeof options !== "object") {
+        if (!options || typeof options !== "object" || Array.isArray(options)) {
           throw channelError(`Channel "${name}" send options must select a connector.`)
         }
 
