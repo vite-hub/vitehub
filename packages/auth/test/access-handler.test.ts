@@ -121,6 +121,25 @@ describe("Auth access handlers", () => {
     expect(reads).toBe(1)
   })
 
+  it("adopts native authorization promises without using a replaced then", async () => {
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => Promise.resolve(true) }] },
+    }))
+    const originalThen = Promise.prototype.then
+    let pending: Promise<unknown>
+    Promise.prototype.then = function () {
+      throw new Error("authorization must not use the replaced then")
+    } as typeof Promise.prototype.then
+    try {
+      pending = handler(new Request("https://app.example/"))
+    }
+    finally {
+      Promise.prototype.then = originalThen
+    }
+
+    await expect(pending!).resolves.toBeUndefined()
+  })
+
   it("returns a Response with an own then method without assimilating it", async () => {
     const response = new Response("Policy rejected", { status: 409 })
     const then = vi.fn(() => { throw new Error("Response must not be assimilated") })

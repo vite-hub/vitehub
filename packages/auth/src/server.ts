@@ -26,6 +26,8 @@ import type {
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+const intrinsicPromiseThen = Promise.prototype.then
+
 export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
@@ -292,12 +294,16 @@ function runAccessAuthorize(
   catch {
     // Continue through the guarded thenable reflection below.
   }
-  if (isNativePromise) return Promise.resolve(result).then(resolved => {
-    const response = normalizeAuthorizationResponse(resolved)
-    if (response) return { response }
-    if (resolved !== true) return { response: createForbiddenResponse(context.request) }
-    return {}
-  })
+  if (isNativePromise) {
+    return Reflect.apply(intrinsicPromiseThen, result, [
+      (resolved: unknown) => {
+        const response = normalizeAuthorizationResponse(resolved)
+        if (response) return { response }
+        if (resolved !== true) return { response: createForbiddenResponse(context.request) }
+        return {}
+      },
+    ]) as Promise<{ response?: Response }>
+  }
 
   let thenMethod: unknown
   try {
