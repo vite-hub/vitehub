@@ -174,50 +174,18 @@ interface RealtimeDurableObjectNamespace {
 }
 
 function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName"): boolean {
-  let owner: object | null = value
-  while (owner && owner !== Object.prototype) {
-    let descriptor: PropertyDescriptor | undefined
-    try {
-      descriptor = Object.getOwnPropertyDescriptor(owner, name)
-    }
-    catch {
-      return false
-    }
-    if (descriptor) {
-      let method: unknown
-      if ("value" in descriptor) {
-        method = descriptor.value
-      }
-      else {
-        try {
-          method = Reflect.get(value, name)
-        }
-        catch {
-          return false
-        }
-      }
-      if (typeof method !== "function") return false
-      let source: string
-      try {
-        source = Function.prototype.toString.call(method)
-      }
-      catch {
-        return false
-      }
-      // Durable Object namespace methods are host functions. Apply the same
-      // check to own and inherited properties: user supplied functions (and
-      // bound functions, which stringify as native) must not be trusted.
-      if (!/\[native code\]/.test(source) || method.name !== name) return false
-      return true
-    }
-    try {
-      owner = Object.getPrototypeOf(owner)
-    }
-    catch {
-      return false
-    }
+  const descriptor = Object.getOwnPropertyDescriptor(value, name)
+  if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "function") return false
+  let source: string
+  try {
+    source = Function.prototype.toString.call(descriptor.value)
   }
-  return false
+  catch {
+    return false
+  }
+  // Durable Object namespace methods are host functions. Requiring own data
+  // properties keeps prototype-polluted bindings out of the forwarding path.
+  return /\[native code\]/.test(source) && descriptor.value.name === name
 }
 
 function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
