@@ -89,10 +89,6 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
   overflow: hidden;
   color: inherit;
   font-size: 0.875rem;
-  font-weight: 600;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .vh-docs-context-arrow {
