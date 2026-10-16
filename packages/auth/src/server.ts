@@ -333,10 +333,9 @@ function isResponseLike(value: unknown): value is Response {
       let statusTextGetter: (() => unknown) | undefined
       let headersGetter: (() => unknown) | undefined
       let bodyGetter: (() => unknown) | undefined
-      let cloneMethod: ((this: unknown) => unknown) | undefined
       const seen = new Set<object>()
       let depth = 0
-      while (prototype && depth < maxPrototypeDepth && (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !cloneMethod) && !seen.has(prototype)) {
+      while (prototype && depth < maxPrototypeDepth && (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter) && !seen.has(prototype)) {
         depth++
         seen.add(prototype)
         const descriptors = Object.getOwnPropertyDescriptors(prototype)
@@ -344,27 +343,17 @@ function isResponseLike(value: unknown): value is Response {
         if (descriptors.statusText?.get) statusTextGetter ??= descriptors.statusText.get as () => unknown
         if (descriptors.headers?.get) headersGetter ??= descriptors.headers.get as () => unknown
         if (descriptors.body?.get) bodyGetter ??= descriptors.body.get as () => unknown
-        if (typeof descriptors.clone?.value === "function") cloneMethod ??= descriptors.clone.value as (this: unknown) => unknown
         prototype = Object.getPrototypeOf(prototype)
       }
-      if (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !cloneMethod) return false
-      if (!Function.prototype.toString.call(cloneMethod).includes("[native code]")) return false
+      if (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter) return false
+      for (const getter of [statusGetter, statusTextGetter, headersGetter, bodyGetter]) {
+        if (!Function.prototype.toString.call(getter).includes("[native code]")) return false
+      }
       statusGetter.call(value)
       statusTextGetter.call(value)
       const headers = headersGetter.call(value)
       if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
       bodyGetter.call(value)
-      // Calling the prototype method performs the native internal brand check;
-      // unlike a caller-provided clone property, it cannot be spoofed.
-      const clone = cloneMethod.call(value)
-      if (clone === null || typeof clone !== "object" || clone === value) return false
-      if (hasResponseShadow(clone)) return false
-      statusGetter.call(clone)
-      statusTextGetter.call(clone)
-      const cloneHeaders = headersGetter.call(clone)
-      if (cloneHeaders === null || typeof cloneHeaders !== "object" || typeof (cloneHeaders as { get?: unknown }).get !== "function") return false
-      bodyGetter.call(clone)
-      if (cloneMethod.call(clone) === clone) return false
       return true
     }
     catch {
