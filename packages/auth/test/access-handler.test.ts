@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
 
@@ -55,6 +56,15 @@ describe("Auth access handlers", () => {
       expect(provider.getSession).toHaveBeenCalledTimes(matches ? 1 : 0)
       if (matches) expect(authorize).toHaveBeenCalledWith({ request, ...session })
     }
+  })
+
+  it("runs authorize callbacks on routes from another JavaScript realm", async () => {
+    const foreignRoute = runInNewContext("({ route: '/private', authorize: () => true })") as never
+    const handler = createAuthAccessHandler([{ route: "/private", authorize: true }], defineAuth({
+      access: { routes: [foreignRoute] },
+    }))
+
+    await expect(handler(new Request("https://app.example/private"))).resolves.toBeUndefined()
   })
 
   it("does not resolve Auth for unmatched requests", async () => {
