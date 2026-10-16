@@ -102,7 +102,17 @@ function isRequestLike(value: AuthRequest): value is Request {
             return false
           }
           catch (error) {
-            return isBrandCheckError(error)
+            if (!isBrandCheckError(error)) return false
+            // A genuine Web IDL accessor checks its internal slot even when
+            // invoked on an object carrying the same prototype. Structural
+            // spoofs commonly only throw for the null-prototype probe.
+            try {
+              descriptor.get.call(Object.create(current))
+              return false
+            }
+            catch (prototypeError) {
+              return isBrandCheckError(prototypeError)
+            }
           }
         }
         current = Object.getPrototypeOf(current)
