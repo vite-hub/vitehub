@@ -151,4 +151,19 @@ describe("CLI primitives", () => {
     expect(secondStderr).toEqual(["second\n"])
     expect(process.stdout.write).toBe(write)
   })
+
+  it("waits for promise-based stderr writes before completing callbacks", async () => {
+    const callback = vi.fn()
+    const write = vi.fn((_chunk: string | Uint8Array, done: (error?: Error | null) => void) => {
+      const result = Promise.resolve().then(() => done())
+      return result
+    })
+
+    await withStdoutOnStderr(async () => {
+      process.stdout.write("config\n", callback)
+      await Promise.resolve()
+    }, { write })
+
+    expect(callback).toHaveBeenCalledOnce()
+  })
 })

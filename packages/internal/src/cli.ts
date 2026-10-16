@@ -85,6 +85,7 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
     const done = typeof encoding === "function" ? encoding : callback
     let called = false
     const onComplete = (error?: Error | null) => {
+      if (called) return
       called = true
       done?.(error)
     }
@@ -92,8 +93,19 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
       ? stderr.write(chunk, onComplete)
       : stderr.write(chunk, encoding, onComplete)
     // Lightweight test and adapter streams may not implement Node's callback contract.
-    // Complete the callback for those streams while preserving native stream results/errors.
-    if (done && !called && typeof result !== "boolean") done()
+    // Promise-like writers need to complete the callback when their write settles. Do
+    // not complete it synchronously: a writer may also invoke the callback itself.
+    if (done && !called) {
+      if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+        void Promise.resolve(result).then(
+          () => onComplete(),
+          error => onComplete(error instanceof Error ? error : new Error(String(error))),
+        )
+      }
+      else if (typeof result !== "boolean") {
+        onComplete()
+      }
+    }
     return result as boolean
   }
   try {
