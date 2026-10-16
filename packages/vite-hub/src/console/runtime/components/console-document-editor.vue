@@ -11,28 +11,33 @@ import {
   consoleFieldIssues,
   consoleListQueryFor,
   consolePublishMismatches,
+  consoleRevisionLabel,
   consoleSchemaDefaults,
   consoleSingularLabel,
   describeConsoleSchemaFields,
   groupConsoleFieldIssues,
-  groupConsoleRevisions,
   humanizeConsoleFieldIssues,
   isConsoleConflict,
   isConsoleDocumentId,
   stableConsoleJSON,
 } from "../client/documents";
+import { splitConsoleFrontmatter } from "../client/editor";
 import { useConsoleToast } from "../client/toast";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
+import ConsoleDocumentHistory from "./console-document-history.vue";
+import ConsoleDocumentProperties from "./console-document-properties.vue";
 import ConsoleMarkdownEditor from "./console-markdown-editor.vue";
+import ConsolePropertyRow from "./console-property-row.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
-import ConsoleSchemaForm from "./console-schema-form.vue";
 import ConsoleStatus from "./console-status.vue";
 
 import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleRawDocument } from "../client/documents";
 
 /**
- * Edits one document. Every save sends the digest of the version the editor read, so a save never overwrites a newer
- * version: a conflict opens a comparison instead. Invalid fields come back from the owner validators and show inline.
+ * Edits one document as a page: a large title, the fields as property rows, then the body. Drafts save on their own
+ * one second after typing stops, and ⌘S saves at once. Every save sends the digest of the version the editor read, so
+ * a save never overwrites a newer version: a conflict pauses saving and offers a comparison. Invalid fields come back
+ * from the owner validators and show inline.
  */
 const props = defineProps<{
   changes: number;
@@ -49,6 +54,9 @@ interface Version {
   data: Record<string, unknown>;
 }
 
+/** How long typing must pause before the draft saves. */
+const autosaveDelay = 1_000;
+
 const route = useRoute();
 const router = useRouter();
 const toast = useConsoleToast();
@@ -56,13 +64,6 @@ const creating = computed(() => props.documentId === undefined);
 const fields = computed(() => describeConsoleSchemaFields(props.collection.schema));
 const noun = computed(() => consoleSingularLabel(props.collection.label));
 const titleField = computed(() => fields.value.find(field => field.name === props.collection.titleField && field.kind === "string"));
-// The title gets the large input above the body. The sidebar form shows every other field.
-const sidebarSchema = computed(() => {
-  const source = props.collection.schema.properties;
-  const properties: Record<string, unknown> = source instanceof Object && !Array.isArray(source) ? Object.fromEntries(Object.entries(source)) : {};
-  if (titleField.value) delete properties[titleField.value.name];
-  return { ...props.collection.schema, properties };
-});
 
 const loading = ref(!creating.value);
 const loadError = ref<unknown>();
@@ -74,12 +75,14 @@ const newId = ref("");
 const idEdited = ref(false);
 const saving = ref(false);
 const publishing = ref(false);
-/** When this editor last saved, for `Saved 2m ago`. */
+/** When this editor last saved, for `Saved 3s ago`. */
 const savedAt = ref<string>();
 /** Why the last save failed, when the failure is not a field issue or a conflict. */
 const saveError = ref<string>();
 const fieldErrors = ref<Record<string, string[]>>({});
+/** A save that met a newer version. Saving stays paused until someone resolves it. */
 const conflict = ref<{ mine: Version, theirs: ConsoleDocument | null }>();
+const conflictOpen = ref(false);
 const deleteOpen = ref(false);
 const deleting = ref(false);
 const historyOpen = ref(false);
@@ -92,8 +95,18 @@ const revisionsLoadedAt = ref(Date.now());
 const preview = ref<{ current: ConsoleRawDocument | null, document: ConsoleRawDocument | null, revision: ConsoleDocumentRevision }>();
 const previewLoading = ref(false);
 const restoring = ref(false);
-const bodyEditor = ref<{ commit: () => Promise<void> }>();
+const bodyEditor = ref<InstanceType<typeof ConsoleMarkdownEditor>>();
+const titleInput = ref<HTMLTextAreaElement>();
+/** Rich edits the page; Source shows the stored file, with the body editable as Markdown. */
+const mode = ref<"rich" | "source">("rich");
+/** The stored file of the draft, for Source. */
+const storedFile = ref<string>();
+const outline = ref<Array<{ id: string, level: number, pos: number, text: string }>>([]);
 let mounted = true;
+/** `changed` events this editor sent. The section echoes them back through `changes`, which must not reload the page. */
+let ownChanges = 0;
+let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
+let saveQueued = false;
 
 const canWrite = computed(() => props.collection.access.write);
 const canPublish = computed(() => props.collection.access.publish);
@@ -103,18 +116,21 @@ const dirty = computed(() => {
   if (creating.value) return Boolean(newId.value.trim()) || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(savedVersion.value.data)) || Boolean(draft.value.body.trim());
   if (!base.value) return false;
   // The editor writes canonical Markdown, which can drop a trailing newline that the stored file has.
-  return draft.value.body.trimEnd() !== base.value.body.trimEnd() || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(base.value.data));
+  return draft.value.body.trimEnd() !== base.value.body.trimEnd() || dataDirty.value;
 });
+const dataDirty = computed(() => Boolean(base.value) && stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(base.value!.data)));
 const deleted = computed(() => !creating.value && !loading.value && !base.value && state.value === "deleted");
 const missing = computed(() => !creating.value && !loading.value && !base.value && !loadError.value && state.value !== "deleted");
-const publishable = computed(() => canPublish.value && !creating.value && (state.value === "draft" || state.value === "changed" || state.value === "deleted"));
+const publishable = computed(() => canPublish.value && !creating.value && (dirty.value || state.value === "draft" || state.value === "changed" || state.value === "deleted"));
 const title = computed(() => {
   const value = titleField.value ? draft.value.data[titleField.value.name] : undefined;
   return String(value) === value && value.trim() ? value : creating.value ? `New ${noun.value.toLowerCase()}` : props.documentId!;
 });
 const errorCount = computed(() => Object.values(fieldErrors.value).reduce((count, messages) => count + messages.length, 0));
 const idError = computed(() => (creating.value && newId.value && !isConsoleDocumentId(newId.value.trim()) ? "Id can use letters, numbers, dashes, and slashes, such as hello-world or 2026/launch." : fieldErrors.value[""]?.join(" ")));
-const revisionGroups = computed(() => groupConsoleRevisions(revisions.value, revisionsLoadedAt.value));
+/** Drafts save on their own once they exist. A new document waits for Create, since its id names the file. */
+const autosaves = computed(() => canWrite.value && !creating.value && Boolean(base.value) && !conflict.value && !publishing.value && !restoring.value);
+const sourceParts = computed(() => (storedFile.value === undefined ? undefined : splitConsoleFrontmatter(storedFile.value)));
 
 // "Saving…" shows only when a save takes longer than 200ms, then stays at least 400ms, so fast saves do not flicker.
 const savingVisible = ref(false);
@@ -134,15 +150,26 @@ watch(saving, (value) => {
   if (savingVisible.value) savingHideTimer = setTimeout(() => (savingVisible.value = false), Math.max(0, 400 - (Date.now() - savingShownAt)));
 });
 
-/** One status for the header: local edits first, then the document state with the last save time. */
-const headerStatus = computed<{ label: string, pending?: boolean, savedAt?: string, tone: "error" | "neutral" | "success" | "warning" } | undefined>(() => {
+type HeaderAction = "conflict" | "fields" | "retry";
+/**
+ * One status for the header. Problems come first and each one is a button that leads to the fix. Pending edits keep
+ * the last save time: they save within a second, so the header does not flicker while someone types.
+ */
+const headerStatus = computed<{ action?: HeaderAction, label: string, pending?: boolean, savedAt?: string, tone: "error" | "neutral" | "success" | "warning" } | undefined>(() => {
   if (savingVisible.value) return { label: "Saving…", pending: true, tone: "neutral" };
-  if (errorCount.value) return { label: `${errorCount.value === 1 ? "1 field needs" : `${errorCount.value} fields need`} attention`, tone: "error" };
-  if (saveError.value && dirty.value) return { label: "Not saved", tone: "error" };
-  if (dirty.value) return { label: "Unsaved", tone: "warning" };
+  if (conflict.value) return { action: "conflict", label: "Not saved · newer version", tone: "error" };
+  if (errorCount.value) return { action: "fields", label: `${errorCount.value === 1 ? "1 field needs" : `${errorCount.value} fields need`} attention`, tone: "error" };
+  if (saveError.value && dirty.value) return { action: "retry", label: "Not saved · retry", tone: "error" };
+  if (creating.value) return dirty.value ? { label: "Not created yet", tone: "neutral" } : undefined;
   if (!state.value) return undefined;
-  return { label: consoleDocumentStateLabel(state.value), savedAt: savedAt.value, tone: consoleDocumentStateColor(state.value) };
+  const label = dirty.value && !autosaves.value ? "Unsaved" : consoleDocumentStateLabel(state.value);
+  return { label, savedAt: savedAt.value ?? base.value?.updatedAt ?? undefined, tone: dirty.value && !autosaves.value ? "warning" : consoleDocumentStateColor(state.value) };
 });
+
+function notifyChanged(): void {
+  ownChanges++;
+  emit("changed");
+}
 
 function compact(data: Record<string, unknown>): Record<string, unknown> {
   return compactConsoleFieldValues(fields.value, data);
@@ -171,6 +198,8 @@ async function load(): Promise<void> {
   loading.value = true;
   try {
     const document = await props.client.get(props.collection.name, props.documentId!);
+    // Someone typed while the document loaded: keep their edits and the version they started from.
+    if (document && base.value && dirty.value) return;
     if (document) accept(document);
     else {
       base.value = null;
@@ -198,6 +227,8 @@ async function focusFirstInvalid(): Promise<void> {
 
 // Each field keeps its server issue until someone changes that field.
 let errorSnapshot: Record<string, string> = {};
+/** The body when the owner validators last rejected the draft. Autosave retries once the body or a field changes. */
+let errorBody = "";
 watch(() => draft.value.data, (data) => {
   if (!errorCount.value) return;
   const next = Object.fromEntries(Object.entries(fieldErrors.value).filter(([path]) => {
@@ -207,8 +238,18 @@ watch(() => draft.value.data, (data) => {
   if (Object.keys(next).length !== Object.keys(fieldErrors.value).length) fieldErrors.value = next;
 }, { deep: true });
 
-async function save(options: { ifDigest?: string | null } = {}): Promise<void> {
-  if (!canWrite.value || saving.value) return;
+/**
+ * Saves the draft. An autosave never moves focus or opens a dialog: invalid fields and conflicts show in the header
+ * and inline, and saving pauses until the next edit or until someone resolves the conflict.
+ */
+async function save(options: { auto?: boolean, ifDigest?: string | null } = {}): Promise<void> {
+  if (!canWrite.value) return;
+  // ⌘S during a save, such as an autosave in flight, saves again right after it.
+  if (saving.value) {
+    if (!options.auto) saveQueued = true;
+    return;
+  }
+  clearTimeout(autosaveTimer);
   await bodyEditor.value?.commit();
   if (creating.value && !isConsoleDocumentId(id.value)) {
     fieldErrors.value = { "": [id.value ? "Id can use letters, numbers, dashes, and slashes." : "Id is required."] };
@@ -217,6 +258,7 @@ async function save(options: { ifDigest?: string | null } = {}): Promise<void> {
     return;
   }
   saving.value = true;
+  const failedBefore = Boolean(saveError.value);
   saveError.value = undefined;
   const sent: Version = { body: draft.value.body, data: compact(draft.value.data) };
   try {
@@ -226,37 +268,83 @@ async function save(options: { ifDigest?: string | null } = {}): Promise<void> {
     });
     fieldErrors.value = {};
     conflict.value = undefined;
+    conflictOpen.value = false;
     // Keep edits made while the save was running.
     const editedDuringSave = draft.value.body !== sent.body || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(sent.data);
     base.value = saved;
     state.value = saved.state;
     if (!editedDuringSave) draft.value = { body: saved.body === sent.body ? draft.value.body : saved.body, data: clone(saved.data) };
     savedAt.value = new Date().toISOString();
-    emit("changed");
+    notifyChanged();
     // The saved document opens at its own route. The history state tells the new editor when it saved.
     if (creating.value) await router.replace({ ...documentRoute(saved.id), state: { vitehubDocumentSavedAt: savedAt.value } });
-    if (historyOpen.value) void loadRevisions();
+    if (revisions.value.length || historyOpen.value || panel.value === "history") void loadRevisions();
+    if (mode.value === "source") void loadStoredFile();
   }
   catch (error) {
     const issues = consoleFieldIssues(error);
     if (issues) {
       fieldErrors.value = groupConsoleFieldIssues(humanizeConsoleFieldIssues(fields.value, issues));
       errorSnapshot = Object.fromEntries(Object.entries(draft.value.data).map(([name, value]) => [name, stableConsoleJSON(value ?? null)]));
-      await focusFirstInvalid();
+      errorBody = sent.body;
+      if (!options.auto) await focusFirstInvalid();
     }
     else if (isConsoleConflict(error)) {
       const theirs = await props.client.get(props.collection.name, id.value).catch(() => null);
       conflict.value = { mine: sent, theirs };
+      const compare = () => {
+        conflictOpen.value = true;
+      };
+      if (options.auto) toast.error("Someone saved a newer version. Saving is paused.", { label: "Compare", onClick: compare });
+      else compare();
     }
     else {
       saveError.value = consoleErrorMessage(error, "The request failed.");
-      toast.error("Couldn't save. Try again.", { label: "Retry", onClick: () => save() });
+      // One toast per failure streak, so an autosave that keeps failing does not stack toasts.
+      if (!options.auto || !failedBefore) toast.error("Couldn't save. Try again.", { label: "Retry", onClick: () => save() });
     }
   }
   finally {
     saving.value = false;
   }
+  if (saveQueued) {
+    saveQueued = false;
+    if (dirty.value) return await save();
+  }
+  // Edits made during the save, or a failed autosave that someone edited past, save on the next pause.
+  if (dirty.value && !saveError.value) scheduleAutosave();
 }
+
+/** Resolves once no save is running, such as an autosave that started just before a publish. */
+function settled(): Promise<void> {
+  if (!saving.value) return Promise.resolve();
+  return new Promise(resolve => {
+    const stop = watch(saving, (value) => {
+      if (value) return;
+      stop();
+      resolve();
+    });
+  });
+}
+
+function scheduleAutosave(): void {
+  clearTimeout(autosaveTimer);
+  if (!autosaves.value) return;
+  autosaveTimer = setTimeout(() => {
+    if (!dirty.value || !autosaves.value) return;
+    // A field the owner validators rejected stays rejected until someone changes it.
+    if (errorCount.value && !dataChangedSinceErrors()) return;
+    void save({ auto: true });
+  }, autosaveDelay);
+}
+
+function dataChangedSinceErrors(): boolean {
+  return Object.entries(errorSnapshot).some(([name, value]) => stableConsoleJSON(draft.value.data[name] ?? null) !== value) || draft.value.body !== errorBody;
+}
+
+watch(draft, () => {
+  if (dirty.value) scheduleAutosave();
+}, { deep: true });
 
 function keepMine(): void {
   if (!conflict.value) return;
@@ -269,13 +357,24 @@ function useTheirs(): void {
   if (!conflict.value) return;
   const theirs = conflict.value.theirs;
   conflict.value = undefined;
+  conflictOpen.value = false;
   if (theirs) accept(theirs);
   else void load();
 }
 
-// Publishing flips the state at once and rolls back if the request fails.
+/**
+ * Publishes the draft on screen. Pending edits save first, and the publish names the digest of that save, so a save
+ * from someone else in between fails the publish instead of publishing their draft unseen.
+ */
 async function publish(): Promise<void> {
-  if (!canPublish.value || dirty.value || publishing.value) return;
+  if (!canPublish.value || publishing.value) return;
+  clearTimeout(autosaveTimer);
+  await bodyEditor.value?.commit();
+  await settled();
+  if (dirty.value) {
+    await save();
+    if (dirty.value || conflict.value || errorCount.value || saveError.value) return;
+  }
   const before = state.value;
   const removing = deleted.value;
   publishing.value = true;
@@ -284,9 +383,10 @@ async function publish(): Promise<void> {
     // Publish exactly the draft on screen. A deleted document has no draft to expect.
     const result = await props.client.publish(props.collection.name, [{ digest: base.value?.digest ?? null, id: id.value }]);
     if (result.documents.length) toast.show({ title: removing ? `${noun.value} removed from the site` : "Changes published" });
-    emit("changed");
+    notifyChanged();
     if (removing) await router.replace(listRoute());
-    else await load();
+    // Edits made while publishing stay on screen and save as the next draft.
+    else if (!dirty.value) await load();
   }
   catch (error) {
     state.value = before;
@@ -299,7 +399,8 @@ async function publish(): Promise<void> {
     else if (issues) {
       fieldErrors.value = groupConsoleFieldIssues(humanizeConsoleFieldIssues(fields.value, issues));
       errorSnapshot = Object.fromEntries(Object.entries(draft.value.data).map(([name, value]) => [name, stableConsoleJSON(value ?? null)]));
-      toast.error("This draft no longer validates. Fix it, then save and publish.");
+      errorBody = draft.value.body;
+      toast.error("This draft no longer validates. Fix it, then publish.");
       await focusFirstInvalid();
     }
     else toast.error("Couldn't publish. Try again.", { label: "Retry", onClick: publish });
@@ -307,9 +408,12 @@ async function publish(): Promise<void> {
   finally {
     publishing.value = false;
   }
+  if (dirty.value) scheduleAutosave();
 }
 
 async function remove(): Promise<void> {
+  clearTimeout(autosaveTimer);
+  await settled();
   if (!base.value) return;
   const removed = { id: id.value, revision: base.value.revision };
   const { client, collection } = props;
@@ -318,7 +422,7 @@ async function remove(): Promise<void> {
     await client.remove(collection.name, removed.id, base.value.digest);
     deleteOpen.value = false;
     base.value = null;
-    emit("changed");
+    notifyChanged();
     await router.replace(listRoute());
     // Undo puts the saved version back and opens it again.
     toast.show({
@@ -365,6 +469,7 @@ async function loadRevisions(more = false): Promise<void> {
 }
 
 async function openRevision(revision: ConsoleDocumentRevision): Promise<void> {
+  historyOpen.value = true;
   previewLoading.value = true;
   preview.value = { current: null, document: null, revision };
   try {
@@ -389,7 +494,9 @@ async function openRevision(revision: ConsoleDocumentRevision): Promise<void> {
  */
 async function restore(): Promise<void> {
   if (!preview.value?.document) return;
+  clearTimeout(autosaveTimer);
   await bodyEditor.value?.commit();
+  await settled();
   const before = { document: base.value, unsaved: dirty.value ? clone(draft.value) : undefined };
   const { client, collection } = props;
   const documentId = id.value;
@@ -401,7 +508,8 @@ async function restore(): Promise<void> {
     fieldErrors.value = {};
     preview.value = undefined;
     historyOpen.value = false;
-    emit("changed");
+    notifyChanged();
+    void loadRevisions();
     toast.show({
       action: {
         label: "Undo",
@@ -420,7 +528,7 @@ async function restore(): Promise<void> {
               }
             }
             if (mounted && before.unsaved) draft.value = before.unsaved;
-            emit("changed");
+            notifyChanged();
           }
           catch {
             toast.error("Couldn't undo the restore. Pick the earlier version in History.");
@@ -438,30 +546,38 @@ async function restore(): Promise<void> {
   }
 }
 
-function revisionLabel(revision: ConsoleDocumentRevision): string {
-  if (revision.ref === "published" || revision.action === "publish") return "Published";
-  return { remove: "Deleted", restore: "Restored", save: "Saved", seed: "Started draft" }[revision.action] ?? "Changed";
-}
-
-function revisionTone(revision: ConsoleDocumentRevision): "error" | "neutral" | "success" {
-  if (revision.ref === "published" || revision.action === "publish") return "success";
-  return revision.action === "remove" ? "error" : "neutral";
-}
-
-function initials(name: string): string {
-  return name.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map(part => part[0]!.toUpperCase()).join("") || "?";
+async function loadStoredFile(): Promise<void> {
+  if (creating.value || !base.value) {
+    storedFile.value = undefined;
+    return;
+  }
+  try {
+    storedFile.value = (await props.client.raw(props.collection.name, id.value))?.text;
+  }
+  catch {
+    storedFile.value = undefined;
+  }
 }
 
 // Write pending body edits first, so a shortcut pressed right after typing still saves them.
 async function saveFromShortcut(): Promise<void> {
   await bodyEditor.value?.commit();
-  if (dirty.value) await save();
+  if (dirty.value || conflict.value) await save();
+}
+
+function toggleMode(): void {
+  mode.value = mode.value === "rich" ? "source" : "rich";
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+  if (event.key.toLowerCase() === "s") {
     event.preventDefault();
     void saveFromShortcut();
+  }
+  if (event.key === "/" && !creating.value) {
+    event.preventDefault();
+    toggleMode();
   }
 }
 
@@ -470,44 +586,110 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
   event.preventDefault();
 }
 
+function onHeaderAction(action: HeaderAction | undefined): void {
+  if (action === "conflict") conflictOpen.value = true;
+  if (action === "fields") void focusFirstInvalid();
+  if (action === "retry") void save();
+}
+
+// Title: a large borderless field. Enter moves to the body, as in Notion.
+function resizeTitle(): void {
+  const input = titleInput.value;
+  if (!input) return;
+  input.style.height = "auto";
+  input.style.height = `${input.scrollHeight}px`;
+}
+
+function onTitleInput(event: Event): void {
+  if (!titleField.value || !(event.target instanceof HTMLTextAreaElement)) return;
+  const value = event.target.value.replace(/\r?\n/g, " ");
+  draft.value = { ...draft.value, data: { ...draft.value.data, [titleField.value.name]: value } };
+  resizeTitle();
+}
+
+function onTitleKeydown(event: KeyboardEvent): void {
+  const input = event.target;
+  if (!(input instanceof HTMLTextAreaElement)) return;
+  if (event.key === "Enter" && !event.isComposing && !(event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    bodyEditor.value?.focus("start");
+  }
+  if (event.key === "ArrowDown" && input.selectionStart === input.value.length) {
+    event.preventDefault();
+    bodyEditor.value?.focus("start");
+  }
+}
+
+// Right rail: Outline or History, kept in the URL as `?panel=history`.
+const panel = computed<"history" | "outline" | undefined>(() => (route.query.panel === "history" || route.query.panel === "outline" ? route.query.panel : undefined));
+function setPanel(next: "history" | "outline" | undefined): void {
+  const query = { ...route.query };
+  if (next) query.panel = next;
+  else delete query.panel;
+  void router.replace({ query });
+}
+function openHistory(): void {
+  if (window.matchMedia("(min-width: 1024px)").matches) setPanel("history");
+  else historyOpen.value = true;
+}
+
 // The id follows the title until someone edits the id.
 watch(() => (titleField.value ? draft.value.data[titleField.value.name] : undefined), (value) => {
   if (creating.value && !idEdited.value) newId.value = consoleDocumentSlug(String(value ?? ""));
+  void nextTick(resizeTitle);
 });
 watch(historyOpen, (open) => {
-  if (open) void loadRevisions();
+  if (open && !revisions.value.length) void loadRevisions();
   if (!open) preview.value = undefined;
 });
-watch(() => props.changes, () => {
+watch(panel, (value) => {
+  if (value === "history") void loadRevisions();
+}, { immediate: true });
+watch(mode, (value) => {
+  if (value === "source") void loadStoredFile();
+});
+watch(() => props.changes, (next, previous) => {
+  const own = Math.min(ownChanges, next - previous);
+  ownChanges -= own;
+  if (next - previous - own <= 0) return;
   if (!dirty.value && !creating.value && !saving.value && !publishing.value) void load();
 });
 
-onBeforeRouteLeave(() => {
-  if (dirty.value && !saving.value && !window.confirm("Leave without saving? Your changes will be lost.")) return false;
+onBeforeRouteLeave(async () => {
+  if (!dirty.value) return;
+  // A pending autosave finishes before leaving. Anything that cannot save asks first.
+  await settled();
+  if (dirty.value && autosaves.value) await save({ auto: true });
+  if (dirty.value && !window.confirm(creating.value ? "Leave without creating this document?" : "Leave without saving? Your changes will be lost.")) return false;
 });
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("beforeunload", onBeforeUnload);
   const saved: unknown = window.history.state?.vitehubDocumentSavedAt;
   if (String(saved) === saved) savedAt.value = saved;
-  void load();
+  void load().then(() => nextTick(resizeTitle));
+  // A new document starts at its title.
+  if (creating.value) void nextTick(() => titleInput.value?.focus());
 });
 onBeforeUnmount(() => {
   mounted = false;
   clearTimeout(savingShowTimer);
   clearTimeout(savingHideTimer);
+  clearTimeout(autosaveTimer);
   window.removeEventListener("keydown", onKeydown);
   window.removeEventListener("beforeunload", onBeforeUnload);
 });
 
 const menuItems = computed(() => [[
-  ...(!creating.value ? [{ label: "History", icon: "i-lucide-history", onSelect: () => (historyOpen.value = true) }] : []),
+  ...(!creating.value ? [{ label: "History", icon: "i-lucide-history", onSelect: openHistory }] : []),
+  ...(!creating.value ? [{ label: mode.value === "rich" ? "View source" : "Edit rich text", icon: "i-lucide-file-code", kbds: ["meta", "/"], onSelect: toggleMode }] : []),
   { label: "Copy id", icon: "i-lucide-copy", onSelect: () => void navigator.clipboard?.writeText(id.value) },
+  ...(base.value ? [{ label: "Copy path", icon: "i-lucide-folder", onSelect: () => void navigator.clipboard?.writeText(base.value!.path) }] : []),
 ], ...(canWrite.value && base.value ? [[{ label: "Delete", icon: "i-lucide-trash-2", color: "error" as const, onSelect: () => (deleteOpen.value = true) }]] : [])]);
 </script>
 
 <template>
-  <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-2' }" :toggle="{ 'aria-label': 'Open collections' }">
+  <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-1.5' }" :toggle="{ 'aria-label': 'Open collections' }">
     <template #leading>
       <UButton :to="listRoute()" variant="ghost" size="sm" icon="i-lucide-arrow-left" :aria-label="`Back to ${collection.label}`" />
     </template>
@@ -519,45 +701,62 @@ const menuItems = computed(() => [[
       </span>
     </template>
     <template #right>
-      <span class="hidden sm:inline-flex" role="status" aria-live="polite">
+      <span class="me-1 hidden sm:inline-flex" role="status" aria-live="polite">
         <button
-          v-if="headerStatus && errorCount && !savingVisible"
+          v-if="headerStatus?.action && !savingVisible"
           type="button"
           class="rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2"
-          @click="focusFirstInvalid"
+          @click="onHeaderAction(headerStatus.action)"
         >
           <ConsoleStatus :label="headerStatus.label" :tone="headerStatus.tone" class="underline decoration-dotted underline-offset-4 hover:text-highlighted" />
         </button>
-        <ConsoleStatus v-else-if="headerStatus" :label="headerStatus.label" :tone="headerStatus.tone" :pending="headerStatus.pending">
-          {{ headerStatus.label }}<template v-if="headerStatus.savedAt">
-            · <ConsoleRelativeTime :value="headerStatus.savedAt" prefix="Saved" />
-          </template>
-        </ConsoleStatus>
+        <UTooltip v-else-if="headerStatus" :text="creating ? 'Create saves the first draft' : 'Drafts save as you type. ⌘S saves now.'" :content="{ side: 'bottom' }">
+          <ConsoleStatus :label="headerStatus.label" :tone="headerStatus.tone" :pending="headerStatus.pending">
+            {{ headerStatus.label }}<template v-if="headerStatus.savedAt">
+              · <ConsoleRelativeTime :value="headerStatus.savedAt" prefix="Saved" seconds />
+            </template>
+          </ConsoleStatus>
+        </UTooltip>
       </span>
-      <!-- One solid button per view: Save while there are edits, then Publish for a draft or a changed document. -->
-      <UTooltip v-if="publishable" text="Save before you publish" :disabled="!dirty">
-        <span class="inline-flex">
-          <UButton
-            :variant="dirty ? 'outline' : 'solid'"
-            size="sm"
-            :label="state === 'deleted' ? 'Publish deletion' : 'Publish'"
-            :disabled="dirty"
-            :loading="publishing"
-            @click="publish"
-          />
-        </span>
-      </UTooltip>
-      <UTooltip v-if="canWrite && !deleted" text="Save" :kbds="['meta', 's']">
-        <span class="inline-flex">
-          <UButton
-            :variant="dirty ? 'solid' : 'ghost'"
-            size="sm"
-            label="Save"
-            :disabled="!dirty"
-            :loading="saving"
-            @click="save()"
-          />
-        </span>
+      <div
+        v-if="!creating && !missing && !deleted && !loadError"
+        class="hidden items-center rounded-md p-0.5 ring-1 ring-default ring-inset md:flex"
+        role="radiogroup"
+        aria-label="Editing mode"
+      >
+        <UTooltip v-for="option in [{ label: 'Rich', value: 'rich' }, { label: 'Source', value: 'source' }] as const" :key="option.value" :text="option.value === 'rich' ? 'Edit as a page' : 'The stored Markdown file'" :kbds="['meta', '/']">
+          <button
+            type="button"
+            role="radio"
+            class="h-6 rounded-[4px] px-2 text-xs focus-visible:outline-2"
+            :class="mode === option.value ? 'bg-elevated text-highlighted' : 'text-muted hover:text-highlighted'"
+            :aria-checked="mode === option.value"
+            @click="mode = option.value"
+          >
+            {{ option.label }}
+          </button>
+        </UTooltip>
+      </div>
+      <UButton v-if="creating && canWrite" size="sm" label="Create" :loading="saving" @click="save()" />
+      <UButton
+        v-else-if="publishable"
+        size="sm"
+        :label="state === 'deleted' ? 'Publish deletion' : 'Publish'"
+        :loading="publishing"
+        :disabled="Boolean(conflict)"
+        @click="publish"
+      />
+      <UTooltip v-if="!creating && !missing" text="Outline and history" :content="{ side: 'bottom' }">
+        <UButton
+          class="hidden lg:inline-flex"
+          variant="ghost"
+          size="sm"
+          icon="i-lucide-panel-right"
+          aria-label="Toggle the side panel"
+          :active="Boolean(panel)"
+          active-variant="soft"
+          @click="setPanel(panel ? undefined : 'outline')"
+        />
       </UTooltip>
       <UDropdownMenu v-if="!missing" :items="menuItems" :content="{ align: 'end' }">
         <UButton variant="ghost" size="sm" icon="i-lucide-ellipsis" aria-label="More actions" />
@@ -565,84 +764,188 @@ const menuItems = computed(() => [[
     </template>
   </UDashboardNavbar>
 
-  <div class="vitehub-document-editor min-h-0 flex-1 overflow-y-auto">
-    <UAlert
-      v-if="loadError"
-      class="m-4"
-      color="error"
-      variant="subtle"
-      icon="i-lucide-cloud-off"
-      :title="`Couldn't open this ${noun.toLowerCase()}`"
-      :description="consoleErrorMessage(loadError)"
-      :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: load }]"
-    />
-    <div v-else-if="loading" class="flex h-full items-center justify-center">
-      <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
-    </div>
-    <UEmpty
-      v-else-if="missing"
-      class="py-16"
-      icon="i-lucide-file-question"
-      :title="`This ${noun.toLowerCase()} does not exist`"
-      description="It may have been deleted and published, or the id is wrong."
-      :actions="[{ label: `Back to ${collection.label}`, to: listRoute() }]"
-    />
-    <UEmpty
-      v-else-if="deleted"
-      class="py-16"
-      icon="i-lucide-file-x"
-      title="Deleted from the draft"
-      description="It stays on the published site until you publish the deletion. Open History to restore an earlier version."
-      :actions="[{ label: 'History', icon: 'i-lucide-history', color: 'neutral', variant: 'outline', onClick: () => (historyOpen = true) }]"
-    />
-    <div v-else class="mx-auto grid w-full max-w-6xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
-      <div class="grid min-w-0 content-start gap-4">
-        <p v-if="!canWrite" class="flex items-center gap-2 rounded-md border border-default px-3 py-2 text-[13px] text-muted">
+  <div class="flex min-h-0 flex-1">
+    <div class="vitehub-document-editor min-h-0 min-w-0 flex-1 overflow-y-auto">
+      <UAlert
+        v-if="loadError"
+        class="m-4"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-cloud-off"
+        :title="`Couldn't open this ${noun.toLowerCase()}`"
+        :description="consoleErrorMessage(loadError)"
+        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: load }]"
+      />
+      <div v-else-if="loading" class="flex h-full items-center justify-center">
+        <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+      </div>
+      <UEmpty
+        v-else-if="missing"
+        class="py-16"
+        icon="i-lucide-file-question"
+        :title="`This ${noun.toLowerCase()} does not exist`"
+        description="It may have been deleted and published, or the id is wrong."
+        :actions="[{ label: `Back to ${collection.label}`, to: listRoute() }]"
+      />
+      <UEmpty
+        v-else-if="deleted"
+        class="py-16"
+        icon="i-lucide-file-x"
+        title="Deleted from the draft"
+        description="It stays on the published site until you publish the deletion. Open History to restore an earlier version."
+        :actions="[{ label: 'History', icon: 'i-lucide-history', color: 'neutral', variant: 'outline', onClick: () => (historyOpen = true) }]"
+      />
+      <article v-else class="mx-auto w-full max-w-[52rem] px-6 pt-10 pb-8 sm:px-16 sm:pt-14">
+        <p v-if="!canWrite" class="mb-6 flex items-center gap-2 text-[13px] text-muted">
           <UIcon name="i-lucide-lock" class="size-4 shrink-0" aria-hidden="true" />
           Read-only. You can read drafts of this collection but not change them.
         </p>
-        <div v-if="titleField">
-          <label :for="`field-${titleField.name}`" class="sr-only">{{ titleField.label }}</label>
-          <input
-            :id="`field-${titleField.name}`"
-            :value="draft.data[titleField.name] ?? ''"
-            class="w-full rounded-sm bg-transparent text-2xl font-semibold tracking-[-0.02em] text-highlighted outline-none placeholder:text-dimmed focus-visible:outline-2 focus-visible:outline-offset-4"
-            :placeholder="titleField.label"
-            :disabled="!canWrite"
-            :aria-invalid="fieldErrors[titleField.name] ? 'true' : undefined"
-            :aria-describedby="fieldErrors[titleField.name] ? `field-${titleField.name}-error` : undefined"
-            @input="draft = { ...draft, data: { ...draft.data, [titleField.name]: ($event.target as HTMLInputElement).value } }"
-          >
-          <p v-if="fieldErrors[titleField.name]" :id="`field-${titleField.name}-error`" class="mt-1 text-xs text-error">{{ fieldErrors[titleField.name]!.join(" ") }}</p>
-        </div>
-        <ConsoleMarkdownEditor ref="bodyEditor" v-model="draft.body" :disabled="!canWrite" label="Body" />
-      </div>
 
-      <aside class="grid min-w-0 content-start gap-5" aria-label="Document fields">
-        <UFormField v-if="creating" label="Id" description="The file path below the collection folder." :error="idError" required :ui="{ label: 'text-xs', description: 'text-xs' }">
-          <UInput
-            v-model="newId"
-            class="w-full"
-            :ui="{ base: 'font-mono text-xs' }"
-            placeholder="hello-world"
-            @update:model-value="idEdited = true"
-          />
-        </UFormField>
-        <dl v-else-if="base" class="grid gap-1 text-xs">
-          <dt class="text-muted">File</dt>
-          <dd class="truncate font-mono text-highlighted" :title="base.path">{{ base.path }}</dd>
-        </dl>
-        <ConsoleSchemaForm v-model="draft.data" :schema="sidebarSchema" :errors="fieldErrors" :disabled="!canWrite" />
-      </aside>
+        <template v-if="mode === 'rich'">
+          <div v-if="titleField" class="mb-4">
+            <label :for="`field-${titleField.name}`" class="sr-only">{{ titleField.label }}</label>
+            <textarea
+              :id="`field-${titleField.name}`"
+              ref="titleInput"
+              :value="String(draft.data[titleField.name] ?? '')"
+              rows="1"
+              class="block w-full resize-none overflow-hidden rounded-sm bg-transparent text-[32px]/[40px] font-semibold tracking-[-0.04rem] text-highlighted outline-none placeholder:text-dimmed focus-visible:outline-none disabled:cursor-default"
+              :placeholder="`${noun} title`"
+              :disabled="!canWrite"
+              :aria-invalid="fieldErrors[titleField.name] ? 'true' : undefined"
+              :aria-describedby="fieldErrors[titleField.name] ? `field-${titleField.name}-error` : undefined"
+              @input="onTitleInput"
+              @keydown="onTitleKeydown"
+            />
+            <p v-if="fieldErrors[titleField.name]" :id="`field-${titleField.name}-error`" class="mt-1 text-xs text-error">{{ fieldErrors[titleField.name]!.join(" ") }}</p>
+          </div>
+
+          <ConsoleDocumentProperties
+            v-model="draft.data"
+            :schema="collection.schema"
+            :exclude="titleField ? [titleField.name] : []"
+            :errors="fieldErrors"
+            :disabled="!canWrite"
+            @submit="saveFromShortcut"
+          >
+            <ConsolePropertyRow v-if="creating" icon="i-lucide-file" label="Id" control="field-id" :error="idError" :missing="!newId.trim() && !idError">
+              <UInput
+                id="field-id"
+                v-model="newId"
+                class="w-full"
+                variant="ghost"
+                placeholder="hello-world"
+                :ui="{ base: 'bg-transparent hover:bg-transparent focus:bg-transparent ring-0 hover:ring-1 hover:ring-inset hover:ring-(--ui-border) focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) font-mono text-xs', trailing: 'pe-2' }"
+                :aria-invalid="idError ? 'true' : undefined"
+                :aria-describedby="idError ? 'field-id-error' : 'field-id-hint'"
+                @update:model-value="idEdited = true"
+              >
+                <template #trailing>
+                  <span id="field-id-hint" class="text-xs text-dimmed">{{ idEdited ? `${collection.path.split('*')[0]}${newId || '…'}.md` : "From the title" }}</span>
+                </template>
+              </UInput>
+            </ConsolePropertyRow>
+            <ConsolePropertyRow v-else-if="base" icon="i-lucide-file" label="File">
+              <span class="flex h-8 min-w-0 items-center px-2.5 font-mono text-xs text-muted" :title="base.path">
+                <span class="truncate">{{ base.path }}</span>
+              </span>
+            </ConsolePropertyRow>
+          </ConsoleDocumentProperties>
+
+          <hr class="my-6 border-default">
+        </template>
+
+        <section v-else class="mb-4 grid gap-3" aria-label="Stored file">
+          <div class="flex items-center gap-2 text-xs text-muted">
+            <UIcon name="i-lucide-file-code" class="size-4 shrink-0" aria-hidden="true" />
+            <span class="font-mono text-highlighted">{{ base?.path }}</span>
+            <span class="ms-auto">{{ dataDirty ? "Fields are saving…" : "Fields are read-only here. Edit them in Rich." }}</span>
+          </div>
+          <pre
+            v-if="sourceParts?.frontmatter"
+            class="overflow-x-auto rounded-md bg-elevated/50 px-4 py-3 font-mono text-[13px]/6 text-muted select-text"
+            aria-label="Frontmatter, read-only"
+          >{{ sourceParts.frontmatter.trimEnd() }}</pre>
+        </section>
+
+        <ConsoleMarkdownEditor
+          v-show="mode === 'rich'"
+          ref="bodyEditor"
+          v-model="draft.body"
+          :active="mode === 'rich'"
+          :collection="collection.name"
+          :components="collection.components"
+          :document-id="creating ? undefined : id"
+          :disabled="!canWrite"
+          label="Body"
+          @outline="outline = $event"
+        />
+        <UTextarea
+          v-if="mode === 'source'"
+          v-model="draft.body"
+          :disabled="!canWrite"
+          autoresize
+          :rows="16"
+          variant="none"
+          class="w-full"
+          :ui="{ base: 'min-h-80 p-0 font-mono text-[13px] leading-6' }"
+          aria-label="Markdown body"
+        />
+      </article>
     </div>
+
+    <aside v-if="panel && !creating && !missing" class="hidden w-72 shrink-0 flex-col border-s border-default lg:flex" aria-label="Side panel">
+      <div class="flex h-11 shrink-0 items-center gap-1 border-b border-default px-2">
+        <UButton
+          v-for="option in [{ label: 'Outline', value: 'outline' }, { label: 'History', value: 'history' }] as const"
+          :key="option.value"
+          size="xs"
+          variant="ghost"
+          :label="option.label"
+          :active="panel === option.value"
+          active-variant="soft"
+          :aria-pressed="panel === option.value"
+          @click="setPanel(option.value)"
+        />
+        <UButton class="ms-auto" size="xs" variant="ghost" icon="i-lucide-x" aria-label="Close the side panel" @click="setPanel(undefined)" />
+      </div>
+      <div class="min-h-0 flex-1 overflow-y-auto p-2">
+        <nav v-if="panel === 'outline'" aria-label="Outline">
+          <p v-if="!outline.length" class="px-2 py-1.5 text-xs text-muted">Headings in the body show here.</p>
+          <ol v-else class="grid">
+            <li v-for="heading in outline" :key="`${heading.pos}`">
+              <button
+                type="button"
+                class="block w-full truncate rounded-md py-1 pe-2 text-left text-[13px] text-muted hover:bg-elevated/60 hover:text-highlighted focus-visible:outline-2"
+                :style="{ paddingInlineStart: `${0.5 + (heading.level - 1) * 0.75}rem` }"
+                @click="bodyEditor?.scrollTo(heading.pos)"
+              >
+                {{ heading.text }}
+              </button>
+            </li>
+          </ol>
+        </nav>
+        <ConsoleDocumentHistory
+          v-else
+          :revisions="revisions"
+          :cursor="revisionsCursor"
+          :loading="revisionsLoading"
+          :error="revisionsError"
+          :loaded-at="revisionsLoadedAt"
+          :selected="historyOpen ? preview?.revision.id : undefined"
+          @open="openRevision"
+          @more="loadRevisions(true)"
+        />
+      </div>
+    </aside>
   </div>
 
   <UModal
-    :open="Boolean(conflict)"
+    :open="conflictOpen && Boolean(conflict)"
     :title="`This ${noun.toLowerCase()} changed since you opened it`"
-    description="Someone saved a newer version. Compare it with yours, then choose which one to keep."
+    description="Someone saved a newer version, so saving paused. Compare it with yours, then choose which one to keep."
     :ui="{ content: 'sm:max-w-3xl' }"
-    @update:open="(open) => { if (!open) conflict = undefined }"
+    @update:open="(open) => { if (!open) conflictOpen = false }"
   >
     <template #body>
       <div v-if="conflict" class="grid gap-3">
@@ -656,7 +959,7 @@ const menuItems = computed(() => [[
     </template>
     <template #footer>
       <div class="flex w-full flex-wrap justify-end gap-2">
-        <UButton variant="ghost" label="Keep editing" @click="conflict = undefined" />
+        <UButton variant="ghost" label="Keep editing" @click="conflictOpen = false" />
         <UButton variant="outline" label="Load theirs" @click="useTheirs" />
         <UButton color="error" label="Overwrite with mine" :loading="saving" @click="keepMine" />
       </div>
@@ -680,7 +983,7 @@ const menuItems = computed(() => [[
         </div>
         <div>
           <p class="text-sm font-medium text-highlighted">
-            {{ revisionLabel(preview.revision) }} <ConsoleRelativeTime :value="preview.revision.createdAt" /><template v-if="preview.revision.author"> by {{ preview.revision.author }}</template>
+            {{ consoleRevisionLabel(preview.revision) }} <ConsoleRelativeTime :value="preview.revision.createdAt" /><template v-if="preview.revision.author"> by {{ preview.revision.author }}</template>
           </p>
           <p class="text-xs text-muted">Compared with the saved draft.</p>
         </div>
@@ -688,38 +991,16 @@ const menuItems = computed(() => [[
         <p v-else-if="!preview.document" class="text-xs text-muted">The {{ noun.toLowerCase() }} does not exist in this version.</p>
         <ConsoleDocumentDiff v-else :before="preview.current?.text ?? null" :after="preview.document.text" :name="`${id}.md`" />
       </div>
-      <div v-else class="grid gap-4">
-        <UAlert v-if="revisionsError" color="error" variant="subtle" title="Couldn't load history" :description="consoleErrorMessage(revisionsError)" />
-        <div v-else-if="revisionsLoading && !revisions.length" class="grid gap-1">
-          <USkeleton v-for="index in 4" :key="index" class="h-10 rounded-md" />
-        </div>
-        <p v-else-if="!revisions.length" class="text-xs text-muted">No versions yet.</p>
-        <template v-else>
-          <section v-for="group in revisionGroups" :key="group.label" :aria-label="group.label">
-            <h3 class="px-2 pb-1 text-xs font-medium text-muted">{{ group.label }}</h3>
-            <ol class="grid">
-              <li v-for="revision in group.revisions" :key="`${revision.ref}:${revision.id}`">
-                <button
-                  type="button"
-                  class="grid min-h-10 w-full grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-x-3 rounded-md px-2 py-1.5 text-left hover:bg-elevated focus-visible:outline-2"
-                  @click="openRevision(revision)"
-                >
-                  <ConsoleStatus :label="revisionLabel(revision)" :tone="revisionTone(revision)" class="text-sm text-highlighted" />
-                  <span class="flex min-w-0 items-center gap-2 text-[13px] text-muted">
-                    <template v-if="revision.author">
-                      <UAvatar :text="initials(revision.author)" :alt="revision.author" size="3xs" class="shrink-0" />
-                      <span class="truncate">{{ revision.author }}</span>
-                    </template>
-                    <span class="hidden truncate font-mono text-xs text-dimmed sm:inline">{{ revision.id.slice(0, 7) }}</span>
-                  </span>
-                  <span class="text-xs text-muted"><ConsoleRelativeTime :value="revision.createdAt" /></span>
-                </button>
-              </li>
-            </ol>
-          </section>
-        </template>
-        <UButton v-if="revisionsCursor" class="justify-self-start" variant="outline" size="xs" label="Older versions" :loading="revisionsLoading" @click="loadRevisions(true)" />
-      </div>
+      <ConsoleDocumentHistory
+        v-else
+        :revisions="revisions"
+        :cursor="revisionsCursor"
+        :loading="revisionsLoading"
+        :error="revisionsError"
+        :loaded-at="revisionsLoadedAt"
+        @open="openRevision"
+        @more="loadRevisions(true)"
+      />
     </template>
     <template v-if="preview?.document && canWrite" #footer>
       <UButton icon="i-lucide-rotate-ccw" label="Restore this version" :loading="restoring" @click="restore" />

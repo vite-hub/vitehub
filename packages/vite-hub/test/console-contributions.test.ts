@@ -71,6 +71,26 @@ describe("Console section contributions", () => {
     expect(parseConsoleSectionContent({ kind: "document-editor", section: "content" }, "content")).toBeUndefined()
   })
 
+  it("parses the Comark components of a collection and drops malformed ones", () => {
+    const collection = { access: { publish: true, read: true, write: true }, label: "Posts", name: "posts", path: "posts/**/*.md", schema: { type: "object" } }
+    const components = [
+      { description: "A note", kind: "block", label: "Alert", name: "alert", props: { type: { default: "info", type: "string" }, open: { type: "boolean" }, size: { type: "enum" } } },
+      { kind: "inline", name: "badge", props: {} },
+      { name: "Bad Tag", kind: "block" },
+      "x",
+    ]
+    expect(parseConsoleSectionContent({ collections: [{ ...collection, components }], kind: "document-editor", section: "content" }, "content")).toEqual({
+      collections: [{
+        ...collection,
+        components: [
+          { description: "A note", kind: "block", label: "Alert", name: "alert", props: { open: { type: "boolean" }, type: { default: "info", type: "string" } } },
+          { kind: "inline", label: "badge", name: "badge", props: {} },
+        ],
+      }],
+      kind: "document-editor",
+    })
+  })
+
   it("preserves manual Schedule run metadata when parsing section content", () => {
     const definition = { fields: [], file: "sync.ts", name: "sync", runnable: true, source: "server-schedules" }
     expect(parseConsoleSectionContent({ definitions: [definition], kind: "definition-catalog", section: "schedules" }, "schedules")).toEqual({ definitions: [definition], kind: "definition-catalog" })

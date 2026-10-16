@@ -240,8 +240,12 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-document-list.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-editor.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-diff.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-history.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-properties.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-markdown-editor.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-schema-form.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-comark-component.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-media-dialog.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-property-row.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
@@ -290,7 +294,9 @@ export default defineConfig({
       "src/console/runtime/client/env-management.ts",
       "src/console/runtime/client/connections-management.ts",
       "src/console/runtime/client/documents.ts",
+      "src/console/runtime/client/editor.ts",
       "src/console/runtime/client/env-status.ts",
+      "src/console/runtime/client/media.ts",
       "src/console/runtime/client/schedule-run.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/client/toast.ts",
@@ -331,7 +337,9 @@ export default defineConfig({
         delete exports["./console/runtime/client/env-management"];
         delete exports["./console/runtime/client/connections-management"];
         delete exports["./console/runtime/client/documents"];
+        delete exports["./console/runtime/client/editor"];
         delete exports["./console/runtime/client/env-status"];
+        delete exports["./console/runtime/client/media"];
         delete exports["./console/runtime/client/schedule-run"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/client/toast"];
