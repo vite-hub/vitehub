@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
+import { yXmlFragmentToProsemirrorJSON } from "@tiptap/y-tiptap"
 import type { JSONContent } from "@tiptap/core"
 import { marked } from "marked"
 import { runInNewContext } from "node:vm"
@@ -7,7 +7,8 @@ import * as decoding from "lib0/decoding"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeRoomStateQuota, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, createRealtimeHandler, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, markdownToYDoc, matchesRealtimeState, readRealtimeCheckpointState, readRealtimeWorkspaceDocument, realtimeRoomKey, replaceRealtimeDocument, restoreRealtimeDocument, writeRealtimeDocument, yDocToMarkdown } from "../src/server.ts"
+import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeRoomStateQuota, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, containsRealtimeState, createRealtimeHandler, createRealtimeYDoc, diffRealtimeYDoc, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, readRealtimeRequestState, readRealtimeWorkspaceDocument, readRealtimeYDoc, realtimeRoomKey, workspaceDocument } from "../src/server.ts"
+import { realtimeMarkdownEditor } from "../src/editor.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, messageAwareness, readAwarenessClientIds } from "../src/protocol.ts"
 
@@ -44,17 +45,20 @@ beforeEach(() => {
   serverMocks.useWorkspace.mockReset()
 })
 
-function realtimeRegistry(options: { auth?: boolean, checkpoint?: boolean } = {}) {
+function realtimeRegistry(options: { auth?: boolean, checkpoint?: boolean, persistence?: false } = {}) {
+  const definition = {
+    auth: options.auth,
+    document: { workspace: "test" },
+    history: options.checkpoint ? { checkpoint: true } : undefined,
+    persistence: options.persistence,
+  }
   return {
-    docs: async () => ({
-      default: {
-        auth: options.auth,
-        document: { workspace: "test" },
-        history: options.checkpoint ? { checkpoint: true } : undefined,
-      },
-    }),
+    docs: async () => ({ default: definition }),
   } as never
 }
+
+const markdownToYDoc = (markdown: string) => createRealtimeYDoc(realtimeMarkdownEditor, { body: markdown })
+const yDocToMarkdown = async (document: Y.Doc) => (await readRealtimeYDoc(realtimeMarkdownEditor, document)).body
 
 function workspaceFacade(fs: Record<string, unknown>, capabilities = { conditionalWrites: true }) {
   return { capabilities: vi.fn().mockResolvedValue(capabilities), fs }
@@ -128,29 +132,48 @@ describe("realtime server handler", () => {
     expect(serverMocks.assertAuthOrigin).toHaveBeenCalledWith(expect.objectContaining({ url: "https://api.example.com/api/_vitehub/realtime/docs/page.md" }), expect.anything())
   })
 
-  it("rejects checkpoints when the Workspace Store cannot write conditionally", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({}, { conditionalWrites: false }))
+  it("rejects saves when the Workspace Store cannot write conditionally", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+      writeFile: vi.fn(),
+    }, { conditionalWrites: false }))
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
+    const client = new Y.Doc()
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?document=save", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     }))
 
     expect(response.status).toBe(501)
-    expect(serverMocks.useWorkspace).toHaveBeenCalledTimes(1)
+    client.destroy()
   })
 
-  it("rejects durable checkpoints backed by an ephemeral memory Workspace Store", async () => {
+  it("rejects durable saves backed by an ephemeral memory Workspace Store", async () => {
     serverMocks.resolveWorkspaceStoreTarget.mockResolvedValue({ provider: "memory" })
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({}))
+    const writeFile = vi.fn()
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+      writeFile,
+    }))
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", { method: "POST" })
-    Object.assign(request, { runtime: { cloudflare: { context: { storage: { sql: { exec: vi.fn() } } } } } })
+    const client = new Y.Doc()
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md?document=save", {
+      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
+      method: "POST",
+    })
+    Object.assign(request, { runtime: { cloudflare: { context: { storage: { sql: { exec: vi.fn(() => ({ toArray: () => [] })) } } } } } })
 
     const response = await handler.fetch(request)
 
     expect(response.status).toBe(501)
-    await expect(response.json()).resolves.toMatchObject({ message: "Durable realtime checkpoints require a durable Workspace Store." })
+    await expect(response.json()).resolves.toMatchObject({ message: "Durable realtime rooms require a durable Workspace Store." })
+    expect(writeFile).not.toHaveBeenCalled()
+    client.destroy()
   })
 
   it("rejects an unsynchronized checkpoint before writing to Workspace", async () => {
@@ -162,7 +185,7 @@ describe("realtime server handler", () => {
       writeFile,
     }))
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
-    const client = markdownToYDoc("# Unsynchronized client version")
+    const client = await markdownToYDoc("# Unsynchronized client version")
 
     const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
@@ -313,8 +336,9 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry())
     const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
-    })) as Response & { crossws: { message(peer: object, message: object): void } }
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    response.crossws.open(peer)
 
     expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array() })).not.toThrow()
     expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid realtime message.")
@@ -323,7 +347,7 @@ describe("realtime server handler", () => {
     expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
   })
 
-  it("closes peers instead of dropping rapid sync updates", async () => {
+  it("holds sync updates past the burst and applies them, merged, when the budget refills", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
@@ -332,19 +356,54 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry())
     const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
-    })) as Response & { crossws: { message(peer: object, message: object): void } }
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
-    const first = new Y.Doc()
-    const second = new Y.Doc()
-    first.getMap("edits").set("first", true)
-    second.getMap("edits").set("second", true)
+    const client = new Y.Doc()
+    response.crossws.open(peer)
 
-    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(first)) })
-    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(second)) })
+    const edit = (key: string) => {
+      const before = Y.encodeStateVector(client)
+      client.getMap("edits").set(key, true)
+      response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client, before)) })
+    }
+    // A burst of 40 updates, such as fast typing, is applied at once.
+    for (let index = 0; index < 40; index++) edit(`key-${index}`)
+    const applied = peer.publish.mock.calls.length
+    expect(applied).toBeGreaterThan(0)
+    // Holding a key keeps sending: the next ones wait instead of closing the peer.
+    for (let index = 0; index < 5; index++) edit(`held-${index}`)
+    expect(peer.publish.mock.calls.length).toBe(applied)
+    await new Promise(resolve => setTimeout(resolve, 80))
+
+    expect(peer.close).not.toHaveBeenCalled()
+    // The five held updates reach the room as one.
+    expect(peer.publish.mock.calls.length).toBe(applied + 1)
+    client.destroy()
+  })
+
+  it("closes a peer that holds back more than one message of updates", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const client = new Y.Doc()
+    response.crossws.open(peer)
+
+    const text = "x".repeat(64 * 1024)
+    for (let index = 0; index < 60 && !peer.close.mock.calls.length; index++) {
+      const before = Y.encodeStateVector(client)
+      client.getMap("edits").set(`key-${index}`, text)
+      response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client, before)) })
+    }
 
     expect(peer.close).toHaveBeenCalledWith(1013, "Realtime updates are arriving too quickly.")
-    first.destroy()
-    second.destroy()
+    client.destroy()
   })
 
   it("accepts only the initial sync response outside the update throttle", async () => {
@@ -356,19 +415,21 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry())
     const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
-    })) as Response & { crossws: { message(peer: object, message: object): void } }
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
     const server = new Y.Doc()
     const client = new Y.Doc()
     const syncStep2 = applyRealtimeSyncMessage(encodeSyncStep1(client), server, "server")!
     client.getMap("edits").set("first", true)
+    response.crossws.open(peer)
 
     response.crossws.message(peer, { uint8Array: () => syncStep2 })
     response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client)) })
 
     expect(peer.close).not.toHaveBeenCalled()
-    response.crossws.message(peer, { uint8Array: () => syncStep2 })
-    expect(peer.close).toHaveBeenCalledWith(1013, "Realtime updates are arriving too quickly.")
+    // Later sync responses count against the update burst like any update, and wait past it.
+    for (let index = 0; index < 40; index++) response.crossws.message(peer, { uint8Array: () => syncStep2 })
+    expect(peer.close).not.toHaveBeenCalled()
     server.destroy()
     client.destroy()
   })
@@ -382,7 +443,7 @@ describe("realtime server handler", () => {
       writeFile: vi.fn(),
     }))
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
-    const client = markdownToYDoc("# Unsynchronized client version")
+    const client = await markdownToYDoc("# Unsynchronized client version")
 
     const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?history=checkpoint", {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
@@ -422,13 +483,13 @@ describe("realtime server handler", () => {
     }
   })
 
-  it("does not evict inactive memory rooms with collaborative edits", async () => {
+  it("does not evict inactive memory rooms with unsaved collaborative edits", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const handler = createRealtimeHandler(realtimeRegistry())
+    const handler = createRealtimeHandler(realtimeRegistry({ persistence: false }))
     const updateDocument = new Y.Doc()
     updateDocument.getMap("edits").set("value", true)
     const update = encodeSyncUpdate(Y.encodeStateAsUpdate(updateDocument))
@@ -501,397 +562,6 @@ describe("realtime server handler", () => {
     expect(response.crossws).toBeDefined()
   })
 
-  it("refreshes the written baseline before retrying a failed checkpoint", async () => {
-    let content = ""
-    let digest = "baseline"
-    let changedDuringRead = false
-    let snapshots = 0
-    const writeFile = vi.fn(async (_path: string, nextContent: string, options: { ifDigest: string | null }) => {
-      if (options.ifDigest !== digest) throw new Error(`stale digest: ${options.ifDigest}`)
-      content = nextContent.replace("New draft", "Canonical draft")
-      digest = `written-${writeFile.mock.calls.length}`
-      return "page.md"
-    })
-    const workspace = {
-      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
-      fs: {
-        exists: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn(async () => {
-          const result = content
-          if (digest === "written-2" && !changedDuringRead) {
-            changedDuringRead = true
-            content = "# Canonical draft\n"
-            digest = "canonical-2"
-          }
-          return result
-        }),
-        stat: vi.fn(async () => ({ digest })),
-        writeFile,
-      },
-      history: {
-        checkpoint: vi.fn(async () => {
-          snapshots++
-          if (snapshots === 1) throw new Error("publisher unavailable")
-          const snapshot = { entries: { "page.md": { digest } }, id: "snapshot" }
-          queueMicrotask(() => {
-            content = "# Later unsaved draft"
-            digest = "later"
-          })
-          return snapshot
-        }),
-      },
-    }
-    serverMocks.useWorkspace.mockReturnValue(workspace)
-    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
-    const websocket = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
-      headers: { upgrade: "websocket" },
-    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
-    const peer = {
-      close: vi.fn(),
-      publish: vi.fn(),
-      send: vi.fn(),
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-    }
-    websocket.crossws.open(peer)
-    const client = new Y.Doc()
-    peer.send.mockClear()
-    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(client) })
-    applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
-    const firstState = Y.encodeStateAsUpdate(client)
-
-    const first = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
-      body: Uint8Array.from(firstState).buffer,
-      method: "POST",
-    }))
-    expect(first.status).toBe(500)
-
-    const update = replaceRealtimeDocument(client, "# New draft")
-    websocket.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(update) })
-    const second = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
-      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
-      method: "POST",
-    }))
-
-    expect(second.status).toBe(200)
-    await expect(second.json()).resolves.toEqual({
-      content: "# Canonical draft\n",
-      snapshot: { entries: { "page.md": { digest: "canonical-2" } }, id: "snapshot" },
-    })
-    expect(writeFile).toHaveBeenCalledTimes(2)
-    client.destroy()
-  })
-
-  it("reconciles a mismatched snapshot before retrying its checkpoint", async () => {
-    let content = ""
-    let digest = "baseline"
-    let checkpoints = 0
-    let failedMismatchReads = 0
-    const writeFile = vi.fn(async (_path: string, nextContent: string, options: { ifDigest: string | null }) => {
-      if (options.ifDigest !== digest) throw new Error(`stale digest: ${options.ifDigest}`)
-      content = nextContent
-      digest = `written-${writeFile.mock.calls.length}`
-      return "page.md"
-    })
-    const workspace = {
-      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
-      fs: {
-        exists: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn(async () => {
-          if (checkpoints === 1 && failedMismatchReads++ < 1) throw new Error("canonical read unavailable")
-          return content
-        }),
-        stat: vi.fn(async () => ({ digest })),
-        writeFile,
-      },
-      history: {
-        checkpoint: vi.fn(async () => {
-          checkpoints++
-          if (checkpoints === 1) {
-            content = "# Snapshot version"
-            digest = "other"
-          }
-          return { entries: { "page.md": { digest } }, id: `snapshot-${checkpoints}` }
-        }),
-      },
-    }
-    serverMocks.useWorkspace.mockReturnValue(workspace)
-    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
-    const websocket = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
-      headers: { upgrade: "websocket" },
-    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
-    const peer = {
-      close: vi.fn(),
-      publish: vi.fn(),
-      send: vi.fn(),
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-    }
-    websocket.crossws.open(peer)
-    const client = new Y.Doc()
-    peer.send.mockClear()
-    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(client) })
-    applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
-    peer.send.mockClear()
-
-    const first = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
-      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
-      method: "POST",
-    }))
-
-    expect(first.status).toBe(500)
-    expect(peer.send).not.toHaveBeenCalled()
-
-    const recovery = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
-      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
-      method: "POST",
-    }))
-
-    expect(recovery.status).toBe(409)
-    await expect(recovery.json()).resolves.toMatchObject({
-      data: { code: "REALTIME_CHECKPOINT_REJECTED" },
-      message: "The Workspace document changed while recovering its realtime checkpoint.",
-    })
-    expect(peer.send).toHaveBeenCalledTimes(1)
-    applyRealtimeSyncMessage(peer.send.mock.calls[0]![0], client, "server")
-
-    const second = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
-      body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
-      method: "POST",
-    }))
-
-    expect(second.status).toBe(200)
-    await expect(second.json()).resolves.toEqual({
-      content: "# Snapshot version",
-      snapshot: { entries: { "page.md": { digest: "written-2" } }, id: "snapshot-2" },
-    })
-    expect(writeFile).toHaveBeenCalledTimes(2)
-    client.destroy()
-  })
-
-  it("rebases the shared Workspace Store after a snapshot conflict", async () => {
-    let content = "# Base"
-    let digest = "baseline"
-    let checkpoints = 0
-    const rebase = vi.fn(async () => {
-      content = "# Remote"
-      digest = "remote"
-    })
-    const workspace = {
-      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
-      fs: {
-        exists: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn(async () => content),
-        stat: vi.fn(async () => ({ digest })),
-        writeFile: vi.fn(async (_path: string, nextContent: string) => {
-          content = nextContent
-          digest = "staged"
-          return "page.md"
-        }),
-      },
-      history: {
-        checkpoint: vi.fn(async () => {
-          if (checkpoints++ === 0) {
-            const error = Object.assign(new Error("remote moved"), { code: "WORKSPACE_CONFLICT" })
-            error.name = "ViteHubError"
-            throw error
-          }
-          return { entries: { "page.md": { digest } }, id: "snapshot" }
-        }),
-        rebase,
-      },
-    }
-    serverMocks.useWorkspace.mockReturnValue(workspace)
-    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
-    const websocket = (await handler.fetch(
-      new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
-        headers: { upgrade: "websocket" },
-      }),
-    )) as Response & {
-      crossws: { message(peer: object, message: object): void, open(peer: object): void }
-    }
-    const peer = {
-      close: vi.fn(),
-      publish: vi.fn(),
-      send: vi.fn(),
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-    }
-    const document = new Y.Doc()
-    websocket.crossws.open(peer)
-    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(document) })
-    applyRealtimeSyncMessage(peer.send.mock.calls.at(-1)![0], document, "server")
-    peer.send.mockClear()
-
-    const response = await handler.fetch(
-      new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
-        body: Uint8Array.from(Y.encodeStateAsUpdate(document)).buffer,
-        method: "POST",
-      }),
-    )
-
-    expect(response.status).toBe(409)
-    await expect(response.json()).resolves.toMatchObject({
-      data: { code: "REALTIME_CHECKPOINT_REJECTED" },
-    })
-    expect(rebase).toHaveBeenCalledWith({ takeRemote: ["page.md"] })
-    expect(peer.send).toHaveBeenCalledOnce()
-    document.destroy()
-  })
-
-  it("refreshes the baseline when a post-write failure follows a committed write", async () => {
-    serverMocks.resolveWorkspaceStoreTarget.mockResolvedValue({ provider: "memory" })
-    let digest = "baseline"
-    const writeFile = vi.fn(async (_path: string, _content: string, options: { ifDigest: string | null }) => {
-      if (options.ifDigest !== digest) throw new Error(`stale digest: ${options.ifDigest}`)
-      digest = `written-${writeFile.mock.calls.length}`
-      if (writeFile.mock.calls.length === 1) throw new Error("write:after failed")
-      return "page.md"
-    })
-    const workspace = {
-      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
-      fs: {
-        exists: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn().mockResolvedValue(""),
-        stat: vi.fn(async () => ({ digest })),
-        writeFile,
-      },
-      history: {
-        checkpoint: vi.fn(async () => ({ entries: { "page.md": { digest } }, id: "snapshot" })),
-      },
-    }
-    serverMocks.useWorkspace.mockReturnValue(workspace)
-    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
-    const websocket = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
-      headers: { upgrade: "websocket" },
-    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
-    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
-    const document = new Y.Doc()
-    websocket.crossws.open(peer)
-    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(document) })
-    applyRealtimeSyncMessage(peer.send.mock.calls.at(-1)![0], document, "server")
-    const request = () => new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
-      body: Uint8Array.from(Y.encodeStateAsUpdate(document)).buffer,
-      method: "POST",
-    })
-
-    expect((await handler.fetch(request())).status).toBe(500)
-    expect((await handler.fetch(request())).status).toBe(200)
-    expect(writeFile.mock.calls.map(call => call[2]?.ifDigest)).toEqual(["baseline", "written-1"])
-    expect(serverMocks.invalidateWorkspaceStore).not.toHaveBeenCalled()
-    document.destroy()
-  })
-
-  it("recovers a committed write when the canonical reread initially fails", async () => {
-    let unstable = false
-    let stats = 0
-    const writeFile = vi.fn(async (_path: string, _content: string, options: { ifDigest: string | null }) => {
-      if (options.ifDigest !== (writeFile.mock.calls.length === 1 ? "baseline" : `external-${stats}`)) throw new Error(`stale digest: ${options.ifDigest}`)
-      unstable = true
-      return "page.md"
-    })
-    const workspace = {
-      capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
-      fs: {
-        exists: vi.fn().mockResolvedValue(true),
-        readFile: vi.fn().mockResolvedValue("# External change"),
-        stat: vi.fn(async () => ({ digest: unstable ? (stats < 6 ? `external-${++stats}` : `external-${stats}`) : "baseline" })),
-        writeFile,
-      },
-      history: { checkpoint: vi.fn(async () => ({ entries: { "page.md": { digest: `external-${stats}` } }, id: "snapshot" })) },
-    }
-    serverMocks.useWorkspace.mockReturnValue(workspace)
-    const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
-    const websocket = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
-      headers: { upgrade: "websocket" },
-    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
-    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
-    const document = new Y.Doc()
-    websocket.crossws.open(peer)
-    websocket.crossws.message(peer, { uint8Array: () => encodeSyncStep1(document) })
-    applyRealtimeSyncMessage(peer.send.mock.calls.at(-1)![0], document, "server")
-    const request = () => new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
-      body: Uint8Array.from(Y.encodeStateAsUpdate(document)).buffer,
-      method: "POST",
-    })
-
-    expect((await handler.fetch(request())).status).toBe(409)
-    const recovery = await handler.fetch(request())
-    expect(recovery.status).toBe(409)
-    await expect(recovery.json()).resolves.toMatchObject({ data: { code: "REALTIME_CHECKPOINT_REJECTED" } })
-    expect((await handler.fetch(request())).status).toBe(200)
-    expect(writeFile.mock.calls.map(call => call[2]?.ifDigest)).toEqual(["baseline", `external-${stats}`])
-    document.destroy()
-  })
-
-  it("replaces durable room state when the Workspace baseline changed", async () => {
-    const stale = markdownToYDoc("# Stale document")
-    const exec = vi.fn((query: string) => ({
-      toArray: () => query.startsWith("SELECT baseline_digest")
-        ? [{ baseline_digest: "stale", update_blob: Uint8Array.from(Y.encodeStateAsUpdate(stale)).buffer }]
-        : [],
-    }))
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
-      exists: vi.fn().mockResolvedValue(true),
-      readFile: vi.fn().mockResolvedValue("# Current document"),
-      stat: vi.fn().mockResolvedValue({ digest: "current" }),
-    }))
-    const handler = createRealtimeHandler(realtimeRegistry())
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
-      headers: { upgrade: "websocket" },
-    }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
-
-    const response = await handler.fetch(request as never) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
-
-    expect(exec).toHaveBeenCalledWith(
-      expect.stringContaining("INSERT OR REPLACE"),
-      realtimeRoomKey("docs", "page.md"),
-      "current",
-      expect.any(ArrayBuffer),
-    )
-    expect(exec).not.toHaveBeenCalledWith(expect.stringContaining("SELECT update_blob"), expect.anything())
-    exec.mockClear()
-    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
-    response.crossws.open(peer)
-    const updateDocument = new Y.Doc()
-    updateDocument.getMap("edits").set("value", true)
-    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(updateDocument)) })
-
-    expect(exec).toHaveBeenCalledWith(
-      expect.stringContaining("INSERT INTO vitehub_realtime_updates"),
-      realtimeRoomKey("docs", "page.md"),
-      expect.any(ArrayBuffer),
-    )
-    expect(exec).not.toHaveBeenCalledWith(expect.stringContaining("INSERT OR REPLACE"), expect.anything(), expect.anything(), expect.anything())
-    updateDocument.destroy()
-    stale.destroy()
-  })
-
-  it("persists missing durable documents before their first checkpoint", async () => {
-    const exec = vi.fn(() => ({ toArray: () => [] }))
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
-      exists: vi.fn().mockResolvedValue(false),
-      readFile: vi.fn(),
-      stat: vi.fn().mockResolvedValue(undefined),
-    }))
-    const handler = createRealtimeHandler(realtimeRegistry())
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/missing.md", {
-      headers: { upgrade: "websocket" },
-    }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { context: { storage: { sql: { exec } } } } }
-
-    const response = await handler.fetch(request as never)
-
-    expect((response as Response & { crossws?: unknown }).crossws).toBeDefined()
-    expect(exec).toHaveBeenCalledWith(
-      expect.stringContaining("INSERT OR REPLACE"),
-      realtimeRoomKey("docs", "missing.md"),
-      null,
-      expect.any(ArrayBuffer),
-    )
-  })
-
   it("retries room initialization after a Workspace read fails", async () => {
     const stat = vi.fn()
       .mockRejectedValueOnce(new Error("Workspace read failed"))
@@ -912,83 +582,6 @@ describe("realtime server handler", () => {
     response.crossws.close(peer)
 
     expect(stat).toHaveBeenCalledTimes(3)
-  })
-
-  it("cleans a failed initial durable snapshot before retrying", async () => {
-    vi.useFakeTimers()
-    const documentDestroy = vi.spyOn(Y.Doc.prototype, "destroy")
-    let failSnapshot = true
-    const exec = vi.fn((query: string) => {
-      if (query.startsWith("INSERT OR REPLACE") && failSnapshot) {
-        failSnapshot = false
-        throw new Error("disk unavailable")
-      }
-      return { toArray: () => [] }
-    })
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
-      exists: vi.fn().mockResolvedValue(false),
-      readFile: vi.fn(),
-      stat: vi.fn().mockResolvedValue(undefined),
-    }))
-    const handler = createRealtimeHandler(realtimeRegistry())
-    const request = () => durableRealtimeRequest(exec)
-
-    expect((await handler.fetch(request())).status).toBe(500)
-    expect(vi.getTimerCount()).toBe(0)
-    expect(documentDestroy).toHaveBeenCalledTimes(1)
-
-    const response = await handler.fetch(request()) as Response & { crossws: { close(peer: object): void, open(peer: object): void } }
-    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
-    expect(vi.getTimerCount()).toBe(1)
-    response.crossws.open(peer)
-    response.crossws.close(peer)
-
-    expect(vi.getTimerCount()).toBe(0)
-    expect(documentDestroy).toHaveBeenCalledTimes(2)
-    expect(exec.mock.calls.filter(([query]) => query.startsWith("INSERT OR REPLACE"))).toHaveLength(2)
-  })
-
-  it("shares one pending room initialization and destroys it after its last peer closes", async () => {
-    let releaseRead!: () => void
-    let reportReadStarted!: () => void
-    const readStarted = new Promise<void>((resolve) => { reportReadStarted = resolve })
-    const continueRead = new Promise<void>((resolve) => { releaseRead = resolve })
-    const stat = vi.fn(async () => {
-      reportReadStarted()
-      await continueRead
-      return undefined
-    })
-    const exec = vi.fn((_query: string) => ({ toArray: () => [] }))
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
-      exists: vi.fn().mockResolvedValue(false),
-      readFile: vi.fn(),
-      stat,
-    }))
-    vi.useFakeTimers()
-    const documentDestroy = vi.spyOn(Y.Doc.prototype, "destroy")
-    const handler = createRealtimeHandler(realtimeRegistry())
-    const request = () => durableRealtimeRequest(exec)
-
-    const firstRequest = handler.fetch(request())
-    await readStarted
-    const secondRequest = handler.fetch(request())
-    releaseRead()
-    const [first, second] = await Promise.all([firstRequest, secondRequest]) as Array<Response & { crossws: { close(peer: object): void, open(peer: object): void } }>
-    const firstPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
-    const secondPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
-    first.crossws.open(firstPeer)
-    second.crossws.open(secondPeer)
-
-    first.crossws.close(firstPeer)
-    expect(vi.getTimerCount()).toBe(1)
-    expect(documentDestroy).not.toHaveBeenCalled()
-    second.crossws.close(secondPeer)
-
-    expect(serverMocks.useWorkspace).toHaveBeenCalledTimes(2)
-    expect(stat).toHaveBeenCalledTimes(2)
-    expect(exec.mock.calls.filter(([query]) => query.startsWith("INSERT OR REPLACE"))).toHaveLength(1)
-    expect(vi.getTimerCount()).toBe(0)
-    expect(documentDestroy).toHaveBeenCalledOnce()
   })
 
   it("does not retain awareness clients from a rejected update", async () => {
@@ -1082,7 +675,7 @@ describe("realtime transport boundaries", () => {
     })
     const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
 
-    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+    await expect(readRealtimeRequestState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
   })
 
   it.each(["buffer", "byteOffset", "byteLength"])("ignores a byte chunk's shadowed %s", async (key) => {
@@ -1094,7 +687,7 @@ describe("realtime transport boundaries", () => {
     })
     const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
 
-    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+    await expect(readRealtimeRequestState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
   })
 
   it.each(["buffer", "byteOffset", "byteLength"])("does not read a byte chunk's own %s getter", async (key) => {
@@ -1106,7 +699,7 @@ describe("realtime transport boundaries", () => {
     })
     const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
 
-    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+    await expect(readRealtimeRequestState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
     expect(getter).not.toHaveBeenCalled()
   })
 
@@ -1120,7 +713,7 @@ describe("realtime transport boundaries", () => {
     })
     const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
 
-    await expect(readRealtimeCheckpointState(request, 2)).rejects.toMatchObject({ statusCode: 413 })
+    await expect(readRealtimeRequestState(request, 2)).rejects.toMatchObject({ statusCode: 413 })
     expect(cancel).toHaveBeenCalledOnce()
   })
 
@@ -1131,7 +724,7 @@ describe("realtime transport boundaries", () => {
     })
     const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
 
-    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+    await expect(readRealtimeRequestState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
   })
 
   it("accepts Uint8Array subclasses as checkpoint chunks", async () => {
@@ -1141,7 +734,7 @@ describe("realtime transport boundaries", () => {
     })
     const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
 
-    await expect(readRealtimeCheckpointState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+    await expect(readRealtimeRequestState(request, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
   })
 
   it("uses the intrinsic width when subclasses shadow BYTES_PER_ELEMENT", async () => {
@@ -1156,13 +749,13 @@ describe("realtime transport boundaries", () => {
       start(controller) { controller.enqueue(validValue); controller.close() },
     })
     const validRequest = new Request("https://example.com", { body: validBody, duplex: "half", method: "POST" } as RequestInit)
-    await expect(readRealtimeCheckpointState(validRequest, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
+    await expect(readRealtimeRequestState(validRequest, 4)).resolves.toEqual(Uint8Array.of(1, 2, 3))
 
     const invalidBody = new ReadableStream<unknown>({
       start(controller) { controller.enqueue(invalidValue); controller.close() },
     })
     const invalidRequest = new Request("https://example.com", { body: invalidBody, duplex: "half", method: "POST" } as RequestInit)
-    await expect(readRealtimeCheckpointState(invalidRequest)).rejects.toMatchObject({ statusCode: 400 })
+    await expect(readRealtimeRequestState(invalidRequest)).rejects.toMatchObject({ statusCode: 400 })
   })
 
   it("rejects spoofed and non-byte checkpoint chunks", async () => {
@@ -1181,7 +774,7 @@ describe("realtime transport boundaries", () => {
       })
       const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
 
-      await expect(readRealtimeCheckpointState(request)).rejects.toMatchObject({ statusCode: 400 })
+      await expect(readRealtimeRequestState(request)).rejects.toMatchObject({ statusCode: 400 })
     }
   })
 
@@ -1196,7 +789,7 @@ describe("realtime transport boundaries", () => {
     })
     const request = new Request("https://example.com", { body, duplex: "half", method: "POST" } as RequestInit)
 
-    await expect(readRealtimeCheckpointState(request, 4)).rejects.toMatchObject({ statusCode: 413 })
+    await expect(readRealtimeRequestState(request, 4)).rejects.toMatchObject({ statusCode: 413 })
     expect(pulls).toBeLessThanOrEqual(2)
   })
 
@@ -1206,7 +799,7 @@ describe("realtime transport boundaries", () => {
     updateDocument.getMap("ignored").set("payload", "x".repeat(1024))
     const message = encodeSyncUpdate(Y.encodeStateAsUpdate(updateDocument))
 
-    expect(() => applyRealtimeSyncMessage(message, room, "peer", 512)).toThrow("room quota")
+    expect(() => applyRealtimeSyncMessage(message, room, "peer", { maxStateBytes: 512 })).toThrow("room quota")
     expect(room.getMap("ignored").size).toBe(0)
     room.destroy()
     updateDocument.destroy()
@@ -1222,16 +815,6 @@ describe("realtime transport boundaries", () => {
 })
 
 describe("realtime Workspace documents", () => {
-  it("destroys a document when stored durable state cannot be restored", () => {
-    const destroy = vi.spyOn(Y.Doc.prototype, "destroy")
-
-    expect(() => restoreRealtimeDocument("", "baseline", {
-      baseline_digest: "baseline",
-      update_blob: new Uint8Array([255]).buffer,
-    })).toThrow()
-    expect(destroy).toHaveBeenCalledOnce()
-  })
-
   it("opens a new path as an empty document", async () => {
     const readFile = vi.fn()
     const result = await readRealtimeWorkspaceDocument(
@@ -1327,30 +910,29 @@ describe("realtime application paths", () => {
 })
 
 describe("tiptap-markdown documents", () => {
-  it("creates an empty shared document without a browser DOM", () => {
-    expect(yDocToMarkdown(markdownToYDoc(""))).toBe("")
+  it("creates an empty shared document without a browser DOM", async () => {
+    expect(await yDocToMarkdown(await markdownToYDoc(""))).toBe("")
   })
 
-  it("round-trips Markdown through the shared Yjs document", () => {
+  it("round-trips Markdown through the shared Yjs document", async () => {
     const markdown = "# Shared page\n\n![Diagram](https://example.com/diagram.png)\n\n| Name | Value |\n| --- | --- |\n| One | Two |"
-    const document = markdownToYDoc(markdown)
-    const normalized = yDocToMarkdown(document)
+    const normalized = await yDocToMarkdown(await markdownToYDoc(markdown))
 
     expect(normalized).toContain("# Shared page")
     expect(normalized).toContain("![Diagram](https://example.com/diagram.png)")
     expect(normalized).toContain("| One  | Two")
-    expect(yDocToMarkdown(markdownToYDoc(normalized))).toBe(normalized)
+    expect(await yDocToMarkdown(await markdownToYDoc(normalized))).toBe(normalized)
   })
 
-  it("round-trips YAML frontmatter without turning it into document headings", () => {
+  it("round-trips YAML frontmatter without turning it into document headings", async () => {
     const markdown = `---\nname: docs\ndescription: Shared editing\ndisabled: true\n---\n\n# Shared page`
-    const normalized = yDocToMarkdown(markdownToYDoc(markdown))
+    const normalized = await yDocToMarkdown(await markdownToYDoc(markdown))
 
     expect(normalized).toBe(markdown)
-    expect(yDocToMarkdown(markdownToYDoc(normalized))).toBe(normalized)
+    expect(await yDocToMarkdown(await markdownToYDoc(normalized))).toBe(normalized)
   })
 
-  it("preserves frontmatter independently of its first YAML token", () => {
+  it("preserves frontmatter independently of its first YAML token", async () => {
     const documents = [
       "---\n---",
       "---\n---\n\n# Page",
@@ -1362,37 +944,39 @@ describe("tiptap-markdown documents", () => {
     ]
 
     for (const markdown of documents) {
-      expect(yDocToMarkdown(markdownToYDoc(markdown))).toBe(markdown)
+      expect(await yDocToMarkdown(await markdownToYDoc(markdown))).toBe(markdown)
     }
   })
 
-  it("does not register frontmatter tokenizers on the shared Markdown parser", () => {
+  it("does not register frontmatter tokenizers on the shared Markdown parser", async () => {
     const extensions = marked.defaults.extensions
 
     for (let index = 0; index < 5; index++) {
-      yDocToMarkdown(markdownToYDoc("---\nname: docs\n---\n\n# Page"))
+      await yDocToMarkdown(await markdownToYDoc("---\nname: docs\n---\n\n# Page"))
     }
 
     expect(marked.defaults.extensions).toBe(extensions)
   })
 
-  it("recognizes frontmatter only as the first document block", () => {
-    const leading = yDocToProsemirrorJSON(markdownToYDoc("---\r\nname: docs\r\n---\r\n\r\n# Page"), "default")
-    const later = yDocToProsemirrorJSON(markdownToYDoc("# Page\n\n---\nname: section\n---"), "default")
+  it("recognizes frontmatter only as the first document block", async () => {
+    const leading = yXmlFragmentToProsemirrorJSON((await markdownToYDoc("---\r\nname: docs\r\n---\r\n\r\n# Page")).getXmlFragment("body"))
+    const later = yXmlFragmentToProsemirrorJSON((await markdownToYDoc("# Page\n\n---\nname: section\n---")).getXmlFragment("body"))
     const nested = "> ---\n> name: quoted\n> ---"
 
     expect(leading.content?.map((node: JSONContent) => node.type)).toEqual(["frontmatter", "heading"])
     expect(later.content?.map((node: JSONContent) => node.type)).not.toContain("frontmatter")
-    expect(yDocToMarkdown(markdownToYDoc(nested))).toBe(nested)
+    expect(await yDocToMarkdown(await markdownToYDoc(nested))).toBe(nested)
   })
 
-  it("conditionally writes the live document for a Workspace checkpoint", async () => {
+  it("conditionally writes the live document through the Workspace adapter", async () => {
     const calls: unknown[][] = []
-    const document = markdownToYDoc("# Shared draft")
     const workspace = {
+      capabilities: async () => ({ conditionalWrites: true }),
       fs: {
+        exists: async () => true,
+        readFile: async () => "# Shared draft",
         async stat() {
-          return { mediaType: "text/markdown", metadata: { title: "Shared" }, type: "file" }
+          return { digest: "written", mediaType: "text/markdown", metadata: { title: "Shared" }, type: "file" }
         },
         async writeFile(path: string, content: string, options: object) {
           calls.push([path, content, options])
@@ -1400,9 +984,13 @@ describe("tiptap-markdown documents", () => {
         },
       },
     }
+    serverMocks.useWorkspace.mockReturnValue(workspace)
 
-    await expect(writeRealtimeDocument(workspace as never, "docs/page.md", document, "baseline"))
-      .resolves.toBe("docs/page.md")
+    await expect(workspaceDocument("docs").save(
+      { authority: "memory", definition: "docs", documentId: "docs/page.md" },
+      { body: "# Shared draft", fields: {} },
+      { editors: [], ifDigest: "baseline", reason: "idle" },
+    )).resolves.toEqual({ digest: "written", stored: { body: "# Shared draft" } })
     expect(calls).toEqual([
       ["docs/page.md", "# Shared draft", {
         ifDigest: "baseline",
@@ -1413,68 +1001,55 @@ describe("tiptap-markdown documents", () => {
     ])
   })
 
-  it("reconciles Workspace transformations without losing concurrent edits", () => {
-    const submitted = markdownToYDoc("# Shared draft")
+  it("merges a normalized stored form without losing concurrent edits", async () => {
+    const submitted = await markdownToYDoc("# Shared draft")
     const document = new Y.Doc()
     Y.applyUpdate(document, Y.encodeStateAsUpdate(submitted))
     const client = new Y.Doc()
     Y.applyUpdate(client, Y.encodeStateAsUpdate(document))
-    replaceRealtimeDocument(document, "# Shared draft\n\nConcurrent edit")
+    Y.applyUpdate(document, await diffRealtimeYDoc(realtimeMarkdownEditor, document, { body: "# Shared draft\n\nConcurrent edit" }))
 
-    const update = replaceRealtimeDocument(submitted, "# Normalized draft")
+    const update = await diffRealtimeYDoc(realtimeMarkdownEditor, submitted, { body: "# Normalized draft" })
     Y.applyUpdate(document, update)
     Y.applyUpdate(client, update)
 
-    expect(yDocToMarkdown(document)).toBe("# Normalized draft\n\nConcurrent edit")
-    expect(yDocToMarkdown(client)).toBe("# Normalized draft")
+    expect(await yDocToMarkdown(document)).toBe("# Normalized draft\n\nConcurrent edit")
+    expect(await yDocToMarkdown(client)).toBe("# Normalized draft")
   })
 
-  it("only checkpoints a document state the server has received", () => {
-    const client = markdownToYDoc("# Shared draft")
+  it("only saves a document state the server has received", async () => {
+    const client = await markdownToYDoc("# Shared draft")
     const server = new Y.Doc()
     Y.applyUpdate(server, Y.encodeStateAsUpdate(client))
-    const state = Y.encodeStateAsUpdate(client)
 
-    expect(matchesRealtimeState(server, state)).toBe(true)
+    expect(containsRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(true)
     client.getMap("pending").set("change", true)
-    expect(matchesRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(false)
+    expect(containsRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(false)
 
     const text = client.getText("deletion")
     text.insert(0, "pending deletion")
     Y.applyUpdate(server, Y.encodeStateAsUpdate(client))
     text.delete(0, text.length)
     expect(Y.encodeStateVector(server)).toEqual(Y.encodeStateVector(client))
-    expect(matchesRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(false)
+    expect(containsRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(false)
+
+    // A room that moved ahead of the client still contains everything the client sent.
+    Y.applyUpdate(server, Y.encodeStateAsUpdate(client))
+    server.getMap("later").set("edit", true)
+    expect(containsRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(true)
 
     client.destroy()
     server.destroy()
   })
 
-  it("answers read-only sync frames without applying the room state quota", () => {
-    const document = markdownToYDoc("# Shared draft")
+  it("answers read-only sync frames without applying the room state quota", async () => {
+    const document = await markdownToYDoc("# Shared draft")
     const client = new Y.Doc()
 
-    expect(applyRealtimeSyncMessage(encodeSyncStep1(client), document, "peer", 0)).toBeDefined()
+    expect(applyRealtimeSyncMessage(encodeSyncStep1(client), document, "peer", { maxStateBytes: 0 })).toBeDefined()
 
     client.destroy()
     document.destroy()
-  })
-
-  it("restores durable Yjs identities only for the matching Workspace version", () => {
-    const original = markdownToYDoc("# Shared draft")
-    const stored = {
-      baseline_digest: "baseline",
-      update_blob: Uint8Array.from(Y.encodeStateAsUpdate(original)).buffer,
-    }
-    const restored = restoreRealtimeDocument("# Shared draft", "baseline", stored)
-    const replaced = restoreRealtimeDocument("# Workspace replacement", "changed", stored)
-
-    expect(Y.encodeStateVector(restored)).toEqual(Y.encodeStateVector(original))
-    expect(yDocToMarkdown(replaced)).toBe("# Workspace replacement")
-
-    original.destroy()
-    restored.destroy()
-    replaced.destroy()
   })
 })
 
