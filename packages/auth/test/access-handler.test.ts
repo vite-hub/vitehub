@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
 
@@ -57,6 +58,15 @@ describe("Auth access handlers", () => {
     }
   })
 
+  it("runs authorize callbacks on routes from another JavaScript realm", async () => {
+    const foreignRoute = runInNewContext("({ route: '/private', authorize: () => true })") as never
+    const handler = createAuthAccessHandler([{ route: "/private", authorize: true }], defineAuth({
+      access: { routes: [foreignRoute] },
+    }))
+
+    await expect(handler(new Request("https://app.example/private"))).resolves.toBeUndefined()
+  })
+
   it("does not resolve Auth for unmatched requests", async () => {
     const handler = createAuthAccessHandler([{ route: "/private/**" }])
     await expect(handler(new Request("https://app.example/public"))).resolves.toBeUndefined()
@@ -96,12 +106,14 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/admin/users"))).rejects.toMatchObject({ code: "AUTH_R0008" })
   })
 
-  it("returns custom authorization responses unchanged", async () => {
-    const response = new Response("Policy rejected", { status: 409 })
+  it("rejects consumed same-realm authorization responses", async () => {
+    const response = new Response("consumed", { status: 409 })
+    await response.text()
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => response }] },
+      access: { routes: [{ route: "/**", authorize: () => response as never }] },
     }))
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+    const result = await handler(new Request("https://app.example/"))
+    expect(result?.status).toBe(403)
   })
 
   it("rejects a local Response proxy with unstable ordinary reads", async () => {
@@ -390,6 +402,7 @@ describe("Auth access handlers", () => {
 
     expect(response).toBeInstanceOf(Response)
     expect(response?.status).toBe(403)
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
     expect(headers).not.toHaveBeenCalled()
     expect(body).not.toHaveBeenCalled()
   })
@@ -411,6 +424,50 @@ describe("Auth access handlers", () => {
     expect(response?.headers.get("x-policy")).toBe("reject")
     expect(response?.headers.getSetCookie()).toEqual(["first=1", "second=2"])
     await expect(response?.text()).resolves.toBe("Policy rejected")
+  })
+
+  it("rejects foreign responses with combined Set-Cookie headers", async () => {
+    const foreign = new ForeignResponse("Policy rejected", {
+      status: 409,
+      headers: { "set-cookie": "first=1, second=2" },
+    })
+    Object.defineProperty(foreign.headers, "getSetCookie", { value: undefined })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
+  it("preserves one foreign Set-Cookie header without getSetCookie", async () => {
+    const foreign = new ForeignResponse("Policy rejected", {
+      status: 409,
+      headers: { "set-cookie": "session=one; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Path=/" },
+    })
+    Object.defineProperty(foreign.headers, "getSetCookie", { value: undefined })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response?.status).toBe(409)
+    expect(response?.headers.get("set-cookie")).toBe("session=one; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Path=/")
+  })
+
+  it("preserves commas in a single cookie extension without getSetCookie", async () => {
+    const foreign = new ForeignResponse(null, {
+      status: 302,
+      headers: { "set-cookie": "session=one; Extension=alpha, beta=gamma" },
+    })
+    Object.defineProperty(foreign.headers, "getSetCookie", { value: undefined })
+
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response?.headers.get("set-cookie")).toBe("session=one; Extension=alpha, beta=gamma")
   })
 
   it("forwards cancellation to the foreign response body", async () => {

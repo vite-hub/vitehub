@@ -290,7 +290,7 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  const response = normalizeAuthorizationResponse(result)
+  const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
@@ -318,68 +318,48 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   }
 }
 
-function hasResponsePrototype(value: unknown): boolean {
+let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+
+async function getUndiciResponse(): Promise<typeof Response | undefined> {
+  if (undiciResponsePromise) return undiciResponsePromise
+  undiciResponsePromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.Response as typeof Response)
+    .catch(() => undefined)
+  return undiciResponsePromise
+}
+
+async function hasResponsePrototype(value: unknown): Promise<boolean> {
+  const targets = new Set<object>([Response.prototype])
+  const UndiciResponse = await getUndiciResponse()
+  if (UndiciResponse) targets.add(UndiciResponse.prototype)
   try {
-    let prototype: object | null = Object.getPrototypeOf(Object(value))
+    let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
     let shadowedResponseProperties = false
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      const prototype = current
+      if (targets.has(prototype)) return !shadowedResponseProperties
       if (seen.has(prototype)) return false
       seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       const owner = prototype
-      // Platform Response constructors are native or class-based implementations. A
-      // plain function named Response is easy to forge and does not provide a runtime
-      // brand that the adapter can safely normalize.
-      const constructorSource = typeof constructor === "function"
-        ? Function.prototype.toString.call(constructor)
-        : ""
-      const platformConstructor = constructor?.name === "Response"
-        && (/^class\b/.test(constructorSource) || constructorSource.includes("[native code]"))
+      const constructorSource = typeof constructor === "function" ? Function.prototype.toString.call(constructor) : ""
+      const platformConstructor = constructor?.name === "Response" && (/^class\b/.test(constructorSource) || constructorSource.includes("[native code]"))
       const platformGetters = authorizationResponseProperties.every((key) => {
         const getter = Object.getOwnPropertyDescriptor(owner, key)?.get
         if (typeof getter !== "function") return false
-        // User-defined classes can reproduce the throw-on-probe behavior. For
-        // source-visible implementations, require the runtime brand check
-        // itself instead of accepting an arbitrary throwing accessor.
         const getterSource = Function.prototype.toString.call(getter)
         if (!getterSource.includes("webidl.brandCheck(") && !getterSource.includes("[native code]")) return false
-        // Platform accessors perform an intrinsic brand check. Calling one
-        // with an object that only inherits the prototype must therefore
-        // throw; a user supplied getter that merely mentions a marker does
-        // not provide that runtime provenance.
-        try {
-          Reflect.apply(getter, Object.create(owner), [])
-          return false
-        }
-        catch {
-          // The same accessor must still read successfully from the candidate.
-          // A forged getter can throw for the probe object, but a genuine
-          // Response accessor succeeds only when its internal brand is present.
-          try {
-            Reflect.apply(getter, value, [])
-            return true
-          }
-          catch {
-            return false
-          }
-        }
+        try { Reflect.apply(getter, Object.create(owner), []) ; return false }
+        catch { try { Reflect.apply(getter, value, []); return true } catch { return false } }
       })
       const ownSnapshot = authorizationResponseProperties.every(key => {
         const descriptor = Object.getOwnPropertyDescriptor(value, key)
         return descriptor && "value" in descriptor
       })
-      // Require the platform accessors to authenticate the candidate. An
-      // `instanceof Response` fallback is unsafe because a proxy can intercept
-      // the later snapshot reads and forge response fields.
-      // A genuine local Response subclass may override accessors, but the
-      // intrinsic getters at its branded base still authenticate the instance.
-      // Keep rejecting shadowed accessors on structural/foreign candidates.
       if (platformConstructor && !ownSnapshot && platformGetters && !shadowedResponseProperties) return true
-      if (authorizationResponseProperties.some((key) => Object.hasOwn(owner, key))) {
-        shadowedResponseProperties = true
-      }
-      prototype = Object.getPrototypeOf(prototype)
+      if (authorizationResponseProperties.some((key) => Object.hasOwn(owner, key))) shadowedResponseProperties = true
+      current = Object.getPrototypeOf(prototype)
     }
   }
   catch {
@@ -425,11 +405,11 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   return { stream, release }
 }
 
-function normalizeAuthorizationResponse(value: unknown): Response | undefined {
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
   try {
     const candidate = Object(value)
-    if (!hasResponsePrototype(candidate)) return
+    if (!await hasResponsePrototype(candidate)) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
@@ -460,7 +440,14 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) return value
+    const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+    let nativeBodyState = false
+    try {
+      const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyState = bodyUsed !== undefined && !Reflect.apply(bodyUsed, candidate, []) && (body === null || (locked !== undefined && !Reflect.apply(locked, body, [])))
+    } catch { /* proxy may expose descriptors without native state */ }
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
@@ -468,9 +455,22 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
+    let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
-      if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, value)
+      if (key.toLowerCase() === "set-cookie") {
+        if (cookies.length === 0) combinedCookies = value
+        return
+      }
+      normalizedHeaders.append(key, value)
     }])
+    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // followed by another cookie assignment at the cookie-pair boundary proves that
+    // multiple values were merged. Assignment-like text after an extension attribute
+    // can still be part of that attribute's value, so do not reject it as a merge.
+    if (combinedCookies !== undefined) {
+      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      normalizedHeaders.append("set-cookie", combinedCookies)
+    }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
     // Validate status and native body state before acquiring reader ownership.
@@ -511,7 +511,8 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = route instanceof Object ? route.authorize : undefined
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route configuration crosses JavaScript realms; runtime object narrowing preserves foreign authorize callbacks.
+      const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }

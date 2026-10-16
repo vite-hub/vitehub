@@ -29,6 +29,19 @@ function createTestKVStore(): ScheduleKVStorage {
   }
 }
 
+/** Like unstorage: `/` and `:` both separate key segments, and listed keys use `:`. */
+function createColonKVStore(): ScheduleKVStorage {
+  const store = createTestKVStore()
+  const normalize = (key: string) => key.replaceAll("/", ":")
+  return {
+    del: key => store.del(normalize(key)),
+    get: key => store.get(normalize(key)),
+    has: key => store.has(normalize(key)),
+    keys: base => store.keys(base === undefined ? undefined : normalize(base)),
+    set: (key, value) => store.set(normalize(key), value),
+  }
+}
+
 function createDelayedHasKVStore(): ScheduleKVStorage & { releaseHas: () => void } {
   const store = createTestKVStore()
   let releaseHas: (() => void) | undefined
@@ -611,6 +624,17 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
+  it.each(["local", "foreign"])("accepts %s scheduledAt Dates with custom display tags", async (realm) => {
+    const scheduledAt = realm === "foreign"
+      ? runInNewContext('new Date("2026-05-23T09:00:00.000Z")') as Date
+      : new Date("2026-05-23T09:00:00.000Z")
+    Object.defineProperty(scheduledAt, Symbol.toStringTag, { value: "Custom" })
+    const run = await executeStaticSchedule({
+      cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "custom-date-tag", scheduledAt,
+    })
+    expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
+  })
+
   it.each([
     { get [Symbol.toStringTag]() { throw new TypeError("hostile date tag") } },
     new Proxy({}, { get() { throw new TypeError("hostile date proxy") } }),
@@ -642,10 +666,7 @@ describe("Schedule Run bookkeeping", () => {
   it("rejects invalid Date values from another JavaScript realm", async () => {
     const scheduledAt = runInNewContext("new Date('invalid')") as Date
     await expect(executeStaticSchedule({
-      cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler: async () => {} },
-      name: "cross-realm-invalid-date",
-      scheduledAt,
+      cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "cross-realm-invalid-date", scheduledAt,
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
@@ -653,14 +674,28 @@ describe("Schedule Run bookkeeping", () => {
     for (const tag of [() => "CustomDate", () => { throw new Error("Do not inspect tags") }]) {
       const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
       Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: tag })
-      const run = await executeStaticSchedule({
-        cron: "0 9 * * *",
-        definition: { cron: "0 9 * * *", handler: async () => {} },
-        name: "custom-tag-date",
-        scheduledAt,
-      })
+      const run = await executeStaticSchedule({ cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler: async () => {} }, name: "custom-tag-date", scheduledAt })
       expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
     }
+  })
+
+  it("rejects tagged, prototype-only, proxied, and invalid Dates before executing handlers", async () => {
+    const handler = vi.fn(async () => {})
+    const hostile = vi.fn(() => { throw new Error("must not be called") })
+    const fake = { [Symbol.toStringTag]: "Date", getTime: hostile }
+    const prototypeOnly = Object.create(Date.prototype) as Date
+    const proxy = new Proxy(new Date("2026-05-23T09:00:00.000Z"), {})
+    const revoked = Proxy.revocable(new Date("2026-05-23T09:00:00.000Z"), {})
+    revoked.revoke()
+    const invalid = new Date("bad")
+    Object.defineProperty(invalid, Symbol.toStringTag, { value: "Custom" })
+    for (const scheduledAt of [fake, prototypeOnly, proxy, revoked.proxy, invalid]) {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *", definition: { cron: "0 9 * * *", handler }, name: "invalid-date-slot", scheduledAt: scheduledAt as Date,
+      })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(handler).not.toHaveBeenCalled()
+    expect(hostile).not.toHaveBeenCalled()
   })
   it("fails clearly for invalid scheduledAt dates", async () => {
     setScheduleRuntimeRegistry({
@@ -683,6 +718,13 @@ describe("Schedule Run bookkeeping", () => {
     })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
     })
+    const hostileScheduledAt = { get [Symbol.toStringTag]() { throw new Error("hostile tag") } } as unknown as Date
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "report",
+      scheduledAt: hostileScheduledAt,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
   it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
@@ -1112,6 +1154,24 @@ describe("KV Schedule Run Store", () => {
     expect(get).toHaveBeenCalledTimes(10)
     expect(runs[0]?.scheduledAt.toISOString()).toBe("2026-01-01T01:39:00.000Z")
     expect(runs.every(run => run.scheduleId === "digest_with_underscore")).toBe(true)
+  })
+
+  it("reads indexed runs and attempts from a KV store that lists keys with colons", async () => {
+    const kvStore = createColonKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    for (let index = 0; index < 1001; index++) {
+      const scheduledAt = new Date(Date.UTC(2026, 0, 1, 0, index))
+      await store.createRun({ id: `srun_static_reconcile_${scheduledAt.toISOString()}`, scheduleId: "reconcile", target: "reconcile",
+        scheduledAt, createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
+    }
+    await store.createAttempt({ id: "attempt/1", runId: "srun_static_reconcile_2026-01-01T16:40:00.000Z", createdAt: new Date(0),
+      startedAt: new Date(0), updatedAt: new Date(0), status: "succeeded" })
+    const get = vi.spyOn(kvStore, "get")
+
+    const [latest] = await store.listRuns({ scheduleId: "reconcile", limit: 1 })
+    expect(latest?.scheduledAt.toISOString()).toBe("2026-01-01T16:40:00.000Z")
+    expect(get).toHaveBeenCalledTimes(1)
+    expect((await store.listAttempts("srun_static_reconcile_2026-01-01T16:40:00.000Z")).map(attempt => attempt.id)).toEqual(["attempt/1"])
   })
 
   it.each([true, false])("preserves newest opaque fallback history when index writes are available: %s", async (indexAvailable) => {
