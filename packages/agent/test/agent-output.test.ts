@@ -1313,6 +1313,18 @@ describe("agent output helpers", () => {
     expect(events).toEqual([])
   })
 
+  it("does not loop on a cyclic response prototype", async () => {
+    const target = {}
+    const value = new Proxy(target, {
+      getPrototypeOf() {
+        return value
+      },
+    })
+    const events = []
+    for await (const event of streamAgentOutputToEvents(value)) events.push(event)
+    expect(events).toEqual([])
+  })
+
   it("preserves text from a spoofed Response-shaped result", async () => {
     const value = Object.create({
       get status() { return 200 },

@@ -806,7 +806,9 @@ async function* streamChunksToEventsWithTextFallback(
 function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   if (!isRuntimeObject(value)) return false
   let current: object | null = value
-  while (current) {
+  const visited = new Set<object>()
+  while (current && !visited.has(current)) {
+    visited.add(current)
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
     if (descriptor) return hasRuntimeType(descriptor.get, "function")
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
@@ -817,7 +819,9 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
 
 function getPrototypeMethod(value: object, key: PropertyKey): ((...args: never[]) => unknown) | undefined {
   let prototype: object | null = Object.getPrototypeOf(value) as object | null
-  while (prototype) {
+  const visited = new Set<object>()
+  while (prototype && !visited.has(prototype)) {
+    visited.add(prototype)
     const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
     if (descriptor) return hasRuntimeType(descriptor.value, "function") ? descriptor.value as (...args: never[]) => unknown : undefined
     prototype = Object.getPrototypeOf(prototype) as object | null
@@ -834,7 +838,9 @@ function isResponseLike(value: unknown): value is Response {
     let tagDescriptor: PropertyDescriptor | undefined
     let tagOwner: object | null = null
     let tagPrototype: object | null = Object.getPrototypeOf(value) as object | null
-    while (tagPrototype && !tagDescriptor) {
+    const visitedTagPrototypes = new Set<object>()
+    while (tagPrototype && !tagDescriptor && !visitedTagPrototypes.has(tagPrototype)) {
+      visitedTagPrototypes.add(tagPrototype)
       tagDescriptor = Object.getOwnPropertyDescriptor(tagPrototype, Symbol.toStringTag)
       if (tagDescriptor) tagOwner = tagPrototype
       tagPrototype = Object.getPrototypeOf(tagPrototype) as object | null
@@ -900,7 +906,9 @@ function isResponseLike(value: unknown): value is Response {
     // the Response branch even when the field happens to contain a real stream.
     let bodyAccessor = false
     let bodyPrototype: object | null = Object.getPrototypeOf(value) as object | null
-    while (bodyPrototype) {
+    const visitedBodyPrototypes = new Set<object>()
+    while (bodyPrototype && !visitedBodyPrototypes.has(bodyPrototype)) {
+      visitedBodyPrototypes.add(bodyPrototype)
       const descriptor = Object.getOwnPropertyDescriptor(bodyPrototype, "body")
       if (descriptor) {
         bodyAccessor = hasRuntimeType(descriptor.get, "function")
@@ -944,7 +952,9 @@ function isResponseLike(value: unknown): value is Response {
     let lockedAccessor: (() => unknown) | undefined
     let streamReader: ((...args: never[]) => unknown) | undefined
     let streamPrototype: object | null = Object.getPrototypeOf(body) as object | null
-    while (streamPrototype) {
+    const visitedStreamPrototypes = new Set<object>()
+    while (streamPrototype && !visitedStreamPrototypes.has(streamPrototype)) {
+      visitedStreamPrototypes.add(streamPrototype)
       const lockedDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "locked")
       if (lockedDescriptor) {
         if (hasRuntimeType(lockedDescriptor.get, "function")) {
