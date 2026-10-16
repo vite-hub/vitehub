@@ -25,10 +25,30 @@
   "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./providers/cloudflare": "./dist/providers/cloudflare.js",
-    "./providers/just-bash": "./dist/providers/just-bash.js",
-    "./workspace": "./dist/workspace.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./providers/cloudflare": {
+      "types": "./dist/providers/cloudflare.d.ts",
+      "import": "./dist/providers/cloudflare.js",
+      "require": "./dist/providers/cloudflare.js",
+      "default": "./dist/providers/cloudflare.js"
+    },
+    "./providers/just-bash": {
+      "types": "./dist/providers/just-bash.d.ts",
+      "import": "./dist/providers/just-bash.js",
+      "require": "./dist/providers/just-bash.js",
+      "default": "./dist/providers/just-bash.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "import": "./dist/workspace.js",
+      "require": "./dist/workspace.js",
+      "default": "./dist/workspace.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
