@@ -68,7 +68,25 @@ describe("Rate Limit core", () => {
 
     expect(getter.mock.contexts).toEqual([driver])
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
-    expect(getter.mock.contexts).toEqual([driver, driver])
+    expect(getter.mock.contexts).toEqual([driver])
+  })
+
+  it("captures a stateful driver getter once", async () => {
+    const first = memoryRateLimitDriver()
+    const second = memoryRateLimitDriver()
+    let reads = 0
+    const options = {
+      get driver() {
+        return reads++ === 0 ? first : second
+      },
+      limit: 1,
+      window: "1m" as const,
+    }
+
+    const limiter = createRateLimiter(options)
+
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
+    expect(reads).toBe(1)
   })
 
   it("uses inspected option values for runtime driver inputs", async () => {
