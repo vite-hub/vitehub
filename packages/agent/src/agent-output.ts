@@ -852,7 +852,7 @@ function isResponseLike(value: unknown): value is Response {
     // without relying on the current realm's Response constructor.
     const constructorDescriptor = tagOwner && Object.getOwnPropertyDescriptor(tagOwner, "constructor")
     if (!constructorDescriptor || !hasRuntimeType(constructorDescriptor.value, "function") || constructorDescriptor.value.prototype !== tagOwner) return false
-    const responseConstructor = constructorDescriptor.value as typeof Response & { error?: () => unknown, json?: () => unknown, redirect?: () => unknown }
+    const responseConstructor = constructorDescriptor.value as unknown as typeof Response & { error?: () => unknown, json?: () => unknown, redirect?: () => unknown }
     // Fetch constructors expose their prototype as a fixed, non-configurable
     // function property. A caller-created self-linked constructor has to
     // assign its prototype, leaving this descriptor writable/configurable.
@@ -981,8 +981,10 @@ function isResponseLike(value: unknown): value is Response {
       // Use the stream's own prototype operation so foreign-realm brands are
       // accepted; the host realm's intrinsic rejects those streams.
       const reader = streamReader.call(body)
-      if (!isRuntimeObject(reader) || !hasRuntimeType(reader.releaseLock, "function")) return false
-      ;(reader.releaseLock as () => void)()
+      if (!isRuntimeObject(reader)) return false
+      const releaseLock = (reader as { releaseLock?: unknown }).releaseLock
+      if (!hasRuntimeType(releaseLock, "function")) return false
+      ;(releaseLock as () => void)()
     }
     catch {
       // A locked genuine stream remains a Response. Confirm the lock state

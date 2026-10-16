@@ -1274,21 +1274,21 @@ describe("agent output helpers", () => {
 
   it("does not trust a self-linked fake Response constructor", async () => {
     const body = new Response("spoofed").body
+    const fakeConstructor = function Response() {}
     const prototype = {
       [Symbol.toStringTag]: "Response",
-      constructor: Object.assign(function Response() {}, { prototype: undefined }),
+      constructor: fakeConstructor,
       get status() { return 200 },
       get statusText() { return "OK" },
       get headers() { return new Headers() },
       get body() { return body },
     }
-    prototype.constructor.prototype = prototype
-    Object.defineProperty(prototype.constructor, "prototype", {
+    Object.defineProperty(fakeConstructor, "prototype", {
       value: prototype,
       writable: false,
       configurable: false,
     })
-    Object.assign(prototype.constructor, {
+    Object.assign(fakeConstructor, {
       error() {},
       json() {},
       redirect() {},
@@ -1314,8 +1314,9 @@ describe("agent output helpers", () => {
 
   it("does not loop on a cyclic response prototype", async () => {
     const target = {}
-    const value = new Proxy(target, {
-      getPrototypeOf() {
+    let value: object
+    value = new Proxy(target, {
+      getPrototypeOf(): object {
         return value
       },
     })
