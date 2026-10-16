@@ -136,6 +136,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
 
       # Published packages come from a fresh build, not task cache
       # fingerprints. Keep this in sync with the release workflow.
