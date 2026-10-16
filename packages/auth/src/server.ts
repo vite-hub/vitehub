@@ -331,15 +331,16 @@ function hasResponsePrototype(value: unknown): boolean {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
+  const stream = body as object
   try {
     // Use the stream's own realm methods. Native stream brand checks reject
     // applying this realm's methods to a foreign ReadableStream.
-    const getReader = nativeStreamMethod(body, "getReader")
-    const locked = streamLockedGetter(body)
-    if (typeof getReader !== "function" || !locked || !hasNativeStreamBrand(body)) return false
-    if (Reflect.apply(locked, body, []) !== false) return false
-    const reader: unknown = Reflect.apply(getReader, body, [])
-    if (Object(reader) !== reader || Reflect.apply(locked, body, []) !== true) return false
+    const getReader = nativeStreamMethod(stream, "getReader")
+    const locked = streamLockedGetter(stream)
+    if (typeof getReader !== "function" || !locked || !hasNativeStreamBrand(stream)) return false
+    if (Reflect.apply(locked, stream, []) !== false) return false
+    const reader: unknown = Reflect.apply(getReader, stream, [])
+    if (Object(reader) !== reader || Reflect.apply(locked, stream, []) !== true) return false
     const readerObject = reader as object
     let releaseLock: unknown
     try {
@@ -352,7 +353,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     finally {
       try {
         if (typeof releaseLock === "function") Reflect.apply(releaseLock, readerObject, [])
-        if (Reflect.apply(locked, body, []) !== false) return false
+        if (Reflect.apply(locked, stream, []) !== false) return false
       }
       catch {
         return false
