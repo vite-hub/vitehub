@@ -110,7 +110,7 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
   // Match consoleRequestURL(): request headers take precedence per header,
   // followed by event-level and Node request headers as fallbacks.
   copyHeaders(event.node?.req?.headers)
-  copyHeaders(event.headers, false)
+  copyHeaders(event.headers)
   copyHeaders(event.req?.headers, true)
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
 }

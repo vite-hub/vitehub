@@ -36,4 +36,17 @@ describe("Console request header reconstruction", () => {
     expect(request.headers.get("host")).toBe("")
     expect(consoleRequestURL(event).hostname).toBe("localhost")
   })
+
+  it("keeps an empty event header instead of falling back to Node headers", () => {
+    const event = {
+      method: "GET",
+      req: { url: "/_vitehub/console" },
+      headers: { get: (name: string) => name === "host" ? "" : null },
+      node: { req: { headers: { host: "console.example" } } },
+    }
+
+    const request = consoleRequest(event)
+    expect(request.headers.get("host")).toBe("")
+    expect(consoleRequestURL(event).hostname).toBe("localhost")
+  })
 })
