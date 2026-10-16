@@ -457,6 +457,19 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
           if (constructor === ReadableStream
             && (descriptor.value !== nativeStreamGetReader
               || (["read", "cancel", "releaseLock"] as const).some(key => probeMethods[key] !== nativeReaderMethods[key]))) return
+          // Native reader operations enforce the reader brand before doing
+          // any work. A replacement that merely returns a promise can mimic
+          // the happy path on a probe reader, but it cannot pass this check
+          // without reproducing the runtime's internal-slot guard.
+          for (const key of ["read", "cancel", "releaseLock"] as const) {
+            try {
+              Reflect.apply(probeMethods[key], {}, key === "cancel" ? [undefined] : [])
+              return
+            }
+            catch {
+              // Expected: the operation rejects a non-reader receiver.
+            }
+          }
           // Exercise every operation in the source runtime. This rejects
           // callable replacements that do not preserve Web Streams behavior,
           // without comparing implementation-specific function source text.
