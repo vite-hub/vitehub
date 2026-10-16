@@ -90,7 +90,6 @@ Include instruction content only when the current viewer may inspect it. The com
 | `showTimeline`     | `boolean`             | `true`   | Shows the run timeline.                               |
 | `showSources`      | `boolean`             | `true`   | Shows captured Workspace Sources.                    |
 | `showCapabilities` | `boolean`             | `false`  | Shows the embedded Capability summary.                |
-| `showSources`      | `boolean`             | `true`   | Shows recorded Workspace Sources in the setup section. |
 
 #### Events
 

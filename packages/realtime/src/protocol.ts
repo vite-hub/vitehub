@@ -29,10 +29,7 @@ function validPath(value: unknown): value is string {
       || /^git~\d+$/.test(normalized)
       || (index === 0 && normalized === ".vitehub")
       || (index === 0 && /^vitehu~\d+$/.test(normalized))
-    const canonical = index === 0
-      && (normalized === ".git" || normalized === ".vitehub")
-      && original === normalized
-    return !traversal && (!reserved || canonical)
+    return !traversal && !reserved
   })
 }
 
