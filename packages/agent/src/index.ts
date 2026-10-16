@@ -5093,6 +5093,28 @@ function maybeTraceAgentStream<
   })()
 }
 
+function immediateAgentUsageRecord(
+  value: unknown,
+  run: Partial<AgentRunMetadata> | undefined,
+): ReturnType<typeof usageRecordFromStreamChunk> {
+  if (!value || !hasRuntimeType(value, "object")) return
+  const record = value as Record<string, unknown>
+  const isPending = (candidate: unknown): candidate is PromiseLike<unknown> =>
+    Boolean(candidate && hasRuntimeType(candidate, "object") && hasRuntimeType((candidate as Record<string, unknown>).then, "function"))
+  const usageRecord = record.usageRecord
+  if (usageRecord && !isPending(usageRecord)) {
+    const resolved = usageRecordFromStreamChunk({ type: "usage", usageRecord }, value, run)
+    if (resolved) return resolved
+  }
+  for (const usage of [record.usage, record.totalUsage]) {
+    if (usage && !isPending(usage)) {
+      const resolved = usageRecordFromStreamChunk({ type: "finish", usage }, value, run)
+      if (resolved) return resolved
+    }
+  }
+  return immediateAgentUsageRecord(record.raw, run)
+}
+
 function withEagerStreamUsageExtensions<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -5172,12 +5194,10 @@ function withEagerStreamUsageExtensions<
     }
     catch (error) {
       if (!extensionsRun) {
-        // The source has terminated, so it is safe to resolve asynchronous usage
-        // exposed through any of the supported result shapes before rethrowing the
-        // source error. Keep that error as the observable failure if an eager
-        // extension also fails while processing the usage.
+        // Preserve source errors without waiting for unrelated provider promises.
         try {
-          await runExtensions(await resolveAgentUsageRecord(result, context.run))
+          const usageRecord = immediateAgentUsageRecord(result, context.run)
+          if (usageRecord) await runExtensions(usageRecord)
         }
         catch {
           // Preserve the original source error.
@@ -5196,7 +5216,7 @@ function withEagerStreamUsageExtensions<
         // Consumer cancellation can close the source before a usage record is
         // available. Do not run finish extensions with undefined usage in that
         // case: finish hooks may perform side effects or reject cancellation.
-        if (usageRecord || sourceCompleted) {
+        if (usageRecord) {
           await runExtensions(usageRecord)
           if (sourceCompleted && usageRecord) yield { type: "usage", usageRecord }
         }
