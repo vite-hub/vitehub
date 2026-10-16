@@ -64,7 +64,7 @@ function splitCombinedSetCookie(value: string | null): string[] {
     // A cookie boundary is a comma followed by a cookie name and equals sign.
     // Check this before the Expires state so dates without a trailing semicolon
     // still allow the next cookie to be forwarded separately.
-    if (/^\s+[!#$%&'*+.^_`|~0-9A-Za-z-]+=/.test(value.slice(index + 1))) {
+    if (/^\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+=/.test(value.slice(index + 1))) {
       result.push(value.slice(start, index).trim())
       start = index + 1
       inExpires = false
