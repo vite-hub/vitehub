@@ -335,7 +335,6 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
   catch {
     return false
   }
-  return false
 }
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
@@ -343,103 +342,21 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (Object(body) !== body) return false
   const stream = body as object
   try {
-    // Use the stream's own realm methods. Native stream brand checks reject
-    // applying this realm's methods to a foreign ReadableStream.
-    const getReader = nativeStreamMethod(stream, "getReader")
-    const locked = streamLockedGetter(stream)
-    if (typeof getReader !== "function" || !locked || !hasNativeStreamBrand(stream)) return false
-    // A foreign stream must expose its native capabilities from one prototype.
-    // A forged layer can otherwise provide a reader method while leaving the
-    // genuine lock state (or vice versa) below it.
-    if (!(stream instanceof ReadableStream) && streamCapabilityOwners(stream) !== true) return false
-    if (Reflect.apply(locked, stream, []) !== false) return false
-    const reader: unknown = Reflect.apply(getReader, stream, [])
-    if (Object(reader) !== reader || Reflect.apply(locked, stream, []) !== true) return false
-      const readerObject = reader as object
-    if (!(readerObject instanceof ReadableStreamDefaultReader) && !readerCapabilityOwners(readerObject)) return false
-    let releaseLock: unknown
-    try {
-      releaseLock = nativeReaderMethod(readerObject, "releaseLock")
-      const read = nativeReaderMethod(readerObject, "read")
-      const cancel = nativeReaderMethod(readerObject, "cancel")
-      const closed = nativeReaderClosedGetter(readerObject)
-      if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function" || !closed) return false
-      const closedPromise = Reflect.apply(closed, readerObject, [])
-      if (!closedPromise || typeof (closedPromise as Promise<unknown>).then !== "function") return false
-      return true
+    // Response performs the platform ReadableStream brand check without
+    // consulting getReader, read, cancel, releaseLock, or closed properties.
+    // Identity distinguishes a genuine stream from a generic body value.
+    if (!hasNativeStreamBrand(stream)) return false
+    if (stream instanceof ReadableStream) {
+      const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      if (locked && Reflect.apply(locked, stream, []) !== false) return false
     }
-    finally {
-      try {
-        if (typeof releaseLock === "function") Reflect.apply(releaseLock, readerObject, [])
-        if (Reflect.apply(locked, stream, []) !== false) return false
-      }
-      catch {
-        return false
-      }
-    }
+    return true
   }
   catch {
     return false
   }
 }
 
-
-function streamCapabilityOwners(body: object): boolean {
-  try {
-    let current: object | null = body
-    const seen = new Set<object>()
-    let methodOwner: object | undefined
-    let lockOwner: object | undefined
-    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(current)) return false
-      seen.add(current)
-      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-      const isSelfConstructing = typeof constructor === "function" && constructor.prototype === current
-      if (isSelfConstructing && !methodOwner && Object.getOwnPropertyDescriptor(current, "getReader")?.value === nativeStreamMethod(body, "getReader")) methodOwner = current
-      if (isSelfConstructing && !lockOwner && Object.getOwnPropertyDescriptor(current, "locked")?.get === streamLockedGetter(body)) lockOwner = current
-      current = Object.getPrototypeOf(current)
-    }
-    // A foreign stream must expose both capabilities directly on its native
-    // prototype. An inserted self-constructing prototype can otherwise make
-    // forged methods look like a coherent stream surface while the actual
-    // stream brand lives further down the chain.
-    if (!methodOwner || methodOwner !== lockOwner || Object.getPrototypeOf(body) !== methodOwner) return false
-    const parent = Object.getPrototypeOf(methodOwner)
-    // A genuine stream prototype is the capability boundary. Any inherited
-    // stream capability means a caller inserted a layer above that boundary.
-    return !parent || (Object.getOwnPropertyDescriptor(parent, "getReader") === undefined
-      && Object.getOwnPropertyDescriptor(parent, "locked") === undefined)
-  }
-  catch {
-    return false
-  }
-}
-
-function streamLockedGetter(body: object): (() => boolean) | undefined {
-  let current: object | null = body
-  const seen = new Set<object>()
-  let result: (() => boolean) | undefined
-  try {
-    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(current)) return undefined
-      seen.add(current)
-      const descriptor = Object.getOwnPropertyDescriptor(current, "locked")
-      const getter = descriptor?.get
-      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-      if (typeof getter === "function" && constructor?.name === "ReadableStream") {
-        if (body instanceof ReadableStream) {
-          if (getter !== Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get) return undefined
-        }
-        result = getter as () => boolean
-      }
-      current = Object.getPrototypeOf(current)
-    }
-  }
-  catch {
-    return undefined
-  }
-  return result
-}
 
 function hasNativeStreamBrand(body: object): boolean {
   try {
@@ -450,130 +367,6 @@ function hasNativeStreamBrand(body: object): boolean {
   }
   catch {
     return false
-  }
-  return false
-}
-
-function nativeReaderClosedGetter(reader: object): (() => Promise<unknown>) | undefined {
-  try {
-    const prototype = Object.getPrototypeOf(reader)
-    const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, "closed")
-    if (typeof descriptor?.get !== "function") return undefined
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    if (typeof constructor !== "function" || constructor.prototype !== prototype || constructor.name !== "ReadableStreamDefaultReader") return undefined
-    return descriptor.get as () => Promise<unknown>
-  }
-  catch {
-    return undefined
-  }
-  return undefined
-}
-
-function nativeStreamMethod<T extends keyof ReadableStream<Uint8Array>>(body: object, key: T): ReadableStream<Uint8Array>[T] | undefined {
-  if (Object.prototype.hasOwnProperty.call(body, key)) return undefined
-  let current: object | null = body
-  const seen = new Set<object>()
-  let result: ReadableStream<Uint8Array>[T] | undefined
-  for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-    if (seen.has(current)) return undefined
-    seen.add(current)
-    const descriptor = Object.getOwnPropertyDescriptor(current, key)
-    if (descriptor && typeof descriptor.value === "function") {
-      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-      if (constructor?.name === "ReadableStream") {
-        if (body instanceof ReadableStream && descriptor.value !== ReadableStream.prototype[key]) return undefined
-        result = descriptor.value as ReadableStream<Uint8Array>[T]
-      }
-    }
-    current = Object.getPrototypeOf(current)
-  }
-  return result
-}
-
-function nativeReaderMethod<T extends "read" | "cancel" | "releaseLock">(reader: object, key: T): Function | undefined {
-  if (Object.prototype.hasOwnProperty.call(reader, key)) return undefined
-  const prototype = Object.getPrototypeOf(reader)
-  const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, key)
-  if (typeof descriptor?.value !== "function") return undefined
-  const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-  if (typeof constructor !== "function" || constructor.prototype !== prototype || constructor.name !== "ReadableStreamDefaultReader") return undefined
-  if (typeof ReadableStreamDefaultReader !== "undefined" && reader instanceof ReadableStreamDefaultReader
-    && descriptor.value !== ReadableStreamDefaultReader.prototype[key]) return undefined
-  return descriptor.value
-}
-
-function readerCapabilityOwners(reader: object): boolean {
-  try {
-    const prototype = Object.getPrototypeOf(reader)
-    if (!prototype) return false
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    if (typeof constructor !== "function" || constructor.prototype !== prototype || constructor.name !== "ReadableStreamDefaultReader") return false
-    if (!( ["read", "cancel", "releaseLock"].every(key => typeof Object.getOwnPropertyDescriptor(prototype, key)?.value === "function")
-      && typeof Object.getOwnPropertyDescriptor(prototype, "closed")?.get === "function")) return false
-    const parent = Object.getPrototypeOf(prototype)
-    // Reject a caller-installed reader prototype above the genuine reader
-    // prototype. Native reader capabilities stop at the immediate prototype.
-    // Native reader prototypes inherit from Object.prototype. A caller can
-    // otherwise install a self-constructing prototype with a null parent;
-    // the brand remains valid while every bridged operation is attacker-owned.
-    return parent !== null && (["read", "cancel", "releaseLock", "closed"].every(key =>
-      Object.getOwnPropertyDescriptor(parent, key) === undefined))
-  }
-  catch {
-    return false
-  }
-}
-
-function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  // Use operations from the stream's own realm so foreign streams pass their
-  // native brand checks. Validation has already probed these capabilities.
-  const getReader = nativeStreamMethod(body, "getReader") as () => ReadableStreamDefaultReader<Uint8Array>
-  const reader = Reflect.apply(getReader, body, [])
-  try {
-    const read = nativeReaderMethod(reader, "read") as ReadableStreamDefaultReader<Uint8Array>["read"]
-    const cancel = nativeReaderMethod(reader, "cancel") as ReadableStreamDefaultReader<Uint8Array>["cancel"]
-    const releaseLock = nativeReaderMethod(reader, "releaseLock") as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
-    let released = false
-    const release = () => {
-      if (released) return
-      released = true
-      Reflect.apply(releaseLock, reader, [])
-    }
-  const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const result = await Reflect.apply(read, reader, [])
-        if (result.done) {
-          release()
-          controller.close()
-        }
-        else controller.enqueue(result.value)
-      }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
-    },
-    async cancel(reason) {
-      try {
-        await Reflect.apply(cancel, reader, [reason])
-      }
-      finally {
-        release()
-      }
-    },
-  }, { highWaterMark: 0 })
-    return { stream, release }
-  }
-  catch (error) {
-    try {
-      const releaseLock = nativeReaderMethod(reader, "releaseLock")
-      if (releaseLock) Reflect.apply(releaseLock, reader, [])
-    }
-    catch {
-      // The original error is the useful failure at this boundary.
-    }
-    throw error
   }
 }
 
@@ -655,14 +448,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       ? Response.error()
       : new Response(body, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
-    const bridgedBody = bridgeAuthorizationBody(body)
-    try {
-      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
-    }
-    catch (error) {
-      bridgedBody.release()
-      throw error
-    }
+    // Let the platform consume the stream through its internal capability
+    // boundary. Calling reader methods discovered from the candidate's
+    // prototype chain would allow a forged foreign prototype to cross this
+    // authorization boundary.
+    return new Response(body, { status, statusText, headers: normalizedHeaders })
   }
   catch {
     return undefined
