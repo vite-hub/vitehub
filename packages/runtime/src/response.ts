@@ -24,17 +24,16 @@ interface BlobMethods {
 const blobArrayBuffer = Blob.prototype.arrayBuffer
 const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
 
-function getForeignBlobMethods(value: object): { arrayBuffer: (value: object) => Promise<ArrayBuffer>, type: string } | undefined {
+function getForeignBlobMethods(value: object): { stream: (value: object) => ReadableStream, type: string } | undefined {
   let prototype: object | null = Object.getPrototypeOf(value)
   while (prototype) {
-    const arrayBuffer = Object.getOwnPropertyDescriptor(prototype, "arrayBuffer")
     const text = Object.getOwnPropertyDescriptor(prototype, "text")
     const stream = Object.getOwnPropertyDescriptor(prototype, "stream")
     const slice = Object.getOwnPropertyDescriptor(prototype, "slice")
     const type = Object.getOwnPropertyDescriptor(prototype, "type")
     const size = Object.getOwnPropertyDescriptor(prototype, "size")
     const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")
-    if (typeof arrayBuffer?.value === "function" && typeof text?.value === "function" &&
+    if (typeof text?.value === "function" &&
       typeof stream?.value === "function" && typeof slice?.value === "function" &&
       (typeof type?.get === "function" || typeof Object.getOwnPropertyDescriptor(value, "type")?.value === "string") &&
       (typeof size?.get === "function" || typeof Object.getOwnPropertyDescriptor(value, "size")?.value === "number") &&
@@ -43,7 +42,7 @@ function getForeignBlobMethods(value: object): { arrayBuffer: (value: object) =>
         ? Reflect.apply(type.get, value, [])
         : Object.getOwnPropertyDescriptor(value, "type")?.value
       return {
-        arrayBuffer: candidate => Reflect.apply(arrayBuffer.value, candidate, []) as Promise<ArrayBuffer>,
+        stream: candidate => Reflect.apply(stream.value, candidate, []) as ReadableStream,
         type: String(typeValue),
       }
     }
@@ -59,7 +58,18 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
     // operations. Applying them performs the Web IDL brand check, including
     // for Blob objects from another realm, without consulting structuredClone's
     // host-specific clone registry.
-    let readArrayBuffer: (value: object) => Promise<ArrayBuffer> = candidate => Reflect.apply(blobArrayBuffer, candidate, []) as Promise<ArrayBuffer>
+    let readStream: (value: object) => ReadableStream = candidate => new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          const bytes = await Reflect.apply(blobArrayBuffer, candidate, []) as ArrayBuffer
+          controller.enqueue(new Uint8Array(bytes))
+          controller.close()
+        }
+        catch (error) {
+          controller.error(error)
+        }
+      },
+    })
     let type: string
     if (typeof blobType === "function") {
       try {
@@ -68,27 +78,34 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
       catch {
         const foreign = getForeignBlobMethods(value)
         if (!foreign) return undefined
-        readArrayBuffer = foreign.arrayBuffer
+        readStream = foreign.stream
         type = foreign.type
       }
     }
     else {
       const foreign = getForeignBlobMethods(value)
       if (!foreign) return undefined
-      readArrayBuffer = foreign.arrayBuffer
+      readStream = foreign.stream
       type = foreign.type
     }
     return {
       type,
       body: () => new ReadableStream<Uint8Array>({
         async start(controller) {
+          const reader = readStream(value).getReader()
           try {
-            const bytes = await readArrayBuffer(value)
-            controller.enqueue(new Uint8Array(bytes))
+            while (true) {
+              const chunk = await reader.read()
+              if (chunk.done) break
+              controller.enqueue(chunk.value)
+            }
             controller.close()
           }
           catch (error) {
             controller.error(error)
+          }
+          finally {
+            reader.releaseLock()
           }
         },
       }),
