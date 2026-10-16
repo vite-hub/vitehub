@@ -35,6 +35,19 @@ it("rejects duplicate consumers across history instances", () => {
   expect(() => other.take(cursor)).toThrow("already in use")
 })
 
+it("bounds abandoned in-flight continuations", () => {
+  const history = createCursorHistory()
+  const first = history.store("provider-0", new Set(["provider-0"]))
+  history.take(first)
+
+  for (let index = 1; index <= 1_024; index++) {
+    const cursor = history.store(`provider-${index}`, new Set([`provider-${index}`]))
+    history.take(cursor)
+  }
+
+  expect(() => createCursorHistory().take(first)).toThrow("expired")
+})
+
 it("fails closed when another history instance evicts a continuation", () => {
   const owner = createCursorHistory()
   const other = createCursorHistory()

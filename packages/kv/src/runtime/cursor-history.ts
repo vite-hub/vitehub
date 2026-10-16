@@ -34,6 +34,7 @@ function encodeContinuation(providerCursor: string, history: CursorHistory): str
 // caller-provided cursor, since providers own the complete opaque cursor space.
 const continuations = new Map<string, Continuation>()
 const consumedContinuations = new Map<string, Continuation>()
+const consumedOwners = new Map<string, Set<string>>()
 const invalidatedContinuations = new Set<string>()
 
 function rememberInvalidated(cursor: string): void {
@@ -72,6 +73,15 @@ export function createCursorHistory(namespace = "default") {
     ownedContinuations.delete(cursor)
     consumedContinuations.set(cursor, continuation)
     ownedConsumedContinuations.add(cursor)
+    consumedOwners.set(cursor, ownedConsumedContinuations)
+    while (consumedContinuations.size > MAX_CURSOR_HISTORIES) {
+      const oldest = consumedContinuations.keys().next().value as string | undefined
+      if (oldest === undefined) break
+      consumedContinuations.delete(oldest)
+      consumedOwners.get(oldest)?.delete(oldest)
+      consumedOwners.delete(oldest)
+      rememberInvalidated(oldest)
+    }
     return continuation
   }
   function store(providerCursor: string, history: CursorHistory, requestedNamespace = namespace): string {
@@ -92,11 +102,13 @@ export function createCursorHistory(namespace = "default") {
     continuations.set(cursor, continuation)
     ownedContinuations.add(cursor)
     consumedContinuations.delete(cursor)
+    consumedOwners.delete(cursor)
     ownedConsumedContinuations.delete(cursor)
   }
   function complete(cursor: string | undefined): void {
     if (cursor && ownedConsumedContinuations.has(cursor)) {
       consumedContinuations.delete(cursor)
+      consumedOwners.delete(cursor)
       ownedConsumedContinuations.delete(cursor)
     }
   }
@@ -109,6 +121,7 @@ export function createCursorHistory(namespace = "default") {
     ownedContinuations.clear()
     for (const token of ownedConsumedContinuations) {
       consumedContinuations.delete(token)
+      consumedOwners.delete(token)
       rememberInvalidated(token)
     }
     ownedConsumedContinuations.clear()
