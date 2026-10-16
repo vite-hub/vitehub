@@ -136,10 +136,21 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
   const value = event.req?.url ?? event.node?.req?.url ?? "/"
-  const headers = event.req?.headers ?? event.headers
+  // Match consoleRequest(): request headers take precedence per header, with
+  // event-level and Node headers supplying values missing from that container.
   const header = (name: string) => {
-    const raw = headers?.get(name) ?? event.node?.req?.headers?.[name]
-    return (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
+    const sources: Array<ConsoleHeaders | Record<string, string | string[] | undefined> | undefined> = [
+      event.req?.headers,
+      event.headers,
+      event.node?.req?.headers,
+    ]
+    for (const source of sources) {
+      const raw = source instanceof Object && "get" in source && source.get instanceof Function
+        ? source.get(name)
+        : source?.[name]
+      const value = (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
+      if (value) return value
+    }
   }
   const url = value instanceof URL ? new URL(value) : new URL(value, "http://localhost")
   const host = header("x-forwarded-host") ?? header("host")
