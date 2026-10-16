@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { runInNewContext } from "node:vm"
+import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -102,6 +103,20 @@ describe("Auth access handlers", () => {
       access: { routes: [{ route: "/**", authorize: () => response }] },
     }))
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+  })
+
+  it("bridges a native foreign-runtime response body", async () => {
+    const foreignResponse = new ForeignResponse("Foreign body", { status: 409 })
+    expect(foreignResponse.body?.locked).toBe(false)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+    expect(response?.status).toBe(409)
+    expect(foreignResponse.body?.locked).toBe(true)
+    await expect(response?.text()).resolves.toBe("Foreign body")
+    expect(foreignResponse.body?.locked).toBe(false)
   })
 
   it("rejects incomplete spoofed authorization responses", async () => {
