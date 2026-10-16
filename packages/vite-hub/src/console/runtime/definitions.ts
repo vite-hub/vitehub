@@ -85,12 +85,31 @@ function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponen
   })
 }
 
+/** A view that the Console renders for a section page. It mirrors `ViteHubConsoleSectionPageView`. */
+export type ConsoleSectionPageView = { kind: "document-dashboard" } | { kind: "media-library" }
+
+/**
+ * A page next to the main view of a section. It mirrors `ViteHubConsoleSectionPage` after the host dropped the pages
+ * whose required sections the project does not enable.
+ */
+export interface ConsoleSectionPage {
+  group?: string
+  icon: string
+  id: string
+  /** The page opens at the section root. */
+  index?: boolean
+  label: string
+  view: ConsoleSectionPageView
+}
+
 /** Serializable descriptor of a Console section that an owner package contributes. */
 export interface ConsoleContributedSection {
   description: string
   icon: string
   id: string
   label: string
+  /** Pages next to the main view, in sidebar order. */
+  pages?: readonly ConsoleSectionPage[]
   view: ConsoleSectionView
 }
 
@@ -143,13 +162,36 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
   return { columns, kind: "record-table", notice: view.notice }
 }
 
+const pageViewKinds: ReadonlySet<unknown> = new Set<ConsoleSectionPageView["kind"]>(["document-dashboard", "media-library"])
+const pageIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+
+/** Reads section pages from untrusted JSON. Pages with an unknown view, a repeated id, or a second index are dropped. */
+function parseConsoleSectionPages(value: unknown): ConsoleSectionPage[] {
+  if (!Array.isArray(value)) return []
+  const pages: ConsoleSectionPage[] = []
+  for (const entry of value) {
+    const page = record(entry)
+    const view = record(page?.view)
+    if (!page || !text(page.id) || !pageIdPattern.test(page.id) || !text(page.label) || !text(page.icon) || !pageViewKinds.has(view?.kind)) continue
+    if (pages.some(candidate => candidate.id === page.id)) continue
+    // SAFETY: `pageViewKinds` holds exactly the page view kinds.
+    const parsed: ConsoleSectionPage = { icon: page.icon, id: page.id, label: page.label, view: { kind: view!.kind as ConsoleSectionPageView["kind"] } }
+    if (page.index === true && !pages.some(candidate => candidate.index)) parsed.index = true
+    if (text(page.group) && page.group.trim()) parsed.group = page.group.trim()
+    pages.push(parsed)
+  }
+  return pages
+}
+
 /** Reads a contributed section descriptor from untrusted JSON. */
 export function parseConsoleContributedSection(value: unknown): ConsoleContributedSection | undefined {
   const section = record(value)
   const view = parseConsoleSectionView(section?.view)
-  return section && view && text(section.id) && text(section.label) && text(section.icon) && text(section.description)
-    ? { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
-    : undefined
+  if (!section || !view || !text(section.id) || !text(section.label) || !text(section.icon) || !text(section.description)) return undefined
+  const parsed: ConsoleContributedSection = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
+  const pages = parseConsoleSectionPages(section.pages)
+  if (pages.length) parsed.pages = pages
+  return parsed
 }
 
 export function parseConsoleDefinitionSummaries(value: unknown): ConsoleDefinitionSummary[] {

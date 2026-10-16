@@ -26,7 +26,7 @@ import { discoverConsoleBuildCatalog } from "./console/build.ts"
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
-import { consoleSectionRouteName, isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
+import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, describeConsoleContributedSections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { consoleIcons } from "./console/icons.ts"
 import { addConsoleRpcHandler } from "./console/nitro.ts"
@@ -46,7 +46,8 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 const databaseRuntimeState = fileURLToPath(new URL("./_internal/database/runtime/state", import.meta.url))
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
-type NuxtPage = { file: string, meta?: Record<string, unknown>, name: string, path: string }
+/** A Nuxt page record. A redirect record has no file. */
+type NuxtPage = { file?: string, meta?: Record<string, unknown>, name: string, path: string, redirect?: string }
 type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
   database?: boolean | Exclude<DatabaseNuxtIntegrationOptions, false>
   env?: false | EnvIntegrationOptions & EnvViteConfigOptions
@@ -334,7 +335,7 @@ async function installConsole(
   hookIcons?.("icon:clientBundleIcons", (icons) => {
     for (const icon of consoleIcons) icons.add(icon)
     for (const section of describeConsoleContributedSections([...sections, ...documentEditorSections])) {
-      icons.add(section.icon.replace(/^i-(lucide|ph)-/, "$1:"))
+      for (const icon of [section.icon, ...section.pages?.map(page => page.icon) ?? []]) icons.add(icon.replace(/^i-(lucide|ph)-/, "$1:"))
     }
   })
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Nuxt exposes hook overloads, while this structural seam keeps narrow nitro-only test hosts assignable.
@@ -404,13 +405,20 @@ async function installConsole(
         name: consoleSectionRouteName(details.id),
         path: `/_vitehub/${details.id}`,
       })),
-      // A document editor has a page only when discovery found its application module, such as server/content.ts.
-      ...documentEditorSections.flatMap((section) => {
-        const details = consoleContributedSections.get(section)?.descriptor
-        return details
-          ? [{ file: join(consoleRuntimeRoot, "pages/documents.vue"), meta: { consoleSection: section, consoleSectionDetails: details }, name: consoleSectionRouteName(section), path: `/_vitehub/${section}/:collection?/:document(.*)*` }]
-          : []
-      }),
+      // A document editor has pages only when discovery found its application module, such as server/content.ts. Its
+      // routes match the Vite Console: the main view, its pages under `/-/`, and a redirect from the index page path.
+      ...describeConsoleContributedSections([...new Set([...sections, ...documentEditorSections])])
+        .filter(details => documentEditorSections.includes(details.id))
+        .flatMap(details => describeConsoleSectionRoutes(details).map((route): NuxtPage => {
+          if (route.redirect) return { name: route.name, path: `/_vitehub${route.path}`, redirect: `/_vitehub${route.redirect}` }
+          const meta = { consoleSection: details.id, consoleSectionDetails: details }
+          return {
+            file: join(consoleRuntimeRoot, "pages/documents.vue"),
+            meta: route.page ? { ...meta, consolePage: route.page } : meta,
+            name: route.name,
+            path: `/_vitehub${route.path}`,
+          }
+        })),
     ]
     for (const page of additions) {
       if (!pages.some((candidate) => candidate.path === page.path)) pages.push(page)

@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
 import { defineEventHandler } from "h3"
@@ -175,6 +176,11 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
   /** Revisions that saved, removed, restored, or published one document, newest first. */
   revisions(collection: CollectionName<TCollections>, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /**
+   * Revisions that changed documents of any collection on one ref, newest first: saves, removes, and restores on
+   * `draft` (default), publishes on `published`. `metadata.content.documents` names the documents of each.
+   */
+  revisions(options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
 }
@@ -287,7 +293,10 @@ export function defineContent<
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
     collection: (name: string) => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
-    revisions: (collection: string, id: string, revisionOptions?: ContentRevisionsOptions) => requireDocuments().revisions(collection, id, revisionOptions),
+    revisions: (collectionOrOptions?: string | ContentRevisionsOptions, id?: string, revisionOptions?: ContentRevisionsOptions) =>
+      hasRuntimeType(collectionOrOptions, "string")
+        ? requireDocuments().revisions(collectionOrOptions, String(id), revisionOptions)
+        : requireDocuments().history(collectionOrOptions),
     async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
       if (context === null || Object(context) !== context || !contentActions.has(context.action)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() requires { user?, actor?, collection, action: 'read' | 'write' | 'publish', id? }." })
