@@ -407,8 +407,8 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
   }
   const forEachEntry = findMethod("forEach")
   const cookieEntry = findMethod("getSetCookie")
-  if (!forEachEntry || !isNativeFunction(forEachEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value, "forEach", true)) return
-  if (cookieEntry && !isNativeFunction(cookieEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie", true)) return
+  if (!forEachEntry || !isNativeFunction(forEachEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value, "forEach")) return
+  if (cookieEntry && !isNativeFunction(cookieEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie")) return
   if (cookieEntry && cookieEntry.owner !== forEachEntry.owner) return
   const owner = forEachEntry.owner
   const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
@@ -458,9 +458,9 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     // Native reader operations have stable names across realms. This rejects
     // replacements installed on a shared reader prototype before any
     // caller-controlled operation is invoked.
-    if (!isNativeFunction(read, nativeReaderRead, "read", true) || read.name !== "read"
-    || !isNativeFunction(cancel, nativeReaderCancel, "cancel", true) || cancel.name !== "cancel"
-    || !isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock", true) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
+    if (!isNativeFunction(read, nativeReaderRead, "read") || read.name !== "read"
+    || !isNativeFunction(cancel, nativeReaderCancel, "cancel") || cancel.name !== "cancel"
+    || !isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock") || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
     let released = false
     const release = () => {
       if (released) return
