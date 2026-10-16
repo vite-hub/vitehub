@@ -94,6 +94,10 @@ icon: i-lucide-folder-input
   Each `server/collections` module gets a cursor-paged GET route and `useCollection()`.
   :::
 
+  :::product-feature-item{title="An array becomes a filtered, faceted route" icon="i-lucide-list-filter" to="/docs/source/server-api#collections-over-an-array"}
+  `array()` and `workspaceFile()` add filters, search, `total`, and `facets`.
+  :::
+
   :::product-feature-item{title="The route checks Auth before it loads rows" icon="i-lucide-shield-check" to="/docs/source/server-api#protect-a-collection"}
   `authorize` checks the session; the client gets `401` or `403`.
   :::

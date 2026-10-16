@@ -757,7 +757,7 @@ function maybeStrings(value: unknown): string[] | undefined {
 
 function githubUserMetadata(value: unknown): GitHubPullRequestCommentMetadata["user"] | undefined {
   if (!isRecord(value)) return
-  const login = maybeString(value.login)
+  const login = maybeString(value.login) || maybeString(value.username)
   const id = maybeNumber(value.id)
   const type = maybeString(value.type)
   if (!login && !id && !type) return
@@ -772,7 +772,7 @@ function githubCommentMetadata(value: unknown): GitHubPullRequestCommentMetadata
   if (!isRecord(value)) return
   const id = maybeNumber(value.id)
   if (id === undefined) return
-  const user = githubUserMetadata(value.user)
+  const user = githubUserMetadata(value.user || value.author)
   return {
     ...(maybeString(value.author_association) ? { authorAssociation: maybeString(value.author_association) } : {}),
     ...(maybeString(value.body) ? { body: maybeString(value.body) } : {}),
