@@ -56,7 +56,7 @@ function normalizeContentSourcePath(path: unknown = ""): string {
 }
 
 function contentPath(item: ContentSourceItem): string {
-  const path = "path" in item ? item.path : item.key
+  const path = "path" in item && item.path !== undefined ? item.path : item.key
   return normalizeContentSourcePath(path)
 }
 

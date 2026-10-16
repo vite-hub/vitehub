@@ -826,6 +826,14 @@ describe("contentSource", () => {
 
     await expect(source.keys()).resolves.toEqual(["declared.md"])
   })
+
+  it("falls back to the key when the optional path is undefined", async () => {
+    const source = contentSource({
+      items: async () => [{ key: "fallback.md", path: undefined, content: "# Fallback" }],
+    } as never)
+
+    await expect(source.keys()).resolves.toEqual(["fallback.md"])
+  })
 })
 
 describe("defineContentHandler", () => {
