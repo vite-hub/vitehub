@@ -320,6 +320,46 @@ function documentTables(sql: RealtimeRoomSql): void {
   sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL, client_update INTEGER NOT NULL DEFAULT 1)")
 }
 
+/** Copy the pre-adapter Durable Object journal before reading the new schema. */
+function migrateLegacyDocument(sql: RealtimeRoomSql, key: string): void {
+  if (sql.exec("SELECT room_key FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray().length) return
+  let legacy: Record<string, unknown> | undefined
+  try {
+    legacy = sql.exec("SELECT baseline_digest, update_blob FROM vitehub_realtime_rooms WHERE room_key = ?", key).toArray()[0]
+  }
+  catch {
+    // Existing deployments without the legacy tables need no migration.
+  }
+  if (!legacy) return
+  let updates: Array<Record<string, unknown>> = []
+  try {
+    updates = sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+  }
+  catch {
+    // The first release could persist the snapshot without creating its journal.
+  }
+  const update = storedUpdate(legacy.update_blob)
+  if (!update) return
+  sql.exec(
+    "INSERT INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob) VALUES (?, ?, ?, ?, ?)",
+    key,
+    crypto.randomUUID(),
+    text(legacy.baseline_digest) ?? null,
+    updates.length ? 1 : 0,
+    Uint8Array.from(update).buffer,
+  )
+  for (const row of updates) {
+    const legacyUpdate = storedUpdate(row.update_blob)
+    if (legacyUpdate) {
+      sql.exec(
+        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
+        key,
+        Uint8Array.from(legacyUpdate).buffer,
+      )
+    }
+  }
+}
+
 function parseRoomPath(url: string): { definitionName: string, documentId: string, searchParams: URLSearchParams, workspaceEvents: boolean } {
   const parsed = new URL(url)
   const path = parsed.pathname
@@ -627,7 +667,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       const editor = resolved.editor(context)
       const loaded = await resolved.adapter.load(context)
       const guard = await verifyDocument(editor, loaded)
-      if (sql) documentTables(sql)
+      if (sql) {
+        documentTables(sql)
+        migrateLegacyDocument(sql, key)
+      }
       const stored = sql?.exec("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
       const storedDigest = text(stored?.digest) ?? null
       const storedEpoch = text(stored?.epoch)
