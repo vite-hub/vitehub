@@ -629,17 +629,20 @@ describe("room authorities", () => {
     expect(sql.updates[0]).toMatchObject({ client_update: 1 })
   })
 
-  it("forwards each document to its Durable Object by room key", async () => {
+  it("forwards saves and checkpoints to the Durable Object instance that holds the rooms", async () => {
     const fetch = vi.fn(async () => new Response("forwarded"))
     const idFromName = vi.fn((name: string) => ({ name }))
     const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/posts/hello", { headers: { upgrade: "websocket" } })
-    Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch }), idFromName } } } } })
+    for (const search of ["?document=save", "?history=checkpoint"]) {
+      const request = new Request(`https://example.com/api/_vitehub/realtime/docs/posts/hello${search}`, { method: "POST" })
+      Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch }), idFromName } } } } })
 
-    const response = await handler.fetch(request)
+      const response = await handler.fetch(request)
 
-    await expect(response.text()).resolves.toBe("forwarded")
-    expect(idFromName).toHaveBeenCalledWith(realtimeRoomKey("docs", "posts/hello"))
+      await expect(response.text()).resolves.toBe("forwarded")
+    }
+    // Nitro's cloudflare-durable entry sends every WebSocket upgrade to the instance named "server".
+    expect(idFromName.mock.calls).toEqual([["server"], ["server"]])
   })
 
   it("re-seeds when an explicit save conflicts", async () => {
@@ -777,7 +780,7 @@ describe("adapter seams for live documents", () => {
     const fetch = vi.fn(async (_request: Request) => Response.json({ reseeded: true }))
     const idFromName = vi.fn((name: string) => ({ name }))
     await expect(refreshRealtimeDocument("content", "posts/2026/hello", { durableObjects: { get: () => ({ fetch }), idFromName } })).resolves.toBe(true)
-    expect(idFromName).toHaveBeenCalledWith(realtimeRoomKey("content", "posts/2026/hello"))
+    expect(idFromName).toHaveBeenCalledWith("server")
     const sent = fetch.mock.calls[0]![0]
     expect(sent.method).toBe("POST")
     expect(new URL(sent.url).pathname).toBe("/api/_vitehub/realtime/content/posts/2026/hello")

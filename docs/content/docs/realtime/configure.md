@@ -27,7 +27,7 @@ rejects a Cloudflare authority paired with another deployment preset.
 | Host | Authority | Live state | What survives a restart |
 | --- | --- | --- | --- |
 | Node, Docker (one process) | `memory` | In process memory. | Only what the document adapter saved. Unsaved edits from the last idle window are lost. |
-| Cloudflare Workers | `cloudflare` | One Durable Object per document, Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
+| Cloudflare Workers | `cloudflare` | Nitro's `cloudflare-durable` instance, one room per document, Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
 | Vercel, Netlify, Deno Deploy | none | Not supported. | Builds fail with `REALTIME_B0002` or `REALTIME_B0003`. |
 
 Serverless functions without a shared room cannot run Realtime. Polling a
