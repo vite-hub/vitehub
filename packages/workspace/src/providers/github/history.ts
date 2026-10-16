@@ -334,7 +334,11 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
         options.token,
         `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(sha)}`,
       )
-      for (const entry of parseTree(value).entries) {
+      const parsed = parseTree(value)
+      if (parsed.truncated) {
+        throw workspaceError("[vitehub] GitHub workspace tree was truncated while traversing a directory.")
+      }
+      for (const entry of parsed.entries) {
         const path = prefix ? `${prefix}/${entry.path}` : entry.path
         const relevant = !root || path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`)
         if (!relevant) continue
