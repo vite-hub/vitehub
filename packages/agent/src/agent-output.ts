@@ -5,6 +5,7 @@ import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { materializeAgentUsageCost } from "./internal/usage-pricing.ts"
+import { Response as UndiciResponse } from "undici"
 
 import type { AgentActivity, AgentMessagePhase, StreamEvent } from "./messages.ts"
 import type { AgentRunMetadata, AgentRunResult, AgentToolDefinition, AgentUsage, AgentUsageRecord } from "./types.ts"
@@ -921,14 +922,20 @@ function isResponseLike(value: unknown): value is Response {
     // classes that copy the complete Response surface while still allowing a
     // structurally compatible implementation from another realm below.
     const nativeStatusGetter = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-    if (hasRuntimeType(nativeStatusGetter, "function")) {
+    const undiciStatusGetter = Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "status")?.get
+    let trustedResponse = false
+    for (const statusGetter of [nativeStatusGetter, undiciStatusGetter]) {
+      if (!hasRuntimeType(statusGetter, "function")) continue
       try {
-        nativeStatusGetter.call(value)
+        statusGetter.call(value)
+        trustedResponse = true
+        break
       }
       catch {
-        // Foreign Fetch implementations cannot pass the host brand check.
+        // The other supported Fetch implementation may own this response.
       }
     }
+    if (!trustedResponse) return false
     const status = read("status")
     const statusText = read("statusText")
     const headers = read("headers")
