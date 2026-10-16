@@ -95,7 +95,11 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
       const methods = ["arrayBuffer", "blob", "formData", "json", "text"]
       const hasResponseMethods = methods.every(method => typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.value === "function")
-      const accessors = ["body", "bodyUsed", "headers", "status", "statusText"]
+      // These accessors are part of the complete Fetch Response surface. A
+      // small caller-created prototype can imitate the transferable fields,
+      // but it must not be mistaken for a Response implementation without
+      // the rest of its standard accessors.
+      const accessors = ["body", "bodyUsed", "headers", "status", "statusText", "type", "url", "redirected", "ok"]
       const hasResponseAccessors = accessors.every(method => typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function")
       if (typeof cloneDescriptor?.value === "function"
         && hasResponseMethods
@@ -176,14 +180,16 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
     throw new TypeError("[vitehub] console.authorize must default-export a function.")
   }
   scope[policyKey] = Object.freeze({ ...policy })
-  if (policy.mode === "open" && !policy.authorize && globalThis.process?.env?.NODE_ENV === "production" && !scope[openWarningKey]) {
+  if (policy.mode === "open" && !policy.authorize && productionRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
     globalThis.console.warn(consoleOpenAccessWarning)
   }
 }
 
 function productionRuntime(): boolean {
-  return globalThis.process?.env?.NODE_ENV === "production"
+  // Edge hosts do not expose Node's `process`. Treat an unknown runtime as
+  // production so the development-only local policy fails closed.
+  return typeof globalThis.process === "undefined" || globalThis.process.env?.NODE_ENV === "production"
 }
 
 function webRequest(event: ConsoleRequestEvent): Request {
