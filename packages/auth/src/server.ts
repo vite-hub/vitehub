@@ -341,7 +341,16 @@ function runAccessAuthorize(
           }
         }
         catch {
-          // Non-Promise values continue through the guarded thenable reflection below.
+          // A branded Promise can still reach this point when species construction
+          // fails and the source cannot be temporarily reconfigured (for example,
+          // a frozen instance or a non-configurable constructor). Keep it on the
+          // native path so a hostile mutable `then` is never invoked.
+          try {
+            nativePromise = Object.prototype.toString.call(result) === "[object Promise]"
+          }
+          catch {
+            nativePromise = false
+          }
         }
       }
     })
