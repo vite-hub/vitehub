@@ -121,6 +121,31 @@ describe("Cloudflare workflow errors", () => {
     }
   })
 
+  it("translates a cross-realm error with a non-configurable non-cloneable field when Error.isError is unavailable", async () => {
+    const original = runInNewContext("(() => { const error = new Error('sealed non-cloneable input'); Object.defineProperty(error, 'context', { value: () => {}, configurable: false }); error.isRetryable = false; return error })()") as Error & { isRetryable: false }
+    const createNonRetryableError = vi.fn((_error: Error & { isRetryable: false }) => new Error("converted"))
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    try {
+      Reflect.deleteProperty(Error, "isError")
+      await expect(runCloudflareWorkflow({
+        config: { provider: "cloudflare" },
+        createNonRetryableError,
+        env: {},
+        event: { id: "sealed-non-cloneable-error" },
+        name: "sealed-non-cloneable-error",
+        registry: {
+          "sealed-non-cloneable-error": async () => ({
+            default: { handler: async () => { throw original } },
+          }),
+        },
+      })).rejects.toMatchObject({ message: "converted" })
+      expect(createNonRetryableError).toHaveBeenCalledWith(original)
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+    }
+  })
+
   it("does not trust a candidate prototype Error.isError predicate", async () => {
     const constructor = { isError: () => true }
     const original = Object.create({ constructor }) as Error & { isRetryable: false }

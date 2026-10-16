@@ -55,9 +55,12 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
         }
         catch {
           // A non-configurable non-cloneable field cannot be hidden safely.
-          // Without the intrinsic predicate, there is no reliable brand
-          // evidence left that cannot be forged by the caller.
-          return false
+          // The intrinsic string tag remains useful for an ordinary Error,
+          // but never trust a caller-supplied tag in this last-resort path.
+          for (let current: object | null = candidate; current; current = Object.getPrototypeOf(current)) {
+            if (Reflect.has(current, Symbol.toStringTag)) return false
+          }
+          return Object.prototype.toString.call(candidate) === "[object Error]"
         }
       }
       finally {
