@@ -39,6 +39,7 @@ const responsePrototypeLimit = 32
 const intrinsicResponse = Response
 const intrinsicHeaders = Headers
 const intrinsicReadableStream = ReadableStream
+type ResponsePrototype = Record<PropertyKey, unknown>
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   let current: object | null = Object(value)
@@ -53,7 +54,7 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   if (current) throw new Error("Response prototype chain is too deep")
 }
 
-function responsePrototype(value: unknown): object | undefined {
+function responsePrototype(value: unknown): ResponsePrototype | undefined {
   let prototype: object | null = Object.getPrototypeOf(Object(value))
   const seen = new Set<object>()
   for (let depth = 0; prototype && depth < responsePrototypeLimit; depth++) {
@@ -62,7 +63,10 @@ function responsePrototype(value: unknown): object | undefined {
     const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
     const hasAccessors = responseSnapshotProperties.every(key => Object.getOwnPropertyDescriptor(prototype, key)?.get)
     const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
-    if (constructor?.name === "Response" && hasAccessors && hasRuntimeType(clone, "function")) return prototype
+    if (constructor?.name === "Response" && hasAccessors && hasRuntimeType(clone, "function")) {
+      // SAFETY: every accepted property is inspected on this prototype before narrowing it.
+      return prototype as ResponsePrototype
+    }
     prototype = Object.getPrototypeOf(prototype)
   }
 }
@@ -86,7 +90,7 @@ function hasResponsePrototype(value: unknown): boolean {
   return current === branded
 }
 
-function hasResponseBrand(value: unknown, branded: object): boolean {
+function hasResponseBrand(value: unknown, branded: ResponsePrototype): boolean {
   // A same-realm Response prototype getter performs the internal-slot check.
   // This rejects Object.create(Response.prototype) carriers while leaving
   // genuine foreign Responses to their own realm's accessors.
