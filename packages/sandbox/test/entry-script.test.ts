@@ -324,13 +324,25 @@ describe("package entry result transport", () => {
 
   it("preserves boxed primitive result semantics", async () => {
     const execution = await executePackageEntry(
-      `export default async function () { return { boolean: new Boolean(true), number: new Number(5), string: new String('ready') } }\n`,
+      `export default async function () { const number = new Number(5); number.valueOf = () => 2; return { boolean: new Boolean(true), number, string: new String('ready') } }\n`,
     )
 
     expect(execution.code).toBe(0)
     expect(execution.output).toEqual({
       ok: true,
-      result: { boolean: true, number: 5, string: "ready" },
+      result: { boolean: true, number: 2, string: "ready" },
+    })
+  })
+
+  it("classifies throwing boxed primitive valueOf methods as serialization errors", async () => {
+    const execution = await executePackageEntry(
+      `export default async function () { const number = new Number(5); number.valueOf = () => { throw new Error('broken valueOf') }; return number }\n`,
+    )
+
+    expect(execution.code).toBe(1)
+    expect(execution.output).toMatchObject({
+      error: { code: "SANDBOX_SERIALIZATION_ERROR", cause: "Error: broken valueOf" },
+      ok: false,
     })
   })
 
