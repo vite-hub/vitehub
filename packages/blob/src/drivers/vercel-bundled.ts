@@ -103,7 +103,10 @@ function isMissingBlobError(error: unknown) {
             // Keep the compatibility accepted by the old `instanceof Error` path,
             // but require the proxy to retain a genuine Error message. This rejects
             // copied-accessor Error.prototype spoofs, which have no message slot.
-            if (!(candidate instanceof Error) || typeof Reflect.get(candidate, "message") !== "string") return false
+            // Error.prototype supplies an inherited empty message string, so the
+            // message must be an own slot (which is preserved through proxies).
+            const message = Object.getOwnPropertyDescriptor(candidate, "message")
+            if (!(candidate instanceof Error) || message?.value === undefined || typeof message.value !== "string") return false
           }
           // A genuine native getter returns no stack for an object which merely shares
           // the Error prototype. Bound and forged getters instead return their captured
