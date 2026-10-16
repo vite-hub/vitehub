@@ -1228,7 +1228,7 @@ function renderConfiguration(
           h("dl", { class: "vh-invocation-inspector__list" }, setup),
         ])
       : null,
-    configuration.workspace?.sources?.length
+    showSources && configuration.workspace?.sources?.length
       ? inspectorSources(configuration.workspace.sources)
       : null,
     configuration.channels?.length
