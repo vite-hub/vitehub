@@ -157,6 +157,13 @@ function webRequest(event: ConsoleRequestEvent): Request {
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
 }
 
+function grantSections(value: readonly unknown[]): readonly ConsoleSectionId[] | Response {
+  if (!value.every((section): section is ConsoleSectionId => typeof section === "string" && section.length > 0)) {
+    return rejection(500, "[vitehub] console.authorize returned an invalid section list.")
+  }
+  return Object.freeze([...new Set(value)])
+}
+
 async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAccess | Response> {
   const policy = scope[policyKey]
   if (!policy) return rejection(500, "[vitehub] Console access is not configured. The generated Console output did not install an access policy.")
@@ -174,10 +181,9 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       if (result instanceof Response || isResponseLike(result)) return result
       if (result === true) return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: "all", ...(user ? { user } : {}) })
       if (result && typeof result === "object" && Array.isArray(result.sections)) {
-        if (!result.sections.every((section): section is ConsoleSectionId => typeof section === "string" && section.length > 0)) {
-          return rejection(500, "[vitehub] console.authorize returned an invalid section list.")
-        }
-        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: result.sections, ...(user ? { user } : {}) })
+        const sections = grantSections(result.sections)
+        if (sections instanceof Response) return sections
+        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}) })
       }
       return rejection(403, "Forbidden.")
     }
@@ -196,10 +202,9 @@ async function checkConsoleAccess(event: ConsoleRequestEvent): Promise<ConsoleAc
       if (result instanceof Response || isResponseLike(result)) return result
       if (result === true) return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: "all", ...(user ? { user } : {}) })
       if (result && typeof result === "object" && Array.isArray(result.sections)) {
-        if (!result.sections.every((section): section is ConsoleSectionId => typeof section === "string" && section.length > 0)) {
-          return rejection(500, "[vitehub] console.authorize returned an invalid section list.")
-        }
-        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections: result.sections, ...(user ? { user } : {}) })
+        const sections = grantSections(result.sections)
+        if (sections instanceof Response) return sections
+        return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}) })
       }
       return rejection(403, "Forbidden.")
     }
