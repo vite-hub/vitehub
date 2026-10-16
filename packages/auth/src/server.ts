@@ -403,6 +403,36 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
   try {
     const candidate = Object(value)
     if (!hasResponsePrototype(candidate)) return
+    // Validate local responses through their native accessors before reading
+    // any proxy-trapped properties. Proxies cannot satisfy Response's
+    // internal-slot checks, so reject them without trusting their snapshots.
+    const localResponse = (() => {
+      try {
+        const getter = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+        if (!getter) return false
+        Reflect.apply(getter, candidate, [])
+        return true
+      }
+      catch {
+        return false
+      }
+    })()
+    if (localResponse) {
+      try {
+        const nativeStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+        const nativeStatusText = Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get
+        const nativeHeaders = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+        const nativeBody = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
+        if (!nativeStatus || !nativeStatusText || !nativeHeaders || !nativeBody) return
+        Reflect.apply(nativeStatus, candidate, [])
+        Reflect.apply(nativeStatusText, candidate, [])
+        Reflect.apply(nativeHeaders, candidate, [])
+        Reflect.apply(nativeBody, candidate, [])
+      }
+      catch {
+        return
+      }
+    }
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
