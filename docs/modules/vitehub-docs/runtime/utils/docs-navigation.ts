@@ -26,8 +26,6 @@ export function getDocsRailCatalog(sections: DocsSection[]) {
   return getDocsCatalog(sections).filter(group => group.category !== "Platform");
 }
 
-const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
-
 /** Short label shown beside a product in the catalog. */
 export function getDocsSectionKind(section: DocsSection) {
   if (section.id === "agents") return "Agent runtime";

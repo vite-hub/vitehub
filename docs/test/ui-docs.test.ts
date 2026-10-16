@@ -174,7 +174,7 @@ describe("UI documentation", () => {
     expect(sidebarPanel).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toContain('<UPageAside class="vh-docs-aside">');
+    expect(layout).toMatch(/<UPageAside class="vh-docs-aside(?: hidden lg:block)?">/);
     expect(layout).toContain(".vh-docs-aside {\n  display: none;");
     expect(layout).toContain("flex-direction: column;");
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
