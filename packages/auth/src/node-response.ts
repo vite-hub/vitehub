@@ -40,7 +40,7 @@ function splitCombinedSetCookie(value: string | null): string[] {
   const result: string[] = []
   let start = 0
   let inExpires = false
-  let quote: string | undefined
+  let quote = false
   let escaped = false
   for (let index = 0; index < value.length; index++) {
     const character = value[index]
@@ -49,13 +49,13 @@ function splitCombinedSetCookie(value: string | null): string[] {
         escaped = false
       } else if (character === "\\") {
         escaped = true
-      } else if (character === quote) {
-        quote = undefined
+      } else if (character === '"') {
+        quote = false
       }
       continue
     }
-    if (character === '"' || character === "'") {
-      quote = character
+    if (character === '"') {
+      quote = true
       continue
     }
     if (value.slice(index, index + 8).toLowerCase() === "expires=") inExpires = true

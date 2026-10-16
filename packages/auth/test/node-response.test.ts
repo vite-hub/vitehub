@@ -80,6 +80,17 @@ it("preserves commas in unquoted extension values", async () => {
   expect(target.getHeader("set-cookie")).toBe("first=1; Foo=x, second=2")
 })
 
+it("splits after apostrophes in unquoted cookie values", async () => {
+  const response = new Response(null, { status: 204 })
+  Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
+  response.headers.set("set-cookie", "first=O'Reilly, second=2")
+  const target = new ServerResponse(new IncomingMessage(new Socket()))
+
+  await sendWebResponse(response, target)
+
+  expect(target.getHeader("set-cookie")).toEqual(["first=O'Reilly", "second=2"])
+})
+
 it("preserves compact commas in known attribute values", async () => {
   const response = new Response(null, { status: 204 })
   Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
