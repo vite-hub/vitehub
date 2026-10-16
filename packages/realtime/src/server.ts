@@ -333,8 +333,17 @@ function documentTables(sql: RealtimeRoomSql): boolean {
     return true
   }
   catch {
-    // The column already exists (or the host does not expose ALTER for its test stub).
-    return false
+    // A newly-created table already has the column, but some hosts reject every
+    // ALTER TABLE statement. Probe the schema so that this case is not treated
+    // like an older two-column journal.
+    try {
+      sql.exec("SELECT client_update FROM vitehub_realtime_document_updates LIMIT 0").toArray()
+      return true
+    }
+    catch {
+      // The column is genuinely unavailable; retain the two-column fallback.
+      return false
+    }
   }
 }
 

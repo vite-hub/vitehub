@@ -259,6 +259,10 @@ export class FakeSql {
       if (!this.intermediateJournal) throw new Error("duplicate column name: client_update")
       return rows([])
     }
+    if (query.startsWith("SELECT client_update FROM vitehub_realtime_document_updates LIMIT 0")) {
+      if (this.intermediateJournal) throw new Error("no such column: client_update")
+      return rows([])
+    }
     if (query.startsWith("SELECT room_key FROM vitehub_realtime_documents")) {
       const row = this.documents.get(String(bindings[0]))
       return rows(row ? [{ room_key: bindings[0] }] : [])
