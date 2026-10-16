@@ -7,7 +7,8 @@ import * as Y from "yjs"
 
 import { Node as TiptapNode } from "@tiptap/core"
 import { encodeRealtimeControl, messageRealtimeControl } from "../src/protocol.ts"
-import { useRealtimeTiptap } from "../src/vue.ts"
+import { RealtimeCaret, useRealtimeTiptap } from "../src/vue.ts"
+import { parseHTML } from "linkedom"
 
 const providers = vi.hoisted(() => [] as Array<{
   connect: ReturnType<typeof vi.fn<() => void>>
@@ -369,9 +370,33 @@ describe("useRealtimeTiptap", () => {
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md"), { editor: { extensions }, identity }))!
 
     expect(session.calls).toBe(0)
-    expect(realtime.extensions.value.map(extension => extension.name)).toEqual(["doc", "paragraph", "text", "callout", "collaboration"])
+    expect(realtime.extensions.value.map(extension => extension.name)).toEqual(["doc", "paragraph", "text", "callout", "collaboration", "collaborationCaret"])
     expect(providers[1]!.awareness.setLocalStateField).toHaveBeenCalledWith("user", expect.objectContaining({ id: "console:ana", name: "Ana" }))
     scope.stop()
+  })
+
+  it("adds other people's carets unless carets is false", () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const scope = effectScope()
+    const [withCarets, withoutCarets] = scope.run(() => [
+      useRealtimeTiptap("docs", ref("page.md")),
+      useRealtimeTiptap("docs", ref("other.md"), { carets: false }),
+    ])!
+
+    expect(withCarets.extensions.value.map(extension => extension.name)).toContain("collaborationCaret")
+    expect(withoutCarets.extensions.value.map(extension => extension.name)).not.toContain("collaborationCaret")
+    scope.stop()
+  })
+
+  it("draws carets with TipTap's CollaborationCaret classes and rejects colors y-tiptap cannot tint", () => {
+    const { document } = parseHTML("<!doctype html><html><body></body></html>")
+    vi.stubGlobal("document", document)
+    const { render, selectionRender } = RealtimeCaret.configure({}).options
+
+    const caret = render({ color: "#2563EB", name: "Ana" })
+    expect(caret.className).toBe("collaboration-carets__caret")
+    expect(caret.querySelector(".collaboration-carets__label")!.textContent).toBe("Ana")
+    expect(selectionRender({ color: "#2563EB", name: "Ana" })).toEqual({ class: "ProseMirror-yjs-selection", style: "background-color: #2563EB70" })
   })
 
   it("defaults presence to the ViteHub Auth session", () => {
@@ -432,7 +457,7 @@ describe("useRealtimeTiptap", () => {
     expect(providers[2]!.params.epoch).toBeUndefined()
     expect(realtime.document.value).not.toBe(firstDocument)
     expect(realtime.document.value!.getMap("fields").get("title")).toBeUndefined()
-    expect(realtime.extensions.value.at(-1)!.options.fragment).toBe(realtime.document.value!.getXmlFragment("body"))
+    expect(realtime.extensions.value.find(extension => extension.name === "collaboration")!.options.fragment).toBe(realtime.document.value!.getXmlFragment("body"))
     scope.stop()
   })
 

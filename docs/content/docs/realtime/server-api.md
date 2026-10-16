@@ -199,6 +199,30 @@ avatars cannot be forged. Without an identity, presence is client-asserted.
 In the browser, pass `identity` to `useRealtimeTiptap` when presence should
 come from another session than ViteHub Auth. Server identity still wins.
 
+## Carets
+
+`realtime.extensions` includes other people's carets and selections, drawn in
+each person's presence color. They render with TipTap's CollaborationCaret
+classes: `collaboration-carets__caret`, `collaboration-carets__label`, and
+`ProseMirror-yjs-selection`. TipTap ships no styles for them, and
+`@vite-hub/ui` styles them in `styles.css`.
+
+Do not add `@tiptap/extension-collaboration-caret` next to Realtime. It has its
+own copy of y-tiptap, so it cannot find the sync plugin that Realtime installs,
+and it draws nothing. To change the markup, configure `RealtimeCaret` from
+`vite-hub/realtime/vue` with `render` and `selectionRender`, and pass
+`carets: false` so the default is not added twice.
+
+```ts
+const realtime = useRealtimeTiptap('docs', 'guides/welcome.md', { carets: false })
+const editor = useEditor({
+  extensions: [
+    ...realtime.extensions.value,
+    RealtimeCaret.configure({ awareness: realtime.provider.value!.awareness, render: renderCaret }),
+  ],
+})
+```
+
 ## Saves, refresh, and resets
 
 | Client call | Endpoint | Result |

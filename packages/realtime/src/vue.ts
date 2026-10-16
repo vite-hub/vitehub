@@ -12,6 +12,7 @@ import type { MaybeRefOrGetter, Ref } from "vue"
 import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeCheckpoint, RealtimeDocumentStatus, RealtimeEditor, RealtimePerson, RealtimeReadOnlyReason, RealtimeResetReason, RealtimeSaved, RealtimeUser, RealtimeWorkspaceChange } from "./types.ts"
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
+import { RealtimeCaret } from "./caret.ts"
 import { createRealtimeEditorExtensions } from "./editor.ts"
 import { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
@@ -26,6 +27,9 @@ import {
   workspaceRoomId,
 } from "./protocol.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+
+export { RealtimeCaret } from "./caret.ts"
+export type { RealtimeCaretOptions, RealtimeCaretUser } from "./caret.ts"
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
 
@@ -44,6 +48,11 @@ export interface UseRealtimeTiptapOptions {
   enabled?: MaybeRefOrGetter<boolean>
   /** Presence identity. Defaults to the ViteHub Auth session; pass `null` for an anonymous guest. */
   identity?: MaybeRefOrGetter<RealtimeUser | null | undefined>
+  /**
+   * Other people's carets and selections, in their presence color. Defaults to `true`. They use TipTap's
+   * CollaborationCaret classes (`collaboration-carets__caret`, `collaboration-carets__label`, `ProseMirror-yjs-selection`).
+   */
+  carets?: boolean
   onReset?: (event: RealtimeResetEvent) => void
 }
 
@@ -414,6 +423,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       ? [
           ...createExtensions(),
           markRaw(Collaboration.configure({ fragment: markRaw(document.value.getXmlFragment(realtimeDocumentLayout.body)) })),
+          ...(options.carets === false ? [] : [markRaw(RealtimeCaret.configure({ awareness: markRaw(provider.value.awareness) }))]),
         ]
       : []),
     fields: computed(() => document.value?.getMap<unknown>(realtimeDocumentLayout.fields)),

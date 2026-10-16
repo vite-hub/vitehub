@@ -34,6 +34,16 @@ describe("hubRealtime", () => {
     })
   })
 
+  it("ships one y-tiptap copy, so carets find the sync plugin that Collaboration installs", async () => {
+    const { readdir, readFile } = await import("node:fs/promises")
+    const dist = fileURLToPath(new URL("../dist/", import.meta.url))
+    const files = (await readdir(dist)).filter(file => file.endsWith(".js"))
+    const sources = await Promise.all(files.map(file => readFile(join(dist, file), "utf8")))
+
+    expect(sources.join("\n").match(/new PluginKey\("y-sync"\)/g)).toHaveLength(1)
+    expect(sources.some(source => /from ["']@tiptap\/(?:y-tiptap|extension-collaboration)/.test(source))).toBe(false)
+  })
+
   it("uses Nitro's Durable Object transport for standalone Cloudflare realtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
