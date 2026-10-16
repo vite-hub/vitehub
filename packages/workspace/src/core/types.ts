@@ -369,6 +369,8 @@ export type WorkspaceStoreHistoryCommitOptions = WorkspaceHistoryCommitBase & (
 export interface WorkspaceHistoryListOptions extends WorkspaceHistoryRefOptions {
   cursor?: string
   limit?: number
+  /** Return revisions whose file manifest changed at this file or folder path. */
+  path?: string
 }
 
 export interface WorkspaceHistoryListResult {
