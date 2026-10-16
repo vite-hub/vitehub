@@ -403,7 +403,12 @@ function streamCapabilityOwners(body: object): boolean {
     // prototype. An inserted self-constructing prototype can otherwise make
     // forged methods look like a coherent stream surface while the actual
     // stream brand lives further down the chain.
-    return !!methodOwner && methodOwner === lockOwner && Object.getPrototypeOf(body) === methodOwner
+    if (!methodOwner || methodOwner !== lockOwner || Object.getPrototypeOf(body) !== methodOwner) return false
+    const parent = Object.getPrototypeOf(methodOwner)
+    // A genuine stream prototype is the capability boundary. Any inherited
+    // stream capability means a caller inserted a layer above that boundary.
+    return !parent || (Object.getOwnPropertyDescriptor(parent, "getReader") === undefined
+      && Object.getOwnPropertyDescriptor(parent, "locked") === undefined)
   }
   catch {
     return false
@@ -503,8 +508,13 @@ function readerCapabilityOwners(reader: object): boolean {
     if (!prototype) return false
     const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
     if (typeof constructor !== "function" || constructor.prototype !== prototype || constructor.name !== "ReadableStreamDefaultReader") return false
-    return ["read", "cancel", "releaseLock"].every(key => typeof Object.getOwnPropertyDescriptor(prototype, key)?.value === "function")
-      && typeof Object.getOwnPropertyDescriptor(prototype, "closed")?.get === "function"
+    if (!( ["read", "cancel", "releaseLock"].every(key => typeof Object.getOwnPropertyDescriptor(prototype, key)?.value === "function")
+      && typeof Object.getOwnPropertyDescriptor(prototype, "closed")?.get === "function")) return false
+    const parent = Object.getPrototypeOf(prototype)
+    // Reject a caller-installed reader prototype above the genuine reader
+    // prototype. Native reader capabilities stop at the immediate prototype.
+    return !parent || (["read", "cancel", "releaseLock", "closed"].every(key =>
+      Object.getOwnPropertyDescriptor(parent, key) === undefined))
   }
   catch {
     return false
