@@ -154,6 +154,15 @@ describe("H3 Runtime Context", () => {
     await context.flushWaitUntil()
   })
 
+  it("rejects a request proxy with a cyclic prototype", async () => {
+    const request = new Proxy({}, {
+      getPrototypeOf: () => request,
+    })
+    const context = getRuntimeContext({ context: {}, req: request })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
   it("uses a real host lifetime before H3 2's optional request forwarder", async () => {
     const host = { waitUntil: vi.fn() }
     const event = new H3Event(new Request("https://example.test"))

@@ -52,14 +52,19 @@ function isRequest(value: unknown): value is Request {
       // Locate that realm's genuine Request prototype and use its native
       // bodyUsed getter; copied methods on a forged prototype still fail the
       // internal-slot check.
+      const seen = new Set<object>()
       let prototype: object | null = value
-      while ((prototype = Object.getPrototypeOf(prototype)) !== null) {
+      while (prototype !== null) {
+        if (seen.has(prototype)) return false
+        seen.add(prototype)
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         const getter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
-        if (typeof constructor !== "function" || constructor.name !== "Request"
-          || constructor.prototype !== prototype || typeof getter !== "function") continue
-        getter.call(value)
-        return true
+        if (typeof constructor === "function" && constructor.name === "Request"
+          && constructor.prototype === prototype && typeof getter === "function") {
+          getter.call(value)
+          return true
+        }
+        prototype = Object.getPrototypeOf(prototype)
       }
       return false
     }
