@@ -271,13 +271,14 @@ describe("realtime server handler", () => {
     expect(idFromName).not.toHaveBeenCalled()
   })
 
-  it("forwards through host-backed Durable Object bindings", async () => {
+  it("rejects renamed bound functions that imitate host bindings", async () => {
     const fetch = vi.fn(async () => new Response("forwarded"))
-    // Host-provided namespace methods have native function brands. Bound
-    // built-ins provide the same observable shape without trusting a
-    // JavaScript-authored class name.
+    // Bound functions stringify as native, but do not retain a named native
+    // source and must not be accepted as host bindings.
     const get = Function.prototype.bind.call(() => ({ fetch }), null) as () => { fetch: typeof fetch }
     const idFromName = Function.prototype.bind.call((name: string) => name, null) as (name: string) => string
+    Object.defineProperty(get, "name", { value: "get" })
+    Object.defineProperty(idFromName, "name", { value: "idFromName" })
     const binding = { get, idFromName }
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       method: "POST",
@@ -287,8 +288,8 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry())
     const response = await handler.fetch(request)
 
-    expect(response.status).toBe(200)
-    expect(fetch).toHaveBeenCalledOnce()
+    expect(response.status).toBe(405)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("does not forward through an unbranded class prototype", async () => {

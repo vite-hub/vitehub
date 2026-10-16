@@ -183,9 +183,11 @@ function hasCallableDurableObjectMethod(value: object, name: "get" | "idFromName
   catch {
     return false
   }
-  // Durable Object namespace methods are host functions. Requiring own data
-  // properties keeps prototype-polluted bindings out of the forwarding path.
-  return /\[native code\]/.test(source) && descriptor.value.name === name
+  // Durable Object namespace methods are host functions. Bound functions also
+  // stringify as native, but their intrinsic source has no function name. The
+  // named native form is therefore required so a user function cannot be
+  // rebound and renamed to imitate the binding.
+  return new RegExp(`^function ${name}\\(\\) \\{ \\[native code\\] \\}$`).test(source)
 }
 
 function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
