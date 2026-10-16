@@ -70,6 +70,7 @@ const docsShellUi = {
   .vh-docs-shell {
     overflow-x: clip;
   }
+}
 
 @media (min-width: 64rem) {
   .vh-docs-aside {
