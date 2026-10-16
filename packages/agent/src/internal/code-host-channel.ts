@@ -23,7 +23,7 @@ export interface CodeHostTarget {
 export function codeHostThreadRef(provider: ForgeProvider, target: CodeHostTarget): ThreadRef {
   const parts = target.repository.split("/")
   const name = parts.pop()!
-  const origin = { forge: provider.kind, instance: provider.instance }
+  const origin = { forge: provider.forge, instance: provider.instance }
   return { ...origin, repo: { ...origin, owner: parts.join("/"), name }, kind: "pull_request", number: String(target.number) }
 }
 
@@ -35,8 +35,8 @@ export async function codeHostChannelRead<T>(provider: ForgeProvider, code: Meta
   }
   catch (error) {
     const status = codeHostErrorStatus(error)
-    if (provider.kind !== "github" && status !== undefined) throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Code Host metadata request failed with ${status}.`, cause: error })
-    if (provider.kind === "github" && status !== undefined) {
+    if (provider.forge !== "github" && status !== undefined) throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Code Host metadata request failed with ${status}.`, cause: error })
+    if (provider.forge === "github" && status !== undefined) {
       throw agentDiagnostics[code]({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
     }
     throw error
@@ -49,8 +49,8 @@ export async function codeHostChannelWrite<T>(provider: ForgeProvider, write: ()
   }
   catch (error) {
     const status = codeHostErrorStatus(error)
-    if (provider.kind !== "github" && status !== undefined) throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Code Host delivery effect failed with ${status}.`, cause: error })
-    if (provider.kind === "github" && status !== undefined) {
+    if (provider.forge !== "github" && status !== undefined) throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Code Host delivery effect failed with ${status}.`, cause: error })
+    if (provider.forge === "github" && status !== undefined) {
       throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
     }
     throw error
@@ -96,7 +96,7 @@ function shaOf(value: unknown): string | undefined {
  * check runs and statuses, which costs two more requests per call.
  */
 export async function codeHostPullRequest(provider: ForgeProvider, target: CodeHostTarget): Promise<{ raw: unknown, headSha?: string, baseSha?: string, model?: Thread }> {
-  if (provider.kind === "github") {
+  if (provider.forge === "github") {
     const { data } = await provider.request<unknown>("GET", `/repos/${target.repository}/pulls/${target.number}`)
     return { raw: data, headSha: shaOf(isRecord(data) ? data.head : undefined), baseSha: shaOf(isRecord(data) ? data.base : undefined) }
   }
@@ -114,7 +114,7 @@ export async function codeHostPullRequestMetadata(
     codeHostChannelRead(provider, "AGENT_R0351", async () => await codeHostPullRequest(provider, target)),
     limits.authenticated === false ? [] : codeHostChannelRead(provider, "AGENT_R0352", async () => await limitedPages(
       async cursor => await provider.threads.commentsPage(ref, { perPage: 100, cursor }), limits.maxComments + 1)),
-    limits.authenticated === false ? [] : codeHostChannelRead(provider, "AGENT_R0352", async () => provider.kind === "github"
+    limits.authenticated === false ? [] : codeHostChannelRead(provider, "AGENT_R0352", async () => provider.forge === "github"
       // Changed files have no raw field in the pinned client. Keep native GitHub fields.
       ? await githubFilePages(provider, target, limits.maxFiles + 1)
       : await limitedPages(async cursor => await provider.threads.filesPage(ref, { perPage: 100, cursor }), limits.maxFiles + 1)),
@@ -124,7 +124,7 @@ export async function codeHostPullRequestMetadata(
 }
 
 function commentRef(provider: ForgeProvider, target: CodeHostTarget, id: number) {
-  return { forge: provider.kind, instance: provider.instance, thread: codeHostThreadRef(provider, target), id: String(id) }
+  return { forge: provider.forge, instance: provider.instance, thread: codeHostThreadRef(provider, target), id: String(id) }
 }
 
 function rawComment(provider: ForgeProvider, target: CodeHostTarget, raw: unknown): Comment {
@@ -138,7 +138,7 @@ export function codeHostActivityComments(provider: ForgeProvider, target: CodeHo
   return {
     /** Newest comments first, so a restart finds the managed activity comment on long threads. */
     async list(): Promise<Comment[]> {
-      if (provider.kind === "gitlab") {
+      if (provider.forge === "gitlab") {
         const notesPath = `/projects/${encodeURIComponent(target.repository)}/merge_requests/${target.number}/notes`
         const items: unknown[] = []
         for (let page = 1; items.length < limit; page++) {
@@ -152,11 +152,11 @@ export function codeHostActivityComments(provider: ForgeProvider, target: CodeHo
         return items.slice(0, limit).map(raw => rawComment(provider, target, raw))
       }
       // GitHub and Forgejo have no reverse comments order. Read the pages from the last page.
-      const sizeParameter = provider.kind === "github" ? "per_page" : "limit"
+      const sizeParameter = provider.forge === "github" ? "per_page" : "limit"
       const first = await codeHostChannelRead(provider, "AGENT_R0353", async () => await provider.request<unknown[]>("GET", path, { query: { [sizeParameter]: 100 } }))
       if (!Array.isArray(first.data) || !first.data.length) return []
       const lastUrl = first.headers.get("link")?.split(",").map(part => part.trim()).find(part => part.endsWith('rel="last"'))?.match(/^<([^>]+)>/)?.[1]
-      const total = provider.kind === "github" ? undefined : Number(first.headers.get("x-total-count"))
+      const total = provider.forge === "github" ? undefined : Number(first.headers.get("x-total-count"))
       const lastPage = lastUrl
         ? Number(new URL(lastUrl).searchParams.get("page"))
         : total && Number.isSafeInteger(total) ? Math.ceil(total / first.data.length) : undefined
@@ -174,7 +174,7 @@ export function codeHostActivityComments(provider: ForgeProvider, target: CodeHo
     },
     async get(id: number): Promise<Comment | undefined> {
       try {
-        const path = provider.kind === "gitlab"
+        const path = provider.forge === "gitlab"
           ? `/projects/${encodeURIComponent(target.repository)}/merge_requests/${target.number}/notes/${id}`
           : `/repos/${target.repository}/issues/comments/${id}`
         const response = await provider.request("GET", path)
@@ -183,8 +183,8 @@ export function codeHostActivityComments(provider: ForgeProvider, target: CodeHo
       catch (error) {
         const status = codeHostErrorStatus(error)
         if (status === 404) return undefined
-        if (status !== undefined && provider.kind !== "github") throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Code Host metadata request failed with ${status}.`, cause: error })
-        if (status !== undefined && provider.kind === "github") throw agentDiagnostics.AGENT_R0360({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
+        if (status !== undefined && provider.forge !== "github") throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Code Host metadata request failed with ${status}.`, cause: error })
+        if (status !== undefined && provider.forge === "github") throw agentDiagnostics.AGENT_R0360({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
         throw error
       }
     },
@@ -196,9 +196,9 @@ export function codeHostActivityComments(provider: ForgeProvider, target: CodeHo
 export async function codeHostIdentity(provider: ForgeProvider, credential: { kind: "app", login: string } | { kind: "token" }): Promise<{ login: string }> {
   if (credential.kind === "app") return { login: credential.login }
   const { data } = await provider.request("GET", "/user")
-  if (provider.kind === "gitlab" && isRecord(data) && hasRuntimeType(data.username, "string") && data.username) return { login: data.username }
+  if (provider.forge === "gitlab" && isRecord(data) && hasRuntimeType(data.username, "string") && data.username) return { login: data.username }
   if (isRecord(data) && hasRuntimeType(data.login, "string") && data.login) return { login: data.login }
-  if (provider.kind !== "github") throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] Code Host Agent activity could not resolve the authenticated identity." })
+  if (provider.forge !== "github") throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] Code Host Agent activity could not resolve the authenticated identity." })
   throw agentDiagnostics.AGENT_R0356({ message: "[vitehub] GitHub Agent activity could not resolve the authenticated identity." })
 }
 
@@ -332,7 +332,7 @@ export function codeHostDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfi
       const event = maybeString(payload.event) || maybeString(context.effect.metadata?.event) || "COMMENT"
       const review = event === "APPROVE" || event === "approve" ? "approve" : event === "REQUEST_CHANGES" || event === "request_changes" ? "request_changes" : "comment"
       const ref = codeHostThreadRef(provider, target)
-      if (provider.kind === "gitlab") {
+      if (provider.forge === "gitlab") {
         // GitLab has approvals, not reviews. An approval has no body, so the review text is a note.
         if (review === "request_changes") throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] GitLab has no request changes review. Use an approve or comment review." })
         if (review === "approve") await codeHostChannelWrite(provider, async () => await provider.threads.createReview(ref, { event: "approve" }))
@@ -351,7 +351,7 @@ export function codeHostDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfi
       const sha = maybeString(payload.sha) || (await codeHostChannelWrite(provider, async () => await codeHostPullRequest(provider, target))).headSha
       if (!sha) return
       // The shared check model has no GitHub error state. Keep that native status.
-      if (provider.kind === "github" && payload.state === "error") {
+      if (provider.forge === "github" && payload.state === "error") {
         await codeHostChannelRequest(provider, "POST", `/repos/${target.repository}/statuses/${sha}`, { ...payload, sha: undefined })
         return
       }

@@ -710,6 +710,32 @@ describe("source scanner", () => {
       .toEqual([argument])
   })
 
+  it("scans generic annotations after an earlier arrow and assertion in linear time", () => {
+    // Each `<` checks the code before it for an assertion type. A regex
+    // that splits long identifiers in many ways took seconds here.
+    const argument = [
+      `({ env: runtimeEnv }) => {`,
+      `  const env = runtimeEnv as unknown as ServerEnv`,
+      `  const options = { enabled: true }`,
+      `  return {`,
+      `    getUserInfo: async (token: Parameters<ReturnType<typeof github>["getUserInfo"]>[0]) => token,`,
+      `  }`,
+      `}`,
+    ].join("\n")
+    const started = performance.now()
+    const calls = findIdentifierCalls(`export default defineAuth(${argument})`, "defineAuth")
+    expect(performance.now() - started).toBeLessThan(500)
+    expect(calls.map(call => call.arguments)).toEqual([[argument]])
+  }, 1_000)
+
+  it("does not rescan repeated assertion suffixes", () => {
+    const assertion = `${"as A ".repeat(1_000)}!`
+    const started = performance.now()
+    expect(findDefaultExportCall(`export default defineSchedule({ cron: '0 8 * * *' } ${assertion})`, ["defineSchedule"]))
+      .toBeDefined()
+    expect(performance.now() - started).toBeLessThan(1_000)
+  }, 2_000)
+
   it.each(["|| fallback", "+ extra", " > limit", "(argument)", " ^ bar()", " ^ (bar())", " - (bar())"])("rejects runtime suffixes after generic assertions: %s", (suffix) => {
     expect(findDefaultExportCall(`export default defineSchedule({ cron: '0 8 * * *' } satisfies Record<string, unknown>${suffix})`, ["defineSchedule"]))
       .toBeUndefined()

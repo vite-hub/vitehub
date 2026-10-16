@@ -99,7 +99,8 @@
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "undici": "7.30.0"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
