@@ -336,9 +336,15 @@ function isResponseLike(value: unknown): Response | false {
       let statusTextGetter: (() => unknown) | undefined
       let headersGetter: (() => unknown) | undefined
       let bodyGetter: (() => unknown) | undefined
+      let typeGetter: (() => unknown) | undefined
+      let urlGetter: (() => unknown) | undefined
+      let redirectedGetter: (() => unknown) | undefined
+      let okGetter: (() => unknown) | undefined
+      let bodyUsedGetter: (() => unknown) | undefined
+      let cloneMethod: (() => unknown) | undefined
       const seen = new Set<object>()
       let depth = 0
-      while (prototype && depth < maxPrototypeDepth && (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter) && !seen.has(prototype)) {
+      while (prototype && depth < maxPrototypeDepth && (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !typeGetter || !urlGetter || !redirectedGetter || !okGetter || !bodyUsedGetter || !cloneMethod) && !seen.has(prototype)) {
         depth++
         seen.add(prototype)
         const descriptors = Object.getOwnPropertyDescriptors(prototype)
@@ -346,9 +352,15 @@ function isResponseLike(value: unknown): Response | false {
         if (descriptors.statusText?.get) statusTextGetter ??= descriptors.statusText.get as () => unknown
         if (descriptors.headers?.get) headersGetter ??= descriptors.headers.get as () => unknown
         if (descriptors.body?.get) bodyGetter ??= descriptors.body.get as () => unknown
+        if (descriptors.type?.get) typeGetter ??= descriptors.type.get as () => unknown
+        if (descriptors.url?.get) urlGetter ??= descriptors.url.get as () => unknown
+        if (descriptors.redirected?.get) redirectedGetter ??= descriptors.redirected.get as () => unknown
+        if (descriptors.ok?.get) okGetter ??= descriptors.ok.get as () => unknown
+        if (descriptors.bodyUsed?.get) bodyUsedGetter ??= descriptors.bodyUsed.get as () => unknown
+        if (typeof descriptors.clone?.value === "function") cloneMethod ??= descriptors.clone.value as () => unknown
         prototype = Object.getPrototypeOf(prototype)
       }
-      if (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter) return false
+      if (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !typeGetter || !urlGetter || !redirectedGetter || !okGetter || !bodyUsedGetter || !cloneMethod) return false
       const status = statusGetter.call(value)
       const statusText = statusTextGetter.call(value)
       const headers = headersGetter.call(value)
@@ -356,6 +368,7 @@ function isResponseLike(value: unknown): Response | false {
       if (typeof statusText !== "string") return false
       if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
       const body = bodyGetter.call(value)
+      if (typeof typeGetter.call(value) !== "string" || typeof urlGetter.call(value) !== "string" || typeof redirectedGetter.call(value) !== "boolean" || typeof okGetter.call(value) !== "boolean" || typeof bodyUsedGetter.call(value) !== "boolean") return false
       // Response.error() is the only valid status-zero response. Preserve its
       // representation when normalizing a foreign response.
       if (status === 0) {
