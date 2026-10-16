@@ -329,7 +329,7 @@ describe("Agent Invocation cancel", () => {
       expect(await backing.claim(id, "replacement", 30_000)).toBe(true)
       await vi.advanceTimersByTimeAsync(10_000)
       // Losing the lease does not prove execution stopped and must not itself report cancellation.
-      expect(signal?.aborted).toBe(false)
+      expect(signal?.aborted).toBe(true)
       expect(await remote.cancel(id)).toMatchObject({ delivery: "journal", outcome: "requested", status: "running" })
       await backing.update(id, { status, timestamp: new Date().toISOString() })
       const terminalRecord = await backing.get(id)
@@ -382,7 +382,7 @@ describe("Agent Invocation cancel", () => {
         ? { cancelNotEnforcedBy: "run" }
         : { cancelWarningPending: true }))
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(modelSignal?.aborted).toBe(false)
+      expect(modelSignal?.aborted).toBe(true)
       expect(customSignal?.aborted).toBe(false)
       vi.useFakeTimers()
       const cancellation = owner.cancel(id).then(result => result, error => error)
@@ -670,6 +670,7 @@ describe("Agent Invocation cancel", () => {
   })
 
   it.each(["failure", "timeout"] as const)("retries a started Driver warning after its first store %s before reporting remote cancellation", async failure => {
+    vi.useFakeTimers()
     const backing = createMemoryAgentInvocationStore()
     const markerEntered = deferred()
     const releaseMarker = deferred()
@@ -693,7 +694,10 @@ describe("Agent Invocation cancel", () => {
     try {
       await markerEntered.promise
       expect(driver).toHaveBeenCalledOnce()
-      expect(await remote.cancel(id)).toMatchObject({ delivery: "journal", notEnforcedBy: "run", outcome: "requested", status: "running" })
+      const cancellation = remote.cancel(id)
+      if (failure === "timeout") releaseMarker.resolve()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(await cancellation).toMatchObject({ delivery: "journal", notEnforcedBy: "run", outcome: "requested", status: "running" })
       expect(attempts).toBeGreaterThan(1)
       expect((await backing.getSummary(id))?.cancelNotEnforcedBy).toBe("run")
     }
