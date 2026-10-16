@@ -730,6 +730,11 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
     if (nativeBranded === undefined && !hasToStringTag
       && Object.prototype.toString.call(error) !== "[object Error]"
       && !(error instanceof Error)) return
+    // A custom tag alone is not evidence of an Error. Avoid cloning arbitrary
+    // provider payloads unless they expose one of the standard Error fields;
+    // genuine cross-realm Errors provide these even when their tag is custom.
+    if (nativeBranded === undefined && hasToStringTag && !(error instanceof Error)
+      && !Reflect.has(error, "message") && !Reflect.has(error, "stack") && !Reflect.has(error, "cause")) return
     // structuredClone preserves the intrinsic Error brand but does not copy
     // user-defined symbol tags or an Error prototype chain onto plain objects.
     // Prefer it when available so configurable stack descriptors cannot forge
@@ -750,6 +755,8 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
       }
     }
     const branded = cloneBranded || nativeBranded === true
+      || (nativeBranded === undefined && error instanceof Error
+        && Object.prototype.hasOwnProperty.call(error, "message"))
     if (!branded) return
     const message = Reflect.get(error, "message")
     return { message: message === undefined ? "" : String(message), value: error }
