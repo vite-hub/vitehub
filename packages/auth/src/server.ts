@@ -458,7 +458,13 @@ async function isSerializableAuthorizationBody(body: unknown): Promise<boolean> 
     if (Object(probeReadResult) !== probeReadResult || typeof Reflect.get(probeReadResult as object, "then") !== "function") return false
     const probeResult = await probeReadResult as { done?: unknown; value?: unknown }
     if (typeof probeResult.done !== "boolean") return false
-    if (probeResult.done || !(probeResult.value instanceof Uint8Array)) return false
+    // `instanceof` is realm-sensitive: a genuine byte chunk produced by the
+    // stream's own runtime does not inherit this realm's Uint8Array prototype.
+    // ArrayBuffer.isView performs a cross-realm brand check; the tag then
+    // limits accepted views to Uint8Array rather than arbitrary typed arrays.
+    if (probeResult.done
+      || !ArrayBuffer.isView(probeResult.value)
+      || Object.prototype.toString.call(probeResult.value) !== "[object Uint8Array]") return false
     let canceled = false
     const cancelStream = new streamConstructor({
       cancel() {
