@@ -1,6 +1,6 @@
 import { readonly, shallowRef, watch } from "vue"
 
-import { ConsoleRequestError, isRetryableConsoleRequestError } from "../client/request"
+import { isRetryableConsoleRequestError } from "../client/request"
 
 export function useConsoleConnectionUnavailable(state: () => { errors: unknown[]; pending: boolean }) {
   const unavailable = shallowRef(false)
@@ -9,11 +9,9 @@ export function useConsoleConnectionUnavailable(state: () => { errors: unknown[]
     if (unavailable.value && pending) return
     const failures = errors.filter(Boolean)
     unavailable.value = failures.length > 1 && failures.every((error) => {
-      // Connection polling treats unclassified errors as an outage. Request errors
-      // still use the transient status policy so permanent responses do not mask.
-      return error instanceof Error && !(error instanceof ConsoleRequestError)
-        ? true
-        : isRetryableConsoleRequestError(error)
+      // Only fetch-boundary failures and transient request responses represent an
+      // outage. Resource parser and validation errors must remain in their views.
+      return isRetryableConsoleRequestError(error)
     })
   }, { immediate: true, flush: "sync" })
   return readonly(unavailable)
