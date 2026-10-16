@@ -23,17 +23,36 @@ interface BlobMethods {
 
 function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  const cleanup = async (reason?: unknown, cancel = false) => {
+    const current = reader
+    reader = undefined
+    if (!current) return
+    try {
+      if (cancel) await current.cancel(reason)
+    }
+    finally {
+      current.releaseLock()
+    }
+  }
+
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       reader ??= read().getReader()
-      const chunk = await reader.read()
-      if (chunk.done) controller.close()
-      else controller.enqueue(chunk.value)
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          await cleanup()
+          controller.close()
+        }
+        else controller.enqueue(chunk.value)
+      }
+      catch (error) {
+        await cleanup(error, true)
+        throw error
+      }
     },
     async cancel(reason) {
-      await reader?.cancel(reason)
-      reader?.releaseLock()
-      reader = undefined
+      await cleanup(reason, true)
     },
   })
 }
