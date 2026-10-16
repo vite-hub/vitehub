@@ -22,6 +22,7 @@ import { createCloudflareD1HttpResolver } from "../../database/src/runtime/d1-ht
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { sha256 } from "../src/core/path.ts"
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -708,6 +709,16 @@ describe("history policy and capabilities", () => {
 })
 
 describe("retained history Blob prefix", () => {
+  it("continues using an existing legacy workspace identity after upgrade", async () => {
+    const { blob, database, uploads } = await setup("libsql", "legacy-doc")
+    const digest = await sha256("legacy-doc")
+    const legacy = `vitehub/workspace-history/${digest}`
+    await database.insert(workspaceHistorySchema.workspaceHistoryWorkspaces).values({ workspace: legacy })
+    const store = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "legacy-doc" })
+    await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "legacy" }) })
+    expect(uploads.mock.calls[0]?.[0]).toMatch(new RegExp(`^${legacy.replaceAll("/", "\\/")}/sha256/`))
+  })
+
   it("nests a custom prefix under the ViteHub-owned history root", async () => {
     const { blob, database, uploads } = await setup("libsql")
     const store = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "handbook-doc", prefix: "handbook" })

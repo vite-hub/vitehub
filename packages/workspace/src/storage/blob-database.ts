@@ -113,13 +113,16 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
   async #key() {
     const candidates = await this.#namespace
     this.#ready ??= this.options.database.batch([
-      // Claim the new identity before selecting a candidate. The legacy row is
-      // retained for compatibility, while new writes use the owned namespace.
+      // Read existing identities before claiming the new one. This preserves
+      // legacy history when an installation upgrades, while the insert below
+      // atomically claims the owned identity for new workspaces.
+      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[0]!)),
+      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[1] ?? candidates[0]!)),
       this.options.database.insert(workspaces).values({ workspace: candidates[0]! }).onConflictDoNothing(),
-      this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(inArray(workspaces.workspace, candidates)),
-    ]).then(() => {
-      return candidates[0]!
-    }).catch(error => {
+    ]).then((results: [Array<{ workspace: string }>, Array<{ workspace: string }>, unknown]) => {
+      const [current, legacy] = results
+      return current[0]?.workspace ?? legacy[0]?.workspace ?? candidates[0]!
+    }).catch((error: unknown) => {
       this.#ready = undefined
       throw error
     })
