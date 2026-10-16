@@ -134,6 +134,12 @@ describe("Console access policies", () => {
     expect(handler).toHaveBeenCalledOnce()
     expect(result).toEqual({ mode: "host-managed", sections: ["kv"] })
   })
+  it("rejects local access when process lacks an explicit development environment", async () => {
+    vi.stubGlobal("process", {})
+    const { handler, result } = await run({ mode: "local" })
+    expect(handler).not.toHaveBeenCalled()
+    await expect(rejection(result)).resolves.toMatchObject({ status: 403 })
+  })
   it("accepts sections returned from another runtime realm", async () => {
     const authorize = runInNewContext("() => ({ sections: ['kv'] })")
     const { handler, result } = await run({ mode: "host-managed", authorize })

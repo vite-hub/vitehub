@@ -187,9 +187,13 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
 }
 
 function productionRuntime(): boolean {
-  // Edge hosts do not expose Node's `process`. Treat an unknown runtime as
-  // production so the development-only local policy fails closed.
   return typeof globalThis.process === "undefined" || globalThis.process.env?.NODE_ENV === "production"
+}
+
+function developmentRuntime(): boolean {
+  // Local Console access is safe only when the host identifies itself as a
+  // development runtime. Missing or partial process objects are unknown.
+  return globalThis.process?.env?.NODE_ENV === "development"
 }
 
 function webRequest(event: ConsoleRequestEvent): Request {
@@ -222,7 +226,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   let authorizeResult: unknown
   let authorizeResultReady = false
   if (policy.mode === "local") {
-    if (productionRuntime()) return rejection(403, "[vitehub] console: true is development-only. Configure console: { access: \"auth\" } or console: { exposure: \"host-managed\", authorize } for production.")
+    if (!developmentRuntime()) return rejection(403, "[vitehub] console: true is development-only. Configure console: { access: \"auth\" } or console: { exposure: \"host-managed\", authorize } for production.")
   }
   else if (policy.mode === "host-managed") {
     if (!policy.authorize) {
