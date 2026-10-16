@@ -65,12 +65,16 @@ function isRequestLike(value: AuthRequest): value is Request {
     // host-provided implementations are trusted code, not an authenticity boundary.
     if (Object.prototype.toString.call(value) !== "[object Request]") return false
     const hasPrototypeTag = (target: object, tag: string): boolean => {
-      const prototype = Object.getPrototypeOf(target)
-      if (!prototype) return false
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
-      if (!descriptor) return false
-      if (typeof descriptor.get === "function") return descriptor.get.call(target) === tag
-      return "value" in descriptor && descriptor.value === tag
+      let prototype: object | null = Object.getPrototypeOf(target)
+      while (prototype) {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
+        if (descriptor) {
+          if (typeof descriptor.get === "function") return descriptor.get.call(target) === tag
+          return "value" in descriptor && descriptor.value === tag
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return false
     }
     const hasBrandedAccessor = (target: object, property: string): boolean => {
       let current: object | null = Object.getPrototypeOf(target)
@@ -91,11 +95,6 @@ function isRequestLike(value: AuthRequest): value is Request {
       return false
     }
     if (!hasPrototypeTag(value, "Request")) return false
-    // Fetch implementations keep request state in internal slots, which are
-    // represented by own symbols in the host objects used by our supported
-    // runtimes. A structural object can copy the public surface, but it does
-    // not acquire that state merely by inheriting the checked properties.
-    if (Object.getOwnPropertySymbols(value).length === 0) return false
     if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(property => hasBrandedAccessor(value, property))) return false
     const hasMethods = (target: object, methods: string[]): boolean => methods.every((method) => {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
@@ -106,6 +105,15 @@ function isRequestLike(value: AuthRequest): value is Request {
     // them while lacking the Headers and AbortSignal APIs of a Web Request.
     if (!value.headers || Object.prototype.toString.call(value.headers) !== "[object Headers]" || !hasPrototypeTag(value.headers, "Headers") || !hasMethods(value.headers, ["get", "has", "set", "append", "delete", "entries", "forEach"])) return false
     if (["get", "has", "set", "append", "delete", "entries", "forEach"].some(method => Object.prototype.hasOwnProperty.call(value.headers, method))) return false
+    const headersGet = Reflect.get(value.headers, "get")
+    if (typeof headersGet !== "function") return false
+    try {
+      headersGet.call(Object.create(null), "")
+      return false
+    }
+    catch (error) {
+      if (!(error instanceof TypeError)) return false
+    }
     if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || !hasPrototypeTag(value.signal, "AbortSignal") || typeof value.signal.aborted !== "boolean") return false
     if (Object.prototype.hasOwnProperty.call(value.signal, "aborted")) return false
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check request state without calling clone(), which would tee a streaming body.
