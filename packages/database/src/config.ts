@@ -348,15 +348,24 @@ function readOpaqueHttpOnly(expression: string | undefined, source: string, seen
   if (!trimmed) return undefined
   const body = objectLiteralBody(trimmed)
   if (body !== undefined) {
-    const http = readObjectPropertyValue(body, "http")?.trim()
-    if (http === "true") return true
+    let httpOnly: boolean | undefined = false
     for (const property of splitTopLevel(body)) {
       const normalized = stripLeadingEntryComments(property).trim()
+      if (!normalized) continue
+      const key = readEntryKey(normalized)
+      if (key === "http") {
+        const value = readEntryValue(normalized)?.trim()
+        if (value === "true") httpOnly = true
+        else if (value === "false") httpOnly = false
+        else httpOnly = undefined
+        continue
+      }
       if (normalized.startsWith("...")) {
-        if (readOpaqueHttpOnly(normalized.slice(3), source, seen) === true) return true
+        const spread = readOpaqueHttpOnly(normalized.slice(3), source, seen)
+        if (spread !== undefined) httpOnly = spread
       }
     }
-    return false
+    return httpOnly
   }
   const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined

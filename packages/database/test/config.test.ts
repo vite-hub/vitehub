@@ -391,6 +391,22 @@ describe("resolveDBViteConfig", () => {
     expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
   })
 
+  it("checks opaque HTTP configs when a later spread disables HTTP", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const native = { http: false }",
+        "const cloudflare = { http: true, ...native }",
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_C0008" }))
+  })
+
   it("does not synthesize a native binding for unresolved opaque resources", async () => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {
