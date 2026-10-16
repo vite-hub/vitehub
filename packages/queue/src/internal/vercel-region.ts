@@ -8,8 +8,10 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
   if (isHeadersLike(headers)) {
     try {
       const descriptor = getPrototypeDescriptor(headers, "get")
-      if (!isBrandedMethod(descriptor?.value, headers, descriptor?.owner)) return
+      if (!isBrandedMethod(descriptor?.value, headers, descriptor?.owner, undefined, "probe").ok) return
       const value = descriptor.value.call(headers, name)
+      const confirmed = descriptor.value.call(headers, name)
+      if (value !== confirmed) return
       return typeof value === "string" && value ? value : undefined
     }
     catch {
@@ -43,7 +45,7 @@ function isHeadersLike(value: unknown): value is Headers {
     // region for the actual object.
     if (Object.prototype.hasOwnProperty.call(value, "get")) return false
     const descriptor = getPrototypeDescriptor(value, "get")
-    if (!isBrandedMethod(descriptor?.value, value, descriptor?.owner)) return false
+    if (!isBrandedMethod(descriptor?.value, value, descriptor?.owner, undefined, "probe").ok) return false
     return true
   }
   catch {
@@ -51,29 +53,35 @@ function isHeadersLike(value: unknown): value is Headers {
   }
 }
 
-function isBrandedMethod(value: unknown, receiver: object, owner: object | undefined): value is (this: unknown, ...args: unknown[]) => unknown {
-  if (typeof value !== "function") return false
+function isBrandedMethod(value: unknown, receiver: object, owner: object | undefined, targetName?: string, mode: "get" | "probe" | "accessor" = "accessor"): { ok: true, value?: string } | { ok: false } {
+  if (typeof value !== "function") return { ok: false }
   try {
     const source = Function.prototype.toString.call(value)
     // Browser Fetch methods stringify as native functions. Node's Undici
     // implementation is a JavaScript wrapper that performs an internal Web
     // IDL brand check; ordinary user-defined methods do neither.
-    if (!source.includes("[native code]") && !source.includes("webidl.brandCheck")) return false
-    if (!owner || Object.getPrototypeOf(owner) === null) return false
+    if (!source.includes("[native code]") && !source.includes("webidl.brandCheck")) return { ok: false }
+    if (!owner || Object.getPrototypeOf(owner) === null) return { ok: false }
     const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
-    if (typeof constructor !== "function" || constructor.prototype !== owner) return false
+    if (typeof constructor !== "function" || constructor.prototype !== owner || (constructor.name !== "Headers" && constructor.name !== "Request")) return { ok: false }
     // `instanceof` uses the candidate realm's constructor and therefore works
     // across realms while rejecting objects that merely advertise Web IDL tags.
-    if (!(receiver instanceof constructor)) return false
+    if (!(receiver instanceof constructor)) return { ok: false }
     // A valid header name keeps the probe on the native Web IDL path. Accept
     // either a missing header or its string value so callers can legitimately
     // provide this name themselves; the probe must not depend on a header
     // being absent.
-    const probe = value.call(receiver, "x-vitehub-brand-probe")
-    return probe === null || typeof probe === "string"
+    if (mode === "accessor") {
+      value.call(receiver)
+      return { ok: true }
+    }
+    const probeName = targetName ?? "x-vitehub-brand-probe"
+    const probe = value.call(receiver, probeName)
+    if (probe !== null && typeof probe !== "string") return { ok: false }
+    return { ok: true, value: typeof probe === "string" && probe ? probe : undefined }
   }
   catch {
-    return false
+    return { ok: false }
   }
 }
 
@@ -81,7 +89,7 @@ function getRequestHeaders(value: unknown) {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
     const descriptor = getPrototypeDescriptor(value, "headers")
-    if (!descriptor?.get || !isBrandedMethod(descriptor.get, value, descriptor.owner)) return undefined
+    if (!descriptor?.get || !isBrandedMethod(descriptor.get, value, descriptor.owner, undefined, "accessor").ok) return undefined
     const headers = descriptor.get.call(value)
     return isHeadersLike(headers) ? headers : undefined
   }
