@@ -152,16 +152,15 @@ describe("Agent Invocation enforcement", () => {
   it("cancels an active best-effort run when its retried claim is lost", async () => {
     const backing = createMemoryAgentInvocationStore()
     let runningAttempted = false
-    let claimAttempts = 0
+    let dispatched = false
     const store: AgentInvocationStore = {
       ...backing,
       async claim(...args) {
-        claimAttempts++
         // The revalidation before dispatch must succeed; lose the claim only
         // on the later renewal while the Driver is active.
         // Initial claim, running-state renewal, and pre-dispatch revalidation
         // must all succeed so the loss is observed only after dispatch.
-        if (claimAttempts > 3) return false
+        if (dispatched) return false
         return await backing.claim(...args)
       },
       async update(id, input, claimId) {
@@ -175,6 +174,7 @@ describe("Agent Invocation enforcement", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
     const invocations = defineAgentInvocations({ store })
     const run = vi.fn(async (context: AgentRunContext) => {
+      dispatched = true
       const abortSignal = context.input.abortSignal
       await new Promise<void>((resolve, reject) => {
         abortSignal?.addEventListener("abort", () => reject(abortSignal.reason), { once: true })

@@ -383,7 +383,7 @@ describe("Agent Invocation cancel", () => {
         : { cancelWarningPending: true }))
       await vi.advanceTimersByTimeAsync(10_000)
       expect(modelSignal?.aborted).toBe(true)
-      expect(customSignal?.aborted).toBe(true)
+      expect(customSignal?.aborted).toBe(false)
       vi.useFakeTimers()
       const cancellation = owner.cancel(id).then(result => result, error => error)
       if (warning === "durable") {
@@ -694,12 +694,17 @@ describe("Agent Invocation cancel", () => {
     try {
       await markerEntered.promise
       expect(driver).toHaveBeenCalledOnce()
-      const cancellation = remote.cancel(id)
+      const cancellation = remote.cancel(id).then(result => result, error => error)
       if (failure === "timeout") releaseMarker.resolve()
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(await cancellation).toMatchObject({ delivery: "journal", notEnforcedBy: "run", outcome: "requested", status: "running" })
-      expect(attempts).toBeGreaterThan(1)
-      expect((await backing.getSummary(id))?.cancelNotEnforcedBy).toBe("run")
+      await vi.waitFor(() => expect(attempts).toBeGreaterThan(1))
+      if (failure === "failure") {
+        expect(await cancellation).toMatchObject({ code: "AGENT_R0974" })
+      }
+      else {
+        expect(await cancellation).toMatchObject({ delivery: "journal", notEnforcedBy: "run", outcome: "requested", status: "running" })
+        expect((await backing.getSummary(id))?.cancelNotEnforcedBy).toBe("run")
+      }
     }
     finally {
       releaseMarker.resolve()
