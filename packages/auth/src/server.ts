@@ -1,5 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
+import { Response as UndiciResponse } from "undici"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -310,31 +311,13 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 
 function hasResponseBrand(value: object): boolean {
   try {
-    if (value instanceof Response) return true
-
-    // A supported foreign implementation cannot be checked with this realm's
-    // Web IDL accessors. Validate its own Response constructor by exercising
-    // the implementation's static factories and prototype methods; this also
-    // rejects response-shaped objects that only copy the four accessors.
-    let prototype: object | null = Object.getPrototypeOf(value)
-    const seen = new Set<object>()
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
-      seen.add(prototype)
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      if (typeof constructor === "function" && constructor.name === "Response") {
-        const error = Reflect.get(constructor, "error")
-        const json = Reflect.get(constructor, "json")
-        const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
-        if (typeof error !== "function" || typeof json !== "function" || typeof clone !== "function") return false
-        const probe = Reflect.apply(error, constructor, [])
-        if (Object.getPrototypeOf(probe) !== prototype) return false
-        const jsonProbe = Reflect.apply(json, constructor, [{ ok: true }])
-        if (Object.getPrototypeOf(jsonProbe) !== prototype) return false
-        const clonedProbe = Reflect.apply(clone, probe, [])
-        return Object(clonedProbe) === clonedProbe && Object.getPrototypeOf(clonedProbe) === prototype
-      }
-      prototype = Object.getPrototypeOf(prototype)
+    const localStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+    if (typeof localStatus === "function") {
+      try { Reflect.apply(localStatus, value, []) ; return true } catch {}
+    }
+    const foreignStatus = Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "status")?.get
+    if (typeof foreignStatus === "function") {
+      try { Reflect.apply(foreignStatus, value, []) ; return true } catch {}
     }
     return false
   }
