@@ -92,7 +92,7 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
       if (bodyUsed) return
       return
     }
-    if (!cloned || typeof cloned !== "object" || cloned === value || Object.getPrototypeOf(cloned) !== Object.getPrototypeOf(value)) return
+    if (!cloned || typeof cloned !== "object" || cloned === value) return
     const arrayBuffer = Reflect.get(cloned, "arrayBuffer")
     if (typeof arrayBuffer !== "function") return
     const body = Reflect.get(value, "body")

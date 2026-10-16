@@ -169,6 +169,17 @@ describe("Console access policies", () => {
     await expect(rejection(spoofedPrototype.result)).resolves.toMatchObject({ status: 403 })
   })
 
+  it("preserves genuine Response subclasses", async () => {
+    class CustomResponse extends Response {}
+    const authorize = () => new CustomResponse("Subclass response.", { status: 202 })
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 202 })
+    await expect((result as Response).text()).resolves.toBe("Subclass response.")
+  })
+
   it("rejects a consumed response from another runtime realm", async () => {
     const authorize = runInNewContext("async () => { const response = new Response('Consumed.', { status: 401 }); await response.text(); return response }", { Response }) as unknown as ConsoleAuthorize
 
