@@ -394,21 +394,13 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       if (descriptor?.get !== owner?.get) throw new Error("Malformed authorization response")
       return [key, descriptor.get]
     })) as Record<(typeof authorizationResponseProperties)[number], () => unknown>
-    // A Proxy around a native Response exposes the target's prototype, but the
-    // native accessors reject the Proxy receiver. Read through the candidate
-    // as a fallback so forwarding Proxy traps can snapshot the target once.
-    const read = (key: typeof authorizationResponseProperties[number], getter: () => unknown) => {
-      try {
-        return getter()
-      }
-      catch {
-        return Reflect.get(candidate, key)
-      }
-    }
-    const status: unknown = read("status", () => Reflect.apply(descriptors.status, candidate, []))
-    const statusText: unknown = read("statusText", () => Reflect.apply(descriptors.statusText, candidate, []))
-    const headers: unknown = read("headers", () => Reflect.apply(descriptors.headers, candidate, []))
-    const body: unknown = read("body", () => Reflect.apply(descriptors.body, candidate, []))
+    // A failed native accessor call proves that the candidate does not carry
+    // the required Response internal slots. Never fall back to candidate-
+    // controlled property reads, which can invoke arbitrary getters or traps.
+    const status: unknown = Reflect.apply(descriptors.status, candidate, [])
+    const statusText: unknown = Reflect.apply(descriptors.statusText, candidate, [])
+    const headers: unknown = Reflect.apply(descriptors.headers, candidate, [])
+    const body: unknown = Reflect.apply(descriptors.body, candidate, [])
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.

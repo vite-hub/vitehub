@@ -16,6 +16,7 @@ import {
   commitGitHubChanges,
   createGitHubBlob,
   createGitHubFileUpdate,
+  githubBranchMovedConflict,
   gitBlobSha,
   joinGitPath,
   readGitHubArchive,
@@ -464,9 +465,12 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       token: this.#token,
     });
     if (this.#baselineRefSha && remote.refSha !== this.#baselineRefSha) {
-      throw workspaceConflict(
-        `[vitehub] GitHub Workspace Store conflict for ${this.#repository}@${this.#branch}: the branch changed after this Workspace Store loaded. Snapshotting requires a Workspace Store loaded from the current branch head.`,
-      );
+      throw githubBranchMovedConflict({
+        actualHead: remote.refSha,
+        branch: this.#branch,
+        expectedHead: this.#baselineRefSha,
+        repository: this.#repository,
+      });
     }
     this.#remoteFiles = remote.files;
     this.#baselineRefSha = remote.refSha;
