@@ -83,7 +83,7 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
 
   const entries = [...groups].map(([label, pages], index) => ({ label, pages, index }));
   if (!primitiveCategories.has(section.category || "")) {
-    return entries.map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
+    return entries.map(({ label, pages }) => ({ label, pages }));
   }
   return entries
     .sort((left, right) => left.index - right.index)
