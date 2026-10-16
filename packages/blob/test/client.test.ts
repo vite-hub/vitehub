@@ -148,6 +148,25 @@ describe("createMultipartUploader", () => {
     expect(requests.at(-1)).toMatchObject({ method: "DELETE", url: "/api/multipart/abort/a.bin?uploadId=u2" })
   })
 
+  it("cleans up when a transport rejects after local abort", async () => {
+    const { fetch } = multipartServer()
+    let rejectPart!: (error: Error) => void
+    fetch.mockImplementationOnce(async () => json({ action: "create", pathname: "a.bin", uploadId: "u4" }))
+    fetch.mockImplementationOnce((_url, init) => new Promise<Response>((_resolve, reject) => {
+      rejectPart = reject
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })
+    }))
+    const task = createMultipartUploader("/api/multipart", { fetch, partSize: 1 })(new File(["a"], "a.bin"))
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+
+    const aborted = task.abort()
+    rejectPart(new Error("transport failed"))
+
+    await expect(aborted).resolves.toBeUndefined()
+    await expect(task.completed).resolves.toBeUndefined()
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes("/api/multipart/abort/a.bin?uploadId=u4"))).toHaveLength(1)
+  })
+
   it.each([
     { pathname: "a.bin" },
     { pathname: "a.bin", uploadId: 42 },

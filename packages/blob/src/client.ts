@@ -242,7 +242,10 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
       }, { uploadId }), parseMultipartComplete)
       return result.object
     })().catch(async (error: unknown) => {
-      if (aborted) return undefined
+      if (aborted) {
+        await abortRemoteUpload().catch(() => {})
+        return undefined
+      }
       aborted = true
       controller.abort()
       try {
