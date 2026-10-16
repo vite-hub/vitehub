@@ -627,7 +627,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "vite-hub/console-cli" }),
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt", invoke: true })`,
+      `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt", invoke: true, capabilities: {`,
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleBlob("/tmp/vitehub-nuxt", vitehubConsoleBlob, ["default"])`,

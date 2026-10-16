@@ -3,7 +3,7 @@
 title: Send through your first Channel
 description: Send a local build notification and inspect the connector receipt.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
