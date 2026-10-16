@@ -430,17 +430,21 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
-    let hasCombinedCookies = false
+    let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
       if (key.toLowerCase() === "set-cookie") {
-        if (cookies.length === 0) hasCombinedCookies = true
+        if (cookies.length === 0) combinedCookies = value
         return
       }
       normalizedHeaders.append(key, value)
     }])
-    // A combined Set-Cookie value cannot be split safely (Expires may contain commas).
-    // Reject this response unless the source exposes individual cookie values.
-    if (hasCombinedCookies && cookies.length === 0) return
+    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // followed by another cookie assignment proves that multiple values were merged;
+    // those cannot be split safely because Expires itself can contain commas.
+    if (combinedCookies !== undefined) {
+      if (/,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      normalizedHeaders.append("set-cookie", combinedCookies)
+    }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
     // Validate status and native body state before acquiring reader ownership.

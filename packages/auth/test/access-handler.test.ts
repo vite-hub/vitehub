@@ -374,6 +374,22 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
+  it("preserves one foreign Set-Cookie header without getSetCookie", async () => {
+    const foreign = new ForeignResponse("Policy rejected", {
+      status: 409,
+      headers: { "set-cookie": "session=one; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Path=/" },
+    })
+    Object.defineProperty(foreign.headers, "getSetCookie", { value: undefined })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response?.status).toBe(409)
+    expect(response?.headers.get("set-cookie")).toBe("session=one; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Path=/")
+  })
+
   it("forwards cancellation to the foreign response body", async () => {
     const cancel = vi.fn()
     const foreign = new ForeignResponse(new ReadableStream({ cancel }), { status: 409 })
