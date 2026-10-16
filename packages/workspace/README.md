@@ -425,6 +425,14 @@ export default defineWorkspace({
 
 Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
 
+GitHub-backed Stores also expose the retained history reader. Repository branches are
+history refs, and GitHub commits are immutable Workspace revisions. Revision metadata
+includes the commit author and a `url` that opens the commit on GitHub. Revision file
+views read the configured Workspace root from the commit tree and fetch file bytes from
+that commit. The existing `vitehub workspace history`, `refs`, and `show` CLI commands
+inspect this data; the Console Workspace/files view does not yet provide a history
+navigator.
+
 Publish a Workspace snapshot into an existing GitHub repository with the GitHub publisher:
 
 ```ts
