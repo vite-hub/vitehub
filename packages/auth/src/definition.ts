@@ -41,7 +41,7 @@ function validateAuthDatabase(value: AuthDatabaseConfiguration | undefined): voi
 
   validateNamedString(Object.hasOwn(value, "name") ? value.name : undefined, "database.name")
 
-  if (Object.hasOwn(value, "dedicated") && typeof value.dedicated !== "boolean") {
+  if (Object.hasOwn(value, "dedicated") && typeof value.dedicated !== "undefined" && typeof value.dedicated !== "boolean") {
     throw authErrorDiagnostics.AUTH_C0023({ message: "`defineAuth()` database.dedicated must be a boolean." })
   }
 }
