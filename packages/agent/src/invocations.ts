@@ -2105,7 +2105,6 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           claimId = attemptId
           claimConfirmed = true
           claimUncertain = false
-          claimConflict = false
         }
         else if (claim === false) {
           // A confirmed ownership loss remains a conflict even if a later
