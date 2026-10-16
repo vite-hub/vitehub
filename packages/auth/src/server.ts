@@ -350,14 +350,15 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         if (typeof reader.cancel === "function") operations.push(() => reader.cancel(reason))
         if (typeof foreignBody.cancel === "function") operations.push(() => foreignBody.cancel(reason))
       }
+      let succeeded = false
       for (const operation of operations) {
         try {
           await operation()
-          cleaned = true
-          return
+          succeeded = true
         }
         catch {}
       }
+      if (succeeded) cleaned = true
     }
     const releaseReader = () => cleanupReader()
     const cancelReader = (reason: unknown) => cleanupReader(reason, true)

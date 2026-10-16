@@ -205,6 +205,29 @@ describe("Auth access handlers", () => {
     expect(cancelled).toBe(true)
   })
 
+  it("releases the reader after cancellation succeeds", async () => {
+    let released = false
+    const foreignResponse = {
+      status: 409,
+      statusText: "Conflict",
+      headers: new Headers(),
+      body: {
+        getReader: () => ({
+          read: () => Promise.reject(new Error("read failed")),
+          cancel: () => undefined,
+          releaseLock: () => { released = true },
+        }),
+      },
+      [Symbol.toStringTag]: "Response",
+    }
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+    expect(response!.status).toBe(409)
+    expect(released).toBe(true)
+  })
+
   it.each([
     Response.error(),
     { status: 409, statusText: "Conflict", headers: { get() { return null } }, body: null, [Symbol.toStringTag]: "Response" },
