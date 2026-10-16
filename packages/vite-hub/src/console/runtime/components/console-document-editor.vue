@@ -1207,7 +1207,7 @@ const menuItems = computed(() => [[
     </template>
     <template #right>
       <template v-if="liveActive">
-        <AvatarStack v-if="liveOthers.length" class="me-1" :people="liveOthers" size="sm" variant="outline" />
+        <AvatarStack v-if="liveOthers.length" class="me-1" :people="liveOthers" :max="4" size="sm" variant="outline" />
         <UTooltip text="Everyone here edits together. The draft saves a few seconds after typing stops." :content="{ side: 'bottom' }">
           <ConnectionStatus class="me-1 hidden sm:inline-flex" :status="liveStatus">
             <ConnectionStatusIndicator />
@@ -1374,7 +1374,9 @@ const menuItems = computed(() => [[
               @focus="onFieldFocus"
               @blur="onFieldBlur"
             />
-            <AvatarStack v-if="fieldPeople[`field-${titleField.name}`]" class="-mt-1" :style="{ '--vh-avatar-size': '1rem' }" :people="fieldPeople[`field-${titleField.name}`]!" variant="outline" />
+            <span v-if="fieldPeople[`field-${titleField.name}`]" class="-mt-1" role="img" :aria-label="fieldPeople[`field-${titleField.name}`]!.map(person => `${person.name} is editing this field`).join(', ')">
+              <AvatarStack aria-hidden="true" :style="{ '--vh-avatar-size': '1rem' }" :people="fieldPeople[`field-${titleField.name}`]!" variant="outline" />
+            </span>
             <p v-if="fieldErrors[titleField.name]" :id="`field-${titleField.name}-error`" class="mt-1 text-xs text-error">{{ fieldErrors[titleField.name]!.join(" ") }}</p>
           </div>
 
