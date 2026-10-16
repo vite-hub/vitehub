@@ -441,7 +441,16 @@ const invocations = defineAgentInvocations({
 
 Defaults are 32,768 observations, 65,536 UTF-16 code units of content strings per observation value budget, 16 MiB of serialized observation data, and a 1-second finish drain. Maximum values are 32,768 observations, 1,048,576 code units, 64 MiB, and 60 seconds. The byte limit counts the UTF-8 encoded observations array after privacy filtering. It does not limit provider output, the live trace log, or total process memory. A record keeps its resolved limits when another process resumes it.
 
-When a limit is reached, the journal marks `observationsTruncated` and gives lifecycle outcomes priority over ordinary observations. It can strip large outcome content to retain the outcome within the byte limit. `flushTimeoutMs` controls how long finish waits for queued observations; each individual store operation remains bounded to one second. A longer drain can preserve a long queue of successful writes but cannot make an unavailable store reliable.
+When a limit is reached, the journal marks `observationsTruncated` and gives lifecycle outcomes priority over ordinary observations. It can strip large outcome content to retain the outcome within the byte limit. `flushTimeoutMs` controls how long finish waits for queued observations. A longer drain can preserve a long queue of successful writes but cannot make an unavailable store reliable.
+
+Each store operation waits up to `storeTimeoutMs`: one second by default, at most 60 seconds. An operation that takes longer counts as unconfirmed, even if the write lands later, and an unconfirmed running transition stops the Invocation before its Driver starts. Raise the limit when the store is far from the runtime, such as a Cloudflare D1 primary in another region:
+
+```ts
+const invocations = defineAgentInvocations({
+  store: createDatabaseAgentInvocationStore(),
+  storeTimeoutMs: 10_000,
+})
+```
 
 When an application exposes the standard invocation journal route, inspect it without a dashboard:
 

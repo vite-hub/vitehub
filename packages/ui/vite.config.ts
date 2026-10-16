@@ -23,7 +23,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      ...componentNames.map((name) => `src/${componentEntryName(name)}.ts`),
+      ...new Set(componentNames.map((name) => `src/${componentEntryName(name)}.ts`)),
       "src/index.ts",
       "src/headless.ts",
       "src/nuxt.ts",
