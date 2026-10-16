@@ -242,9 +242,10 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
   const driverInput = (input: RateLimitConsumeInput): RateLimitDriverInput => ({
     key: input.key,
     limit: policy.limit,
-    name: options.name,
+    name: inspected.policy.name,
     windowMs: policy.windowMs,
   })
+  const driver = inspected.policy.driver
 
   return {
     capabilities,
@@ -252,7 +253,7 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
       if (!input || !v.is(v.string(), input.key) || input.key.length === 0) {
         throw rateLimitErrorDiagnostics.RATE_LIMIT_R0030({ message: "[vitehub] Rate Limiter consume() requires a non-empty key." })
       }
-      const outcome = await options.driver.consume(driverInput(input))
+      const outcome = await driver.consume(driverInput(input))
       if (!v.is(driverOutcomeSchema, outcome)) {
         throw rateLimitErrorDiagnostics.RATE_LIMIT_R0044({ message: "[vitehub] Rate Limit driver consume() must return [null, value] or [Error, undefined]." })
       }
@@ -270,7 +271,6 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
     },
     async peek(input) {
       assertKey(input, "peek")
-      const driver = options.driver
       if (!v.is(v.function(), driver.peek)) {
         return { limit: policy.limit, reason: unsupportedReason(driver.name, "peek"), status: "unsupported", windowMs: policy.windowMs }
       }
@@ -284,7 +284,6 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
     policy,
     async reset(input) {
       assertKey(input, "reset")
-      const driver = options.driver
       if (!v.is(v.function(), driver.reset)) {
         return { reason: unsupportedReason(driver.name, "reset"), status: "unsupported" }
       }

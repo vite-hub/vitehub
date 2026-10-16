@@ -71,6 +71,21 @@ describe("Rate Limit core", () => {
     expect(getter.mock.contexts).toEqual([driver, driver])
   })
 
+  it("uses inspected option values for runtime driver inputs", async () => {
+    const driver = memoryRateLimitDriver()
+    const options: CreateRateLimiterOptions = { driver, limit: 1, window: "1m" }
+    let nameReads = 0
+    Object.defineProperty(options, "name", {
+      get: () => nameReads++ === 0 ? "inspected" : "changed",
+    })
+    const consume = vi.spyOn(driver, "consume")
+    const limiter = createRateLimiter(options)
+
+    await limiter.consume({ key: "user" })
+
+    expect(consume).toHaveBeenCalledWith(expect.objectContaining({ name: "inspected" }))
+  })
+
   it.each(["allow", "deny"] as const)("rejects malformed consume tuples before applying failure %s", async (failure) => {
     const invalid = [
       ["malformed-error", undefined],
