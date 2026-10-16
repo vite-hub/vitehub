@@ -607,7 +607,7 @@ function isErrorValue(value: unknown): value is Error {
     while (prototype && prototype !== Object.prototype) {
       const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
       const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
-      if (typeof name === "string" && typeof message === "string") {
+      if (typeof name === "string" && typeof message === "string" && Object.hasOwn(value, "stack")) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         if (isNativeConstructor(constructor, nativeErrorConstructorSource) && constructor.prototype === prototype) return true
       }
@@ -817,8 +817,9 @@ async function collectBoundedObservationBuiltIns(
         await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
       }
       let count = 0
+      let steps = 0
       for (const key in value) {
-        if (count >= MAX_OBSERVATION_COLLECTION_ITEMS) break
+        if (steps++ >= MAX_OBSERVATION_COLLECTION_ITEMS || count >= MAX_OBSERVATION_COLLECTION_ITEMS) break
         if (!Object.hasOwn(value, key) || key === "cause" || key === "errors") continue
         count++
         await collectBoundedObservationBuiltIns(value[key], builtIns, budget, seen, depth + 1)
@@ -983,8 +984,9 @@ function boundedObservationValue(
     if (isAggregateErrorValue(value)) details.push(["errors", read("errors")])
     if (Object.hasOwn(value, "cause")) details.push(["cause", read("cause")])
     try {
+      let steps = 0
       for (const key in value) {
-        if (details.length >= collectionItems) break
+        if (steps++ >= collectionItems || details.length >= collectionItems) break
         if (!Object.hasOwn(value, key) || key === "cause" || key === "errors") continue
         details.push([key, read(key)])
       }
