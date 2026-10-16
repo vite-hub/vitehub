@@ -97,3 +97,4 @@ The state as text: "Connecting", "Connected", or "Reconnecting". The default slo
 
 - [Sync Status](/docs/ui/sync-status) shows whether edits are saved.
 - [Avatar Stack](/docs/ui/avatar-stack) shows who is in the room.
+- [Collaborative Editor](/docs/ui/blocks/collaborative-editor) puts every collaboration part together, wired to Realtime.

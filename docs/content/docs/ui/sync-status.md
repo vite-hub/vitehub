@@ -28,9 +28,22 @@ import type { SyncStatusValue } from "@vite-hub/ui";
 import { useRealtimeTiptap } from "vite-hub/realtime/vue";
 
 const realtime = useRealtimeTiptap("docs", "guides/welcome.md");
-// `useRealtimeTiptap` exposes the loading/saved signal. Wire saving and
-// persistence errors from the editor or your save layer when available.
-const sync = computed<SyncStatusValue>(() => realtime.synced.value ? "synchronized" : "loading");
+const failed = ref(false);
+const sync = computed<SyncStatusValue>(() => {
+  if (!realtime.synced.value) return "loading";
+  if (realtime.history.pending.value) return "synchronizing";
+  return failed.value ? "error" : "synchronized";
+});
+
+// `history.checkpoint()` saves the room to the Workspace and rejects when the save fails.
+async function save() {
+  try {
+    await realtime.history.checkpoint();
+    failed.value = false;
+  } catch {
+    failed.value = true;
+  }
+}
 ```
 
 ```vue
@@ -91,3 +104,4 @@ The status as text. The default slot receives `{ status }`. Has no props. Render
 
 - [Connection Status](/docs/ui/connection-status) shows the connection of the same editor.
 - [Avatar Stack](/docs/ui/avatar-stack) shows who is editing.
+- [Collaborative Editor](/docs/ui/blocks/collaborative-editor) puts every collaboration part together, wired to Realtime.

@@ -144,4 +144,8 @@ explicit `realtime.history.checkpoint()` saves the current Markdown to the
 Workspace. Both the room authority and Workspace store in this tutorial are
 in memory, so restarting the server loses their state. Use a durable setup
 before relying on documents surviving a restart.
+
+To show who else is editing and whether the room is connected and saved, replace
+the status line with the parts in the
+[Collaborative Editor](/docs/ui/blocks/collaborative-editor) block.
 ::

@@ -18,12 +18,12 @@ Select a session to read its messages and reply. This example uses the package s
 ::component-preview{name="ChatAppBlock" flush reset}
 ::
 
-[Install the package](/docs/ui/installation), then copy the [Chat app](/docs/ui/blocks/chat-app) or [Code review](/docs/ui/blocks/code-review) into your application. Each block explains how to connect real data.
+[Install the package](/docs/ui/installation), then copy the [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), or [Collaborative editor](/docs/ui/blocks/collaborative-editor) into your application. Each block explains how to connect real data.
 
 ## Components
 
 ::ui-component-gallery
-- **Console:** [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review)
+- **Console:** [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), [Collaborative editor](/docs/ui/blocks/collaborative-editor)
 - **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block)
 - **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Prompt input](/docs/ui/prompt-input), [Chat session](/docs/ui/chat-session)
 - **Collaboration:** [Avatar stack](/docs/ui/avatar-stack), [Connection status](/docs/ui/connection-status), [Sync status](/docs/ui/sync-status), [Carets](/docs/ui/carets)

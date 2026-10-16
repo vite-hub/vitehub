@@ -101,3 +101,4 @@ Renders a `div` with `data-slot="avatar-stack"`. Each avatar is a `span` with `d
 - [Connection Status](/docs/ui/connection-status) and [Sync Status](/docs/ui/sync-status) show the state of the same room.
 - [Carets](/docs/ui/carets) styles the editor carets in the same colors.
 - [Realtime](/docs/realtime) provides `people`.
+- [Collaborative Editor](/docs/ui/blocks/collaborative-editor) puts every collaboration part together, wired to Realtime.
