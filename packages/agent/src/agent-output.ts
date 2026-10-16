@@ -723,6 +723,13 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
         ? intrinsicIsError(error) === true
         : undefined
     if (nativeBranded === false) return
+    // Avoid traversing arbitrary provider objects with structuredClone when
+    // no native brand helper is available. Genuine Errors either expose the
+    // intrinsic Error tag, inherit from Error in this realm, or carry a
+    // custom toStringTag that still needs clone validation.
+    if (nativeBranded === undefined && !hasToStringTag
+      && Object.prototype.toString.call(error) !== "[object Error]"
+      && !(error instanceof Error)) return
     // structuredClone preserves the intrinsic Error brand but does not copy
     // user-defined symbol tags or an Error prototype chain onto plain objects.
     // Prefer it when available so configurable stack descriptors cannot forge
