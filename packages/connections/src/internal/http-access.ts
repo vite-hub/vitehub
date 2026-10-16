@@ -1,12 +1,14 @@
 import * as v from "valibot"
 
+import { managementErrorBody } from "./http-diagnostics.ts"
+
 import type { ConnectionsRuntime } from "../runtime.ts"
 
 /**
  * Authenticates one management request and returns the manager as `user:<id>`.
- * Return `undefined` to deny the request.
+ * Return `undefined` to deny the request with `403`, or a `Response` to deny it with that response.
  */
-export type ConnectionsActor = (request: Request, event?: unknown) => string | undefined | Promise<string | undefined>
+export type ConnectionsActor = (request: Request, event?: unknown) => string | Response | undefined | Promise<string | Response | undefined>
 
 /**
  * Access policy of the Connections management routes.
@@ -39,7 +41,7 @@ const grants = new WeakMap<ConnectionsAccess, () => ConnectionsRuntime>()
 
 function reject(status: number, code: string, message: string): ConnectionsAccessCheck {
   return {
-    rejection: new Response(JSON.stringify({ error: { code, message } }), {
+    rejection: new Response(JSON.stringify({ error: managementErrorBody(code, message) }), {
       headers: { "cache-control": "no-store", "content-type": "application/json" },
       status,
     }),
@@ -70,13 +72,14 @@ export async function checkConnectionsAccess(
   }
   else if (v.is(v.function(), policy)) {
     actor = await policy(request, event)
+    if (actor instanceof Response) return { rejection: actor }
   }
   else {
     return reject(500, "CONNECTION_AUTH_REQUIRED", "createConnectionsHandler() requires an actor policy.")
   }
   const manager = v.safeParse(managerSchema, actor)
   if (!manager.success) {
-    return reject(403, "CONNECTION_FORBIDDEN", "An authenticated management user is required.")
+    return reject(403, "CONNECTION_FORBIDDEN", "The management route found no signed-in manager for this request.")
   }
   const access: ConnectionsAccess = Object.freeze({ [connectionsAccessBrand]: true as const, actor: manager.output, request })
   grants.set(access, runtime)
