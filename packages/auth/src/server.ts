@@ -310,31 +310,10 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 
 function hasResponseBrand(value: object): boolean {
   try {
-    // `instanceof` uses the current realm's intrinsic and remains valid when
-    // ordinary accessors on a genuine response have been shadowed.
-    if (value instanceof Response) return true
-
-    // For a supported foreign implementation, invoke its own native clone
-    // method. Fetch implementations brand this method with private/internal
-    // response state, so a copied prototype shape cannot pass this probe.
-    const prototype = Object.getPrototypeOf(value)
-    const clone = responsePropertyDescriptor(prototype, "clone")?.value
-    if (typeof clone !== "function") return false
-    const cloned = Reflect.apply(clone, value, [])
-    if (Object(cloned) !== cloned || cloned === value) return false
-
-    // A candidate supplied clone method is not itself a brand proof. Require
-    // the returned value to expose the same complete response prototype and
-    // header carrier; forged methods that merely return an arbitrary object
-    // therefore fail closed before any response data is normalized.
-    const clonedPrototype = Object.getPrototypeOf(cloned)
-    if (responsePropertyDescriptor(clonedPrototype, "clone")?.value !== clone) return false
-    for (const key of authorizationResponseProperties) {
-      if (!responsePropertyDescriptor(clonedPrototype, key)) return false
-    }
-    const clonedHeaders = Reflect.get(cloned, "headers")
-    if (clonedHeaders === null || Object(clonedHeaders) !== clonedHeaders) return false
-    return responsePropertyDescriptor(clonedHeaders, "forEach")?.value !== undefined
+    // The current realm intrinsic performs an unforgeable internal-slot check.
+    // Values from unsupported fetch implementations fail closed below rather
+    // than trusting candidate-controlled clone methods or prototype shapes.
+    return value instanceof Response
   }
   catch {
     return false
@@ -350,35 +329,13 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     // Resolve the stream intrinsics from the body's own realm. Applying the
     // getter performs the brand check and works across JavaScript realms.
     if (Object.getOwnPropertyDescriptor(candidate, "getReader")) return false
-    let prototype: object | null = Object.getPrototypeOf(candidate)
-    const seen = new Set<object>()
-    let locked: (() => boolean) | undefined
-    let getReader: (() => unknown) | undefined
-    let lockedOwner: object | undefined
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
-      seen.add(prototype)
-      const lockedDescriptor = Object.getOwnPropertyDescriptor(prototype, "locked")
-      const readerDescriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
-      if (!locked && typeof lockedDescriptor?.get === "function") {
-        locked = lockedDescriptor.get
-        lockedOwner = prototype
-      }
-      if (!getReader && typeof readerDescriptor?.value === "function") {
-        getReader = readerDescriptor.value
-      }
-      if (locked && getReader) break
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    if (!locked || !getReader || Reflect.apply(locked, candidate, [])) return false
-    // Validate the reader against a fresh stream from the body's realm. This
-    // avoids relying on function source text while rejecting unrelated native
-    // methods (for example, Array.prototype.values) installed on the stream
-    // prototype. The fresh stream is disposable, so invoking getReader does
-    // not change the candidate's lock state.
-    const streamConstructor = Object.getOwnPropertyDescriptor(lockedOwner, "constructor")?.value
-    if (typeof streamConstructor !== "function") return false
-    const freshStream = new streamConstructor()
+    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    const getReader = ReadableStream.prototype.getReader
+    if (typeof locked !== "function" || typeof getReader !== "function") return false
+    if (Reflect.apply(locked, candidate, [])) return false
+    // Validate the native reader against a fresh stream. The candidate's
+    // inherited reader overrides are intentionally ignored.
+    const freshStream = new ReadableStream()
     const reader = Reflect.apply(getReader, freshStream, [])
     if (Object(reader) !== reader) return false
     const readerObject = reader as object
@@ -386,7 +343,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       || typeof Reflect.get(readerObject, "cancel") !== "function"
       || typeof Reflect.get(readerObject, "releaseLock") !== "function") return false
     Reflect.apply(Reflect.get(readerObject, "releaseLock"), readerObject, [])
-    return responsePropertyDescriptor(candidate, "getReader")?.value === getReader
+    return true
   }
   catch {
     return false
