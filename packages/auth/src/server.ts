@@ -285,33 +285,34 @@ function runAccessAuthorize(
   const directResponse = normalizeAuthorizationResponse(result)
   if (directResponse) return Promise.resolve({ response: directResponse })
 
-  // Applying the intrinsic reaction operation is a side-effect-free native
-  // Promise brand check. It also works for subclasses and promises from other
-  // realms, while ignoring any overridden instance or prototype `then`.
+  // Applying the intrinsic reaction operation performs a native Promise brand
+  // check without reading a mutable `then` property. Non-Promise values throw
+  // synchronously and continue through the guarded thenable path.
   if (result !== null && (typeof result === "object" || typeof result === "function")) {
-    try {
-      const adopted = new Promise<{ response?: Response }>((resolve, reject) => {
-        try {
-          const child = Reflect.apply(intrinsicPromiseThen, result, [
-            (resolved: unknown) => {
+    let nativePromise = false
+    const adopted = new Promise<{ response?: Response }>((resolve, reject) => {
+      try {
+        Reflect.apply(intrinsicPromiseThen, result, [
+          (resolved: unknown) => {
+            try {
               const response = normalizeAuthorizationResponse(resolved)
               if (response) resolve({ response })
               else if (resolved !== true) resolve({ response: createForbiddenResponse(context.request) })
               else resolve({})
-            },
-            reject,
-          ])
-          Reflect.apply(intrinsicPromiseThen, child, [undefined, () => undefined])
-        }
-        catch (error) {
-          reject(error)
-        }
-      })
-      return adopted
-    }
-    catch {
-      // Non-Promise values continue through the guarded thenable reflection below.
-    }
+            }
+            catch (error) {
+              reject(error)
+            }
+          },
+          reject,
+        ])
+        nativePromise = true
+      }
+      catch {
+        // Non-Promise values continue through the guarded thenable reflection below.
+      }
+    })
+    if (nativePromise) return adopted
   }
 
   let thenMethod: unknown
