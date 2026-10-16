@@ -2268,10 +2268,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             const recoveryClaimId = createInvocationId()
             const claimToken = await recoveryStore(() => store.getClaimToken(recordId))
             if (claimToken === storeOperationTimedOut) return
+            const claimOptions: { replaceClaimToken?: string } = {}
+            if (claimToken !== undefined) claimOptions.replaceClaimToken = claimToken
             const claimTask = Promise.resolve().then(() => store.claim(recordId, recoveryClaimId, CLAIM_LEASE_MS, {
               // Replace only the lease observed immediately before this attempt.
               // A late claim must not overwrite a newer recovery actor's lease.
-              ...(typeof claimToken === "string" ? { replaceClaimToken: claimToken } : {}),
+              ...claimOptions,
             }))
             const claimed = await recoveryStore(() => claimTask)
             if (claimed === storeOperationTimedOut) {
