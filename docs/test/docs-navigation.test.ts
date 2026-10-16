@@ -68,7 +68,7 @@ describe("docs product navigation", () => {
   });
 
   it("orders every Server Primitive section by the product page template", () => {
-    const template = ["Overview", "Tutorial", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
+    const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
 
     for (const sectionId of serverPrimitiveSections) {
       const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
@@ -78,10 +78,12 @@ describe("docs product navigation", () => {
 
       expect(pages[0]?.path, sectionId).toBe(`/docs/${sectionId}`);
       expect(titles[0], sectionId).toBe("Overview");
-      expect(templateTitles, sectionId).toContain("Tutorial");
+      expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
       // Template pages keep their order when related topic pages sit between them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
+      const templateIndexes = templateTitles.map(title => titles.indexOf(title));
+      expect(templateIndexes, sectionId).toEqual([...templateIndexes].sort((left, right) => left - right));
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -114,6 +116,7 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
+      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
@@ -161,12 +164,12 @@ describe("docs product navigation", () => {
     expect(isDocsLandingPath(docsManifest.sections, "/docs/ui")).toBe(false);
 
     const kv = docsManifest.sections.find(section => section.id === "kv");
-    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Tutorial");
+    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Get started");
     expect(getDocsSectionSubpages(kv!).some(page => page.id === "index")).toBe(false);
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle)
+    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.title)
       .toBe("Runtime policy, approvals, and traces");
   });
 

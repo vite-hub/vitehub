@@ -165,7 +165,9 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: hidden;");
+    expect(layout).toContain("overflow-x: clip;");
+    expect(layout).toContain(".vh-docs-aside");
+    expect(layout).toContain("hidden lg:block");
     expect(layout).toContain("overflow: visible;");
     expect(layout).toContain('<UPageAside class="vh-docs-aside">');
     expect(layout).toMatch(/\.vh-docs-aside \{\s*display: none;/);

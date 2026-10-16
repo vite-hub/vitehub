@@ -46,7 +46,7 @@ import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveChatMessageContextInstructions, resolveChatMessageRunMetadata, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
-import { createAgentBudgetCapability } from "./capabilities/budget.ts"
+import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
@@ -2227,9 +2227,17 @@ function defineBaseAgent<
     throw agentDiagnostics.AGENT_R0426({ message: "[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels })." })
   }
   const chat = chatCapability || channelChat
-  const configuredBudget = options.budget ? createAgentBudgetCapability(options.budget) : undefined
+  const configuredBudget = options.budget && (options.budget.tokens !== undefined || options.budget.usd !== undefined
+    ? (() => {
+        const { capacity: _capacity, ...budgetOptions } = options.budget
+        return budgetCapability(budgetOptions)
+      })()
+    : options.budget.capacity === undefined
+      ? budgetCapability(options.budget)
+      : undefined)
   const normalizedCapabilities = channelChat
-    ? [...baseCapabilities, defineChatCapability(channelChat), ...(configuredBudget ? [configuredBudget] : [])]
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+    ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>, ...(configuredBudget ? [configuredBudget] : [])]
     : [...baseCapabilities, ...(configuredBudget ? [configuredBudget] : [])]
   if (!workspace) validateAgentCapabilityComposition(normalizedCapabilities, {
     driverKind: driver.kind,
@@ -2340,9 +2348,9 @@ function defineBaseAgent<
     [baseAgentDefinitionHealth]: { value: options.health ? undefined : definition.health },
     [baseAgentDefinitionStatus]: { value: definition.status },
   })
-  configureAgentCapacity(definition, options.budget?.capacity !== undefined
-    ? normalizeAgentDriverCapacity(options.budget.capacity)
-    : driver.capacity)
+  configureAgentCapacity(definition, options.budget?.capacity === undefined
+    ? driver.capacity
+    : normalizeAgentDriverCapacity(options.budget.capacity))
   Object.defineProperty(definition, "__vitehubAgentSettings", {
     value: channels === options.channels ? options : { ...options, channels },
   })
@@ -5094,6 +5102,30 @@ function maybeTraceAgentStream<
   })()
 }
 
+function immediateAgentUsageRecord(
+  value: unknown,
+  run: Partial<AgentRunMetadata> | undefined,
+): ReturnType<typeof usageRecordFromStreamChunk> {
+  if (!value || !hasRuntimeType(value, "object")) return
+  // SAFETY: The runtime object guard establishes a record-shaped value for property inspection.
+  const record = value as Record<string, unknown>
+  // SAFETY: The runtime object guard establishes a record-shaped candidate before reading `then`.
+  const isPending = (candidate: unknown): candidate is PromiseLike<unknown> =>
+    Boolean(candidate && hasRuntimeType(candidate, "object") && hasRuntimeType((candidate as Record<string, unknown>).then, "function"))
+  const usageRecord = record.usageRecord
+  if (usageRecord && !isPending(usageRecord)) {
+    const resolved = usageRecordFromStreamChunk({ type: "usage", usageRecord }, value, run)
+    if (resolved) return resolved
+  }
+  for (const usage of [record.usage, record.totalUsage]) {
+    if (usage && !isPending(usage)) {
+      const resolved = usageRecordFromStreamChunk({ type: "finish", usage }, value, run)
+      if (resolved) return resolved
+    }
+  }
+  return immediateAgentUsageRecord(record.raw, run)
+}
+
 function withEagerStreamUsageExtensions<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -5105,12 +5137,12 @@ function withEagerStreamUsageExtensions<
   const providers = context.finishExtensionProviders.filter(provider => provider.eager)
   if (!providers.length) return stream
   return (async function* () {
-    let extensionApplied = false
-    async function* finalizeUsage(): AsyncIterable<unknown> {
-      if (extensionApplied) return
-      const usageRecord = await resolveAgentUsageRecord(result, context.run)
-      if (!usageRecord) return
-      const usage = { ...usageRecord }
+    let extensionsRun = false
+    let sourceCompleted = false
+    const runExtensions = async (usageRecord: ReturnType<typeof usageRecordFromStreamChunk>) => {
+      if (extensionsRun) return
+      extensionsRun = true
+      const usage = usageRecord ? { ...usageRecord } : undefined
       const eventBase = {
         actor: context.actor,
         input: context.input,
@@ -5118,43 +5150,7 @@ function withEagerStreamUsageExtensions<
         invocation: {
           durationMs: Date.now() - context.startedAt,
           ...(context.run ? { run: context.run } : {}),
-          usage,
-        },
-        result,
-        runtime: context.runtimeContext,
-        toolResults: [...context.toolResults],
-      } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
-      // SAFETY: The event and eager providers share this invocation's normalized Agent runtime and call-option contracts.
-      await createAgentInvocationExtensions(eventBase as never, providers)
-      extensionApplied = true
-      assignResolvedUsageRecord(result, usage)
-      // Keep deferred usage observable to stream consumers even when the provider
-      // never emitted a usage chunk during iteration.
-      yield { type: "usage", usageRecord: usage }
-    }
-    for await (const chunk of stream) {
-      const usageRecord = usageRecordFromStreamChunk(chunk, result)
-      if (!usageRecord) {
-        if (isRuntimeRecord(chunk) && chunk.type === "finish") {
-          // A terminal event must not be held until an async source closes. If
-          // no usage chunk was emitted, resolve the fallback now so consumers
-          // still observe usage before finish.
-          yield* finalizeUsage()
-          yield chunk
-          continue
-        }
-        yield chunk
-        continue
-      }
-      const usage = { ...usageRecord }
-      const eventBase = {
-        actor: context.actor,
-        input: context.input,
-        invoker: context.invoker,
-        invocation: {
-          durationMs: Date.now() - context.startedAt,
-          ...(context.run ? { run: context.run } : {}),
-          usage,
+          ...(usage ? { usage } : {}),
         },
         result,
         runtime: context.runtimeContext,
@@ -5162,36 +5158,82 @@ function withEagerStreamUsageExtensions<
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await createAgentInvocationExtensions(eventBase as never, providers)
-      extensionApplied = true
-      if (chunk && hasRuntimeType(chunk, "object")) {
-        const prototype = Object.getPrototypeOf(chunk)
-        if (prototype !== Object.prototype && prototype !== null) {
-          if (Object.isExtensible(chunk)) {
-            try {
-              Object.defineProperty(chunk, "usageRecord", {
-                configurable: true,
-                enumerable: true,
-                value: usage,
-                writable: true,
-              })
-              yield chunk
-              continue
-            }
-            catch {
-              // Preserve the custom chunk and emit the canonical record separately.
-            }
+    }
+
+    try {
+      for await (const chunk of stream) {
+        const usageRecord = usageRecordFromStreamChunk(chunk, result)
+        if (usageRecord) await runExtensions(usageRecord)
+        if (!usageRecord) {
+          if (isRuntimeRecord(chunk) && chunk.type === "finish") {
+            const fallbackUsage = await resolveAgentUsageRecord(result, context.run)
+            await runExtensions(fallbackUsage)
+            if (fallbackUsage) yield { type: "usage", usageRecord: fallbackUsage }
           }
           yield chunk
-          yield { type: "usage", usageRecord: usage }
           continue
         }
-        yield { ...chunk, usageRecord: usage }
-        continue
+        const usage = { ...usageRecord }
+        if (chunk && hasRuntimeType(chunk, "object")) {
+          const prototype = Object.getPrototypeOf(chunk)
+          if (prototype !== Object.prototype && prototype !== null) {
+            if (Object.isExtensible(chunk)) {
+              try {
+                Object.defineProperty(chunk, "usageRecord", {
+                  configurable: true,
+                  enumerable: true,
+                  value: usage,
+                  writable: true,
+                })
+                yield chunk
+                continue
+              }
+              catch {
+                // Preserve the custom chunk and emit the canonical record separately.
+              }
+            }
+            yield chunk
+            yield { type: "usage", usageRecord: usage }
+            continue
+          }
+          yield { ...chunk, usageRecord: usage }
+          continue
+        }
+        yield { type: "usage", usageRecord: usage }
       }
-      yield { type: "usage", usageRecord: usage }
+      sourceCompleted = true
     }
-    yield* finalizeUsage()
-    })()
+    catch (error) {
+      if (!extensionsRun) {
+        // Preserve source errors without waiting for unrelated provider promises.
+        try {
+          const usageRecord = immediateAgentUsageRecord(result, context.run)
+          if (usageRecord) await runExtensions(usageRecord)
+        }
+        catch {
+          // Preserve the original source error.
+        }
+      }
+      throw error
+    }
+    finally {
+      if (!extensionsRun) {
+        const immediateUsage = !sourceCompleted && result && hasRuntimeType(result, "object") && "usageRecord" in result
+          ? usageRecordFromStreamChunk({ type: "usage", usageRecord: result.usageRecord }, result, context.run)
+          : undefined
+        const usageRecord = immediateUsage ?? (sourceCompleted
+          ? await resolveAgentUsageRecord(result, context.run)
+          : undefined)
+        // Consumer cancellation can close the source before a usage record is
+        // available. Do not run finish extensions with undefined usage in that
+        // case: finish hooks may perform side effects or reject cancellation.
+        if (usageRecord) {
+          await runExtensions(usageRecord)
+          if (sourceCompleted && usageRecord) yield { type: "usage", usageRecord }
+        }
+      }
+    }
+  })()
 }
 
 function withEagerUiMessageStreamUsageExtensions<

@@ -80,6 +80,7 @@ function transport(kind: typeof kinds[number]) {
     [`POST ${api[kind]}${notes(kind)}`]: { status: 201, body: comment },
     [`POST ${api[kind]}${project(kind)}/statuses/head-sha`]: { status: 201, body: { id: 11, status: "success", state: "success", name: "Agent", context: "Agent", sha: "head-sha" } },
     [`GET ${api[kind]}${threadPath(kind)}${kind === "gitlab" ? "/diffs" : "/files"}?${kind === "gitlab" ? "per_page" : "limit"}=100`]: { status: 200, body: [] },
+    ...(kind === "gitlab" ? { [`GET ${api[kind]}${threadPath(kind)}/discussions?per_page=100`]: { status: 200, body: [] } } : {}),
     [`GET ${api[kind]}${project(kind)}/commits/head-sha/status`]: { status: 200, body: { statuses: [] } },
   }
   const fetcher = fixtureFetch([], overrides)
