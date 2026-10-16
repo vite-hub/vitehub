@@ -319,23 +319,18 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
 }
 
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
-  const targets = new Set<object>([Response.prototype])
+  if (value instanceof Response) return true
   const UndiciResponse = await getUndiciResponse()
-  if (UndiciResponse) targets.add(UndiciResponse.prototype)
+  if (!UndiciResponse || !(value instanceof UndiciResponse)) return false
   try {
-    let current = Object.getPrototypeOf(Object(value))
-    const seen = new Set<object>()
-    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (targets.has(current)) return true
-      if (seen.has(current)) return false
-      seen.add(current)
-      current = Object.getPrototypeOf(current)
-    }
+    const bodyGetter = Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "body")?.get
+    if (!bodyGetter) return false
+    Reflect.apply(bodyGetter, value, [])
+    return true
   }
   catch {
     return false
   }
-  return false
 }
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
@@ -551,7 +546,8 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (!(handler instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route handlers can come from another runtime realm.
+  if (typeof handler !== "function") {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuth() requires a handler function." })
   }
   return async (input) => {
@@ -571,10 +567,12 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The public authorization boundary accepts callable callbacks from any JavaScript realm.
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
-  if (!(handler instanceof Function)) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route handlers can come from another runtime realm.
+  if (typeof handler !== "function") {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuthorization() requires a handler function." })
   }
   return async (input) => {

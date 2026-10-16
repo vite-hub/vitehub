@@ -139,6 +139,23 @@ describe("Auth access handlers", () => {
     expect(headerReads).toBe(1)
   })
 
+  it("rejects response-shaped objects without a native Response brand", async () => {
+    const responseShape = runInNewContext(`({
+      status: 409,
+      statusText: "Conflict",
+      headers: [["x-policy", "rejected"]],
+      body: { getReader() { return {} } },
+      [Symbol.toStringTag]: "Response",
+    })`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => responseShape as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(responseShape)
+    expect(response?.status).toBe(403)
+  })
+
   it("normalizes authorization responses from another runtime", async () => {
     const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
     expect(foreignResponse).not.toBeInstanceOf(Response)
@@ -147,7 +164,22 @@ describe("Auth access handlers", () => {
     }))
 
     const response = await handler(new Request("https://app.example/"))
-    expect(response).toBeInstanceOf(Response)
+    expect(response?.status).toBe(409)
+    await expect(response?.text()).resolves.toBe("Policy rejected")
+  })
+
+  it("normalizes Response subclasses that override body", async () => {
+    class BodyOverridingResponse extends ForeignResponse {
+      override get body() {
+        return super.body
+      }
+    }
+    const foreignResponse = new BodyOverridingResponse("Policy rejected", { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
     expect(response?.status).toBe(409)
     await expect(response?.text()).resolves.toBe("Policy rejected")
   })
@@ -311,6 +343,24 @@ describe("Auth access handlers", () => {
     }
   })
 
+  it("rejects a forged response prototype whose clone is unrelated", async () => {
+    const prototype = Object.defineProperties({}, {
+      constructor: { value: function Response() {} },
+      status: { value: 409 },
+      statusText: { value: "Conflict" },
+      headers: { value: new Headers() },
+      body: { get: () => null },
+      clone: { value: () => ({}) },
+    })
+    const candidate = Object.create(prototype)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => candidate }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
+  it("rejects a forged Response-shaped prototype even when clone is self-linked", async () => {
   it("rejects a serializable Response-shaped prototype", async () => {
     const sourceBody = new Response("Policy rejected").body
     const headers = vi.fn()
@@ -327,11 +377,43 @@ describe("Auth access handlers", () => {
       headers: { get: headers },
       body: { get: body },
     })
+    Object.defineProperty(prototype, "clone", { value: () => Object.create(prototype) })
     const candidate = Object.create(prototype)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => candidate }] },
     }))
 
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBe(candidate)
+    expect(response?.status).toBe(403)
+  })
+
+  it("rejects a forged complete Response surface with a caller-created header carrier", async () => {
+    const prototype = Object.create(null)
+    Object.defineProperties(prototype, {
+      constructor: { value: function Response() {} },
+      status: { get: () => 409 },
+      statusText: { get: () => "Conflict" },
+      headers: { get: () => Object.create({
+        get: () => null,
+        forEach: () => undefined,
+      }) },
+      body: { get: () => null },
+      clone: { value: () => ({}) },
+      arrayBuffer: { value: () => Promise.resolve(new ArrayBuffer(0)) },
+      blob: { value: () => Promise.resolve(new Blob([])) },
+      formData: { value: () => Promise.resolve(new FormData()) },
+      json: { value: () => Promise.resolve({}) },
+      text: { value: () => Promise.resolve("") },
+    })
+    const candidate = Object.create(prototype)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => candidate }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
     expect(headers).not.toHaveBeenCalled()
     expect(body).not.toHaveBeenCalled()

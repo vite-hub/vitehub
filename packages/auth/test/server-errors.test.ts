@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 import { H3 } from "h3"
@@ -32,6 +33,74 @@ describe("server authentication provider boundaries", () => {
       api: { getSession: providerMocks.getSession },
       handler: providerMocks.handler,
     })
+  })
+
+  it.each(["withAuth", "withAuthorization"] as const)("runs a foreign handler through %s after checking the session", async (wrapper) => {
+    const handler = runInNewContext("(_input, authorization) => authorization.user.id") as (input: Request, authorization: AuthAuthorization) => string
+    const guarded = wrapper === "withAuth"
+      ? withAuth(handler, definition)
+      : withAuthorization(true, handler, definition)
+
+    providerMocks.getSession.mockResolvedValue(null)
+    await expect(guarded(request)).resolves.toMatchObject({ status: 401 })
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+    await expect(guarded(request)).resolves.toBe("user-1")
+  })
+
+  it("runs a foreign authorization callback and enforces its verdict", async () => {
+    const authorize = runInNewContext("({ user }) => user.id === 'user-1'") as (authorization: AuthAuthorization) => boolean
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+    await expect(guarded(request)).resolves.toBe("protected")
+
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-2" }, user: { id: "user-2" } })
+    await expect(guarded(request)).resolves.toMatchObject({ status: 403 })
+    expect(protectedAction).toHaveBeenCalledOnce()
+  })
+
+  it("preserves a foreign custom authorization response", async () => {
+    const denied = runInNewContext(`(() => {
+      class ForeignResponse extends Response {}
+      return new ForeignResponse(null, { status: 404 })
+    })()`, { Response }) as Response
+    const authorize = runInNewContext("() => denied", { denied }) as () => Response
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+    await expect(guarded(request)).resolves.toBe(denied)
+    expect(protectedAction).not.toHaveBeenCalled()
+  })
+
+  it("rejects forged response prototypes", async () => {
+    const denied = runInNewContext(`(() => {
+      const prototype = {
+        constructor: { name: "Response" },
+        get status() { return 404 },
+        get statusText() { return "Not Found" },
+        get headers() { return new Headers() },
+        get body() { return null },
+      }
+      return Object.create(prototype)
+    })()`, { Headers }) as Response
+    const authorize = runInNewContext("() => denied", { denied }) as () => Response
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+    await expect(guarded(request)).resolves.toMatchObject({ status: 403 })
+    expect(protectedAction).not.toHaveBeenCalled()
+  })
+
+  it("rejects spoofed authorization responses", async () => {
+    const denied = runInNewContext(`({
+      [Symbol.toStringTag]: "Response",
+      status: 404,
+    })`) as Response
+    const authorize = runInNewContext("() => denied", { denied }) as () => Response
+    const guarded = withAuthorization(authorize, protectedAction, definition)
+    providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+    await expect(guarded(request)).resolves.toMatchObject({ status: 403 })
+    expect(protectedAction).not.toHaveBeenCalled()
   })
 
   it.each([
