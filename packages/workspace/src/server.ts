@@ -138,6 +138,14 @@ function headerValue(headers: WorkspaceDevHeaders, name: string): string | undef
       || /^function\s+Headers\(\)\s*\{\s*\[native code\]\s*\}$/.test(constructorSource)
       || constructorSource.includes("webidl.brandCheck"))
     && Reflect.get(constructor, "prototype") === prototype
+    && (() => {
+      try {
+        return headers instanceof (constructor as new (...args: never[]) => object)
+      }
+      catch {
+        return false
+      }
+    })()
     && hasRuntimeType(prototypeGet, "function")
   if (isCrossRealmHeaders) {
     const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
