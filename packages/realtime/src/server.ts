@@ -175,13 +175,24 @@ interface RealtimeDurableObjectNamespace {
 
 function isDurableObjectNamespaceBrand(value: object): boolean {
   const constructor = (globalThis as Record<string, unknown>).DurableObjectNamespace
-  if (typeof constructor !== "function") return false
-  try {
-    return value instanceof constructor
+  if (typeof constructor === "function") {
+    try {
+      return value instanceof constructor
+    }
+    catch {
+      return false
+    }
   }
-  catch {
-    return false
-  }
+
+  // Workers exposes DurableObjectNamespace as a binding interface, not a
+  // JavaScript constructor. In those runtimes, require the callable methods
+  // to be provided directly by the binding so inherited prototype pollution
+  // cannot opt an arbitrary object into forwarding.
+  const descriptor = (name: "get" | "idFromName") =>
+    Object.getOwnPropertyDescriptor(value, name)
+  const get = descriptor("get")
+  const idFromName = descriptor("idFromName")
+  return get?.value instanceof Function && idFromName?.value instanceof Function
 }
 
 function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
