@@ -428,6 +428,10 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
+    // A local Response proxy can pass instanceof while shadowing its fields.
+    // Never normalize such a value from trapped properties; only transparent
+    // local responses may pass through unchanged.
+    if (value instanceof Response && !nativeProperties) return
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")

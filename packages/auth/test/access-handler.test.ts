@@ -105,6 +105,21 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
   })
 
+  it("rejects local Response proxies with shadowed fields", async () => {
+    const source = new Response("Policy rejected", { status: 409 })
+    const proxy = new Proxy(source, {
+      get(target, key, receiver) {
+        if (key === "status") return 201
+        return Reflect.get(target, key, receiver)
+      },
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => proxy }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("returns authorization responses from another realm unchanged", async () => {
     const foreignResponse = runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
