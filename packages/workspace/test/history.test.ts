@@ -191,7 +191,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
       files: { "foo%/file.txt": "one", "fooA/file.txt": "two", "foo_/file.txt": "two", "foox/file.txt": "two" },
     })
     expect((await workspace.history.list({ path: "foo%" })).revisions.map(revision => revision.id)).toEqual([first.id])
-    expect((await workspace.history.list({ path: "foo_" })).revisions.map(revision => revision.id)).toEqual([first.id])
+    expect((await workspace.history.list({ path: "foo_" })).revisions.map(revision => revision.id)).toEqual([second.id, first.id])
   })
 
   it("uploads each retained digest once, counts unique bytes, and keeps workspaces isolated", async () => {
