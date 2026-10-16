@@ -63,9 +63,9 @@ describe("cross-realm console access probe", () => {
     }
     function Response() {}
     Object.assign(Response, {
-      json() { return response },
-      redirect() { return response },
-      error() { return response },
+      json() { return Object.create(prototype) },
+      redirect() { return Object.create(prototype) },
+      error() { return Object.create(prototype) },
     })
     Object.defineProperty(prototype, "constructor", { value: Response })
     Object.setPrototypeOf(Response, Function)
