@@ -58,6 +58,10 @@ interface GitHubCommitResponse {
   tree: { sha: string }
 }
 
+interface GitHubBlobResponse {
+  sha: string
+}
+
 const githubReadAttempts = 3
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -72,6 +76,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isGitHubRefResponse(value: unknown): value is GitHubRefResponse {
   return isRecord(value) && isRecord(value.object) && isNonEmptyString(value.object.sha)
+}
+
+function isGitHubBlobResponse(value: unknown): value is GitHubBlobResponse {
+  return isRecord(value) && isNonEmptyString(value.sha)
 }
 
 function isGitHubRepositoryResponse(value: unknown): value is GitHubRepositoryResponse {
@@ -693,7 +701,7 @@ export async function createGitHubBlob(input: {
 }): Promise<{ sha: string }> {
   const kind = input.kind || "store";
   const { owner, repo } = splitGitHubRepository(input.repository, kind);
-  return await requestGitHubJson(
+  const response = await requestGitHubJson(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/blobs`,
@@ -701,7 +709,8 @@ export async function createGitHubBlob(input: {
       body: JSON.stringify({ content: toBase64(input.bytes), encoding: "base64" }),
       method: "POST",
     },
-  );
+  )
+  return requireGitHubResponse(response, isGitHubBlobResponse, "blob")
 }
 
 export async function createGitHubFileUpdate(
