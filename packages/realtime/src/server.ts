@@ -318,6 +318,15 @@ interface RealtimeRoomSql {
 function documentTables(sql: RealtimeRoomSql): void {
   sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL)")
   sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL, client_update INTEGER NOT NULL DEFAULT 1)")
+  // Older adapter-era deployments already have this table without the client_update
+  // column. SQLite keeps CREATE TABLE IF NOT EXISTS as a no-op in that case, so
+  // explicitly add the column before any journal inserts.
+  try {
+    sql.exec("ALTER TABLE vitehub_realtime_document_updates ADD COLUMN client_update INTEGER NOT NULL DEFAULT 1")
+  }
+  catch {
+    // The column already exists (or the host does not expose ALTER for its test stub).
+  }
 }
 
 /** Copy the pre-adapter Durable Object journal before reading the new schema. */

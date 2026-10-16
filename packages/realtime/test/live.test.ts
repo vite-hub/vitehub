@@ -583,6 +583,7 @@ describe("room authorities", () => {
     const first = createTestServer(definition, { durable: sql })
     const client = await first.connect("page")
     await settle()
+    expect(sql.alterJournalAttempted).toBe(true)
     const epoch = client.controls[0]!.epoch
     await pace()
     appendParagraph(client.doc, "Edit")
@@ -612,6 +613,20 @@ describe("room authorities", () => {
     const fresh = await later.connect("page")
     await settle()
     expect(paragraphs(fresh.doc)).toEqual(["Changed elsewhere"])
+  })
+
+  it("accepts the intermediate Durable Object journal schema without client_update", async () => {
+    const sql = new FakeSql({ intermediateJournal: true })
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const server = createTestServer(liveDefinition(memory.adapter), { durable: sql })
+    const client = await server.connect("page")
+    await settle()
+    appendParagraph(client.doc, "Edit")
+    await settle()
+
+    expect(sql.alterJournalAttempted).toBe(true)
+    expect(sql.updates).toHaveLength(1)
+    expect(sql.updates[0]).toMatchObject({ client_update: 1 })
   })
 
   it("forwards each document to its Durable Object by room key", async () => {

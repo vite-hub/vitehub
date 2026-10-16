@@ -239,17 +239,35 @@ export function paragraphs(doc: Y.Doc): string[] {
 /** Minimal Durable Object SQLite surface for the statements the Realtime room issues. */
 export class FakeSql {
   documents = new Map<string, Record<string, unknown>>()
-  updates: Array<{ room_key: string, sequence: number, update_blob: ArrayBuffer }> = []
+  updates: Array<{ room_key: string, sequence: number, update_blob: ArrayBuffer, client_update?: number }> = []
+  readonly intermediateJournal: boolean
+  alterJournalAttempted = false
   private sequence = 0
+
+  constructor(options: { intermediateJournal?: boolean } = {}) {
+    this.intermediateJournal = options.intermediateJournal ?? false
+  }
 
   exec = vi.fn((query: string, ...bindings: unknown[]) => {
     const rows = (value: Array<Record<string, unknown>>) => ({ toArray: () => value })
     if (query.startsWith("CREATE TABLE")) return rows([])
+    if (query.startsWith("ALTER TABLE vitehub_realtime_document_updates ADD COLUMN client_update")) {
+      this.alterJournalAttempted = true
+      if (!this.intermediateJournal) throw new Error("duplicate column name: client_update")
+      return rows([])
+    }
+    if (query.startsWith("SELECT room_key FROM vitehub_realtime_documents")) {
+      const row = this.documents.get(String(bindings[0]))
+      return rows(row ? [{ room_key: bindings[0] }] : [])
+    }
     if (query.startsWith("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents")) {
       const row = this.documents.get(String(bindings[0]))
       return rows(row ? [row] : [])
     }
     if (query.startsWith("SELECT update_blob FROM vitehub_realtime_document_updates")) {
+      return rows(this.updates.filter(row => row.room_key === bindings[0]).sort((a, b) => a.sequence - b.sequence))
+    }
+    if (query.startsWith("SELECT update_blob, client_update FROM vitehub_realtime_document_updates")) {
       return rows(this.updates.filter(row => row.room_key === bindings[0]).sort((a, b) => a.sequence - b.sequence))
     }
     if (query.startsWith("INSERT OR REPLACE INTO vitehub_realtime_documents")) {
@@ -262,7 +280,7 @@ export class FakeSql {
       return rows([])
     }
     if (query.startsWith("INSERT INTO vitehub_realtime_document_updates")) {
-      this.updates.push({ room_key: String(bindings[0]), sequence: ++this.sequence, update_blob: bindings[1] as ArrayBuffer })
+      this.updates.push({ room_key: String(bindings[0]), sequence: ++this.sequence, update_blob: bindings[1] as ArrayBuffer, client_update: Number(bindings[2] ?? 1) })
       return rows([])
     }
     throw new Error(`Unexpected SQL: ${query}`)
