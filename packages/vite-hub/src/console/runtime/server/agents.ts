@@ -1,15 +1,18 @@
 import { consoleInvocationsFallbackKey, resolveConsoleInvocations } from "../../internal.ts"
+import { agentInvocationsDisabledKey, resolveDefaultAgentInvocations } from "../../../_internal/agent/invocations.ts"
 import { installConsoleInvocations, type ConsoleD1Journal } from "./invocations.ts"
 import * as v from "valibot"
 import { markDiscoveredAgentName } from "@vite-hub/agent/server/internal"
 
 import type { AgentInput, AgentInvocations } from "@vite-hub/agent"
 import type { AgentInvocationRetentionOptions, AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { RuntimeCapabilities } from "@vite-hub/runtime"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export const consoleAgentsKey: unique symbol = Symbol.for("vitehub.console.agents")
 export const consoleAgentDefinitionsKey: unique symbol = Symbol.for("vitehub.console.agent-definitions")
 export const consoleInvokeEnabledKey: unique symbol = Symbol.for("vitehub.console.invoke-enabled")
+export const consoleAgentCapabilitiesKey: unique symbol = Symbol.for("vitehub.console.agent-capabilities")
 
 export type ConsoleAgentDefinitionEntry = {
   definition: unknown
@@ -17,12 +20,13 @@ export type ConsoleAgentDefinitionEntry = {
 }
 
 export type ConsoleAgentDefinitionInstallation =
-  | { invocations: AgentInvocations, projectRoot?: never }
-  | { invocations?: never, invoke?: boolean, databaseUrl?: string, d1?: ConsoleD1Journal, observations?: AgentInvocationsOptions["observations"], projectRoot: string, retention?: AgentInvocationRetentionOptions }
+  | { capabilities?: RuntimeCapabilities, invocations: AgentInvocations, projectRoot?: never }
+  | { capabilities?: RuntimeCapabilities, invocations?: never, invoke?: boolean, databaseUrl?: string, d1?: ConsoleD1Journal, observations?: AgentInvocationsOptions["observations"], projectRoot: string, retention?: AgentInvocationRetentionOptions }
 
 type ConsoleAgentInvocations = AgentInvocations & {
   [consoleAgentDefinitionsKey]?: ReadonlyMap<string, AgentInput>
   [consoleAgentsKey]?: readonly string[]
+  [consoleAgentCapabilitiesKey]?: RuntimeCapabilities
   [consoleInvokeEnabledKey]?: boolean
 }
 
@@ -72,12 +76,21 @@ function explicitAgentInvocations(agent: AgentInput | undefined): AgentInvocatio
   return invocations as AgentInvocations
 }
 
+/** The app-wide `agent.invocations` journal of an Agent Definition that does not set its own journal. */
+function defaultAgentInvocations(agent: AgentInput | undefined): AgentInvocations | undefined {
+  if (!agent || Reflect.get(agent, consoleInvocationsFallbackKey) !== true || Reflect.get(agent, agentInvocationsDisabledKey) === true) return undefined
+  return resolveDefaultAgentInvocations()
+}
+
 function resolveConsoleAgentInvocations(
   definitions: readonly ResolvedConsoleAgentDefinition[],
   installation: ConsoleAgentDefinitionInstallation,
 ): AgentInvocations {
   if (installation.invocations) return installation.invocations
-  const configured = [...new Set(definitions.map(({ agent }) => explicitAgentInvocations(agent)).filter(Boolean))]
+  const configured = [...new Set(definitions.flatMap(({ agent }) => {
+    const journal = explicitAgentInvocations(agent) ?? defaultAgentInvocations(agent)
+    return journal ? [journal] : []
+  }))]
   if (configured.length > 1) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0047({ message: "[vitehub] Console cannot inspect multiple Agent invocation journals. Configure one shared journal for the discovered Agent Definitions." })
   }
@@ -120,12 +133,19 @@ export function installConsoleAgentDefinitions(
   const installed = installConsoleAgents(names, invocations)
   // SAFETY: This intersection only attaches console-owned metadata to the Agent invocation journal.
   const consoleInvocations = invocations as ConsoleAgentInvocations
+  if (installation.capabilities) consoleInvocations[consoleAgentCapabilitiesKey] = installation.capabilities
+  else delete consoleInvocations[consoleAgentCapabilitiesKey]
   consoleInvocations[consoleAgentDefinitionsKey] = new Map(definitions.flatMap((definition, index) => {
     const name = names[index]
     return name && definition.agent ? [[name, definition.agent]] : []
   }))
   consoleInvocations[consoleInvokeEnabledKey] = "invoke" in installation && installation.invoke === true
   return installed
+}
+
+export function getConsoleAgentCapabilities(): RuntimeCapabilities {
+  const invocations = resolveConsoleInvocations() as ConsoleAgentInvocations | undefined
+  return invocations?.[consoleAgentCapabilitiesKey] ?? {}
 }
 
 export function getConsoleAgents(): readonly string[] {

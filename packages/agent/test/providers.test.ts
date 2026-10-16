@@ -2019,7 +2019,7 @@ describe("agent Vite plugin", () => {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            plugins: [schedulePlugin],
+            plugins: [schedulePlugin, { name: "@vite-hub/connections/vite" }, { name: "@vite-hub/database/vite" }],
             root,
           } as never,
         )
@@ -2031,6 +2031,9 @@ describe("agent Vite plugin", () => {
       const standaloneRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
       expect(standaloneRegistry).toContain('registry["agent/support"]')
       expect(standaloneRegistry).toContain('import("../../server/agents/support.ts")')
+      expect(standaloneRegistry).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
+      expect(standaloneRegistry).toContain("capabilities: { schedule: { schedules: vitehubSchedules } }")
+      expect(standaloneRegistry).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
@@ -15889,6 +15892,77 @@ describe("server helpers", () => {
       await handler(chatWebhookRequest(91_124), "telegram", runtime)
       await vi.waitFor(() => expect(inputs).toHaveLength(4))
       expect(inputs[3]?.messages?.map((message) => message.id)).toEqual(["91122", "91123", "91124"])
+    } finally {
+      pending = undefined
+      releasePending()
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  }, 10_000)
+
+  it("hands a debounced burst to the durable Agent Workflow and queues a later burst behind it", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-burst-workflow-state-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const adapter = createTestChatAdapter()
+    let releasePending!: () => void
+    let pending: Promise<void> | undefined = new Promise<void>((resolve) => {
+      releasePending = resolve
+    })
+    const inputs: Array<{ messages?: Array<{ id?: string }> }> = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", debounceMs: 50, delivery: "manual", state },
+        }),
+      },
+      driver: {
+        run: async ({ input }) => {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          inputs.push(input as never)
+          await pending
+          return "internal output"
+        },
+      },
+      hooks: { "agent:finish": (event) => event.reply("Durable reply") },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      await state.connect()
+      const runtime = {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: {} },
+        waitUntil: () => undefined,
+      }
+      await Promise.all([
+        handler(chatWebhookRequest(91_140), "telegram", runtime),
+        handler(chatWebhookRequest(91_141), "telegram", runtime),
+      ])
+      await vi.waitFor(() => expect(inputs).toHaveLength(1))
+      expect(inputs[0]?.messages?.map((message) => message.id)).toEqual(["91140", "91141"])
+
+      // Chat SDK releases its lock after the Workflow handoff, so a later burst reaches the steer queue.
+      await Promise.all([
+        handler(chatWebhookRequest(91_142), "telegram", runtime),
+        handler(chatWebhookRequest(91_143), "telegram", runtime),
+      ])
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      expect(inputs).toHaveLength(1)
+
+      pending = undefined
+      releasePending()
+      await vi.waitFor(() => expect(inputs).toHaveLength(2))
+      expect(inputs[1]?.messages?.map((message) => message.id)).toEqual(["91142", "91143"])
     } finally {
       pending = undefined
       releasePending()
