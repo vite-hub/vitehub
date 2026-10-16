@@ -149,7 +149,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       const refreshLocalRuntime = () => {
         const refresh = async () => {
           if (!localNitroConfig) return
-          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1)
+          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
@@ -274,17 +274,26 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
-  const merged = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1
+  const contributionsByDatabase = runtime.tableContributionsByDatabase
+  const merged = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1 || (contributionsByDatabase[definition.name]?.length ?? 0) > 0
   const imports = runtime.definitions.flatMap((definition, index) => [
     `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
     ...merged(definition)
       ? definition.schemaSources.map((source, sourceIndex) =>
           `import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`)
       : [],
+    ...(contributionsByDatabase[definition.name] ?? []).map((contribution, contributionIndex) =>
+      contribution.export
+        ? `import { ${contribution.export} as contributedSchema_${index}_${contributionIndex} } from ${JSON.stringify(contribution.module)}`
+        : `import contributedSchema_${index}_${contributionIndex} from ${JSON.stringify(contribution.module)}`),
   ])
   // Nuxt layers can add tables to one database, so the runtime uses the merged schema.
   const schemas = runtime.definitions.flatMap((definition, index) => merged(definition)
-    ? [`const schema_${index} = { ${definition.schemaSources.map((_, sourceIndex) => `...schemaSource_${index}_${sourceIndex}.schema`).join(", ")} }`]
+    ? [`const schema_${index} = { ${(
+      definition.schemaSources.length > 1
+        ? definition.schemaSources.map((_, sourceIndex) => `...schemaSource_${index}_${sourceIndex}.schema`)
+        : [`...definition_${index}.schema`]
+    ).concat((contributionsByDatabase[definition.name] ?? []).map((_, contributionIndex) => `...contributedSchema_${index}_${contributionIndex}`)).join(", ")} }`]
     : [])
   const entries = runtime.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,

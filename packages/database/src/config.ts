@@ -513,6 +513,7 @@ function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabase
   const [appServerDir, ...layerServerDirs] = serverDirs ?? []
   const ownedByLayer = appServerDir !== undefined && (
     definition.source === "vite-plugin-contribution"
+    || definition.handler.replaceAll("\\", "/").endsWith("/.vitehub/content/database.ts")
     || (!isWithinDirectory(appServerDir, definition.handler)
       && layerServerDirs.some(directory => isWithinDirectory(directory, definition.handler)))
   )

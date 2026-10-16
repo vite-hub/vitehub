@@ -27,7 +27,11 @@ function createTableExports(parts: readonly SchemaPart[]) {
   for (const part of parts) {
     for (const tableName of part.schema.tableNames) winners.set(tableName, part.expression)
   }
-  return [...winners].map(([tableName, expression]) => `export const ${tableName} = ${expression}.schema[${JSON.stringify(tableName)}]`)
+  return [...winners].map(([tableName, expression], index) => {
+    const variable = `table_${index}`
+    const source = expression === "databaseDefinition" ? `${expression}.schema` : expression
+    return `const ${variable} = ${source}[${JSON.stringify(tableName)}]\nexport { ${variable} as ${tableName} }`
+  })
 }
 
 function renderSchemaExpression(parts: readonly SchemaPart[]) {
