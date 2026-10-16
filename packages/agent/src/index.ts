@@ -5141,7 +5141,7 @@ function withEagerStreamUsageExtensions<
     let sourceCompleted = false
     // Finish extensions enrich the record they receive, so callers yield the returned record.
     const runExtensions = async (usageRecord: ReturnType<typeof usageRecordFromStreamChunk>) => {
-      if (extensionsRun) return usageRecord
+      if (!usageRecord || extensionsRun) return usageRecord
       extensionsRun = true
       const usage = usageRecord ? { ...usageRecord } : undefined
       const eventBase = {
