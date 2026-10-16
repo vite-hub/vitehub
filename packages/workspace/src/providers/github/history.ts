@@ -277,6 +277,16 @@ function isHistoryFileInput(file: WorkspaceFile): file is WorkspaceFile {
   return typeof file.content === "string" || ArrayBuffer.isView(file.content)
 }
 
+function isSupportedHistoryRef(name: string): boolean {
+  try {
+    normalizeHistoryRef(name)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 /** A read-through view of GitHub branches and commits using the retained Workspace history contract. */
 export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): WorkspaceStoreHistory {
   const { owner, repo } = splitGitHubRepository(options.repository, "store")
@@ -362,7 +372,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
       }
       headers = response.headers
       const pageBranches = parseBranches(response.value)
-      branches.push(...pageBranches)
+      branches.push(...pageBranches.filter(branch => isSupportedHistoryRef(branch.name)))
       const next = nextPage(headers)
       if (!next || !pageBranches.length) return { branches, headers }
       page = next
@@ -434,7 +444,8 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
         `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(id)}/branches-where-head?per_page=100`,
       )
       const branches = parseBranches(value)
-      const ref = branches.find(branch => branch.name === options.branch)?.name || branches[0]?.name || options.branch
+      const supportedBranches = branches.filter(branch => isSupportedHistoryRef(branch.name))
+      const ref = supportedBranches.find(branch => branch.name === options.branch)?.name || supportedBranches[0]?.name || options.branch
       commitRefs.set(id, ref)
       return ref
     }

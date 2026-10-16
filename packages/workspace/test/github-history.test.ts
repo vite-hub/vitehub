@@ -87,6 +87,7 @@ beforeEach(() => {
       if (page > 1) return json([])
       return json([
         { name: "feature/draft", commit: { sha: "c3" } },
+        { name: "feature/api+v2", commit: { sha: "c3" } },
         { name: "main", commit: { sha: "c2" } },
       ])
     }
