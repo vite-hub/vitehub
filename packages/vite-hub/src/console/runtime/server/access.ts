@@ -83,12 +83,10 @@ function isResponseLike(value: unknown): value is Response {
     const responseMethods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
     let nativeBrand = false
     try {
-      // SAFETY: Response.prototype.body is the platform getter and performs the internal-slot brand check.
-      const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
-      if (bodyGetter) {
-        bodyGetter.call(value)
-        nativeBrand = true
-      }
+      // SAFETY: the platform clone method performs an internal-slot brand check
+      // that works across realms and cannot be reproduced by ordinary objects.
+      Response.prototype.clone.call(value)
+      nativeBrand = true
     }
     catch {
       // Foreign implementations (for example happy-dom) do not share the platform slots.
@@ -111,7 +109,14 @@ function isResponseLike(value: unknown): value is Response {
     // require that state rather than accepting forgeable public properties,
     // constructors, or factory methods as a response brand.
     const prototype = Object.getPrototypeOf(value)
-    const prototypeTag = prototype && Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)?.value
+    let prototypeTag: unknown
+    try {
+      // happy-dom exposes the tag through a prototype getter.
+      prototypeTag = prototype?.[Symbol.toStringTag]
+    }
+    catch {
+      prototypeTag = undefined
+    }
     const foreignImplementation = hasShimState
       && prototypeTag === "Response"
       && typeof prototype?.constructor === "function"
