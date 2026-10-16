@@ -853,7 +853,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   let consoleWorkflowConfigResolved = false
   let consoleAccess: ConsoleAccessBuild | undefined
   if (options.console) {
-    const configuredConsole = options.console
+    const configuredConsole = resolveConsoleOptions(options.console)
+    if (!configuredConsole) throw new TypeError("[vitehub] Invalid console configuration")
     const viteAuth = nuxt.options.vite?.auth
     const effectiveAuth = viteAuth ?? options.auth
     if (!nuxt.options.vitehubCliDiscovery) {
