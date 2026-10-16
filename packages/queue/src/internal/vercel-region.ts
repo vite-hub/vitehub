@@ -57,6 +57,7 @@ function isBrandedMethod(value: unknown, receiver: object, owner: object | undef
     if (!owner || Object.getPrototypeOf(owner) === null) return false
     const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
     if (typeof constructor !== "function" || constructor.prototype !== owner) return false
+    if (!/\[native code\]/.test(Function.prototype.toString.call(constructor))) return false
     // `instanceof` uses the candidate realm's constructor and therefore works
     // across realms while rejecting objects that merely advertise Web IDL tags.
     if (!(receiver instanceof constructor)) return false

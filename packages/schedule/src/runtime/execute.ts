@@ -71,15 +71,32 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
-function isDate(value: unknown): value is Date {
-
+function getDateTime(value: unknown): number | undefined {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
   try {
-    if (Object.prototype.toString.call(value) !== "[object Date]") return false
-    return !Number.isNaN(Date.prototype.getTime.call(value as Date))
+    let prototype: object | null = value
+    const visited = new WeakSet<object>()
+    while (prototype && !visited.has(prototype)) {
+      visited.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "getTime")
+      if (descriptor && typeof descriptor.value === "function") {
+        const owner = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (typeof owner !== "function" || owner.name !== "Date") return
+        const ownerSource = Function.prototype.toString.call(owner)
+        if (!ownerSource.includes("[native code]")) return
+        const time = descriptor.value.call(value)
+        return typeof time === "number" && !Number.isNaN(time) ? time : undefined
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
   }
   catch {
-    return false
+    return
   }
+}
+
+function isDate(value: unknown): value is Date {
+  return getDateTime(value) !== undefined
 }
 
 function validateScheduledAt(scheduledAt: Date): Date {
@@ -88,7 +105,7 @@ function validateScheduledAt(scheduledAt: Date): Date {
       details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
     })
   }
-  return new Date(Date.prototype.getTime.call(scheduledAt))
+  return new Date(getDateTime(scheduledAt)!)
 }
 
 function toRunError(error: unknown): ScheduleRunError {
