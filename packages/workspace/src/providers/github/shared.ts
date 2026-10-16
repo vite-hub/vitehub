@@ -1,7 +1,7 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 import { Diagnostic } from "nostics";
 
-import { workspaceError } from "../../core/errors.ts";
+import { workspaceConflict, workspaceError } from "../../core/errors.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
 
 import type { GitHubWorkspaceOption, WorkspaceEntry } from "../../core/types.ts";
@@ -167,11 +167,34 @@ class GitHubRequestError extends Diagnostic {
   }
 }
 
-function githubRequestStatus(error: unknown): number | undefined {
+export function githubRequestStatus(error: unknown): number | undefined {
   const cause = error instanceof GitHubRequestError
     ? error
     : error instanceof Error && error.cause instanceof GitHubRequestError ? error.cause : undefined;
   return cause?.status;
+}
+
+export function githubBranchMovedConflict(input: {
+  actualHead?: string;
+  branch: string;
+  expectedHead: string;
+  kind?: "publisher" | "store";
+  repository: string;
+}): ReturnType<typeof workspaceConflict> {
+  const message = input.kind === "publisher"
+    ? `[vitehub] GitHub branch update conflict for ${input.repository}@${input.branch}: the branch moved after this update started. Retry against the current branch head.`
+    : `[vitehub] GitHub Workspace Store conflict for ${input.repository}@${input.branch}: the branch moved after this Workspace Store loaded. Rebase from the current branch head and retry.`;
+  return workspaceConflict(
+    message,
+    {
+      details: {
+        actualHead: input.actualHead,
+        branch: input.branch,
+        expectedHead: input.expectedHead,
+        repository: input.repository,
+      },
+    },
+  );
 }
 
 export interface GitHubWorkspaceStoreTarget {
@@ -364,6 +387,17 @@ export async function requestGitHubJson<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  return (await requestGitHubJsonResponse<T>(repository, token, path, init)).value
+}
+
+/** Read a JSON response and retain headers for APIs that expose pagination in Link. */
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Callers provide the response contract for this GitHub endpoint.
+export async function requestGitHubJsonResponse<T>(
+  repository: string,
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ value: T, headers: Headers }> {
   const response = await requestGitHub(`https://api.github.com${path}`, {
     ...init,
     headers: {
@@ -383,7 +417,7 @@ export async function requestGitHubJson<T>(
     );
     throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
-  return (await response.json()) as T;
+  return { value: (await response.json()) as T, headers: response.headers };
 }
 
 export async function readGitHubRawFile(input: {
@@ -598,15 +632,29 @@ export async function commitGitHubChanges(input: {
     },
   );
   if (input.branchExists) {
-    await requestGitHubJson(
-      input.repository,
-      input.token,
-      `/repos/${owner}/${repo}/git/refs/heads/${encodeGitHubRef(input.branch)}`,
-      {
-        body: JSON.stringify({ force: false, sha: commit.sha }),
-        method: "PATCH",
-      },
-    );
+    try {
+      await requestGitHubJson(
+        input.repository,
+        input.token,
+        `/repos/${owner}/${repo}/git/refs/heads/${encodeGitHubRef(input.branch)}`,
+        {
+          body: JSON.stringify({ force: false, sha: commit.sha }),
+          method: "PATCH",
+        },
+      );
+    }
+    catch (error) {
+      const status = githubRequestStatus(error);
+      if (status === 409) {
+        throw githubBranchMovedConflict({
+          branch: input.branch,
+          expectedHead: input.parentSha,
+          kind,
+          repository: input.repository,
+        });
+      }
+      throw error;
+    }
   }
   else {
     await requestGitHubJson(

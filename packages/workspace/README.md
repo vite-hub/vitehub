@@ -175,6 +175,20 @@ Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
 
+During development, read history from the CLI. The commands call the Nitro
+runtime of a running Vite + Nitro Development Server and never write:
+
+```sh
+vitehub workspace history content            # revisions on every ref, newest first
+vitehub workspace history content --ref draft
+vitehub workspace refs content                # each ref and its head revision
+vitehub workspace show content draft          # one revision and its files
+vitehub workspace show content draft posts/hello.md
+```
+
+Add `--json` for machine-readable output. A Store without retained history
+fails with `WORKSPACE_R0069`.
+
 ## JSON collections
 
 Query a generated JSON-object array without sending the complete index to the browser. The handler keeps filter, search, projection, sort, facet, and item lookup fields under server control, and every list response is capped by `maxLimit`.
@@ -327,6 +341,23 @@ Built-in coding Agent Drivers use Workspace Sessions to materialize the selected
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
+Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`. `module` is an absolute path, a `file:` URL, or a package specifier. `export` defaults to `default`:
+
+```ts
+const plugin = {
+  name: "my-package/vite",
+  vitehub: {
+    workspaces: () => [{
+      name: "content",
+      definition: { module: "my-package/workspace", export: "contentWorkspace" },
+      reason: "Stores CMS documents.",
+    }],
+  },
+}
+```
+
+Contributed Workspaces appear in the generated registry, `WorkspaceName` types, `vitehub inspect`, and the Console, like discovered files. A name used by both a discovered file and a contribution fails the build with `WORKSPACE_B0003`.
+
 ## Publishing current state
 
 `workspace.snapshot()` creates a durable Store snapshot, then runs every configured Workspace publisher. Use `workspace.publish()` when the current Store contents should be published without advancing the Store's snapshot history:
@@ -409,7 +440,15 @@ export default defineWorkspace({
 })
 ```
 
-Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as a GitHub commit. If the target branch moves after the Workspace Store loaded local changes, snapshot fails with a conflict so the caller can retry from a fresh Workspace Store.
+Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
+
+GitHub-backed Stores also expose the retained history reader. Repository branches are
+history refs, and GitHub commits are immutable Workspace revisions. Revision metadata
+includes the commit author and a `url` that opens the commit on GitHub. Revision file
+views read the configured Workspace root from the commit tree and fetch file bytes from
+that commit. The existing `vitehub workspace history`, `refs`, and `show` CLI commands
+inspect this data; the Console Workspace/files view does not yet provide a history
+navigator.
 
 Publish a Workspace snapshot into an existing GitHub repository with the GitHub publisher:
 

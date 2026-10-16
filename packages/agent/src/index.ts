@@ -459,6 +459,8 @@ export type {
   AgentInvocationContextValues,
   AgentInvocationHooks,
   AgentInvocationReference,
+  AgentInvocationsHostSettings,
+  AgentInvocationsInput,
   AgentIntegrationsOptions,
   AgentInvoker,
   AgentInvokerMeta,
@@ -829,6 +831,8 @@ export interface ScheduleRunContextLike {
 /** Options supplied by trusted invocation code; callable tools are never persisted as input. */
 export interface RunAgentOptions<TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>> {
   tools?: TTools
+  /** Runtime context values supplied by trusted standalone callers, such as generated host capabilities. */
+  runtimeContext?: Partial<AgentRuntimeContext>
   schedule?: ScheduleRunContextLike
   /** Consume streamed output and finish its lifecycle before resolving. */
   output?: "drained"
@@ -3217,6 +3221,11 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   }, name => {
     throw new TypeError(`[vitehub] Unknown Agent preset "${name}". Import the preset definition and pass it to extends.`)
   }) as AgentSettings
+  const invocations: unknown = agentOptions.invocations
+  // Host settings, such as a journal name, must be resolved by the host's defineAgent().
+  if (hasRuntimeType(invocations, "string") || hasRuntimeType(invocations, "boolean") || (isRuntimeRecord(invocations) && "store" in invocations)) {
+    throw new TypeError("[vitehub] Agent invocations must be a journal from defineAgentInvocations(). Import defineAgent from vite-hub/agent to select a journal by name.")
+  }
   const channels = normalizeAgentChannels(agentOptions.channels)
   const name = agentOptions.name?.trim()
   if (name && name.length > 512) {
@@ -8489,8 +8498,19 @@ export async function runAgent<
   // SAFETY: The Runtime Context overload returned above; the remaining third argument contains invocation options.
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
   const schedule = standaloneOptions?.schedule
-  const runtime = createRuntimeContext({ runtime: "unknown", run: { runId: schedule?.runId || schedule?.id || createTraceId() } })
+  // Preserve the caller's runtime-config subtype through standalone context creation.
+  const runtimeContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
+  const runtime = createRuntimeContext({
+    ...runtimeContext,
+    runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,
+    runtime: runtimeContext?.runtime || "unknown",
+    run: {
+      ...runtimeContext?.run,
+      runId: schedule?.runId || schedule?.id || runtimeContext?.run?.runId || createTraceId(),
+    },
+  })
   const context: AgentRuntimeContext<TRuntimeConfig> = {
+    ...runtimeContext,
     memo: runtime.memo,
     run: runtime.run,
     runtime: runtime.runtime,
