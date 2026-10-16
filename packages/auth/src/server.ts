@@ -415,7 +415,10 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const nativeBodyUsable = body === null || (() => {
       try {
         const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-        return !!locked && !Reflect.apply(locked, body, [])
+        const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+        return !!locked && !!bodyUsed
+          && !Reflect.apply(locked, body, [])
+          && !Reflect.apply(bodyUsed, candidate, [])
       }
       catch {
         return false
