@@ -285,24 +285,23 @@ function runAccessAuthorize(
   const directResponse = normalizeAuthorizationResponse(result)
   if (directResponse) return Promise.resolve({ response: directResponse })
 
-  // Native promises are adopted without inspecting an overridden `then`.
-  let isNativePromise = false
-  try {
-    isNativePromise = result !== null && (typeof result === "object" || typeof result === "function")
-      && Object.getPrototypeOf(result) === Promise.prototype
-  }
-  catch {
-    // Continue through the guarded thenable reflection below.
-  }
-  if (isNativePromise) {
-    return Reflect.apply(intrinsicPromiseThen, result, [
-      (resolved: unknown) => {
-        const response = normalizeAuthorizationResponse(resolved)
-        if (response) return { response }
-        if (resolved !== true) return { response: createForbiddenResponse(context.request) }
-        return {}
-      },
-    ]) as Promise<{ response?: Response }>
+  // Applying the intrinsic reaction operation is a side-effect-free native
+  // Promise brand check. It also works for subclasses and promises from other
+  // realms, while ignoring any overridden instance or prototype `then`.
+  if (result !== null && (typeof result === "object" || typeof result === "function")) {
+    try {
+      return Reflect.apply(intrinsicPromiseThen, result, [
+        (resolved: unknown) => {
+          const response = normalizeAuthorizationResponse(resolved)
+          if (response) return { response }
+          if (resolved !== true) return { response: createForbiddenResponse(context.request) }
+          return {}
+        },
+      ]) as Promise<{ response?: Response }>
+    }
+    catch {
+      // Non-Promise values continue through the guarded thenable reflection below.
+    }
   }
 
   let thenMethod: unknown

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { runInNewContext } from "node:vm"
 import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
@@ -138,6 +139,19 @@ describe("Auth access handlers", () => {
     }
 
     await expect(pending!).resolves.toBeUndefined()
+  })
+
+  it.each([
+    ["a Promise subclass", new (class extends Promise<boolean> {
+      then(): never { throw new Error("subclass then must not be called") }
+    })(resolve => resolve(true))],
+    ["a Promise from another realm", runInNewContext("Promise.resolve(true)") as Promise<boolean>],
+  ])("adopts native authorization promises from %s without reflective then", async (_label, result) => {
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => result as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toBeUndefined()
   })
 
   it("returns a Response with an own then method without assimilating it", async () => {
