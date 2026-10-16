@@ -33,35 +33,51 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./drivers/cloudflare-email": {
       "types": "./dist/drivers/cloudflare-email.d.ts",
-      "import": "./dist/drivers/cloudflare-email.js"
+      "import": "./dist/drivers/cloudflare-email.js",
+      "require": "./dist/drivers/cloudflare-email.js",
+      "default": "./dist/drivers/cloudflare-email.js"
     },
     "./drivers/resend": {
       "types": "./dist/drivers/resend.d.ts",
-      "import": "./dist/drivers/resend.js"
+      "import": "./dist/drivers/resend.js",
+      "require": "./dist/drivers/resend.js",
+      "default": "./dist/drivers/resend.js"
     },
     "./markdown": {
       "types": "./dist/markdown.d.ts",
-      "import": "./dist/markdown.js"
+      "import": "./dist/markdown.js",
+      "require": "./dist/markdown.js",
+      "default": "./dist/markdown.js"
     },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
-      "import": "./dist/runtime/console.js"
+      "import": "./dist/runtime/console.js",
+      "require": "./dist/runtime/console.js",
+      "default": "./dist/runtime/console.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
+      "import": "./dist/server.js",
+      "require": "./dist/server.js",
+      "default": "./dist/server.js"
     },
     "./test": {
       "types": "./dist/test.d.ts",
-      "import": "./dist/test.js"
+      "import": "./dist/test.js",
+      "require": "./dist/test.js",
+      "default": "./dist/test.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
   },

@@ -14,6 +14,8 @@ export function normalizePackageExports(
         {
           types: value.replace(/\.js$/, ".d.ts"),
           import: value,
+          require: value,
+          default: value,
         },
       ];
     }),

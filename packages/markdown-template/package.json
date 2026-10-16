@@ -35,19 +35,27 @@
     },
     "./file": {
       "types": "./dist/file.d.ts",
-      "import": "./dist/file.js"
+      "import": "./dist/file.js",
+      "require": "./dist/file.js",
+      "default": "./dist/file.js"
     },
     "./internal/composition": {
       "types": "./dist/internal/composition.d.ts",
-      "import": "./dist/internal/composition.js"
+      "import": "./dist/internal/composition.js",
+      "require": "./dist/internal/composition.js",
+      "default": "./dist/internal/composition.js"
     },
     "./internal/vite": {
       "types": "./dist/internal/vite.d.ts",
-      "import": "./dist/internal/vite.js"
+      "import": "./dist/internal/vite.js",
+      "require": "./dist/internal/vite.js",
+      "default": "./dist/internal/vite.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
   },

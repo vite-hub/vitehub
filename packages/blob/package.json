@@ -29,23 +29,33 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",
-      "import": "./dist/cli.js"
+      "import": "./dist/cli.js",
+      "require": "./dist/cli.js",
+      "default": "./dist/cli.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
-      "import": "./dist/client.js"
+      "import": "./dist/client.js",
+      "require": "./dist/client.js",
+      "default": "./dist/client.js"
     },
     "./config": {
       "types": "./dist/config.d.ts",
-      "import": "./dist/config.js"
+      "import": "./dist/config.js",
+      "require": "./dist/config.js",
+      "default": "./dist/config.js"
     },
     "./content-type": {
       "types": "./dist/content-type.d.ts",
-      "import": "./dist/content-type.js"
+      "import": "./dist/content-type.js",
+      "require": "./dist/content-type.js",
+      "default": "./dist/content-type.js"
     },
     "./drivers/akamai": {
       "types": "./dist/drivers/akamai.d.ts",
@@ -61,11 +71,15 @@
     },
     "./drivers/cloudflare": {
       "types": "./dist/drivers/cloudflare.d.ts",
-      "import": "./dist/drivers/cloudflare.js"
+      "import": "./dist/drivers/cloudflare.js",
+      "require": "./dist/drivers/cloudflare.js",
+      "default": "./dist/drivers/cloudflare.js"
     },
     "./drivers/cloudflare-native": {
       "types": "./dist/drivers/cloudflare-native.d.ts",
-      "import": "./dist/drivers/cloudflare-native.js"
+      "import": "./dist/drivers/cloudflare-native.js",
+      "require": "./dist/drivers/cloudflare-native.js",
+      "default": "./dist/drivers/cloudflare-native.js"
     },
     "./drivers/digitalocean-spaces": {
       "types": "./dist/drivers/digitalocean-spaces.d.ts",
@@ -97,7 +111,9 @@
     },
     "./drivers/netlify-blobs": {
       "types": "./dist/drivers/netlify-blobs.d.ts",
-      "import": "./dist/drivers/netlify-blobs.js"
+      "import": "./dist/drivers/netlify-blobs.js",
+      "require": "./dist/drivers/netlify-blobs.js",
+      "default": "./dist/drivers/netlify-blobs.js"
     },
     "./drivers/onedrive": {
       "types": "./dist/drivers/onedrive.d.ts",
@@ -121,43 +137,63 @@
     },
     "./drivers/vercel": {
       "types": "./dist/drivers/vercel.d.ts",
-      "import": "./dist/drivers/vercel.js"
+      "import": "./dist/drivers/vercel.js",
+      "require": "./dist/drivers/vercel.js",
+      "default": "./dist/drivers/vercel.js"
     },
     "./ensure": {
       "types": "./dist/ensure.d.ts",
-      "import": "./dist/ensure.js"
+      "import": "./dist/ensure.js",
+      "require": "./dist/ensure.js",
+      "default": "./dist/ensure.js"
     },
     "./errors": {
       "types": "./dist/errors.d.ts",
-      "import": "./dist/errors.js"
+      "import": "./dist/errors.js",
+      "require": "./dist/errors.js",
+      "default": "./dist/errors.js"
     },
     "./runtime/cloudflare-vite": {
       "types": "./dist/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/runtime/cloudflare-vite.js"
+      "import": "./dist/runtime/cloudflare-vite.js",
+      "require": "./dist/runtime/cloudflare-vite.js",
+      "default": "./dist/runtime/cloudflare-vite.js"
     },
     "./runtime/dev": {
       "types": "./dist/runtime/dev.d.ts",
-      "import": "./dist/runtime/dev.js"
+      "import": "./dist/runtime/dev.js",
+      "require": "./dist/runtime/dev.js",
+      "default": "./dist/runtime/dev.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
-      "import": "./dist/runtime/state.js"
+      "import": "./dist/runtime/state.js",
+      "require": "./dist/runtime/state.js",
+      "default": "./dist/runtime/state.js"
     },
     "./runtime/vercel-vite": {
       "types": "./dist/runtime/vercel-vite.d.ts",
-      "import": "./dist/runtime/vercel-vite.js"
+      "import": "./dist/runtime/vercel-vite.js",
+      "require": "./dist/runtime/vercel-vite.js",
+      "default": "./dist/runtime/vercel-vite.js"
     },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
-      "import": "./dist/virtual.js"
+      "import": "./dist/virtual.js",
+      "require": "./dist/virtual.js",
+      "default": "./dist/virtual.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./vue": {
       "types": "./dist/vue.d.ts",
-      "import": "./dist/vue.js"
+      "import": "./dist/vue.js",
+      "require": "./dist/vue.js",
+      "default": "./dist/vue.js"
     },
     "./package.json": "./package.json"
   },

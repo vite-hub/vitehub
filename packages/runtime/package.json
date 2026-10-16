@@ -33,19 +33,27 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./internal/grant": {
       "types": "./dist/internal/grant.d.ts",
-      "import": "./dist/internal/grant.js"
+      "import": "./dist/internal/grant.js",
+      "require": "./dist/internal/grant.js",
+      "default": "./dist/internal/grant.js"
     },
     "./internal/runtime-type": {
       "types": "./dist/internal/runtime-type.d.ts",
-      "import": "./dist/internal/runtime-type.js"
+      "import": "./dist/internal/runtime-type.js",
+      "require": "./dist/internal/runtime-type.js",
+      "default": "./dist/internal/runtime-type.js"
     },
     "./node": {
       "types": "./dist/node.d.ts",
-      "import": "./dist/node.js"
+      "import": "./dist/node.js",
+      "require": "./dist/node.js",
+      "default": "./dist/node.js"
     },
     "./package.json": "./package.json"
   },
