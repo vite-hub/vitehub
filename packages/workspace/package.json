@@ -60,18 +60,6 @@
       "require": "./dist/cloudflare.js",
       "default": "./dist/cloudflare.js"
     },
-    "./collections": {
-      "types": "./dist/collections.d.ts",
-      "import": "./dist/collections.js",
-      "require": "./dist/collections.js",
-      "default": "./dist/collections.js"
-    },
-    "./collections/client": {
-      "types": "./dist/collections/client.d.ts",
-      "import": "./dist/collections/client.js",
-      "require": "./dist/collections/client.js",
-      "default": "./dist/collections/client.js"
-    },
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js",

@@ -88,7 +88,7 @@ catalogs:
       specifier: 4.1.4
       version: 4.1.4
     forges:
-      specifier: https://pkg.pr.new/danielroe/forges@43be2a6
+      specifier: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       version: 0.0.0
     proper-lockfile:
       specifier: 4.1.2
@@ -385,6 +385,9 @@ catalogs:
     motion-v:
       specifier: ^2.5.2
       version: 2.5.2
+    reka-ui:
+      specifier: ^2.10.5
+      version: 2.10.5
   unjs:
     defu:
       specifier: ^6.1.7
@@ -800,7 +803,7 @@ importers:
         version: 0.27.7
       forges:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@43be2a6
+        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -945,6 +948,9 @@ importers:
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
+      undici:
+        specifier: 7.30.0
+        version: 7.30.0
     devDependencies:
       '@types/json-schema':
         specifier: catalog:ai
@@ -964,9 +970,6 @@ importers:
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
-      undici:
-        specifier: ^7.30.0
-        version: 7.30.0
       vite-plus:
         specifier: catalog:tooling
         version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@20.14.5)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
@@ -1749,6 +1752,9 @@ importers:
       ws:
         specifier: ^8.22.0
         version: 8.22.0
+      undici:
+        specifier: 7.30.0
+        version: 7.30.0
     devDependencies:
       '@types/node':
         specifier: catalog:tooling
@@ -2253,6 +2259,9 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
+      reka-ui:
+        specifier: catalog:ui
+        version: 2.10.5(vue@3.5.43(typescript@6.0.3))
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
@@ -12084,9 +12093,9 @@ packages:
     resolution: {integrity: sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==}
     engines: {node: '>= 0.4'}
 
-  forges@https://pkg.pr.new/danielroe/forges@43be2a6:
-    resolution: {integrity: sha512-ahanYLa4/fWGU8CiV5Q6AaVfJQsa2nZxqG7UtrQEpr6tcXurZgiBzdOPQZCOFR1Y1PsjhtdwdEHjpF77NdAYLA==, tarball: https://pkg.pr.new/danielroe/forges@43be2a6}
-    version: 0.0.0
+  forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b:
+    resolution: {integrity: sha512-J1Jz3lu/Oc1b/WXA9RCuyQ6MCp/LQvA+ztVqvAMIVwgmqsaFAFFbjOmULVow1krKt0Kw2U4rpxf7AHEIaMjRrg==, tarball: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b}
+    version: 0.1.0
     engines: {node: '>=22.18'}
 
   form-data-encoder@4.1.0:
@@ -28374,7 +28383,7 @@ snapshots:
     dependencies:
       is-callable: 1.2.7
 
-  forges@https://pkg.pr.new/danielroe/forges@43be2a6: {}
+  forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b: {}
 
   form-data-encoder@4.1.0: {}
 

@@ -3,7 +3,7 @@
 title: Store your first KV value
 description: Write a theme setting to local KV and read the same key back.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---

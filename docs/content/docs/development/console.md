@@ -510,6 +510,30 @@ The Console does not calculate missing provider data. Token counts, model metada
 | The page returns `403` | Check the `authorize` callback and the current user's role or permission. |
 | A section is missing or returns `403` | `console.authorize` returned `{ sections }` without that section id. |
 
+### Console error codes
+
+Each failed Console request returns JSON with a stable `code`, a `message` that says why it failed, a `fix`, and a `docs` link. Console RPC failures also keep `ok: false` and `status`. The Console shows these fields with one next step: sign in again, reload, try again, or read the docs. It offers a retry only when a retry can succeed.
+
+| Code | Status | Fix |
+| --- | --- | --- |
+| `CONSOLE_SIGN_IN_REQUIRED` | `401` | Sign in again. |
+| `CONSOLE_ACCESS_DENIED` | `403` | Sign in with an account that the access policy allows. |
+| `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. Make sure the Auth Definition that protects the Console returns a user with an id. |
+| `CONSOLE_DEVELOPMENT_ONLY` | `403` | Use `console: { access: 'auth' }` or `exposure: 'host-managed'` in production. |
+| `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. |
+| `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
+| `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |
+| `CONSOLE_AUTH_NOT_CONFIGURED` | `500` | Add an Auth Definition, or configure Cloudflare Access. |
+| `CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE` | `404` | Set `connections: { management: true }` for production. |
+| `CONSOLE_ENV_MANAGEMENT_UNAVAILABLE` | `404` | Give the Env declaration a management bridge. |
+| `CONSOLE_REQUEST_INVALID` | `400`, `405`, `413` | Reload the Console. Deploy the Console and the server from the same build. |
+| `CONSOLE_NOT_FOUND` | `404` | Reload the Console. |
+| `CONSOLE_CONFLICT` | `409` | Reload, then try again. |
+| `CONSOLE_UNAVAILABLE` | `408`, `429`, `502`–`504` | Wait, then try again. |
+| `CONSOLE_REQUEST_FAILED` | `500` | Try again, then read the server logs. |
+
+A Console route that fails with its own diagnostic keeps that code, for example `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs` to the error body.
+
 Use [Agent Invocations](/docs/agents/invocations) for custom stores and invocation lifecycle behavior. Use [Invocation UI](/docs/ui/invocation) when building an application-owned inspection page instead of mounting the complete Console.
 
 ### Image upload boundaries

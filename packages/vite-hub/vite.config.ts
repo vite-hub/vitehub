@@ -233,6 +233,7 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-connections-details.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/section.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/documents.vue", to: "dist/console/runtime/pages" },
@@ -288,6 +289,7 @@ export default defineConfig({
       "src/console/runtime/client/connections-management.ts",
       "src/console/runtime/client/documents.ts",
       "src/console/runtime/client/env-status.ts",
+      "src/console/runtime/client/problem.ts",
       "src/console/runtime/client/schedule-run.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/definitions.ts",
@@ -328,6 +330,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/connections-management"];
         delete exports["./console/runtime/client/documents"];
         delete exports["./console/runtime/client/env-status"];
+        delete exports["./console/runtime/client/problem"];
         delete exports["./console/runtime/client/schedule-run"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/definitions"];
