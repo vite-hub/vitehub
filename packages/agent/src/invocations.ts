@@ -597,8 +597,12 @@ function isErrorValue(value: unknown): value is Error {
         // Calling the intrinsic accessor performs the non-spoofable Error
         // internal-slot check. The stack value may be non-string when a
         // foreign realm customizes prepareStackTrace.
-        errorStackGetter.call(value)
-        return true
+        const stack = errorStackGetter.call(value)
+        // The intrinsic accessor returns `undefined` for objects without the
+        // Error internal slot. Only accept the intrinsic brand when it yields
+        // an actual stack value; structural checks below cover custom formatters
+        // that intentionally return `undefined`.
+        if (typeof stack === "string") return true
       }
       catch {
         // A custom stack formatter can make the intrinsic getter throw. Keep
