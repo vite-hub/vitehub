@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
 import { resolveBox } from "../src/index.ts";
-import { createVercelRuntime, type VercelSandboxInstance } from "../src/vercel.ts";
+import { createVercelRuntime, type VercelBoxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -299,6 +299,24 @@ describe("remote Box providers", () => {
       runtime: createVercelRuntime({
         create: async () => vercelInstance(),
         networkPolicy: { allow },
+      }),
+    }, {});
+
+    expect(box.plan.executionAuthority.network).toBe("unknown");
+  });
+
+  it.each([
+    Object.create({ allow: ["*"] }) as Exclude<VercelBoxNetworkPolicy, string>,
+    Object.create({ subnets: { deny: ["10.0.0.0/8"] } }) as Exclude<VercelBoxNetworkPolicy, string>,
+    { allow: Object.setPrototypeOf(Object.assign([], { length: 1 }), { 0: "*" }) },
+    { allow: Object.assign([], { length: 1 }) },
+    { subnets: { allow: Object.assign([], { length: 1 }) } },
+    { subnets: { deny: Object.assign([], { length: 1 }) } },
+  ])("does not infer Vercel network authority from inherited policy members", async networkPolicy => {
+    const box = await resolveBox({
+      runtime: createVercelRuntime({
+        create: async () => vercelInstance(),
+        networkPolicy,
       }),
     }, {});
 
