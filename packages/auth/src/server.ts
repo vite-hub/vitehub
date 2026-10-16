@@ -91,6 +91,11 @@ function isRequestLike(value: AuthRequest): value is Request {
       return false
     }
     if (!hasPrototypeTag(value, "Request")) return false
+    // Fetch implementations keep request state in internal slots, which are
+    // represented by own symbols in the host objects used by our supported
+    // runtimes. A structural object can copy the public surface, but it does
+    // not acquire that state merely by inheriting the checked properties.
+    if (Object.getOwnPropertySymbols(value).length === 0) return false
     if (!["body", "bodyUsed", "headers", "method", "signal", "url"].every(property => hasBrandedAccessor(value, property))) return false
     const hasMethods = (target: object, methods: string[]): boolean => methods.every((method) => {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
