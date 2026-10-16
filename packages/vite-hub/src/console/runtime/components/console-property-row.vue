@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject } from "vue";
 
-import ConsoleLiveFocus from "./console-live-focus.vue";
+import { AvatarStack } from "@vite-hub/ui";
 
 import type { ComputedRef } from "vue";
 import type { ConsoleLivePerson } from "../client/live";
@@ -40,7 +40,7 @@ const people = computed(() => (props.control ? fieldPeople?.value[props.control]
       <span class="truncate">{{ label }}</span>
       <span v-if="missing" class="size-1.5 shrink-0 rounded-full bg-error" aria-hidden="true" />
       <span v-if="missing" class="sr-only">(required)</span>
-      <ConsoleLiveFocus v-if="people.length" class="ms-auto" :people="people" />
+      <AvatarStack v-if="people.length" class="ms-auto" :style="{ '--vh-avatar-size': '1rem' }" :people="people" variant="outline" />
     </label>
     <div class="min-w-0">
       <slot />
