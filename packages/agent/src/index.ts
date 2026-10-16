@@ -5193,8 +5193,13 @@ function withEagerStreamUsageExtensions<
         const usageRecord = immediateUsage ?? (sourceCompleted
           ? await resolveAgentUsageRecord(result, context.run)
           : undefined)
-        await runExtensions(usageRecord)
-        if (sourceCompleted && usageRecord) yield { type: "usage", usageRecord }
+        // Consumer cancellation can close the source before a usage record is
+        // available. Do not run finish extensions with undefined usage in that
+        // case: finish hooks may perform side effects or reject cancellation.
+        if (usageRecord || sourceCompleted) {
+          await runExtensions(usageRecord)
+          if (sourceCompleted && usageRecord) yield { type: "usage", usageRecord }
+        }
       }
     }
   })()
