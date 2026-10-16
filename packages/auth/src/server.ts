@@ -283,6 +283,22 @@ function runAccessAuthorize(
   const directResponse = normalizeAuthorizationResponse(result)
   if (directResponse) return Promise.resolve({ response: directResponse })
 
+  // Native promises are adopted without inspecting an overridden `then`.
+  let isNativePromise = false
+  try {
+    isNativePromise = result !== null && (typeof result === "object" || typeof result === "function")
+      && Object.getPrototypeOf(result) === Promise.prototype
+  }
+  catch {
+    // Continue through the guarded thenable reflection below.
+  }
+  if (isNativePromise) return Promise.resolve(result).then(resolved => {
+    const response = normalizeAuthorizationResponse(resolved)
+    if (response) return { response }
+    if (resolved !== true) return { response: createForbiddenResponse(context.request) }
+    return {}
+  })
+
   let thenMethod: unknown
   try {
     thenMethod = result !== null && (typeof result === "object" || typeof result === "function")
@@ -294,7 +310,14 @@ function runAccessAuthorize(
   }
   if (typeof thenMethod !== "function") return Promise.resolve({ response: result !== true ? createForbiddenResponse(context.request) : undefined })
   const assimilated = new Promise<unknown>((resolve, reject) => {
-    Reflect.apply(thenMethod, result, [resolve, reject])
+    queueMicrotask(() => {
+      try {
+        Reflect.apply(thenMethod, result, [resolve, reject])
+      }
+      catch (error) {
+        reject(error)
+      }
+    })
   })
   return assimilated.then(resolved => {
     const response = normalizeAuthorizationResponse(resolved)
