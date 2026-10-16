@@ -56,6 +56,7 @@ describe("CI merge gate", () => {
     expect(commands).toEqual([
       "vp run build",
       "git diff --exit-code -- 'packages/*/package.json' || {\n  echo \"::error::vp run build rewrote package.json exports. Run it locally and commit the result.\"\n  exit 1\n}\n",
+      "vp run package:metadata",
       "vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts",
       "vp run --ignore-depends-on examples:verify",
     ])
