@@ -137,6 +137,44 @@ it("checks every minute since the previous scan when a timer fires late", async 
   expect(wakes.map(wake => wake.scheduledAt.getTime())).toEqual([0, 60_000, 120_000, 180_000])
 })
 
+it("does not replay a minute after the wall clock moves backward", async () => {
+  const wakes: RuntimeScheduleWake[] = []
+  let now = new Date(0)
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const testClock = yield* TestClock.make()
+        const runtime = yield* makeProcessWakeRuntime({
+          catchUpMs: 60 * 60_000,
+          concurrency: 1,
+          context: {
+            reportError: vi.fn(),
+            async wake(input) {
+              wakes.push(input)
+            },
+          },
+          intervalMs: 60_000,
+          now: () => now,
+        }).pipe(Effect.provideService(Clock.Clock, testClock))
+
+        yield* runtime.reconcile([record()])
+        now = new Date(60_000)
+        yield* testClock.adjust(60_000)
+        yield* Effect.yieldNow
+        now = new Date(0)
+        yield* testClock.adjust(60_000)
+        yield* Effect.yieldNow
+        now = new Date(60_000)
+        yield* testClock.adjust(60_000)
+        yield* Effect.yieldNow
+        yield* runtime.close
+      }),
+    ),
+  )
+
+  expect(wakes.map(wake => wake.scheduledAt.getTime())).toEqual([0, 60_000])
+})
+
 it("preserves defect identity without exposing Effect FiberFailure", async () => {
   const defect = new Error("process wake defect")
   const failure = await unwrapProcessWakeExit(Effect.runPromiseExit(Effect.die(defect))).then(

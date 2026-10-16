@@ -257,6 +257,12 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
   const queueOccurrences = (due: readonly RuntimeScheduleWake[], currentMinute: number) =>
     Ref.modify(state, (current) => {
       if (current.closed || current.closing) return [[] as RuntimeScheduleWake[], current] as const
+      // A wall-clock correction can move the process into an earlier minute. Do not
+      // reset the per-minute deduplication state, or that minute may run twice when
+      // the clock moves forward again.
+      if (current.occurrenceMinute !== undefined && currentMinute < current.occurrenceMinute) {
+        return [[] as RuntimeScheduleWake[], current] as const
+      }
       const dispatched =
         current.occurrenceMinute === currentMinute
           ? new Set(current.dispatched)
