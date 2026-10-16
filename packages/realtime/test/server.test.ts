@@ -347,7 +347,7 @@ describe("realtime server handler", () => {
     expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
   })
 
-  it("allows bursts of sync updates and closes peers that keep flooding instead of dropping updates", async () => {
+  it("holds sync updates past the burst and applies them, merged, when the budget refills", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
@@ -361,18 +361,46 @@ describe("realtime server handler", () => {
     const client = new Y.Doc()
     response.crossws.open(peer)
 
-    // A burst of 40 updates, such as fast typing, passes; the 41st in the same instant closes the peer.
-    for (let index = 0; index < 40; index++) {
+    const edit = (key: string) => {
       const before = Y.encodeStateVector(client)
-      client.getMap("edits").set(`key-${index}`, index)
-      const update = Y.encodeStateAsUpdate(client, before)
-      response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(update) })
+      client.getMap("edits").set(key, true)
+      response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client, before)) })
     }
+    // A burst of 40 updates, such as fast typing, is applied at once.
+    for (let index = 0; index < 40; index++) edit(`key-${index}`)
+    const applied = peer.publish.mock.calls.length
+    expect(applied).toBeGreaterThan(0)
+    // Holding a key keeps sending: the next ones wait instead of closing the peer.
+    for (let index = 0; index < 5; index++) edit(`held-${index}`)
+    expect(peer.publish.mock.calls.length).toBe(applied)
+    await new Promise(resolve => setTimeout(resolve, 80))
+
     expect(peer.close).not.toHaveBeenCalled()
-    const before = Y.encodeStateVector(client)
-    client.getMap("edits").set("one-too-many", true)
-    const update = Y.encodeStateAsUpdate(client, before)
-    response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(update) })
+    // The five held updates reach the room as one.
+    expect(peer.publish.mock.calls.length).toBe(applied + 1)
+    client.destroy()
+  })
+
+  it("closes a peer that holds back more than one message of updates", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const client = new Y.Doc()
+    response.crossws.open(peer)
+
+    const text = "x".repeat(64 * 1024)
+    for (let index = 0; index < 60 && !peer.close.mock.calls.length; index++) {
+      const before = Y.encodeStateVector(client)
+      client.getMap("edits").set(`key-${index}`, text)
+      response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client, before)) })
+    }
 
     expect(peer.close).toHaveBeenCalledWith(1013, "Realtime updates are arriving too quickly.")
     client.destroy()
@@ -399,9 +427,9 @@ describe("realtime server handler", () => {
     response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client)) })
 
     expect(peer.close).not.toHaveBeenCalled()
-    // Later sync responses count against the update burst like any update.
+    // Later sync responses count against the update burst like any update, and wait past it.
     for (let index = 0; index < 40; index++) response.crossws.message(peer, { uint8Array: () => syncStep2 })
-    expect(peer.close).toHaveBeenCalledWith(1013, "Realtime updates are arriving too quickly.")
+    expect(peer.close).not.toHaveBeenCalled()
     server.destroy()
     client.destroy()
   })
