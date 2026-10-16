@@ -468,8 +468,14 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
           // without reproducing the runtime's internal-slot guard.
           for (const key of ["read", "cancel", "releaseLock"] as const) {
             try {
-              Reflect.apply(probeMethods[key], {}, key === "cancel" ? [undefined] : [])
-              return
+              const invalidReceiverResult = Reflect.apply(probeMethods[key], {}, key === "cancel" ? [undefined] : [])
+              if (invalidReceiverResult === null
+                || (typeof invalidReceiverResult !== "object" && typeof invalidReceiverResult !== "function")) return
+              if (typeof (invalidReceiverResult as PromiseLike<unknown>).then !== "function") return
+              // Native read/cancel reject asynchronously for an invalid
+              // receiver. Observe that rejection so probing never leaks an
+              // unhandled promise while retaining the brand check.
+              void Promise.resolve(invalidReceiverResult).catch(() => undefined)
             }
             catch {
               // Expected: the operation rejects a non-reader receiver.
@@ -481,11 +487,13 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
           const readResult = Reflect.apply(probeMethods.read, probeReader, [])
           if (readResult === null || (typeof readResult !== "object" && typeof readResult !== "function")
             || typeof (readResult as PromiseLike<unknown>).then !== "function") return
+          void Promise.resolve(readResult).catch(() => undefined)
           const cancelStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
           const cancelReader = Reflect.apply(descriptor.value, cancelStream, []) as object
           const cancelResult = Reflect.apply(probeMethods.cancel, cancelReader, [])
           if (cancelResult === null || (typeof cancelResult !== "object" && typeof cancelResult !== "function")
             || typeof (cancelResult as PromiseLike<unknown>).then !== "function") return
+          void Promise.resolve(cancelResult).catch(() => undefined)
           const releaseStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
           const releaseReader = Reflect.apply(descriptor.value, releaseStream, []) as object
           Reflect.apply(probeMethods.releaseLock, releaseReader, [])
