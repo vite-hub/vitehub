@@ -152,6 +152,25 @@ describe("CLI primitives", () => {
     expect(process.stdout.write).toBe(write)
   })
 
+  it("keeps first-use default payload writes out of an active redirect", async () => {
+    const original = process.stdout.write
+    const payload = vi.fn(() => true)
+    const release = Promise.withResolvers<void>()
+    try {
+      process.stdout.write = payload as typeof process.stdout.write
+      const redirect = withStdoutOnStderr(async () => {
+        await release.promise
+      }, { write: () => undefined })
+      await Promise.resolve()
+      getStableStdoutWrite()("payload\n")
+      expect(payload).toHaveBeenCalledWith("payload\n")
+      release.resolve()
+      await redirect
+    } finally {
+      process.stdout.write = original
+    }
+  })
+
   it("waits for promise-based stderr writes before completing callbacks", async () => {
     const callback = vi.fn()
     const write = vi.fn((_chunk: string | Uint8Array, done: (error?: Error | null) => void) => {

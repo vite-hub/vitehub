@@ -88,6 +88,10 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
   await previous
 
   const write = process.stdout.write
+  if (stdoutRedirectGlobal[stdoutRedirectWriterKey] === undefined) {
+    stdoutRedirectGlobal[stdoutRedirectSourceKey] = write
+    stdoutRedirectGlobal[stdoutRedirectWriterKey] = write.bind(process.stdout) as typeof process.stdout.write
+  }
   stdoutRedirectGlobal[stdoutRedirectActiveKey] = true
   process.stdout.write = ((chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => {
     const done = typeof encoding === "function" ? encoding : callback
