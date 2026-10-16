@@ -72,6 +72,10 @@ icon: i-lucide-radio
   With `auth: true`, presence uses the session; otherwise it is client-asserted.
   :::
 
+  :::product-feature-item{title="Presence parts in @vite-hub/ui" icon="i-lucide-users" to="/docs/ui/blocks/collaborative-editor"}
+  `people`, `status`, and the save state go straight into the avatar stack and status parts.
+  :::
+
   :::product-feature-item{title="Memory for one process, Durable Objects on Cloudflare" icon="i-lucide-cloud-cog" to="/docs/realtime/configure#choose-a-room-authority"}
   `memory` keeps rooms in one process; `cloudflare` uses Durable Objects.
   :::
