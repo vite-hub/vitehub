@@ -81,7 +81,22 @@ function isRequest(value: unknown): value is Request {
               } else {
                 getter.call(probe)
                 getter.call(value)
-                branded = true
+                // Validate another Fetch-owned accessor from the same realm.
+                // A forged bodyUsed getter alone must not establish identity.
+                const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
+                if (typeof headersGetter !== "function") {
+                  valid = false
+                } else {
+                  const headers = headersGetter.call(value)
+                  const headersPrototype = Object.getPrototypeOf(headers)
+                  const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
+                  if (typeof headersGet !== "function") {
+                    valid = false
+                  } else {
+                    headersGet.call(headers, "x-vite-hub-brand")
+                    branded = true
+                  }
+                }
               }
             }
           } catch {
