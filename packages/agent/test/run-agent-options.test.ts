@@ -36,12 +36,12 @@ it("forwards runtime capabilities through standalone scheduled runs", async () =
       tools: context => ({
         runtime_capability: {
           name: "runtime_capability",
-          execute: () => Object.keys(context.capabilities),
+      execute: (_input: unknown) => Object.keys(context.capabilities),
         },
       }),
     })],
     driver: { async run({ tools }) {
-      return (await tools?.runtime_capability?.execute?.() as string[]).includes("connections") ? "available" : "missing"
+      return (await tools?.runtime_capability?.execute?.({}) as string[]).includes("connections") ? "available" : "missing"
     } },
   })
 

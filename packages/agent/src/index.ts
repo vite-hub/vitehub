@@ -8501,6 +8501,7 @@ export async function runAgent<
   const runtimeContext = standaloneOptions?.runtimeContext
   const runtime = createRuntimeContext({
     ...runtimeContext,
+    runtimeConfig: runtimeContext?.runtimeConfig,
     runtime: runtimeContext?.runtime || "unknown",
     run: {
       ...runtimeContext?.run,
