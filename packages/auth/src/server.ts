@@ -414,6 +414,12 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const headersGet = responsePropertyDescriptor(headerCarrier, "get")?.value
     const headersForEach = responsePropertyDescriptor(headerCarrier, "forEach")?.value
     if (typeof headersGet !== "function" || typeof headersForEach !== "function") return
+    const headerPrototype = Object.getPrototypeOf(headerCarrier)
+    const headerConstructor = headerPrototype && Object.getOwnPropertyDescriptor(headerPrototype, "constructor")?.value
+    const headerNativePrototype = typeof headerConstructor === "function" ? headerConstructor.prototype : undefined
+    if (!headerNativePrototype
+      || Object.getOwnPropertyDescriptor(headerNativePrototype, "get")?.value !== headersGet
+      || Object.getOwnPropertyDescriptor(headerNativePrototype, "forEach")?.value !== headersForEach) return
     Reflect.apply(headersGet, headers, ["content-type"])
     Reflect.apply(headersForEach, headers, [() => {}])
     const snapshot = { status, statusText, headers, body }
