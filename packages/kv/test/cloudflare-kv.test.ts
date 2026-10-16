@@ -11,7 +11,7 @@ function createNamespace() {
     delete: async (key: string) => { values.delete(key) },
     get: async (key: string) => values.get(key) ?? null,
     put: async (key: string, value: string) => { values.set(key, value) },
-    list: async ({ prefix = "" }: { prefix?: string }) => ({
+    list: async ({ prefix = "" }: { prefix?: string, cursor?: string }) => ({
       keys: [...values.keys()].filter(key => key.startsWith(prefix)).map(name => ({ name })),
       list_complete: true,
     }),
