@@ -695,8 +695,6 @@ export function toAgentStreamEvent(
   return undefined
 }
 
-const nativeErrorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
-
 function crossRealmStreamError(error: unknown): { message: string; value: object } | undefined {
   if (error === null || typeof error !== "object") return
   try {
@@ -724,13 +722,13 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
       : hasRuntimeType(intrinsicIsError, "function")
         ? intrinsicIsError(error) === true
         : undefined
+    if (nativeBranded === false) return
     // structuredClone preserves the intrinsic Error brand but does not copy
     // user-defined symbol tags or an Error prototype chain onto plain objects.
     // Prefer it when available so configurable stack descriptors cannot forge
     // the fallback brand.
     const structuredClone = Reflect.get(globalThis, "structuredClone")
     let cloneBranded = false
-    let cloneFailed = false
     if (hasRuntimeType(structuredClone, "function")) {
       try {
         const clone = Reflect.apply(structuredClone, globalThis, [error])
@@ -741,43 +739,10 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
         cloneBranded = true
       }
       catch {
-        cloneFailed = true
-        // Continue with the guarded structural fallback when cloning is not
-        // supported for this value or runtime.
+        // No portable brand signal remains when cloning fails.
       }
     }
-    const branded = cloneBranded || nativeBranded === true || (nativeBranded === undefined && (() => {
-          // A failed clone provides no intrinsic brand signal. Match the
-          // engine's captured stack accessor so prototype forgeries with
-          // user-defined descriptors are rejected.
-          const hasIntrinsicStack = () => {
-            const stack = Object.getOwnPropertyDescriptor(error, "stack")
-            // Native Errors expose stack through the engine's intrinsic
-            // accessor. A configurable writable data property can be added
-            // to Object.create(Error.prototype), so it is not brand evidence.
-            return stack !== undefined && stack.configurable === true
-              && stack.get === nativeErrorStackGetter
-          }
-          // Without a native brand check, require the Error's intrinsic stack
-          // slot for tagged cross-realm values. A tag alone is user-controllable.
-          if (!hasToStringTag) {
-            // Genuine same-realm V8 Errors expose an intrinsic stack accessor.
-            // Prototype forgeries with ordinary data properties do not.
-            return hasIntrinsicStack() && Object.prototype.toString.call(error) === "[object Error]"
-          }
-          const prototype = Reflect.getPrototypeOf(error)
-          // Same-realm Errors use Error.prototype even when decorated with a
-          // custom tag. Their intrinsic stack descriptor distinguishes them
-          // from prototype-only forgeries in this fallback.
-          if (prototype === Error.prototype) return hasIntrinsicStack()
-          if (prototype === null || prototype === Object.prototype) return false
-          // There is no portable, non-forgeable way to brand a foreign Error
-          // constructor. In particular, Function#toString source text can be
-          // forged by an ordinary provider function containing "[native code]".
-          // Fail closed here; runtimes with a reliable brand (or structuredClone)
-          // have already returned above.
-          return false
-        })())
+    const branded = cloneBranded || nativeBranded === true
     if (!branded) return
     const message = Reflect.get(error, "message")
     return { message: message === undefined ? "" : String(message), value: error }
