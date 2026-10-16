@@ -59,5 +59,7 @@ export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SCHEDULE_B0003: dynamicError,
     SCHEDULE_B0004: dynamicError,
     SCHEDULE_B0005: dynamicError,
+    SCHEDULE_B0006: dynamicError,
+    SCHEDULE_B0007: dynamicError,
   },
 })
