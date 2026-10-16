@@ -431,6 +431,23 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       freshReaderPrototype = Object.getPrototypeOf(freshReaderPrototype)
     }
     if (read !== freshRead || cancel !== freshCancel || releaseLock !== freshReleaseLock) return false
+    // Exercise the operations on branded readers as well as comparing their
+    // identities. A replacement installed on the reader prototype is shared
+    // by both the candidate and probe readers, so identity alone cannot catch
+    // an operation that throws or returns a non-reader result.
+    const probeStream = new streamConstructor({ start(controller: { close: () => void }) { controller.close() } })
+    const probeReader = Reflect.apply(getReader, probeStream, [])
+    if (Object(probeReader) !== probeReader) return false
+    const probeReaderObject = Object(probeReader)
+    const probeReadResult = Reflect.apply(read, probeReaderObject, [])
+    if (Object(probeReadResult) !== probeReadResult || typeof Reflect.get(probeReadResult as object, "then") !== "function") return false
+    const cancelStream = new streamConstructor()
+    const cancelReader = Reflect.apply(getReader, cancelStream, [])
+    if (Object(cancelReader) !== cancelReader) return false
+    const cancelResult = Reflect.apply(cancel, Object(cancelReader), [])
+    if (Object(cancelResult) !== cancelResult || typeof Reflect.get(cancelResult as object, "then") !== "function") return false
+    Reflect.apply(releaseLock, probeReaderObject, [])
+    Reflect.apply(releaseLock, Object(cancelReader), [])
     // Validate the reader returned by the candidate body separately. A
     // shadowed getReader can return a reader-shaped object that only appears
     // valid because the probe above used that same override.
