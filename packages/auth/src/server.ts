@@ -337,8 +337,21 @@ function hasResponsePrototype(value: unknown): boolean {
           if (!headerPrototype || headerPrototype === hostHeaderPrototype) return false
           const headerConstructor = Object.getOwnPropertyDescriptor(headerPrototype, "constructor")?.value
           if (typeof headerConstructor !== "function" || headerConstructor.name !== "Headers") return false
-          if (typeof Object.getOwnPropertyDescriptor(headerPrototype, "get")?.value !== "function"
-            || typeof Object.getOwnPropertyDescriptor(headerPrototype, "forEach")?.value !== "function") return false
+          // A genuine Headers implementation exposes the complete mutable and
+          // iterable carrier surface. Requiring the full prototype contract
+          // prevents a forged response from reusing a single foreign-looking
+          // object with only get/forEach stubs.
+          const headerMethods = ["append", "delete", "get", "has", "set", "forEach", "keys", "values", "entries"]
+          if (headerMethods.some(method =>
+            typeof Object.getOwnPropertyDescriptor(headerPrototype, method)?.value !== "function")) return false
+          try {
+            const get = Object.getOwnPropertyDescriptor(headerPrototype, "get")!.value as (name: string) => unknown
+            const probe = Reflect.apply(get, headers, ["__vitehub_probe__"])
+            if (probe !== null && typeof probe !== "string") return false
+          }
+          catch {
+            return false
+          }
           // Check the complete Response method surface without invoking clone.
           // Calling clone() rejects valid responses whose body is already used
           // or locked, while a forged prototype that only supplies accessors is
