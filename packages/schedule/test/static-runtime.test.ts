@@ -44,6 +44,19 @@ describe("Static Schedule runtime", () => {
     expect(loaded).toBe(false)
   })
 
+  it.each([42, true, {}, ["0 4 * * *"], "   "])("rejects malformed provider cron values before loading definitions: %j", async (cron) => {
+    let loaded = false
+    const registry = { report: async () => {
+      loaded = true
+      return { cron: "0 4 * * *", handler: async () => {} }
+    } }
+    await expect(executeMatchingStaticSchedules({ cron: cron as never, registry }))
+      .rejects.toMatchObject({ code: "SCHEDULE_INVALID_CRON", details: { field: "cron" } })
+    await expect(executeCloudflareStaticSchedules({ controller: { cron: cron as never } }, { registry }))
+      .rejects.toMatchObject({ code: "SCHEDULE_R0027" })
+    expect(loaded).toBe(false)
+  })
+
   it("executes all static schedules matching a cron", async () => {
     const calls: string[] = []
     const registry: ScheduleDefinitionRegistry = {
@@ -79,6 +92,33 @@ describe("Static Schedule runtime", () => {
       "cleanup:2026-06-12T04:00:00.000Z",
       "report:2026-06-12T04:00:00.000Z",
     ])
+  })
+
+  it("matches equivalent cron whitespace from provider events", async () => {
+    const calls: string[] = []
+    await executeMatchingStaticSchedules({
+      cron: "0 4 * * *",
+      registry: {
+        report: async () => ({
+          cron: "0  4   * * *",
+          handler: async () => calls.push("report"),
+        }),
+      },
+    })
+    expect(calls).toEqual(["report"])
+  })
+
+  it("skips malformed cron values without aborting other matching schedules", async () => {
+    const calls: string[] = []
+    await executeMatchingStaticSchedules({
+      cron: "0 4 * * *",
+      registry: {
+        malformed: async () => ({ cron: 42 as never, handler: () => calls.push("invalid") }),
+        report: async () => ({ cron: "0  4 * * *", handler: () => calls.push("report") }),
+      },
+    })
+    expect(calls).toEqual(["report"])
+    expect(unwrapScheduleDefinition({ default: { cron: null, handler: () => {} } })).toBeUndefined()
   })
 
   it("executes and unwraps static definitions with cross-realm handlers", async () => {
