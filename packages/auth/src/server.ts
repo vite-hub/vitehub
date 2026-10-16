@@ -286,66 +286,66 @@ function runAccessAuthorize(
   if (directResponse) return Promise.resolve({ response: directResponse })
 
   // Applying the intrinsic reaction operation performs a native Promise brand
-  // check without reading a mutable `then` property. Non-Promise values throw
-  // synchronously and continue through the guarded thenable path.
+  // check without reading a mutable `then` property.
   if (result !== null && (typeof result === "object" || typeof result === "function")) {
     let nativePromise = false
-    const adopted = new Promise<{ response?: Response }>((resolve, reject) => {
+    const settle = (resolved: unknown, resolve: (value: { response?: Response }) => void, reject: (reason?: unknown) => void) => {
       try {
-        Reflect.apply(intrinsicPromiseThen, result, [
-          (resolved: unknown) => {
-            try {
-              const response = normalizeAuthorizationResponse(resolved)
-              if (response) resolve({ response })
-              else if (resolved !== true) resolve({ response: createForbiddenResponse(context.request) })
-              else resolve({})
-            }
-            catch (error) {
-              reject(error)
-            }
-          },
-          reject,
-        ])
+        const response = normalizeAuthorizationResponse(resolved)
+        if (response) resolve({ response })
+        else if (resolved !== true) resolve({ response: createForbiddenResponse(context.request) })
+        else resolve({})
+      }
+      catch (error) { reject(error) }
+    }
+    const adopted = new Promise<{ response?: Response }>((resolve, reject) => {
+      const attach = () => Reflect.apply(intrinsicPromiseThen, result, [
+        (resolved: unknown) => settle(resolved, resolve, reject), reject,
+      ])
+      try {
+        attach()
         nativePromise = true
       }
-      catch {
-        // Promise subclasses can throw while constructing the child promise when
-        // their species constructor is invalid. Preserve the native brand path
-        // by retrying with a native constructor on the source itself, instead of
-        // downgrading a branded Promise to mutable thenable handling.
-        try {
-          const descriptor = Object.getOwnPropertyDescriptor(result, "constructor")
-          if (!descriptor || descriptor.configurable) {
-            Object.defineProperty(result, "constructor", { configurable: true, value: Promise })
-            try {
-              Reflect.apply(intrinsicPromiseThen, result, [
-                (resolved: unknown) => {
-                  try {
-                    const response = normalizeAuthorizationResponse(resolved)
-                    if (response) resolve({ response })
-                    else if (resolved !== true) resolve({ response: createForbiddenResponse(context.request) })
-                    else resolve({})
-                  }
-                  catch (error) {
-                    reject(error)
-                  }
-                },
-                reject,
-              ])
-              nativePromise = true
-            }
+      catch (error) {
+        // Species construction may fail before handlers are installed. Temporarily
+        // replace an inherited/configurable constructor so even frozen instances
+        // can receive an intrinsic rejection observer.
+        let owner: object | undefined
+        let descriptor: PropertyDescriptor | undefined
+        let current: object | null = result
+        while (current) {
+          const candidate = Object.getOwnPropertyDescriptor(current, "constructor")
+          if (candidate) { owner = current; descriptor = candidate; break }
+          current = Object.getPrototypeOf(current)
+        }
+        if (!descriptor || descriptor.configurable) {
+          try {
+            Object.defineProperty(owner ?? result, "constructor", { configurable: true, value: Promise })
+            try { attach(); nativePromise = true }
             finally {
-              if (descriptor) Object.defineProperty(result, "constructor", descriptor)
-              else Reflect.deleteProperty(result, "constructor")
+              if (descriptor) Object.defineProperty(owner!, "constructor", descriptor)
+              else Reflect.deleteProperty(owner ?? result, "constructor")
             }
           }
+          catch (retryError) { reject(retryError); nativePromise = true }
         }
-        catch (error) {
-          // Species construction failed and the source cannot be reconfigured.
-          // Do not inspect or invoke a mutable `then`; surface the intrinsic
-          // reaction failure through the adopted promise instead.
-          reject(error)
-          nativePromise = true
+        else {
+          // An own non-configurable constructor cannot be replaced, but its
+          // species hook is usually configurable. Override that hook briefly
+          // so the intrinsic reaction can still observe the source promise.
+          try {
+            const constructor = Reflect.get(result, "constructor")
+            const species = constructor !== null && (typeof constructor === "object" || typeof constructor === "function")
+              ? Object.getOwnPropertyDescriptor(constructor, Symbol.species)
+              : undefined
+            if (species?.configurable) {
+              Object.defineProperty(constructor, Symbol.species, { configurable: true, value: Promise })
+              try { attach(); nativePromise = true }
+              finally { Object.defineProperty(constructor, Symbol.species, species) }
+            }
+            else { reject(error); nativePromise = true }
+          }
+          catch (retryError) { reject(retryError); nativePromise = true }
         }
       }
     })
