@@ -60,6 +60,10 @@ interface RequestInitWithDuplex extends RequestInit {
 
 function isRequestLike(value: AuthRequest): value is Request {
   try {
+    const isBrandCheckError = (error: unknown): boolean => {
+      return error instanceof TypeError
+        && /illegal invocation|invalid (this|receiver)|brand/i.test(error.message)
+    }
     // Independent Fetch implementations do not share native brands or prototype
     // layouts. This checks the API used by Better Auth, not the object's origin:
     // host-provided implementations are trusted code, not an authenticity boundary.
@@ -86,8 +90,8 @@ function isRequestLike(value: AuthRequest): value is Request {
             descriptor.get.call(Object.create(null))
             return false
           }
-          catch {
-            return true
+          catch (error) {
+            return isBrandCheckError(error)
           }
         }
         current = Object.getPrototypeOf(current)
@@ -112,7 +116,7 @@ function isRequestLike(value: AuthRequest): value is Request {
       return false
     }
     catch (error) {
-      if (!(error instanceof TypeError)) return false
+      if (!isBrandCheckError(error)) return false
     }
     if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || !hasPrototypeTag(value.signal, "AbortSignal") || typeof value.signal.aborted !== "boolean") return false
     if (Object.prototype.hasOwnProperty.call(value.signal, "aborted")) return false
