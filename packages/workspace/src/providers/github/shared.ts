@@ -167,7 +167,7 @@ class GitHubRequestError extends Diagnostic {
   }
 }
 
-function githubRequestStatus(error: unknown): number | undefined {
+export function githubRequestStatus(error: unknown): number | undefined {
   const cause = error instanceof GitHubRequestError
     ? error
     : error instanceof Error && error.cause instanceof GitHubRequestError ? error.cause : undefined;
@@ -387,6 +387,16 @@ export async function requestGitHubJson<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  return (await requestGitHubJsonResponse<T>(repository, token, path, init)).value
+}
+
+/** Read a JSON response and retain headers for APIs that expose pagination in Link. */
+export async function requestGitHubJsonResponse<T>(
+  repository: string,
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ value: T, headers: Headers }> {
   const response = await requestGitHub(`https://api.github.com${path}`, {
     ...init,
     headers: {
@@ -406,7 +416,7 @@ export async function requestGitHubJson<T>(
     );
     throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
-  return (await response.json()) as T;
+  return { value: (await response.json()) as T, headers: response.headers };
 }
 
 export async function readGitHubRawFile(input: {

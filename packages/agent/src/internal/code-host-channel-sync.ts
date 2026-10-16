@@ -105,7 +105,7 @@ function state(hook: Webhook, options: CodeHostChannelSyncOptions) {
 
 function repoRef(provider: ForgeProvider, repository: string): RepoRef {
   const parts = repository.split("/")
-  return { forge: provider.kind, instance: provider.instance, name: parts.pop()!, owner: parts.join("/") }
+  return { forge: provider.forge, instance: provider.instance, name: parts.pop()!, owner: parts.join("/") }
 }
 
 async function matchingHook(provider: ForgeProvider, repository: string, url: string): Promise<Webhook | undefined> {
