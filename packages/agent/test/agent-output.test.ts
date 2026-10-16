@@ -1139,8 +1139,12 @@ describe("agent output helpers", () => {
   })
 
   it("emits body chunks from a genuine foreign Response implementation", async () => {
-    const response = runInNewContext("new Response('foreign')", { Response }) as Response
-    expect(response).not.toBeInstanceOf(Response)
+    const { response, ForeignResponse } = runInNewContext(
+      "class ForeignResponse extends Base {} ; ({ response: new ForeignResponse('foreign'), ForeignResponse })",
+      { Base: Response },
+    ) as { response: Response, ForeignResponse: typeof Response }
+    expect(response).toBeInstanceOf(ForeignResponse)
+    expect(response).toBeInstanceOf(Response)
     const events = []
     for await (const event of streamAgentOutputToEvents(response)) events.push(event)
     expect(events).toEqual([{ text: "foreign", type: "text-delta" }, { type: "finish" }])

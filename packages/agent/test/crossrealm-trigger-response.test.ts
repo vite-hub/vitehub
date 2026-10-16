@@ -8,9 +8,12 @@ import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocationR
 const HostResponse = Response
 
 function foreignResponse(body = "foreign", init?: ResponseInit): Response {
-  // Node VM contexts have no Fetch globals. Supply the host Fetch implementation,
-  // then give the consuming realm a different constructor, as runtime loaders do.
-  const response = runInNewContext("new Response(body, init)", { Response: HostResponse, body, init })
+  // Node VM contexts have no Fetch globals. Create a distinct constructor in the
+  // consuming realm while retaining the platform Response implementation.
+  const { response, ForeignResponse } = runInNewContext(
+    "class ForeignResponse extends Base {} ; ({ response: new ForeignResponse(body, init), ForeignResponse })",
+    { Base: HostResponse, body, init },
+  ) as { response: Response, ForeignResponse: typeof Response }
   vi.stubGlobal("Response", class extends HostResponse {})
   expect(response).not.toBeInstanceOf(Response)
   return response
