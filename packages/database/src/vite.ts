@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
+import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -172,6 +172,23 @@ function moduleGraphContainsFile(server: Pick<ViteDevServer, "moduleGraph">, ent
   return false
 }
 
+async function collectSourceDependencies(file: string, require: NodeRequire, files: Set<string>, seen = new Set<string>()) {
+  file = normalize(file)
+  if (seen.has(file)) return
+  seen.add(file)
+  files.add(file)
+  let source: string
+  try { source = await readFile(file, "utf8") } catch { return }
+  const imports = source.matchAll(/(?:from\s*["']|import\s*\(\s*["']|import\s*["']|export\s+[^;]*?from\s*["'])([^"']+)["']/g)
+  for (const match of imports) {
+    try {
+      const resolved = normalize(require.resolve(match[1]!, { paths: [dirname(file)] }))
+      await collectSourceDependencies(resolved, require, files, seen)
+    }
+    catch { /* unresolved aliases are handled by the host module graph */ }
+  }
+}
+
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let nitroOptions: DatabaseNitroHost["options"] | undefined
   let nitroMigrations: Array<{ source: string, target: string }> = []
@@ -182,6 +199,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let serverDirs: string[] | undefined
   let contributions: CollectedDatabaseContribution[] = []
   let contributionFiles = new Set<string>()
+  let contributionDependencyFiles = new Set<string>()
   let contributionDirectories = new Set<string>()
 
   function resolvedOptions() {
@@ -327,6 +345,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           return []
         }
       }))
+      contributionDependencyFiles = new Set()
+      for (const file of contributionFiles) await collectSourceDependencies(file, require, contributionDependencyFiles)
       contributionDirectories = new Set()
       for (const file of contributionFiles) {
         // Keep the fallback directory check local to the contribution entry.
@@ -356,7 +376,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
       const changedFile = normalizeModulePath(context.file)
       // Definitions and contributed table modules can import the changed file.
-      const isDatabaseUpdate = [...runtimeConfig.definitions.map(definition => definition.handler), ...contributionFiles].some(file =>
+      const isDatabaseUpdate = [...runtimeConfig.definitions.map(definition => definition.handler), ...contributionDependencyFiles].some(file =>
         normalizeModulePath(file) === changedFile
         || moduleGraphContainsFile(context.server, file, changedFile, context.modules),
       ) || [...contributionDirectories].some(directory => changedFile === directory || changedFile.startsWith(`${normalizeModulePath(directory)}/`))

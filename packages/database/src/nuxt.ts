@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
+import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import { existsSync, watch as watchFs, type FSWatcher } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
@@ -165,7 +165,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             try {
               const { module } = contribution.definition
               const file = isAbsolute(module) ? resolve(module) : require.resolve(module)
-              collectWatchedModuleFiles(file, require, contributionFiles)
+              await collectWatchedModuleFiles(file, require, contributionFiles)
               collectModuleWatchDirectories(file, contributionDirectories)
             }
             catch {
@@ -276,12 +276,23 @@ function resolveDatabaseNuxtProvisionState(provisionState: ReturnType<typeof rea
   return databaseId ? { cloudflare: { d1: { default: databaseId } } } : undefined
 }
 
-function collectWatchedModuleFiles(file: string, require: NodeRequire, files: Set<string>, seen = new Set<string>()) {
+async function collectWatchedModuleFiles(file: string, require: NodeRequire, files: Set<string>, seen = new Set<string>()) {
+  file = resolve(file)
   if (seen.has(file)) return
   seen.add(file)
   files.add(file)
   const loaded = require.cache?.[file]
-  for (const child of loaded?.children ?? []) collectWatchedModuleFiles(child.filename, require, files, seen)
+  for (const child of loaded?.children ?? []) await collectWatchedModuleFiles(child.filename, require, files, seen)
+  let source: string
+  try { source = await readFile(file, "utf8") } catch { return }
+  const imports = source.matchAll(/(?:from\s*["']|import\s*\(\s*["']|import\s*["']|export\s+[^;]*?from\s*["'])([^"']+)["']/g)
+  for (const match of imports) {
+    try {
+      const resolved = require.resolve(match[1]!, { paths: [dirname(file)] })
+      await collectWatchedModuleFiles(resolved, require, files, seen)
+    }
+    catch { /* unresolved aliases are handled by Nuxt */ }
+  }
 }
 
 function collectModuleWatchDirectories(file: string, directories: Set<string>) {
