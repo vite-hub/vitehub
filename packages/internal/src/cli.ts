@@ -134,7 +134,7 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
 }
 
 /** Returns the unredirected process stdout writer for payload output. */
-export function getStableStdoutWrite() {
+export function getStableStdoutWrite(): typeof process.stdout.write {
   const current = process.stdout.write
   if (!stdoutRedirectGlobal[stdoutRedirectActiveKey] && stdoutRedirectGlobal[stdoutRedirectSourceKey] !== current) {
     stdoutRedirectGlobal[stdoutRedirectSourceKey] = current
