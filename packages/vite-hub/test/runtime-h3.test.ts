@@ -109,6 +109,28 @@ describe("H3 Runtime Context", () => {
     await context.flushWaitUntil()
   })
 
+  it("rejects a consumed spoof with a rejected arrayBuffer promise", async () => {
+    const requestPrototype = Object.getPrototypeOf(new Request("https://example.test"))
+    const prototype = Object.create(requestPrototype, {
+      constructor: { value: Object.assign(function Request() {}, { prototype: undefined }) },
+      headers: { get: () => new Headers() },
+      url: { get: () => "https://example.test" },
+      method: { get: () => "GET" },
+      bodyUsed: { get: () => true },
+      signal: { get: () => new AbortController().signal },
+      clone: { value: () => { throw new Error("consumed") } },
+      arrayBuffer: { value: () => Promise.reject(new Error("forged")) },
+      blob: { value: () => Promise.resolve(new Blob()) },
+      formData: { value: () => Promise.reject(new Error("forged")) },
+      json: { value: () => Promise.reject(new Error("forged")) },
+      text: { value: () => Promise.reject(new Error("forged")) },
+    })
+    prototype.constructor.prototype = prototype
+    const context = getRuntimeContext({ context: {}, req: Object.create(prototype) })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
   it("rejects a Request-shaped custom prototype", async () => {
     const prototype = {
       headers: new Headers(),

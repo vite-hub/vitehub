@@ -104,6 +104,15 @@ function isRequest(value: unknown): value is Request {
         const arrayBufferMethod = methods[1]
         if (typeof arrayBufferMethod !== "function") continue
         try {
+          // A genuine Fetch body method performs its Web IDL receiver brand
+          // check before returning a promise. Reject caller-owned methods that
+          // merely return a rejected promise for the forged request.
+          try {
+            arrayBufferMethod.call({})
+            continue
+          } catch {
+            // Expected for a host-validated Request method.
+          }
           const result = arrayBufferMethod.call(value)
           if (!result || typeof (result as PromiseLike<unknown>).then !== "function") continue
           void Promise.resolve(result).catch(() => undefined)
