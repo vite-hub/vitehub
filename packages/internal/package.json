@@ -18,6 +18,7 @@
     "./deployment": "./dist/deployment.js",
     "./dev-endpoint": "./dist/dev-endpoint.js",
     "./dev-token": "./dist/dev-token.js",
+    "./dispatch": "./dist/dispatch.js",
     "./hosting": "./dist/hosting.js",
     "./integrations/hex": "./dist/integrations/hex.js",
     "./object": "./dist/object.js",

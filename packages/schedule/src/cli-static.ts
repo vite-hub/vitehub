@@ -1,5 +1,6 @@
 import { discoverViteHubDevServer } from "@vite-hub/internal/cli"
 import { readViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
+import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { scheduleDevRunHeader, scheduleDevRunRoute, scheduleConsoleRunRoute, scheduleDevTokenNamespace, scheduleDevTokenServerHeader } from "./dev.ts"
 
@@ -22,6 +23,10 @@ interface ScheduleDevDiscovery {
 }
 
 interface ScheduleRunTarget {
+  /** Self-asserted actor claim sent with a signed dispatch. */
+  actor?: string
+  /** Dispatch key that signs a remote run. */
+  dispatchKey?: string
   headers: Headers
   remote: boolean
   url: string
@@ -41,7 +46,7 @@ function writeUsage(context: Pick<ViteHubCliContext, "stdout">): void {
     "Without --url, the command uses the running Vite Development Server.",
     "",
     "Options:",
-    "  --url <url>     Deployed Console URL. Requires console.invoke. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET to authenticate.",
+    "  --url <url>     Deployed app URL. Requires console.invoke. Set VITEHUB_DISPATCH_KEY or VITEHUB_SECRET to sign the run. VITEHUB_CONSOLE_COOKIE, VITEHUB_CONSOLE_AUTHORIZATION, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET also work.",
     "  --server <url>  Vite Development Server URL. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
     "  --json          Print the run as JSON.",
     "  --timeout <ms> Request timeout, from 1 to 2147483647 whole milliseconds.",
@@ -145,10 +150,15 @@ function formatDuration(run: Record<string, unknown>): string | undefined {
 }
 
 async function sendRun(target: ScheduleRunTarget, name: string, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  const body = JSON.stringify({ name })
+  if (target.dispatchKey) {
+    const headers = await signViteHubDispatch({ actor: target.actor, body, key: target.dispatchKey, operation: "schedule.run" })
+    for (const [header, value] of Object.entries(headers)) target.headers.set(header, value)
+  }
   let response: Response
   try {
     response = await fetchImpl(target.url, {
-      body: JSON.stringify({ name }),
+      body,
       headers: target.headers,
       method: "POST",
       redirect: "manual",
@@ -159,9 +169,9 @@ async function sendRun(target: ScheduleRunTarget, name: string, fetchImpl: typeo
     throw cliError(target.remote ? `Schedule run request to ${target.url} failed.` : `No Vite Development Server with Schedule found at ${new URL(target.url).origin}.`)
   }
   if (target.remote && (response.status === 401 || response.status === 403 || (response.status >= 300 && response.status < 400))) {
-    const text = response.status === 403 ? await response.text() : ""
+    const text = response.status === 401 || response.status === 403 ? await response.text() : ""
     const message = stringField(record(parseJSON(text)), "message")
-    throw cliError(message ?? `Console authentication failed with HTTP ${response.status}. Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.`)
+    throw cliError(message ?? `Console authentication failed with HTTP ${response.status}. Set VITEHUB_DISPATCH_KEY or VITEHUB_SECRET, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.`)
   }
   const text = await response.text()
   const json = record(parseJSON(text))
@@ -199,6 +209,10 @@ export async function runScheduleRunCli(
     if (!parsed.name) throw cliError("schedule run requires a Schedule Definition name.")
     const fetchImpl = options.fetch ?? globalThis.fetch
     const target = runTarget(parsed, context.env)
+    if (target.remote) {
+      target.dispatchKey = await resolveViteHubDispatchKey(context.env)
+      target.actor = context.env.VITEHUB_ACTOR || context.env.USER || context.env.USERNAME || undefined
+    }
     const signal = parsed.timeout ? AbortSignal.timeout(parsed.timeout) : undefined
     if (!target.remote) {
       let discoveryFailure = ""

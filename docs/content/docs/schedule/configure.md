@@ -76,7 +76,7 @@ export default defineSchedule({
 })
 ```
 
-Run it from a ViteHub development server with `vitehub schedule run daily-report`. The command uses the discovered file name as the definition name and supports `--json`; deployments can invoke the same definition through the Console.
+Run it from a ViteHub development server with `vitehub schedule run daily-report`. The command uses the discovered file name as the definition name and supports `--json`. Run it on a deployment with `vitehub schedule run daily-report --url https://app.example.com` and a [signed dispatch](/docs/development/cli#run-a-schedule-on-demand), or from the Console.
 
 Write `manual` and `allowRuntimeSchedules` as literal `true` or `false` values in the directly exported definition. Use identifier keys or quoted keys without escape sequences. Discovery does not evaluate constants, spreads, computed properties, or getters. Unsupported forms fail with the source file and line instead of silently omitting a runtime target.
 

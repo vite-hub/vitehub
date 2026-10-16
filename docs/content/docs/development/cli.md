@@ -88,7 +88,7 @@ Available namespaces:
 | `vitehub schedule get` | Available | Schedule Package | Show one Runtime Schedule. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
-| `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally or through the deployed Console. |
+| `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with a signed dispatch. |
 | `vitehub schedule run-runtime` | Available | Schedule Package | Run one Runtime Schedule now in the development runtime. |
 | `vitehub schedule enable` | Available | Schedule Package | Enable one Runtime Schedule. |
 | `vitehub schedule disable` | Available | Schedule Package | Disable one Runtime Schedule. |
@@ -371,19 +371,34 @@ pnpm vitehub schedule run sync
 
 Without `--url`, the command posts to the running Vite Development Server at `VITEHUB_DEV_SERVER_URL` or `http://localhost:5173`. Use `--server <url>` to select another local server.
 
-With `--url`, the command posts to `/_vitehub/schedules/run` on the deployment. That route runs only when the deployment enables the [Console](/docs/development/cli#run-a-schedule-on-demand) with `invoke: true`, and the Console access policy protects it like every other `/_vitehub/**` route. Set the credentials for that policy in the environment:
+With `--url`, the command posts to `/_vitehub/schedules/run` on the deployment. That route runs only when the deployment enables the [Console](/docs/development/console) with `invoke: true`.
+
+Set the dispatch key of the deployment to sign the run. The deployment derives the same key from its [`VITEHUB_SECRET`](/docs/env/app-secret), so no Console session is needed:
+
+```bash [Terminal]
+# Once, where the deployment's root secret is available:
+VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
+
+# Then, from a laptop or CI job:
+VITEHUB_DISPATCH_KEY=... pnpm vitehub schedule run sync --url https://app.example.com
+```
+
+The signature covers the operation, the exact body, the time, a one-time nonce, and the actor. The deployment rejects a request older or newer than five minutes, a reused nonce, and a key of another deployment. A request with a dispatch signature skips the Console sign-in check and never falls back to a Console session, so a bad signature is always `401`. An edge in front of the app, such as Cloudflare Access, still applies: set its service token as well. The actor is `VITEHUB_ACTOR`, else the OS user. It is self-asserted and the deployment only logs it. Nonces are kept per server process: a deployment with several instances can accept a replay on another instance inside the window.
+
+| Variable | Value |
+| --- | --- |
+| `VITEHUB_DISPATCH_KEY` | The 64-character key that `vitehub secret derive vitehub:dispatch` prints. Prefer it to the root secret. |
+| `VITEHUB_SECRET` | The root secret. The command derives the dispatch key from it. |
+| `VITEHUB_ACTOR` | The name that the deployment logs for the run. |
+
+The Console access policy still protects requests without a signature. These credentials are forwarded for that path:
 
 | Variable                        | Value                                                                                                                                           |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value that the Console access policy accepts, for example the Basic or Bearer credential that host middleware checks. |
+| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value that a `host-managed` `authorize` function or host middleware checks. `access: 'auth'` ignores it. |
 | `VITEHUB_CONSOLE_COOKIE`        | A `Cookie` header value from a signed-in Console session.                                                                                       |
 | `CF_ACCESS_CLIENT_ID`           | Cloudflare Access service-token client ID. Forwarded as `CF-Access-Client-Id`.                                                                 |
 | `CF_ACCESS_CLIENT_SECRET`       | Cloudflare Access service-token client secret. Forwarded as `CF-Access-Client-Secret`.                                                         |
-
-```bash [Terminal]
-VITEHUB_CONSOLE_AUTHORIZATION="Basic $(printf 'admin:%s' "$ADMIN_TOKEN" | base64)" \
-  pnpm vitehub schedule run sync --url https://app.example.com
-```
 
 The command requires HTTPS for remote URLs and does not follow redirects. A `401`, `403`, or redirect response reports a Console authentication failure. The command never sends the credential to the local Development Server.
 

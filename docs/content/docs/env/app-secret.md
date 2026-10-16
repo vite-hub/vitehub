@@ -44,6 +44,7 @@ VITEHUB_SECRET=... pnpm vitehub secret derive my-app:session
 | Purpose | Used by | Replaces |
 | --- | --- | --- |
 | `vitehub:console-auth` | Inline [Console Auth](/docs/development/console) session signing | `BETTER_AUTH_SECRET`, which still wins when it is set |
+| `vitehub:dispatch` | [Signed dispatch](/docs/development/cli#run-a-schedule-on-demand) from the CLI to a deployment | A pasted Console session cookie |
 
 ## Development
 
@@ -53,8 +54,8 @@ Builds never generate a secret. A deployment without `VITEHUB_SECRET` fails at t
 
 ## Rotation and storage
 
-The root secret signs and authenticates. It does not encrypt stored data. Rotating `VITEHUB_SECRET` signs out every Console session and changes every derived secret, and nothing stored becomes unreadable.
+The root secret signs and authenticates. It does not encrypt stored data. Rotating `VITEHUB_SECRET` signs out every Console session and invalidates every dispatch key, and nothing stored becomes unreadable.
 
 Keys that encrypt data at rest stay separate, because changing them requires re-encrypting stored values: Connections use `VITEHUB_CONNECTIONS_KEY`, and the [Env Bridge](/docs/env/bridge) database store uses its own `encryptionKey`.
 
-Anyone with the root secret can derive every secret above, including Console session signing. Treat it like the most privileged credential of the deployment. Give a CLI or CI job a derived secret instead of the root secret.
+Anyone with the root secret can derive every secret above, including Console session signing. Treat it like the most privileged credential of the deployment. Give a CLI or CI job a derived key, such as the dispatch key, instead of the root secret.

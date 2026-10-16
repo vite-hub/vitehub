@@ -252,6 +252,8 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath",
       "  if (path === '/api/_vitehub/console/auth' || path.startsWith('/api/_vitehub/console/auth/')) return",
       "  if (path === '/_vitehub/sign-in') return",
+      "  // A signed dispatch request is verified by its route, which never falls back to a Console session.",
+      "  if (path === '/_vitehub/schedules/run' && event.req.headers.has('x-vitehub-dispatch-signature')) return",
       "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/') || path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/'))) return",
       "  await prepare(event)",
       "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return consoleAuthPageResponse(event.req, await requireAuthAccessRoutes(event, [0], definition, [0], { redirectToSignIn: path === '/_vitehub' && event.url.searchParams.has('auth_start') }), mountBase)",
