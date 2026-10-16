@@ -371,6 +371,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 function streamLockedGetter(body: object): (() => boolean) | undefined {
   let current: object | null = body
   const seen = new Set<object>()
+  let result: (() => boolean) | undefined
   try {
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(current)) return undefined
@@ -382,7 +383,7 @@ function streamLockedGetter(body: object): (() => boolean) | undefined {
         if (body instanceof ReadableStream) {
           if (getter !== Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get) return undefined
         }
-        return getter as () => boolean
+        result = getter as () => boolean
       }
       current = Object.getPrototypeOf(current)
     }
@@ -390,27 +391,15 @@ function streamLockedGetter(body: object): (() => boolean) | undefined {
   catch {
     return undefined
   }
-  return undefined
+  return result
 }
 
 function hasNativeStreamBrand(body: object): boolean {
-  let current: object | null = body
-  const seen = new Set<object>()
   try {
-    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(current)) return false
-      seen.add(current)
-      const descriptor = Object.getOwnPropertyDescriptor(current, "locked")
-      const getter = descriptor?.get
-      if (typeof getter === "function") {
-        if (current === body) return false
-        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-        if (constructor?.name !== "ReadableStream") return false
-        const value = Reflect.apply(getter, body, [])
-        return typeof value === "boolean"
-      }
-      current = Object.getPrototypeOf(current)
-    }
+    // Response's BodyInit conversion performs the platform ReadableStream brand
+    // check, including for streams created in another realm. A spoofed object is
+    // converted to a new stream, so identity distinguishes it from a real stream.
+    return new Response(body as ReadableStream).body === body
   }
   catch {
     return false
@@ -440,6 +429,7 @@ function nativeStreamMethod<T extends keyof ReadableStream<Uint8Array>>(body: ob
   if (Object.prototype.hasOwnProperty.call(body, key)) return undefined
   let current: object | null = body
   const seen = new Set<object>()
+  let result: ReadableStream<Uint8Array>[T] | undefined
   for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
     if (seen.has(current)) return undefined
     seen.add(current)
@@ -448,18 +438,19 @@ function nativeStreamMethod<T extends keyof ReadableStream<Uint8Array>>(body: ob
       const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
       if (constructor?.name === "ReadableStream") {
         if (body instanceof ReadableStream && descriptor.value !== ReadableStream.prototype[key]) return undefined
-        return descriptor.value as ReadableStream<Uint8Array>[T]
+        result = descriptor.value as ReadableStream<Uint8Array>[T]
       }
     }
     current = Object.getPrototypeOf(current)
   }
-  return undefined
+  return result
 }
 
 function nativeReaderMethod<T extends "read" | "cancel" | "releaseLock">(reader: object, key: T): Function | undefined {
   if (Object.prototype.hasOwnProperty.call(reader, key)) return undefined
   let current: object | null = reader
   const seen = new Set<object>()
+  let result: Function | undefined
   for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
     if (seen.has(current)) return undefined
     seen.add(current)
@@ -469,12 +460,12 @@ function nativeReaderMethod<T extends "read" | "cancel" | "releaseLock">(reader:
       if (typeof constructor?.name === "string" && constructor.name.includes("Reader")) {
         if (typeof ReadableStreamDefaultReader !== "undefined" && reader instanceof ReadableStreamDefaultReader
           && descriptor.value !== ReadableStreamDefaultReader.prototype[key]) return undefined
-        return descriptor.value
+        result = descriptor.value
       }
     }
     current = Object.getPrototypeOf(current)
   }
-  return undefined
+  return result
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
