@@ -639,20 +639,26 @@ describe("agent output helpers", () => {
       const forgedCustomEvent = toAgentStreamEvent({ error: forgedCustom, type: "error" })
       expect(Object.getOwnPropertySymbols(forgedCustomEvent!)).not.toContain(agentStreamErrorSymbol)
 
-      const sameRealm = new Error("clone fallback boom")
-      Object.defineProperty(sameRealm, "stack", { value: "Error: clone fallback boom", configurable: true, writable: true })
-      Object.defineProperty(sameRealm, "uncloneable", { value: () => undefined })
-      const sameRealmEvent = toAgentStreamEvent({ error: sameRealm, type: "error" })
-      expect(sameRealmEvent).toMatchObject({ error: "clone fallback boom", type: "error" })
-      expect(Object.getOwnPropertySymbols(sameRealmEvent!)).not.toContain(agentStreamErrorSymbol)
+      const nativeStructuredClone = (globalThis as typeof globalThis & { structuredClone?: unknown }).structuredClone
+      Object.defineProperty(globalThis, "structuredClone", { value: () => { throw new Error("clone disabled") }, configurable: true })
+      try {
+        const sameRealm = new Error("clone fallback boom")
+        const sameRealmEvent = toAgentStreamEvent({ error: sameRealm, type: "error" })
+        expect(sameRealmEvent).toMatchObject({ error: "clone fallback boom", type: "error" })
+        expect(Reflect.get(sameRealmEvent!, agentStreamErrorSymbol)).toBe(sameRealm)
 
-      const forgedCloneFailure = Object.create(Error.prototype)
-      Object.defineProperties(forgedCloneFailure, {
-        stack: { value: "Error: forged clone failure", configurable: true, writable: true },
-        uncloneable: { value: () => undefined },
-      })
-      const forgedCloneFailureEvent = toAgentStreamEvent({ error: forgedCloneFailure, type: "error" })
-      expect(Object.getOwnPropertySymbols(forgedCloneFailureEvent!)).not.toContain(agentStreamErrorSymbol)
+        const forgedCloneFailure = Object.create(Error.prototype)
+        Object.defineProperties(forgedCloneFailure, {
+          stack: { value: "Error: forged clone failure", configurable: true, writable: true },
+          uncloneable: { value: () => undefined },
+        })
+        const forgedCloneFailureEvent = toAgentStreamEvent({ error: forgedCloneFailure, type: "error" })
+        expect(Object.getOwnPropertySymbols(forgedCloneFailureEvent!)).not.toContain(agentStreamErrorSymbol)
+      }
+      finally {
+        Object.defineProperty(globalThis, "structuredClone", { value: nativeStructuredClone, configurable: true })
+      }
+
     }
     finally {
       errorConstructor.isError = nativeIsError

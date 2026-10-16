@@ -695,6 +695,8 @@ export function toAgentStreamEvent(
   return undefined
 }
 
+const nativeErrorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
+
 function crossRealmStreamError(error: unknown): { message: string; value: object } | undefined {
   if (error === null || typeof error !== "object") return
   try {
@@ -745,17 +747,16 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
       }
     }
     const branded = cloneBranded || nativeBranded === true || (nativeBranded === undefined && (() => {
-          // A failed clone provides no intrinsic brand signal. Prototype and
-          // property shapes are forgeable (including an own accessor stack),
-          // so fail closed rather than preserving attacker-controlled values.
-          if (cloneFailed) return false
+          // A failed clone provides no intrinsic brand signal. Match the
+          // engine's captured stack accessor so prototype forgeries with
+          // user-defined descriptors are rejected.
           const hasIntrinsicStack = () => {
             const stack = Object.getOwnPropertyDescriptor(error, "stack")
             // Native Errors expose stack through the engine's intrinsic
             // accessor. A configurable writable data property can be added
             // to Object.create(Error.prototype), so it is not brand evidence.
             return stack !== undefined && stack.configurable === true
-              && typeof stack.get === "function"
+              && stack.get === nativeErrorStackGetter
           }
           // Without a native brand check, require the Error's intrinsic stack
           // slot for tagged cross-realm values. A tag alone is user-controllable.
