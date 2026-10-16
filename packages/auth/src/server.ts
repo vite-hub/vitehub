@@ -328,19 +328,6 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
-function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
-  if (body === null) return true
-  if (typeof body !== "object") return false
-  try {
-    const locked = Reflect.get(body, "locked")
-    const getReader = Reflect.get(body, "getReader")
-    return locked === false && typeof getReader === "function"
-  }
-  catch {
-    return false
-  }
-}
-
 function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | false | undefined {
   if (body === null || typeof body !== "object") return
   try {
@@ -359,26 +346,15 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
 }
 
 function getNativeAuthorizationReaderMethods(reader: object) {
-  let prototype: object | null = Object.getPrototypeOf(reader)
-  const seen = new Set<object>()
-  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-    if (seen.has(prototype)) return
-    seen.add(prototype)
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    if (constructor?.name === "ReadableStreamDefaultReader") {
-      const closed = Object.getOwnPropertyDescriptor(prototype, "closed")?.get
-      const read = Object.getOwnPropertyDescriptor(prototype, "read")?.value
-      const cancel = Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
-      const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
-      if (typeof closed === "function" && typeof read === "function" && typeof cancel === "function" && typeof releaseLock === "function") {
-        // The getter performs the source-realm ReadableStreamDefaultReader brand check.
-        Reflect.apply(closed, reader, [])
-        return { read, cancel, releaseLock }
-      }
-      return
-    }
-    prototype = Object.getPrototypeOf(prototype)
-  }
+  const prototype = ReadableStreamDefaultReader.prototype
+  const closed = Object.getOwnPropertyDescriptor(prototype, "closed")?.get
+  const read = Object.getOwnPropertyDescriptor(prototype, "read")?.value
+  const cancel = Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
+  const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
+  if (typeof closed !== "function" || typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") return
+  // Intrinsic methods perform the reader brand check and cannot be shadowed by the source object.
+  Reflect.apply(closed, reader, [])
+  return { read, cancel, releaseLock }
 }
 
 function bridgeAuthorizationBody(
@@ -461,7 +437,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyReader = body === null ? true : getNativeAuthorizationBodyReader(body)
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
-    if (body !== null && (typeof nativeBodyReader !== "function" || !isSerializableAuthorizationBody(body))) return
+    if (body !== null && typeof nativeBodyReader !== "function") return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
