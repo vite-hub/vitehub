@@ -17,7 +17,6 @@ Use these imports and methods to read Sources from server code and expose them t
 | `sourceIgnores` from `vite-hub/source` | Reuse ignore patterns for dependencies, generated output, media, secrets, and system files. |
 | `file` from `vite-hub/source/file`, `glob` from `vite-hub/source/glob`, `markdown` from `vite-hub/source/markdown`, `github` from `vite-hub/source/github`, `mcpResources` from `vite-hub/source/mcp` | Select one built-in loader. Each subpath also exports its option types. |
 | `defineCollection`, `array`, `table` from `vite-hub/source` | Turn an array, a Drizzle table, or a custom loader into a typed, paginated HTTP read model. |
-| `workspaceFile` from `vite-hub/workspace` | Use a JSON array in a Workspace file as a Collection source. |
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Consume a Collection from Vue and detect access errors. |
 | `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a keyed reader with Nitro cache options, or mount a Collection handler manually. |
 | `hubSource` from `vite-hub/source/vite` | Discover Collections and Content and generate their routes. `vitehub()` and the Nuxt module install it. |
@@ -229,27 +228,25 @@ export const articles = defineCollection({
 
 | Option | Description |
 | --- | --- |
-| `filters` | Field paths a client may filter by. `?category=guide` matches without case, a repeated key matches any of its values, and `?empty=category` matches items with no value. Dot paths read nested objects and every element of nested arrays. A `Date` value matches its ISO string. |
+| `filters` | Field paths a client may filter by. `?category=guide` matches without case, a repeated key matches any of its values, and `?empty=category` matches items with no value. Dot paths read nested objects and every element of nested arrays. |
 | `search` | Field paths that `?search=` matches as a case-insensitive substring. Without it, a non-empty `search` returns `400`. |
 | `facets` | Field paths counted into `page.facets` as `{ value, count }` lists over every matching item. |
-| `sort` | Field path and direction for every page. Numbers sort numerically and `Date` values by time. Omit it to keep the array order. |
+| `sort` | Field path and direction for every page. Numbers sort numerically. Omit it to keep the array order. |
 | `key` | Field path that `collection.get(key)` matches in server code. |
 | `schema` | Standard Schema for one item. Every item is validated on load, and its output type becomes the item type. |
 | `defaultLimit`, `maxLimit` | Page size and the largest accepted `limit`. `maxLimit` also caps the values kept per facet. |
 
 The loader runs on every request. It can return the array or `{ items, digest }`. Each cursor is bound to the digest and the query, so a cursor from changed data or from another filter returns `409`. Without `digest`, ViteHub hashes the items. Server code can filter on any field: `articles.page({ query: { category: ['guide'] } })`.
 
-A JSON array in a Workspace file uses the same engine through `workspaceFile()`:
+To serve a read-only JSON array from a Workspace file, read the file in the `array()` loader:
 
 ```ts [server/collections/articles.ts]
 import * as v from 'valibot'
-import { defineCollection } from 'vite-hub/source'
-import { workspaceFile } from 'vite-hub/workspace'
+import { array, defineCollection } from 'vite-hub/source'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export const articles = defineCollection({
-  source: workspaceFile({
-    workspace: 'content',
-    path: 'data/articles.json',
+  source: array(async () => JSON.parse(await useWorkspace('content').fs.readFile('data/articles.json')), {
     schema: v.object({ slug: v.string(), title: v.string(), category: v.optional(v.string()) }),
     filters: ['category'],
     search: ['title'],
@@ -257,7 +254,7 @@ export const articles = defineCollection({
 })
 ```
 
-The file's Workspace digest binds the cursors, so a write to the file makes older cursors stale. Without `schema`, items are typed as `Record<string, unknown>`.
+A write to the file changes the items, so older cursors become stale. To let people or Agents edit JSON data, store it as [Content](/docs/content/configure) documents instead.
 
 ```vue [app/pages/articles.vue]
 <script setup lang="ts">

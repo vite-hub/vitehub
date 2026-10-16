@@ -249,9 +249,6 @@ page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
 when the data set should not be loaded per request.
 
-`workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
-in a Workspace file.
-
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured
 data and its assets as one logical item.

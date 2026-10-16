@@ -9,8 +9,8 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 /** An explicit Node data directory selects local storage; the host owns durability. */
 export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   if (options.dataDir === undefined) return options
+  if (typeof options.dataDir !== "string" || !options.dataDir.trim()) throw viteHubErrorDiagnostics.VITE_HUB_R0121({ message: "[vitehub] dataDir must be a non-empty directory path." })
   if (options.preset !== "node") throw viteHubErrorDiagnostics.VITE_HUB_R0120({ message: "[vitehub] dataDir requires the node preset and a persistent filesystem. Configure remote stores for other hosts." })
-  if (!options.dataDir.trim()) throw viteHubErrorDiagnostics.VITE_HUB_R0121({ message: "[vitehub] dataDir must be a non-empty directory path." })
   const root = resolve(options.dataDir)
   const file = (name: string) => pathToFileURL(join(root, name)).href
   const kvStore = (store: KVStoreConfig, name?: string): KVStoreConfig => store.driver === "fs-lite"
@@ -26,31 +26,35 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   const blob = options.blob === true ? { driver: "fs" as const } : options.blob
   const agent = options.agent === true ? {} : options.agent
   const state = agent && agent.providers?.state
-  const result: ViteHubOptions = { ...options, dataDir: root }
-  if (cache) result.cache = cache
-  if (kv) result.kv = "stores" in kv
-    ? { ...kv, stores: Object.fromEntries(Object.entries(kv.stores).map(([name, store]) => [name, kvStore(store, name)])) }
-    : kvStore(kv)
-  if (blob) result.blob = "stores" in blob
-    ? { ...blob, stores: Object.fromEntries(Object.entries(blob.stores).map(([name, store]) => [name, blobStore(store, name)])) }
-    : !blob.driver || blob.driver === "fs"
-      ? { ...blob, driver: "fs" as const, base: "base" in blob ? blob.base ?? join(root, "blob") : join(root, "blob") }
-      : blob
-  if (agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider))) {
-    result.agent = { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } }
+  const console = options.console && { ...options.console, databaseUrl: options.console.databaseUrl ?? file("console.sqlite") }
+  if (console?.auth instanceof Object && "provider" in console.auth && console.auth.provider === "github") {
+    console.auth = { ...console.auth, databasePath: console.auth.databasePath ?? join(root, "console-auth.sqlite") }
   }
-  if (options.console) {
-    result.console = { ...options.console, databaseUrl: options.console.databaseUrl ?? file("console.sqlite") }
-    if (options.console.auth instanceof Object && "provider" in options.console.auth && options.console.auth.provider === "github") {
-      result.console.auth = { ...options.console.auth, databasePath: options.console.auth.databasePath ?? join(root, "console-auth.sqlite") }
-    }
+  return {
+    ...options,
+    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional storage defaults.
+    ...(cache ? { cache } : {}),
+    dataDir: root,
+    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional storage defaults.
+    ...(kv ? { kv: "stores" in kv
+      ? { ...kv, stores: Object.fromEntries(Object.entries(kv.stores).map(([name, store]) => [name, kvStore(store, name)])) }
+      : kvStore(kv) } : {}),
+    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional storage defaults.
+    ...(blob ? { blob: "stores" in blob
+      ? { ...blob, stores: Object.fromEntries(Object.entries(blob.stores).map(([name, store]) => [name, blobStore(store, name)])) }
+      : !blob.driver || blob.driver === "fs" ? { ...blob, driver: "fs" as const, base: "base" in blob ? blob.base ?? join(root, "blob") : join(root, "blob") } : blob } : {}),
+    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional agent defaults.
+    ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
+      agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
+    } : {}),
+    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional console defaults.
+    ...(console ? { console } : {}),
+    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional workspace defaults.
+    ...(options.workspace ? { workspace: {
+      ...(options.workspace === true ? {} : options.workspace),
+      root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
+    } } : {}),
   }
-  if (options.workspace) {
-    const workspace = options.workspace === true ? {} : options.workspace
-    result.workspace = { ...workspace, root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces") }
-  }
-  return result
-
 }
 
 /** Where the Console stores Agent invocations when no Agent Definition configures a journal. */

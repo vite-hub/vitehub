@@ -33,193 +33,1129 @@
   ],
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./_internal/agent": "./dist/_internal/agent.js",
-    "./_internal/agent/cloudflare": "./dist/_internal/agent/cloudflare.js",
-    "./_internal/agent/cloudflare/state": "./dist/_internal/agent/cloudflare/state.js",
-    "./_internal/agent/eve": "./dist/_internal/agent/eve.js",
-    "./_internal/agent/runtime/invocations-dev": "./dist/_internal/agent/runtime/invocations-dev.js",
-    "./_internal/agent/runtime/process": "./dist/_internal/agent/runtime/process.js",
-    "./_internal/agent/runtime/workflow": "./dist/_internal/agent/runtime/workflow.js",
-    "./_internal/agent/server": "./dist/_internal/agent/server.js",
-    "./_internal/agent/server/internal": "./dist/_internal/agent/server/internal.js",
-    "./_internal/agent/server/registry": "./dist/_internal/agent/server/registry.js",
-    "./_internal/agent/server/workspace": "./dist/_internal/agent/server/workspace.js",
-    "./_internal/agent/state/sqlite": "./dist/_internal/agent/state/sqlite.js",
-    "./_internal/blob": "./dist/_internal/blob.js",
-    "./_internal/blob/runtime/dev": "./dist/_internal/blob/runtime/dev.js",
-    "./_internal/blob/runtime/state": "./dist/_internal/blob/runtime/state.js",
-    "./_internal/database/runtime/state": "./dist/_internal/database/runtime/state.js",
-    "./_internal/email/runtime/console": "./dist/_internal/email/runtime/console.js",
-    "./_internal/kv": "./dist/_internal/kv.js",
-    "./_internal/kv/runtime/dev": "./dist/_internal/kv/runtime/dev.js",
-    "./_internal/kv/runtime/disabled-upstash": "./dist/_internal/kv/runtime/disabled-upstash.js",
-    "./_internal/markdown-template": "./dist/_internal/markdown-template.js",
-    "./_internal/rate-limit/runtime": "./dist/_internal/rate-limit/runtime.js",
-    "./_internal/rate-limit/runtime/console": "./dist/_internal/rate-limit/runtime/console.js",
-    "./_internal/sandbox/runtime/state": "./dist/_internal/sandbox/runtime/state.js",
-    "./_internal/schedule": "./dist/_internal/schedule.js",
-    "./_internal/schedule/runtime": "./dist/_internal/schedule/runtime.js",
-    "./_internal/schedule/runtime/console": "./dist/_internal/schedule/runtime/console.js",
-    "./_internal/schedule/runtime/dev": "./dist/_internal/schedule/runtime/dev.js",
-    "./_internal/schedule/runtime/driver": "./dist/_internal/schedule/runtime/driver.js",
-    "./_internal/schedule/runtime/kv": "./dist/_internal/schedule/runtime/kv.js",
-    "./_internal/schedule/runtime/process": "./dist/_internal/schedule/runtime/process.js",
-    "./_internal/schedule/runtime/static": "./dist/_internal/schedule/runtime/static.js",
-    "./_internal/workflow": "./dist/_internal/workflow.js",
-    "./_internal/workflow/runtime/cloudflare-runner": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
-    "./_internal/workflow/runtime/cloudflare-vite": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
-    "./_internal/workflow/runtime/dev": "./dist/_internal/workflow/runtime/dev.js",
-    "./_internal/workflow/runtime/execute": "./dist/_internal/workflow/runtime/execute.js",
-    "./_internal/workflow/runtime/state": "./dist/_internal/workflow/runtime/state.js",
-    "./_internal/workflow/runtime/vercel-vite": "./dist/_internal/workflow/runtime/vercel-vite.js",
-    "./_internal/workspace": "./dist/_internal/workspace.js",
-    "./_internal/workspace/internal/runtime/history-dev": "./dist/_internal/workspace/internal/runtime/history-dev.js",
-    "./_internal/workspace/internal/runtime/hosted": "./dist/_internal/workspace/internal/runtime/hosted.js",
-    "./_internal/workspace/internal/runtime/hosted-vercel-blob": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js",
-    "./_internal/workspace/internal/runtime/state": "./dist/_internal/workspace/internal/runtime/state.js",
-    "./_internal/workspace/runtime": "./dist/_internal/workspace/runtime.js",
-    "./agent": "./dist/agent.js",
-    "./agent/capabilities": "./dist/agent/capabilities.js",
-    "./agent/channels": "./dist/agent/channels.js",
-    "./agent/cloudflare": "./dist/agent/cloudflare.js",
-    "./agent/eval": "./dist/agent/eval.js",
-    "./agent/evlog": "./dist/agent/evlog.js",
-    "./agent/evlog/posthog": "./dist/agent/evlog/posthog.js",
-    "./agent/gateways": "./dist/agent/gateways.js",
-    "./agent/invocations/d1": "./dist/agent/invocations/d1.js",
-    "./agent/invocations/database": "./dist/agent/invocations/database.js",
-    "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
-    "./agent/mcp": "./dist/agent/mcp.js",
-    "./agent/observability": "./dist/agent/observability.js",
-    "./agent/presets/babysitter": "./dist/agent/presets/babysitter.js",
-    "./agent/presets/babysitter/server": "./dist/agent/presets/babysitter/server.js",
-    "./agent/presets/labeller": "./dist/agent/presets/labeller.js",
-    "./agent/presets/workspace": "./dist/agent/presets/workspace.js",
-    "./agent/runtime/process": "./dist/agent/runtime/process.js",
-    "./agent/server": "./dist/agent/server.js",
-    "./agent/server/github": "./dist/agent/server/github.js",
-    "./agent/server/github-inbox": "./dist/agent/server/github-inbox.js",
-    "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
-    "./agent/vite": "./dist/agent/vite.js",
-    "./agent/vue": "./dist/agent/vue.js",
-    "./auth": "./dist/auth.js",
-    "./auth/agent": "./dist/auth/agent.js",
-    "./auth/server": "./dist/auth/server.js",
-    "./auth/vue": "./dist/auth/vue.js",
-    "./blob": "./dist/blob.js",
-    "./blob/client": "./dist/blob/client.js",
-    "./blob/content-type": "./dist/blob/content-type.js",
-    "./blob/vue": "./dist/blob/vue.js",
-    "./box": "./dist/box.js",
-    "./box/ssh": "./dist/box/ssh.js",
-    "./browser": "./dist/browser.js",
-    "./browser/actions": "./dist/browser/actions.js",
-    "./browser/controllers/cdp": "./dist/browser/controllers/cdp.js",
-    "./browser/controllers/playwright": "./dist/browser/controllers/playwright.js",
-    "./browser/providers/cloudflare": "./dist/browser/providers/cloudflare.js",
-    "./browser/providers/local": "./dist/browser/providers/local.js",
-    "./channels": "./dist/channels.js",
-    "./channels/server": "./dist/channels/server.js",
-    "./connections": "./dist/connections.js",
-    "./connections/agent": "./dist/connections/agent.js",
-    "./connections/google": "./dist/connections/google.js",
-    "./connections/http": "./dist/connections/http.js",
-    "./connections/server": "./dist/connections/server.js",
-    "./console": "./dist/console.js",
-    "./console/auth": "./dist/console/auth.js",
-    "./console/server": "./dist/console/server.js",
-    "./content": "./dist/content.js",
-    "./content/client": "./dist/content/client.js",
-    "./database": "./dist/database.js",
-    "./database/drizzle": "./dist/database/drizzle.js",
-    "./doctor": "./dist/doctor.js",
-    "./email": "./dist/email.js",
-    "./email/markdown": "./dist/email/markdown.js",
-    "./email/server": "./dist/email/server.js",
-    "./env": "./dist/env.js",
-    "./env/auth": "./dist/env/auth.js",
-    "./env/bridge": "./dist/env/bridge.js",
-    "./env/database": "./dist/env/database.js",
-    "./env/http": "./dist/env/http.js",
-    "./env/presets": "./dist/env/presets.js",
-    "./env/provider": "./dist/env/provider.js",
-    "./env/schema": "./dist/env/schema.js",
-    "./env/secret": "./dist/env/secret.js",
-    "./env/server": "./dist/env/server.js",
-    "./kv": "./dist/kv.js",
-    "./markdown-template": "./dist/markdown-template.js",
-    "./markdown-template/file": "./dist/markdown-template/file.js",
-    "./nuxt": "./dist/nuxt.js",
-    "./queue": "./dist/queue.js",
-    "./rate-limit": "./dist/rate-limit.js",
-    "./realtime": "./dist/realtime.js",
-    "./realtime/server": "./dist/realtime/server.js",
-    "./realtime/vue": "./dist/realtime/vue.js",
-    "./runtime": "./dist/runtime.js",
-    "./runtime/h3": "./dist/runtime/h3.js",
-    "./runtime/node": "./dist/runtime/node.js",
-    "./sandbox": "./dist/sandbox.js",
-    "./schedule": "./dist/schedule.js",
-    "./schedule/runtime": "./dist/schedule/runtime.js",
-    "./schedule/runtime/driver": "./dist/schedule/runtime/driver.js",
-    "./schedule/runtime/kv": "./dist/schedule/runtime/kv.js",
-    "./schedule/runtime/process": "./dist/schedule/runtime/process.js",
-    "./shell": "./dist/shell.js",
-    "./shell/providers/cloudflare": "./dist/shell/providers/cloudflare.js",
-    "./shell/providers/just-bash": "./dist/shell/providers/just-bash.js",
-    "./shell/workspace": "./dist/shell/workspace.js",
-    "./source": "./dist/source.js",
-    "./source/client": "./dist/source/client.js",
-    "./source/file": "./dist/source/file.js",
-    "./source/github": "./dist/source/github.js",
-    "./source/glob": "./dist/source/glob.js",
-    "./source/markdown": "./dist/source/markdown.js",
-    "./source/mcp": "./dist/source/mcp.js",
-    "./source/server": "./dist/source/server.js",
-    "./source/vite": "./dist/source/vite.js",
-    "./ui": "./dist/ui.js",
-    "./ui/agent-capability-inspector": "./dist/ui/agent-capability-inspector.js",
-    "./ui/agent-chat": "./dist/ui/agent-chat.js",
-    "./ui/agent-chat-message": "./dist/ui/agent-chat-message.js",
-    "./ui/agent-chat-prompt": "./dist/ui/agent-chat-prompt.js",
-    "./ui/agent-code-view": "./dist/ui/agent-code-view.js",
-    "./ui/agent-file": "./dist/ui/agent-file.js",
-    "./ui/agent-file-diff": "./dist/ui/agent-file-diff.js",
-    "./ui/agent-file-tree": "./dist/ui/agent-file-tree.js",
-    "./ui/agent-invocation": "./dist/ui/agent-invocation.js",
-    "./ui/agent-invocation-inspector": "./dist/ui/agent-invocation-inspector.js",
-    "./ui/agent-invocation-list": "./dist/ui/agent-invocation-list.js",
-    "./ui/agent-invocation-timeline": "./dist/ui/agent-invocation-timeline.js",
-    "./ui/agent-markdown": "./dist/ui/agent-markdown.js",
-    "./ui/agent-message-parts": "./dist/ui/agent-message-parts.js",
-    "./ui/agent-multi-file-diff": "./dist/ui/agent-multi-file-diff.js",
-    "./ui/agent-patch-diff": "./dist/ui/agent-patch-diff.js",
-    "./ui/agent-session": "./dist/ui/agent-session.js",
-    "./ui/agent-tool-list": "./dist/ui/agent-tool-list.js",
-    "./ui/agent-trace": "./dist/ui/agent-trace.js",
-    "./ui/agent-unresolved-file": "./dist/ui/agent-unresolved-file.js",
-    "./ui/headless": "./dist/ui/headless.js",
-    "./ui/nuxt": "./dist/ui/nuxt.js",
-    "./ui/vite": "./dist/ui/vite.js",
-    "./workflow": "./dist/workflow.js",
-    "./workspace": "./dist/workspace.js",
-    "./workspace/blob-database": "./dist/workspace/blob-database.js",
-    "./workspace/cloudflare": "./dist/workspace/cloudflare.js",
-    "./workspace/loader": "./dist/workspace/loader.js",
-    "./workspace/publish": "./dist/workspace/publish.js",
-    "./workspace/runtime": "./dist/workspace/runtime.js",
-    "./workspace/server": "./dist/workspace/server.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./_internal/agent": {
+      "types": "./dist/_internal/agent.d.ts",
+      "import": "./dist/_internal/agent.js",
+      "require": "./dist/_internal/agent.js",
+      "default": "./dist/_internal/agent.js"
+    },
+    "./_internal/agent/cloudflare": {
+      "types": "./dist/_internal/agent/cloudflare.d.ts",
+      "import": "./dist/_internal/agent/cloudflare.js",
+      "require": "./dist/_internal/agent/cloudflare.js",
+      "default": "./dist/_internal/agent/cloudflare.js"
+    },
+    "./_internal/agent/cloudflare/state": {
+      "types": "./dist/_internal/agent/cloudflare/state.d.ts",
+      "import": "./dist/_internal/agent/cloudflare/state.js",
+      "require": "./dist/_internal/agent/cloudflare/state.js",
+      "default": "./dist/_internal/agent/cloudflare/state.js"
+    },
+    "./_internal/agent/eve": {
+      "types": "./dist/_internal/agent/eve.d.ts",
+      "import": "./dist/_internal/agent/eve.js",
+      "require": "./dist/_internal/agent/eve.js",
+      "default": "./dist/_internal/agent/eve.js"
+    },
+    "./_internal/agent/invocations": {
+      "types": "./dist/_internal/agent/invocations.d.ts",
+      "import": "./dist/_internal/agent/invocations.js",
+      "require": "./dist/_internal/agent/invocations.js",
+      "default": "./dist/_internal/agent/invocations.js"
+    },
+    "./_internal/agent/runtime/invocations-dev": {
+      "types": "./dist/_internal/agent/runtime/invocations-dev.d.ts",
+      "import": "./dist/_internal/agent/runtime/invocations-dev.js",
+      "require": "./dist/_internal/agent/runtime/invocations-dev.js",
+      "default": "./dist/_internal/agent/runtime/invocations-dev.js"
+    },
+    "./_internal/agent/runtime/process": {
+      "types": "./dist/_internal/agent/runtime/process.d.ts",
+      "import": "./dist/_internal/agent/runtime/process.js",
+      "require": "./dist/_internal/agent/runtime/process.js",
+      "default": "./dist/_internal/agent/runtime/process.js"
+    },
+    "./_internal/agent/runtime/workflow": {
+      "types": "./dist/_internal/agent/runtime/workflow.d.ts",
+      "import": "./dist/_internal/agent/runtime/workflow.js",
+      "require": "./dist/_internal/agent/runtime/workflow.js",
+      "default": "./dist/_internal/agent/runtime/workflow.js"
+    },
+    "./_internal/agent/server": {
+      "types": "./dist/_internal/agent/server.d.ts",
+      "import": "./dist/_internal/agent/server.js",
+      "require": "./dist/_internal/agent/server.js",
+      "default": "./dist/_internal/agent/server.js"
+    },
+    "./_internal/agent/server/internal": {
+      "types": "./dist/_internal/agent/server/internal.d.ts",
+      "import": "./dist/_internal/agent/server/internal.js",
+      "require": "./dist/_internal/agent/server/internal.js",
+      "default": "./dist/_internal/agent/server/internal.js"
+    },
+    "./_internal/agent/server/registry": {
+      "types": "./dist/_internal/agent/server/registry.d.ts",
+      "import": "./dist/_internal/agent/server/registry.js",
+      "require": "./dist/_internal/agent/server/registry.js",
+      "default": "./dist/_internal/agent/server/registry.js"
+    },
+    "./_internal/agent/server/workspace": {
+      "types": "./dist/_internal/agent/server/workspace.d.ts",
+      "import": "./dist/_internal/agent/server/workspace.js",
+      "require": "./dist/_internal/agent/server/workspace.js",
+      "default": "./dist/_internal/agent/server/workspace.js"
+    },
+    "./_internal/agent/state/sqlite": {
+      "types": "./dist/_internal/agent/state/sqlite.d.ts",
+      "import": "./dist/_internal/agent/state/sqlite.js",
+      "require": "./dist/_internal/agent/state/sqlite.js",
+      "default": "./dist/_internal/agent/state/sqlite.js"
+    },
+    "./_internal/blob": {
+      "types": "./dist/_internal/blob.d.ts",
+      "import": "./dist/_internal/blob.js",
+      "require": "./dist/_internal/blob.js",
+      "default": "./dist/_internal/blob.js"
+    },
+    "./_internal/blob/runtime/dev": {
+      "types": "./dist/_internal/blob/runtime/dev.d.ts",
+      "import": "./dist/_internal/blob/runtime/dev.js",
+      "require": "./dist/_internal/blob/runtime/dev.js",
+      "default": "./dist/_internal/blob/runtime/dev.js"
+    },
+    "./_internal/blob/runtime/state": {
+      "types": "./dist/_internal/blob/runtime/state.d.ts",
+      "import": "./dist/_internal/blob/runtime/state.js",
+      "require": "./dist/_internal/blob/runtime/state.js",
+      "default": "./dist/_internal/blob/runtime/state.js"
+    },
+    "./_internal/database/runtime/state": {
+      "types": "./dist/_internal/database/runtime/state.d.ts",
+      "import": "./dist/_internal/database/runtime/state.js",
+      "require": "./dist/_internal/database/runtime/state.js",
+      "default": "./dist/_internal/database/runtime/state.js"
+    },
+    "./_internal/email/runtime/console": {
+      "types": "./dist/_internal/email/runtime/console.d.ts",
+      "import": "./dist/_internal/email/runtime/console.js",
+      "require": "./dist/_internal/email/runtime/console.js",
+      "default": "./dist/_internal/email/runtime/console.js"
+    },
+    "./_internal/kv": {
+      "types": "./dist/_internal/kv.d.ts",
+      "import": "./dist/_internal/kv.js",
+      "require": "./dist/_internal/kv.js",
+      "default": "./dist/_internal/kv.js"
+    },
+    "./_internal/kv/runtime/dev": {
+      "types": "./dist/_internal/kv/runtime/dev.d.ts",
+      "import": "./dist/_internal/kv/runtime/dev.js",
+      "require": "./dist/_internal/kv/runtime/dev.js",
+      "default": "./dist/_internal/kv/runtime/dev.js"
+    },
+    "./_internal/kv/runtime/disabled-upstash": {
+      "types": "./dist/_internal/kv/runtime/disabled-upstash.d.ts",
+      "import": "./dist/_internal/kv/runtime/disabled-upstash.js",
+      "require": "./dist/_internal/kv/runtime/disabled-upstash.js",
+      "default": "./dist/_internal/kv/runtime/disabled-upstash.js"
+    },
+    "./_internal/markdown-template": {
+      "types": "./dist/_internal/markdown-template.d.ts",
+      "import": "./dist/_internal/markdown-template.js",
+      "require": "./dist/_internal/markdown-template.js",
+      "default": "./dist/_internal/markdown-template.js"
+    },
+    "./_internal/rate-limit/runtime": {
+      "types": "./dist/_internal/rate-limit/runtime.d.ts",
+      "import": "./dist/_internal/rate-limit/runtime.js",
+      "require": "./dist/_internal/rate-limit/runtime.js",
+      "default": "./dist/_internal/rate-limit/runtime.js"
+    },
+    "./_internal/rate-limit/runtime/console": {
+      "types": "./dist/_internal/rate-limit/runtime/console.d.ts",
+      "import": "./dist/_internal/rate-limit/runtime/console.js",
+      "require": "./dist/_internal/rate-limit/runtime/console.js",
+      "default": "./dist/_internal/rate-limit/runtime/console.js"
+    },
+    "./_internal/sandbox/runtime/state": {
+      "types": "./dist/_internal/sandbox/runtime/state.d.ts",
+      "import": "./dist/_internal/sandbox/runtime/state.js",
+      "require": "./dist/_internal/sandbox/runtime/state.js",
+      "default": "./dist/_internal/sandbox/runtime/state.js"
+    },
+    "./_internal/schedule": {
+      "types": "./dist/_internal/schedule.d.ts",
+      "import": "./dist/_internal/schedule.js",
+      "require": "./dist/_internal/schedule.js",
+      "default": "./dist/_internal/schedule.js"
+    },
+    "./_internal/schedule/runtime": {
+      "types": "./dist/_internal/schedule/runtime.d.ts",
+      "import": "./dist/_internal/schedule/runtime.js",
+      "require": "./dist/_internal/schedule/runtime.js",
+      "default": "./dist/_internal/schedule/runtime.js"
+    },
+    "./_internal/schedule/runtime/console": {
+      "types": "./dist/_internal/schedule/runtime/console.d.ts",
+      "import": "./dist/_internal/schedule/runtime/console.js",
+      "require": "./dist/_internal/schedule/runtime/console.js",
+      "default": "./dist/_internal/schedule/runtime/console.js"
+    },
+    "./_internal/schedule/runtime/dev": {
+      "types": "./dist/_internal/schedule/runtime/dev.d.ts",
+      "import": "./dist/_internal/schedule/runtime/dev.js",
+      "require": "./dist/_internal/schedule/runtime/dev.js",
+      "default": "./dist/_internal/schedule/runtime/dev.js"
+    },
+    "./_internal/schedule/runtime/driver": {
+      "types": "./dist/_internal/schedule/runtime/driver.d.ts",
+      "import": "./dist/_internal/schedule/runtime/driver.js",
+      "require": "./dist/_internal/schedule/runtime/driver.js",
+      "default": "./dist/_internal/schedule/runtime/driver.js"
+    },
+    "./_internal/schedule/runtime/kv": {
+      "types": "./dist/_internal/schedule/runtime/kv.d.ts",
+      "import": "./dist/_internal/schedule/runtime/kv.js",
+      "require": "./dist/_internal/schedule/runtime/kv.js",
+      "default": "./dist/_internal/schedule/runtime/kv.js"
+    },
+    "./_internal/schedule/runtime/process": {
+      "types": "./dist/_internal/schedule/runtime/process.d.ts",
+      "import": "./dist/_internal/schedule/runtime/process.js",
+      "require": "./dist/_internal/schedule/runtime/process.js",
+      "default": "./dist/_internal/schedule/runtime/process.js"
+    },
+    "./_internal/schedule/runtime/static": {
+      "types": "./dist/_internal/schedule/runtime/static.d.ts",
+      "import": "./dist/_internal/schedule/runtime/static.js",
+      "require": "./dist/_internal/schedule/runtime/static.js",
+      "default": "./dist/_internal/schedule/runtime/static.js"
+    },
+    "./_internal/workflow": {
+      "types": "./dist/_internal/workflow.d.ts",
+      "import": "./dist/_internal/workflow.js",
+      "require": "./dist/_internal/workflow.js",
+      "default": "./dist/_internal/workflow.js"
+    },
+    "./_internal/workflow/runtime/cloudflare-runner": {
+      "types": "./dist/_internal/workflow/runtime/cloudflare-runner.d.ts",
+      "import": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
+      "require": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
+      "default": "./dist/_internal/workflow/runtime/cloudflare-runner.js"
+    },
+    "./_internal/workflow/runtime/cloudflare-vite": {
+      "types": "./dist/_internal/workflow/runtime/cloudflare-vite.d.ts",
+      "import": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
+      "require": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
+      "default": "./dist/_internal/workflow/runtime/cloudflare-vite.js"
+    },
+    "./_internal/workflow/runtime/dev": {
+      "types": "./dist/_internal/workflow/runtime/dev.d.ts",
+      "import": "./dist/_internal/workflow/runtime/dev.js",
+      "require": "./dist/_internal/workflow/runtime/dev.js",
+      "default": "./dist/_internal/workflow/runtime/dev.js"
+    },
+    "./_internal/workflow/runtime/execute": {
+      "types": "./dist/_internal/workflow/runtime/execute.d.ts",
+      "import": "./dist/_internal/workflow/runtime/execute.js",
+      "require": "./dist/_internal/workflow/runtime/execute.js",
+      "default": "./dist/_internal/workflow/runtime/execute.js"
+    },
+    "./_internal/workflow/runtime/state": {
+      "types": "./dist/_internal/workflow/runtime/state.d.ts",
+      "import": "./dist/_internal/workflow/runtime/state.js",
+      "require": "./dist/_internal/workflow/runtime/state.js",
+      "default": "./dist/_internal/workflow/runtime/state.js"
+    },
+    "./_internal/workflow/runtime/vercel-vite": {
+      "types": "./dist/_internal/workflow/runtime/vercel-vite.d.ts",
+      "import": "./dist/_internal/workflow/runtime/vercel-vite.js",
+      "require": "./dist/_internal/workflow/runtime/vercel-vite.js",
+      "default": "./dist/_internal/workflow/runtime/vercel-vite.js"
+    },
+    "./_internal/workspace": {
+      "types": "./dist/_internal/workspace.d.ts",
+      "import": "./dist/_internal/workspace.js",
+      "require": "./dist/_internal/workspace.js",
+      "default": "./dist/_internal/workspace.js"
+    },
+    "./_internal/workspace/internal/runtime/history-dev": {
+      "types": "./dist/_internal/workspace/internal/runtime/history-dev.d.ts",
+      "import": "./dist/_internal/workspace/internal/runtime/history-dev.js",
+      "require": "./dist/_internal/workspace/internal/runtime/history-dev.js",
+      "default": "./dist/_internal/workspace/internal/runtime/history-dev.js"
+    },
+    "./_internal/workspace/internal/runtime/hosted": {
+      "types": "./dist/_internal/workspace/internal/runtime/hosted.d.ts",
+      "import": "./dist/_internal/workspace/internal/runtime/hosted.js",
+      "require": "./dist/_internal/workspace/internal/runtime/hosted.js",
+      "default": "./dist/_internal/workspace/internal/runtime/hosted.js"
+    },
+    "./_internal/workspace/internal/runtime/hosted-vercel-blob": {
+      "types": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.d.ts",
+      "import": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js",
+      "require": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js",
+      "default": "./dist/_internal/workspace/internal/runtime/hosted-vercel-blob.js"
+    },
+    "./_internal/workspace/internal/runtime/state": {
+      "types": "./dist/_internal/workspace/internal/runtime/state.d.ts",
+      "import": "./dist/_internal/workspace/internal/runtime/state.js",
+      "require": "./dist/_internal/workspace/internal/runtime/state.js",
+      "default": "./dist/_internal/workspace/internal/runtime/state.js"
+    },
+    "./_internal/workspace/runtime": {
+      "types": "./dist/_internal/workspace/runtime.d.ts",
+      "import": "./dist/_internal/workspace/runtime.js",
+      "require": "./dist/_internal/workspace/runtime.js",
+      "default": "./dist/_internal/workspace/runtime.js"
+    },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js",
+      "require": "./dist/agent.js",
+      "default": "./dist/agent.js"
+    },
+    "./agent/capabilities": {
+      "types": "./dist/agent/capabilities.d.ts",
+      "import": "./dist/agent/capabilities.js",
+      "require": "./dist/agent/capabilities.js",
+      "default": "./dist/agent/capabilities.js"
+    },
+    "./agent/channels": {
+      "types": "./dist/agent/channels.d.ts",
+      "import": "./dist/agent/channels.js",
+      "require": "./dist/agent/channels.js",
+      "default": "./dist/agent/channels.js"
+    },
+    "./agent/cloudflare": {
+      "types": "./dist/agent/cloudflare.d.ts",
+      "import": "./dist/agent/cloudflare.js",
+      "require": "./dist/agent/cloudflare.js",
+      "default": "./dist/agent/cloudflare.js"
+    },
+    "./agent/eval": {
+      "types": "./dist/agent/eval.d.ts",
+      "import": "./dist/agent/eval.js",
+      "require": "./dist/agent/eval.js",
+      "default": "./dist/agent/eval.js"
+    },
+    "./agent/evlog": {
+      "types": "./dist/agent/evlog.d.ts",
+      "import": "./dist/agent/evlog.js",
+      "require": "./dist/agent/evlog.js",
+      "default": "./dist/agent/evlog.js"
+    },
+    "./agent/evlog/posthog": {
+      "types": "./dist/agent/evlog/posthog.d.ts",
+      "import": "./dist/agent/evlog/posthog.js",
+      "require": "./dist/agent/evlog/posthog.js",
+      "default": "./dist/agent/evlog/posthog.js"
+    },
+    "./agent/gateways": {
+      "types": "./dist/agent/gateways.d.ts",
+      "import": "./dist/agent/gateways.js",
+      "require": "./dist/agent/gateways.js",
+      "default": "./dist/agent/gateways.js"
+    },
+    "./agent/invocations/d1": {
+      "types": "./dist/agent/invocations/d1.d.ts",
+      "import": "./dist/agent/invocations/d1.js",
+      "require": "./dist/agent/invocations/d1.js",
+      "default": "./dist/agent/invocations/d1.js"
+    },
+    "./agent/invocations/database": {
+      "types": "./dist/agent/invocations/database.d.ts",
+      "import": "./dist/agent/invocations/database.js",
+      "require": "./dist/agent/invocations/database.js",
+      "default": "./dist/agent/invocations/database.js"
+    },
+    "./agent/invocations/sqlite": {
+      "types": "./dist/agent/invocations/sqlite.d.ts",
+      "import": "./dist/agent/invocations/sqlite.js",
+      "require": "./dist/agent/invocations/sqlite.js",
+      "default": "./dist/agent/invocations/sqlite.js"
+    },
+    "./agent/mcp": {
+      "types": "./dist/agent/mcp.d.ts",
+      "import": "./dist/agent/mcp.js",
+      "require": "./dist/agent/mcp.js",
+      "default": "./dist/agent/mcp.js"
+    },
+    "./agent/observability": {
+      "types": "./dist/agent/observability.d.ts",
+      "import": "./dist/agent/observability.js",
+      "require": "./dist/agent/observability.js",
+      "default": "./dist/agent/observability.js"
+    },
+    "./agent/presets/babysitter": {
+      "types": "./dist/agent/presets/babysitter.d.ts",
+      "import": "./dist/agent/presets/babysitter.js",
+      "require": "./dist/agent/presets/babysitter.js",
+      "default": "./dist/agent/presets/babysitter.js"
+    },
+    "./agent/presets/babysitter/server": {
+      "types": "./dist/agent/presets/babysitter/server.d.ts",
+      "import": "./dist/agent/presets/babysitter/server.js",
+      "require": "./dist/agent/presets/babysitter/server.js",
+      "default": "./dist/agent/presets/babysitter/server.js"
+    },
+    "./agent/presets/labeller": {
+      "types": "./dist/agent/presets/labeller.d.ts",
+      "import": "./dist/agent/presets/labeller.js",
+      "require": "./dist/agent/presets/labeller.js",
+      "default": "./dist/agent/presets/labeller.js"
+    },
+    "./agent/presets/workspace": {
+      "types": "./dist/agent/presets/workspace.d.ts",
+      "import": "./dist/agent/presets/workspace.js",
+      "require": "./dist/agent/presets/workspace.js",
+      "default": "./dist/agent/presets/workspace.js"
+    },
+    "./agent/runtime/process": {
+      "types": "./dist/agent/runtime/process.d.ts",
+      "import": "./dist/agent/runtime/process.js",
+      "require": "./dist/agent/runtime/process.js",
+      "default": "./dist/agent/runtime/process.js"
+    },
+    "./agent/server": {
+      "types": "./dist/agent/server.d.ts",
+      "import": "./dist/agent/server.js",
+      "require": "./dist/agent/server.js",
+      "default": "./dist/agent/server.js"
+    },
+    "./agent/server/github": {
+      "types": "./dist/agent/server/github.d.ts",
+      "import": "./dist/agent/server/github.js",
+      "require": "./dist/agent/server/github.js",
+      "default": "./dist/agent/server/github.js"
+    },
+    "./agent/server/github-inbox": {
+      "types": "./dist/agent/server/github-inbox.d.ts",
+      "import": "./dist/agent/server/github-inbox.js",
+      "require": "./dist/agent/server/github-inbox.js",
+      "default": "./dist/agent/server/github-inbox.js"
+    },
+    "./agent/state/sqlite": {
+      "types": "./dist/agent/state/sqlite.d.ts",
+      "import": "./dist/agent/state/sqlite.js",
+      "require": "./dist/agent/state/sqlite.js",
+      "default": "./dist/agent/state/sqlite.js"
+    },
+    "./agent/vite": {
+      "types": "./dist/agent/vite.d.ts",
+      "import": "./dist/agent/vite.js",
+      "require": "./dist/agent/vite.js",
+      "default": "./dist/agent/vite.js"
+    },
+    "./agent/vue": {
+      "types": "./dist/agent/vue.d.ts",
+      "import": "./dist/agent/vue.js",
+      "require": "./dist/agent/vue.js",
+      "default": "./dist/agent/vue.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js",
+      "require": "./dist/auth.js",
+      "default": "./dist/auth.js"
+    },
+    "./auth/agent": {
+      "types": "./dist/auth/agent.d.ts",
+      "import": "./dist/auth/agent.js",
+      "require": "./dist/auth/agent.js",
+      "default": "./dist/auth/agent.js"
+    },
+    "./auth/server": {
+      "types": "./dist/auth/server.d.ts",
+      "import": "./dist/auth/server.js",
+      "require": "./dist/auth/server.js",
+      "default": "./dist/auth/server.js"
+    },
+    "./auth/vue": {
+      "types": "./dist/auth/vue.d.ts",
+      "import": "./dist/auth/vue.js",
+      "require": "./dist/auth/vue.js",
+      "default": "./dist/auth/vue.js"
+    },
+    "./blob": {
+      "types": "./dist/blob.d.ts",
+      "import": "./dist/blob.js",
+      "require": "./dist/blob.js",
+      "default": "./dist/blob.js"
+    },
+    "./blob/client": {
+      "types": "./dist/blob/client.d.ts",
+      "import": "./dist/blob/client.js",
+      "require": "./dist/blob/client.js",
+      "default": "./dist/blob/client.js"
+    },
+    "./blob/content-type": {
+      "types": "./dist/blob/content-type.d.ts",
+      "import": "./dist/blob/content-type.js",
+      "require": "./dist/blob/content-type.js",
+      "default": "./dist/blob/content-type.js"
+    },
+    "./blob/vue": {
+      "types": "./dist/blob/vue.d.ts",
+      "import": "./dist/blob/vue.js",
+      "require": "./dist/blob/vue.js",
+      "default": "./dist/blob/vue.js"
+    },
+    "./box": {
+      "types": "./dist/box.d.ts",
+      "import": "./dist/box.js",
+      "require": "./dist/box.js",
+      "default": "./dist/box.js"
+    },
+    "./box/ssh": {
+      "types": "./dist/box/ssh.d.ts",
+      "import": "./dist/box/ssh.js",
+      "require": "./dist/box/ssh.js",
+      "default": "./dist/box/ssh.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js",
+      "require": "./dist/browser.js",
+      "default": "./dist/browser.js"
+    },
+    "./browser/actions": {
+      "types": "./dist/browser/actions.d.ts",
+      "import": "./dist/browser/actions.js",
+      "require": "./dist/browser/actions.js",
+      "default": "./dist/browser/actions.js"
+    },
+    "./browser/controllers/cdp": {
+      "types": "./dist/browser/controllers/cdp.d.ts",
+      "import": "./dist/browser/controllers/cdp.js",
+      "require": "./dist/browser/controllers/cdp.js",
+      "default": "./dist/browser/controllers/cdp.js"
+    },
+    "./browser/controllers/playwright": {
+      "types": "./dist/browser/controllers/playwright.d.ts",
+      "import": "./dist/browser/controllers/playwright.js",
+      "require": "./dist/browser/controllers/playwright.js",
+      "default": "./dist/browser/controllers/playwright.js"
+    },
+    "./browser/providers/cloudflare": {
+      "types": "./dist/browser/providers/cloudflare.d.ts",
+      "import": "./dist/browser/providers/cloudflare.js",
+      "require": "./dist/browser/providers/cloudflare.js",
+      "default": "./dist/browser/providers/cloudflare.js"
+    },
+    "./browser/providers/local": {
+      "types": "./dist/browser/providers/local.d.ts",
+      "import": "./dist/browser/providers/local.js",
+      "require": "./dist/browser/providers/local.js",
+      "default": "./dist/browser/providers/local.js"
+    },
+    "./channels": {
+      "types": "./dist/channels.d.ts",
+      "import": "./dist/channels.js",
+      "require": "./dist/channels.js",
+      "default": "./dist/channels.js"
+    },
+    "./channels/server": {
+      "types": "./dist/channels/server.d.ts",
+      "import": "./dist/channels/server.js",
+      "require": "./dist/channels/server.js",
+      "default": "./dist/channels/server.js"
+    },
+    "./connections": {
+      "types": "./dist/connections.d.ts",
+      "import": "./dist/connections.js",
+      "require": "./dist/connections.js",
+      "default": "./dist/connections.js"
+    },
+    "./connections/agent": {
+      "types": "./dist/connections/agent.d.ts",
+      "import": "./dist/connections/agent.js",
+      "require": "./dist/connections/agent.js",
+      "default": "./dist/connections/agent.js"
+    },
+    "./connections/google": {
+      "types": "./dist/connections/google.d.ts",
+      "import": "./dist/connections/google.js",
+      "require": "./dist/connections/google.js",
+      "default": "./dist/connections/google.js"
+    },
+    "./connections/http": {
+      "types": "./dist/connections/http.d.ts",
+      "import": "./dist/connections/http.js",
+      "require": "./dist/connections/http.js",
+      "default": "./dist/connections/http.js"
+    },
+    "./connections/server": {
+      "types": "./dist/connections/server.d.ts",
+      "import": "./dist/connections/server.js",
+      "require": "./dist/connections/server.js",
+      "default": "./dist/connections/server.js"
+    },
+    "./console": {
+      "types": "./dist/console.d.ts",
+      "import": "./dist/console.js",
+      "require": "./dist/console.js",
+      "default": "./dist/console.js"
+    },
+    "./console/auth": {
+      "types": "./dist/console/auth.d.ts",
+      "import": "./dist/console/auth.js",
+      "require": "./dist/console/auth.js",
+      "default": "./dist/console/auth.js"
+    },
+    "./console/server": {
+      "types": "./dist/console/server.d.ts",
+      "import": "./dist/console/server.js",
+      "require": "./dist/console/server.js",
+      "default": "./dist/console/server.js"
+    },
+    "./content": {
+      "types": "./dist/content.d.ts",
+      "import": "./dist/content.js",
+      "require": "./dist/content.js",
+      "default": "./dist/content.js"
+    },
+    "./content/client": {
+      "types": "./dist/content/client.d.ts",
+      "import": "./dist/content/client.js",
+      "require": "./dist/content/client.js",
+      "default": "./dist/content/client.js"
+    },
+    "./database": {
+      "types": "./dist/database.d.ts",
+      "import": "./dist/database.js",
+      "require": "./dist/database.js",
+      "default": "./dist/database.js"
+    },
+    "./database/drizzle": {
+      "types": "./dist/database/drizzle.d.ts",
+      "import": "./dist/database/drizzle.js",
+      "require": "./dist/database/drizzle.js",
+      "default": "./dist/database/drizzle.js"
+    },
+    "./doctor": {
+      "types": "./dist/doctor.d.ts",
+      "import": "./dist/doctor.js",
+      "require": "./dist/doctor.js",
+      "default": "./dist/doctor.js"
+    },
+    "./email": {
+      "types": "./dist/email.d.ts",
+      "import": "./dist/email.js",
+      "require": "./dist/email.js",
+      "default": "./dist/email.js"
+    },
+    "./email/markdown": {
+      "types": "./dist/email/markdown.d.ts",
+      "import": "./dist/email/markdown.js",
+      "require": "./dist/email/markdown.js",
+      "default": "./dist/email/markdown.js"
+    },
+    "./email/server": {
+      "types": "./dist/email/server.d.ts",
+      "import": "./dist/email/server.js",
+      "require": "./dist/email/server.js",
+      "default": "./dist/email/server.js"
+    },
+    "./env": {
+      "types": "./dist/env.d.ts",
+      "import": "./dist/env.js",
+      "require": "./dist/env.js",
+      "default": "./dist/env.js"
+    },
+    "./env/auth": {
+      "types": "./dist/env/auth.d.ts",
+      "import": "./dist/env/auth.js",
+      "require": "./dist/env/auth.js",
+      "default": "./dist/env/auth.js"
+    },
+    "./env/bridge": {
+      "types": "./dist/env/bridge.d.ts",
+      "import": "./dist/env/bridge.js",
+      "require": "./dist/env/bridge.js",
+      "default": "./dist/env/bridge.js"
+    },
+    "./env/database": {
+      "types": "./dist/env/database.d.ts",
+      "import": "./dist/env/database.js",
+      "require": "./dist/env/database.js",
+      "default": "./dist/env/database.js"
+    },
+    "./env/http": {
+      "types": "./dist/env/http.d.ts",
+      "import": "./dist/env/http.js",
+      "require": "./dist/env/http.js",
+      "default": "./dist/env/http.js"
+    },
+    "./env/presets": {
+      "types": "./dist/env/presets.d.ts",
+      "import": "./dist/env/presets.js",
+      "require": "./dist/env/presets.js",
+      "default": "./dist/env/presets.js"
+    },
+    "./env/provider": {
+      "types": "./dist/env/provider.d.ts",
+      "import": "./dist/env/provider.js",
+      "require": "./dist/env/provider.js",
+      "default": "./dist/env/provider.js"
+    },
+    "./env/schema": {
+      "types": "./dist/env/schema.d.ts",
+      "import": "./dist/env/schema.js",
+      "require": "./dist/env/schema.js",
+      "default": "./dist/env/schema.js"
+    },
+    "./env/secret": {
+      "types": "./dist/env/secret.d.ts",
+      "import": "./dist/env/secret.js",
+      "require": "./dist/env/secret.js",
+      "default": "./dist/env/secret.js"
+    },
+    "./env/server": {
+      "types": "./dist/env/server.d.ts",
+      "import": "./dist/env/server.js",
+      "require": "./dist/env/server.js",
+      "default": "./dist/env/server.js"
+    },
+    "./kv": {
+      "types": "./dist/kv.d.ts",
+      "import": "./dist/kv.js",
+      "require": "./dist/kv.js",
+      "default": "./dist/kv.js"
+    },
+    "./markdown-template": {
+      "types": "./dist/markdown-template.d.ts",
+      "import": "./dist/markdown-template.js",
+      "require": "./dist/markdown-template.js",
+      "default": "./dist/markdown-template.js"
+    },
+    "./markdown-template/file": {
+      "types": "./dist/markdown-template/file.d.ts",
+      "import": "./dist/markdown-template/file.js",
+      "require": "./dist/markdown-template/file.js",
+      "default": "./dist/markdown-template/file.js"
+    },
+    "./nuxt": {
+      "types": "./dist/nuxt.d.ts",
+      "import": "./dist/nuxt.js",
+      "require": "./dist/nuxt.js",
+      "default": "./dist/nuxt.js"
+    },
+    "./queue": {
+      "types": "./dist/queue.d.ts",
+      "import": "./dist/queue.js",
+      "require": "./dist/queue.js",
+      "default": "./dist/queue.js"
+    },
+    "./rate-limit": {
+      "types": "./dist/rate-limit.d.ts",
+      "import": "./dist/rate-limit.js",
+      "require": "./dist/rate-limit.js",
+      "default": "./dist/rate-limit.js"
+    },
+    "./realtime": {
+      "types": "./dist/realtime.d.ts",
+      "import": "./dist/realtime.js",
+      "require": "./dist/realtime.js",
+      "default": "./dist/realtime.js"
+    },
+    "./realtime/server": {
+      "types": "./dist/realtime/server.d.ts",
+      "import": "./dist/realtime/server.js",
+      "require": "./dist/realtime/server.js",
+      "default": "./dist/realtime/server.js"
+    },
+    "./realtime/vue": {
+      "types": "./dist/realtime/vue.d.ts",
+      "import": "./dist/realtime/vue.js",
+      "require": "./dist/realtime/vue.js",
+      "default": "./dist/realtime/vue.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "require": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
+    },
+    "./runtime/h3": {
+      "types": "./dist/runtime/h3.d.ts",
+      "import": "./dist/runtime/h3.js",
+      "require": "./dist/runtime/h3.js",
+      "default": "./dist/runtime/h3.js"
+    },
+    "./runtime/node": {
+      "types": "./dist/runtime/node.d.ts",
+      "import": "./dist/runtime/node.js",
+      "require": "./dist/runtime/node.js",
+      "default": "./dist/runtime/node.js"
+    },
+    "./sandbox": {
+      "types": "./dist/sandbox.d.ts",
+      "import": "./dist/sandbox.js",
+      "require": "./dist/sandbox.js",
+      "default": "./dist/sandbox.js"
+    },
+    "./schedule": {
+      "types": "./dist/schedule.d.ts",
+      "import": "./dist/schedule.js",
+      "require": "./dist/schedule.js",
+      "default": "./dist/schedule.js"
+    },
+    "./schedule/runtime": {
+      "types": "./dist/schedule/runtime.d.ts",
+      "import": "./dist/schedule/runtime.js",
+      "require": "./dist/schedule/runtime.js",
+      "default": "./dist/schedule/runtime.js"
+    },
+    "./schedule/runtime/driver": {
+      "types": "./dist/schedule/runtime/driver.d.ts",
+      "import": "./dist/schedule/runtime/driver.js",
+      "require": "./dist/schedule/runtime/driver.js",
+      "default": "./dist/schedule/runtime/driver.js"
+    },
+    "./schedule/runtime/kv": {
+      "types": "./dist/schedule/runtime/kv.d.ts",
+      "import": "./dist/schedule/runtime/kv.js",
+      "require": "./dist/schedule/runtime/kv.js",
+      "default": "./dist/schedule/runtime/kv.js"
+    },
+    "./schedule/runtime/process": {
+      "types": "./dist/schedule/runtime/process.d.ts",
+      "import": "./dist/schedule/runtime/process.js",
+      "require": "./dist/schedule/runtime/process.js",
+      "default": "./dist/schedule/runtime/process.js"
+    },
+    "./shell": {
+      "types": "./dist/shell.d.ts",
+      "import": "./dist/shell.js",
+      "require": "./dist/shell.js",
+      "default": "./dist/shell.js"
+    },
+    "./shell/providers/cloudflare": {
+      "types": "./dist/shell/providers/cloudflare.d.ts",
+      "import": "./dist/shell/providers/cloudflare.js",
+      "require": "./dist/shell/providers/cloudflare.js",
+      "default": "./dist/shell/providers/cloudflare.js"
+    },
+    "./shell/providers/just-bash": {
+      "types": "./dist/shell/providers/just-bash.d.ts",
+      "import": "./dist/shell/providers/just-bash.js",
+      "require": "./dist/shell/providers/just-bash.js",
+      "default": "./dist/shell/providers/just-bash.js"
+    },
+    "./shell/workspace": {
+      "types": "./dist/shell/workspace.d.ts",
+      "import": "./dist/shell/workspace.js",
+      "require": "./dist/shell/workspace.js",
+      "default": "./dist/shell/workspace.js"
+    },
+    "./source": {
+      "types": "./dist/source.d.ts",
+      "import": "./dist/source.js",
+      "require": "./dist/source.js",
+      "default": "./dist/source.js"
+    },
+    "./source/client": {
+      "types": "./dist/source/client.d.ts",
+      "import": "./dist/source/client.js",
+      "require": "./dist/source/client.js",
+      "default": "./dist/source/client.js"
+    },
+    "./source/file": {
+      "types": "./dist/source/file.d.ts",
+      "import": "./dist/source/file.js",
+      "require": "./dist/source/file.js",
+      "default": "./dist/source/file.js"
+    },
+    "./source/github": {
+      "types": "./dist/source/github.d.ts",
+      "import": "./dist/source/github.js",
+      "require": "./dist/source/github.js",
+      "default": "./dist/source/github.js"
+    },
+    "./source/glob": {
+      "types": "./dist/source/glob.d.ts",
+      "import": "./dist/source/glob.js",
+      "require": "./dist/source/glob.js",
+      "default": "./dist/source/glob.js"
+    },
+    "./source/markdown": {
+      "types": "./dist/source/markdown.d.ts",
+      "import": "./dist/source/markdown.js",
+      "require": "./dist/source/markdown.js",
+      "default": "./dist/source/markdown.js"
+    },
+    "./source/mcp": {
+      "types": "./dist/source/mcp.d.ts",
+      "import": "./dist/source/mcp.js",
+      "require": "./dist/source/mcp.js",
+      "default": "./dist/source/mcp.js"
+    },
+    "./source/server": {
+      "types": "./dist/source/server.d.ts",
+      "import": "./dist/source/server.js",
+      "require": "./dist/source/server.js",
+      "default": "./dist/source/server.js"
+    },
+    "./source/vite": {
+      "types": "./dist/source/vite.d.ts",
+      "import": "./dist/source/vite.js",
+      "require": "./dist/source/vite.js",
+      "default": "./dist/source/vite.js"
+    },
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "import": "./dist/ui.js",
+      "require": "./dist/ui.js",
+      "default": "./dist/ui.js"
+    },
+    "./ui/agent-capability-inspector": {
+      "types": "./dist/ui/agent-capability-inspector.d.ts",
+      "import": "./dist/ui/agent-capability-inspector.js",
+      "require": "./dist/ui/agent-capability-inspector.js",
+      "default": "./dist/ui/agent-capability-inspector.js"
+    },
+    "./ui/agent-chat": {
+      "types": "./dist/ui/agent-chat.d.ts",
+      "import": "./dist/ui/agent-chat.js",
+      "require": "./dist/ui/agent-chat.js",
+      "default": "./dist/ui/agent-chat.js"
+    },
+    "./ui/agent-chat-message": {
+      "types": "./dist/ui/agent-chat-message.d.ts",
+      "import": "./dist/ui/agent-chat-message.js",
+      "require": "./dist/ui/agent-chat-message.js",
+      "default": "./dist/ui/agent-chat-message.js"
+    },
+    "./ui/agent-chat-prompt": {
+      "types": "./dist/ui/agent-chat-prompt.d.ts",
+      "import": "./dist/ui/agent-chat-prompt.js",
+      "require": "./dist/ui/agent-chat-prompt.js",
+      "default": "./dist/ui/agent-chat-prompt.js"
+    },
+    "./ui/agent-code-view": {
+      "types": "./dist/ui/agent-code-view.d.ts",
+      "import": "./dist/ui/agent-code-view.js",
+      "require": "./dist/ui/agent-code-view.js",
+      "default": "./dist/ui/agent-code-view.js"
+    },
+    "./ui/agent-file": {
+      "types": "./dist/ui/agent-file.d.ts",
+      "import": "./dist/ui/agent-file.js",
+      "require": "./dist/ui/agent-file.js",
+      "default": "./dist/ui/agent-file.js"
+    },
+    "./ui/agent-file-diff": {
+      "types": "./dist/ui/agent-file-diff.d.ts",
+      "import": "./dist/ui/agent-file-diff.js",
+      "require": "./dist/ui/agent-file-diff.js",
+      "default": "./dist/ui/agent-file-diff.js"
+    },
+    "./ui/agent-file-tree": {
+      "types": "./dist/ui/agent-file-tree.d.ts",
+      "import": "./dist/ui/agent-file-tree.js",
+      "require": "./dist/ui/agent-file-tree.js",
+      "default": "./dist/ui/agent-file-tree.js"
+    },
+    "./ui/agent-invocation": {
+      "types": "./dist/ui/agent-invocation.d.ts",
+      "import": "./dist/ui/agent-invocation.js",
+      "require": "./dist/ui/agent-invocation.js",
+      "default": "./dist/ui/agent-invocation.js"
+    },
+    "./ui/agent-invocation-inspector": {
+      "types": "./dist/ui/agent-invocation-inspector.d.ts",
+      "import": "./dist/ui/agent-invocation-inspector.js",
+      "require": "./dist/ui/agent-invocation-inspector.js",
+      "default": "./dist/ui/agent-invocation-inspector.js"
+    },
+    "./ui/agent-invocation-list": {
+      "types": "./dist/ui/agent-invocation-list.d.ts",
+      "import": "./dist/ui/agent-invocation-list.js",
+      "require": "./dist/ui/agent-invocation-list.js",
+      "default": "./dist/ui/agent-invocation-list.js"
+    },
+    "./ui/agent-invocation-timeline": {
+      "types": "./dist/ui/agent-invocation-timeline.d.ts",
+      "import": "./dist/ui/agent-invocation-timeline.js",
+      "require": "./dist/ui/agent-invocation-timeline.js",
+      "default": "./dist/ui/agent-invocation-timeline.js"
+    },
+    "./ui/agent-markdown": {
+      "types": "./dist/ui/agent-markdown.d.ts",
+      "import": "./dist/ui/agent-markdown.js",
+      "require": "./dist/ui/agent-markdown.js",
+      "default": "./dist/ui/agent-markdown.js"
+    },
+    "./ui/agent-message-parts": {
+      "types": "./dist/ui/agent-message-parts.d.ts",
+      "import": "./dist/ui/agent-message-parts.js",
+      "require": "./dist/ui/agent-message-parts.js",
+      "default": "./dist/ui/agent-message-parts.js"
+    },
+    "./ui/agent-multi-file-diff": {
+      "types": "./dist/ui/agent-multi-file-diff.d.ts",
+      "import": "./dist/ui/agent-multi-file-diff.js",
+      "require": "./dist/ui/agent-multi-file-diff.js",
+      "default": "./dist/ui/agent-multi-file-diff.js"
+    },
+    "./ui/agent-patch-diff": {
+      "types": "./dist/ui/agent-patch-diff.d.ts",
+      "import": "./dist/ui/agent-patch-diff.js",
+      "require": "./dist/ui/agent-patch-diff.js",
+      "default": "./dist/ui/agent-patch-diff.js"
+    },
+    "./ui/agent-session": {
+      "types": "./dist/ui/agent-session.d.ts",
+      "import": "./dist/ui/agent-session.js",
+      "require": "./dist/ui/agent-session.js",
+      "default": "./dist/ui/agent-session.js"
+    },
+    "./ui/agent-tool-list": {
+      "types": "./dist/ui/agent-tool-list.d.ts",
+      "import": "./dist/ui/agent-tool-list.js",
+      "require": "./dist/ui/agent-tool-list.js",
+      "default": "./dist/ui/agent-tool-list.js"
+    },
+    "./ui/agent-trace": {
+      "types": "./dist/ui/agent-trace.d.ts",
+      "import": "./dist/ui/agent-trace.js",
+      "require": "./dist/ui/agent-trace.js",
+      "default": "./dist/ui/agent-trace.js"
+    },
+    "./ui/agent-unresolved-file": {
+      "types": "./dist/ui/agent-unresolved-file.d.ts",
+      "import": "./dist/ui/agent-unresolved-file.js",
+      "require": "./dist/ui/agent-unresolved-file.js",
+      "default": "./dist/ui/agent-unresolved-file.js"
+    },
+    "./ui/headless": {
+      "types": "./dist/ui/headless.d.ts",
+      "import": "./dist/ui/headless.js",
+      "require": "./dist/ui/headless.js",
+      "default": "./dist/ui/headless.js"
+    },
+    "./ui/nuxt": {
+      "types": "./dist/ui/nuxt.d.ts",
+      "import": "./dist/ui/nuxt.js",
+      "require": "./dist/ui/nuxt.js",
+      "default": "./dist/ui/nuxt.js"
+    },
+    "./ui/vite": {
+      "types": "./dist/ui/vite.d.ts",
+      "import": "./dist/ui/vite.js",
+      "require": "./dist/ui/vite.js",
+      "default": "./dist/ui/vite.js"
+    },
+    "./workflow": {
+      "types": "./dist/workflow.d.ts",
+      "import": "./dist/workflow.js",
+      "require": "./dist/workflow.js",
+      "default": "./dist/workflow.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace.d.ts",
+      "import": "./dist/workspace.js",
+      "require": "./dist/workspace.js",
+      "default": "./dist/workspace.js"
+    },
+    "./workspace/blob-database": {
+      "types": "./dist/workspace/blob-database.d.ts",
+      "import": "./dist/workspace/blob-database.js",
+      "require": "./dist/workspace/blob-database.js",
+      "default": "./dist/workspace/blob-database.js"
+    },
+    "./workspace/cloudflare": {
+      "types": "./dist/workspace/cloudflare.d.ts",
+      "import": "./dist/workspace/cloudflare.js",
+      "require": "./dist/workspace/cloudflare.js",
+      "default": "./dist/workspace/cloudflare.js"
+    },
+    "./workspace/loader": {
+      "types": "./dist/workspace/loader.d.ts",
+      "import": "./dist/workspace/loader.js",
+      "require": "./dist/workspace/loader.js",
+      "default": "./dist/workspace/loader.js"
+    },
+    "./workspace/publish": {
+      "types": "./dist/workspace/publish.d.ts",
+      "import": "./dist/workspace/publish.js",
+      "require": "./dist/workspace/publish.js",
+      "default": "./dist/workspace/publish.js"
+    },
+    "./workspace/runtime": {
+      "types": "./dist/workspace/runtime.d.ts",
+      "import": "./dist/workspace/runtime.js",
+      "require": "./dist/workspace/runtime.js",
+      "default": "./dist/workspace/runtime.js"
+    },
+    "./workspace/server": {
+      "types": "./dist/workspace/server.d.ts",
+      "import": "./dist/workspace/server.js",
+      "require": "./dist/workspace/server.js",
+      "default": "./dist/workspace/server.js"
+    },
     "./package.json": "./package.json",
-    "./console/auth/client": "./dist/console/auth-client.js",
-    "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
-    "./console/auth/inline": "./dist/console/auth-inline.js",
-    "./console/blob": "./dist/console/runtime/server/blob.js",
-    "./console/database": "./dist/console/runtime/server/database.js",
-    "./console/definitions": "./dist/console/runtime/server/definitions.js",
-    "./console/env": "./dist/console/runtime/server/env.js",
-    "./console/kv": "./dist/console/runtime/server/kv.js",
-    "./console/sections": "./dist/console/runtime/server/sections.js",
+    "./console/auth/client": {
+      "types": "./dist/console/auth-client.d.ts",
+      "import": "./dist/console/auth-client.js",
+      "require": "./dist/console/auth-client.js",
+      "default": "./dist/console/auth-client.js"
+    },
+    "./console/auth/cloudflare-access": {
+      "types": "./dist/console/auth-cloudflare-access.d.ts",
+      "import": "./dist/console/auth-cloudflare-access.js",
+      "require": "./dist/console/auth-cloudflare-access.js",
+      "default": "./dist/console/auth-cloudflare-access.js"
+    },
+    "./console/auth/inline": {
+      "types": "./dist/console/auth-inline.d.ts",
+      "import": "./dist/console/auth-inline.js",
+      "require": "./dist/console/auth-inline.js",
+      "default": "./dist/console/auth-inline.js"
+    },
+    "./console/blob": {
+      "types": "./dist/console/runtime/server/blob.d.ts",
+      "import": "./dist/console/runtime/server/blob.js",
+      "require": "./dist/console/runtime/server/blob.js",
+      "default": "./dist/console/runtime/server/blob.js"
+    },
+    "./console/database": {
+      "types": "./dist/console/runtime/server/database.d.ts",
+      "import": "./dist/console/runtime/server/database.js",
+      "require": "./dist/console/runtime/server/database.js",
+      "default": "./dist/console/runtime/server/database.js"
+    },
+    "./console/definitions": {
+      "types": "./dist/console/runtime/server/definitions.d.ts",
+      "import": "./dist/console/runtime/server/definitions.js",
+      "require": "./dist/console/runtime/server/definitions.js",
+      "default": "./dist/console/runtime/server/definitions.js"
+    },
+    "./console/env": {
+      "types": "./dist/console/runtime/server/env.d.ts",
+      "import": "./dist/console/runtime/server/env.js",
+      "require": "./dist/console/runtime/server/env.js",
+      "default": "./dist/console/runtime/server/env.js"
+    },
+    "./console/kv": {
+      "types": "./dist/console/runtime/server/kv.d.ts",
+      "import": "./dist/console/runtime/server/kv.js",
+      "require": "./dist/console/runtime/server/kv.js",
+      "default": "./dist/console/runtime/server/kv.js"
+    },
+    "./console/sections": {
+      "types": "./dist/console/runtime/server/sections.d.ts",
+      "import": "./dist/console/runtime/server/sections.js",
+      "require": "./dist/console/runtime/server/sections.js",
+      "default": "./dist/console/runtime/server/sections.js"
+    },
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json",
     "./ui/attachment": {
