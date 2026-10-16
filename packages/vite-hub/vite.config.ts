@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
 
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+
 import frameworkPackageManifest from "./package.json" with { type: "json" };
 
 const manifestStringLeavesSchema: v.GenericSchema<unknown, string[]> = v.lazy(() =>
@@ -350,7 +352,8 @@ export default defineConfig({
         delete exports["./console/auth-client"];
         delete exports["./console/auth-cloudflare-access"];
         delete exports["./console/auth-inline"];
-        return {
+        return normalizePackageExports({
+          ...frameworkPackageManifest.exports,
           ...exports,
           "./console/auth/client": "./dist/console/auth-client.js",
           "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
@@ -363,7 +366,7 @@ export default defineConfig({
           "./console/sections": "./dist/console/runtime/server/sections.js",
           "./ui/styles.css": "./dist/ui/styles.css",
           "./tsconfig": "./tsconfig.json",
-        };
+        });
       },
       inlinedDependencies: false,
     },

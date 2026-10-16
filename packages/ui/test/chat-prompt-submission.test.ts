@@ -64,6 +64,17 @@ describe("PromptInput submission with Nuxt UI", () => {
     wrapper.unmount();
   });
 
+  it.each([
+    ["Ctrl+Enter", { ctrlKey: true }],
+    ["Meta+Enter", { metaKey: true }],
+    ["Alt+Enter", { altKey: true }],
+  ])("keeps %s out of submission", async (_label, modifiers) => {
+    const wrapper = await renderPrompt();
+    await wrapper.get("textarea").trigger("keydown", { key: "Enter", ...modifiers });
+    expect(wrapper.emitted("submit")).toBeUndefined();
+    wrapper.unmount();
+  });
+
   it("supports attachment-only submission through the real Nuxt UI guard", async () => {
     const wrapper = await renderPrompt();
     await wrapper.setProps({ modelValue: "", files: [filePart] });

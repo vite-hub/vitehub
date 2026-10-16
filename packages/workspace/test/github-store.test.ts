@@ -24,6 +24,9 @@ let commitIndex = 0;
 let treeIndex = 0;
 let mirrorRefSha: string | undefined;
 let mirrorRefStatus = 404;
+let mirrorCreateStatus: number | undefined;
+let mainRefUpdateStatus: number | undefined;
+let mainRefUpdateMessage: string | undefined;
 let malformedResponsePath: string | undefined;
 let malformedResponse: unknown;
 let archiveFailures = 0;
@@ -70,6 +73,9 @@ beforeEach(() => {
   treeIndex = 0;
   mirrorRefSha = undefined;
   mirrorRefStatus = 404;
+  mirrorCreateStatus = undefined;
+  mainRefUpdateStatus = undefined;
+  mainRefUpdateMessage = undefined;
   malformedResponsePath = undefined;
   malformedResponse = undefined;
   archiveFailures = 0;
@@ -158,6 +164,12 @@ beforeEach(() => {
       if (url.pathname === "/repos/onmax/repo/git/commits" && method === "POST")
         return jsonResponse({ sha: `commit-sha-${++commitIndex}` });
       if (url.pathname === "/repos/onmax/repo/git/refs" && method === "POST") {
+        if (mirrorCreateStatus) {
+          return new Response("Reference already exists", {
+            status: mirrorCreateStatus,
+            statusText: "Conflict",
+          });
+        }
         if (body?.ref === "refs/heads/mirror" && body.sha) mirrorRefSha = body.sha;
         return jsonResponse({});
       }
@@ -166,6 +178,12 @@ beforeEach(() => {
         return jsonResponse({});
       }
       if (url.pathname === "/repos/onmax/repo/git/refs/heads/main" && method === "PATCH") {
+        if (mainRefUpdateStatus) {
+          return new Response(mainRefUpdateMessage || "branch moved", {
+            status: mainRefUpdateStatus,
+            statusText: mainRefUpdateStatus === 422 ? "Unprocessable Entity" : "Conflict",
+          });
+        }
         if (body?.sha) refSha = body.sha;
         return jsonResponse({});
       }
@@ -1307,6 +1325,74 @@ describe("GitHub workspace store", () => {
         || request.method === "PATCH"
       ),
     ).toEqual([]);
+  });
+
+  it("maps a GitHub non-fast-forward update (409) to a structured conflict", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
+    mainRefUpdateStatus = 409;
+    mainRefUpdateMessage = undefined;
+
+    await expect(store.snapshot({ name: "raced conflict" })).rejects.toMatchObject({
+      code: "WORKSPACE_CONFLICT",
+      details: {
+        branch: "main",
+        expectedHead: "base-sha",
+        repository: "onmax/repo",
+      },
+    });
+  });
+
+  it("preserves a generic GitHub 422 ref-update failure", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
+    mainRefUpdateStatus = 422;
+    mainRefUpdateMessage = "Validation Failed";
+
+    await expect(store.snapshot({ name: "validation failure" })).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
+    });
+  });
+
+  it("preserves a create-ref conflict when a branch appears after load", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        branch: "mirror",
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
+    mirrorCreateStatus = 409;
+
+    await expect(store.snapshot({ name: "create race" })).rejects.toMatchObject({
+      code: "WORKSPACE_FAILED",
+    });
   });
 
   it("rebases a conflicted snapshot without dropping unrelated staged writes", async () => {

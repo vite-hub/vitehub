@@ -126,7 +126,7 @@ export const PromptInput = defineComponent({
             onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLTextAreaElement).value),
             // Enter sends and Shift+Enter adds a line. Composing text with an input method never sends.
             onKeydown: (event: KeyboardEvent) => {
-              if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+              if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
               event.preventDefault();
               if (props.status === "ready") form.value?.requestSubmit();
             },
