@@ -310,25 +310,41 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         const nativeGetReader = bodyPrototype?.getReader
         if (typeof nativeGetReader !== "function" || body.getReader !== nativeGetReader) return
         const reader = nativeGetReader.call(body)
+        let validReader = false
         try {
           const readerPrototype = Object.getPrototypeOf(reader)
-          if (
+          validReader = (
             typeof readerPrototype?.read !== "function"
             || typeof readerPrototype?.releaseLock !== "function"
             || reader.read !== readerPrototype.read
             || reader.releaseLock !== readerPrototype.releaseLock
-          ) return
+          ) === false
         }
-        finally {
+        catch {}
+        if (!validReader) {
           try {
-            if (typeof reader?.releaseLock === "function") reader.releaseLock()
-          }
-          catch {
-            try {
-              if (typeof body.cancel === "function") await body.cancel()
+            if (typeof reader?.releaseLock === "function") {
+              reader.releaseLock()
+              return
             }
-            catch {}
           }
+          catch {}
+          try {
+            if (typeof body.cancel === "function") await body.cancel()
+            else return
+          }
+          catch { return }
+          return
+        }
+        try {
+          reader.releaseLock()
+        }
+        catch {
+          try {
+            if (typeof body.cancel === "function") await body.cancel()
+            else return
+          }
+          catch { return }
         }
       }
       return value
