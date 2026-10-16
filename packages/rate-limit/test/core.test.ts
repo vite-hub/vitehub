@@ -134,6 +134,38 @@ describe("Rate Limit core", () => {
     expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "soon" as never })).toThrow("must use a duration")
   })
 
+  it("does not read rate limit policy fields from prototypes", () => {
+    const requiredFields = Object.assign(Object.create({ limit: 1, window: "1m" }), {
+      driver: memoryRateLimitDriver(),
+    })
+    expect(() => createRateLimiter(requiredFields as never)).toThrow("positive integer")
+
+    const policy = Object.assign(Object.create({ enforcement: "strict", failure: "allow" }), {
+      driver: memoryRateLimitDriver(),
+      limit: 1,
+      window: "1m",
+    })
+    expect(createRateLimiter(policy).policy).toMatchObject({
+      enforcement: "best-effort",
+      failure: "deny",
+    })
+
+    const bestEffortDriver = {
+      ...memoryRateLimitDriver(),
+      capabilities: {
+        enforcement: "best-effort",
+        rejectedAttempts: "not-counted",
+        scope: "process",
+      },
+    } satisfies RateLimitDriver
+    const inheritedEnforcement = Object.assign(Object.create({ enforcement: "strict" }), {
+      driver: bestEffortDriver,
+      limit: 1,
+      window: "1m",
+    })
+    expect(createRateLimiter(inheritedEnforcement as never).policy.enforcement).toBe("best-effort")
+  })
+
   it.each(["s", "m", "d"])("rejects %s windows that overflow during conversion", (unit) => {
     const options = { driver: memoryRateLimitDriver(), limit: 1, window: "1m" as const }
     Object.assign(options, { window: `${"1" + "0".repeat(307)}${unit}` })

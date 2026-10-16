@@ -1169,7 +1169,37 @@
       "default": "./dist/console/runtime/server/sections.js"
     },
     "./ui/styles.css": "./dist/ui/styles.css",
-    "./tsconfig": "./tsconfig.json"
+    "./tsconfig": "./tsconfig.json",
+    "./ui/attachment": {
+      "types": "./dist/ui/attachment.d.ts",
+      "import": "./dist/ui/attachment.js",
+      "require": "./dist/ui/attachment.js",
+      "default": "./dist/ui/attachment.js"
+    },
+    "./ui/bubble": {
+      "types": "./dist/ui/bubble.d.ts",
+      "import": "./dist/ui/bubble.js",
+      "require": "./dist/ui/bubble.js",
+      "default": "./dist/ui/bubble.js"
+    },
+    "./ui/marker": {
+      "types": "./dist/ui/marker.d.ts",
+      "import": "./dist/ui/marker.js",
+      "require": "./dist/ui/marker.js",
+      "default": "./dist/ui/marker.js"
+    },
+    "./ui/message": {
+      "types": "./dist/ui/message.d.ts",
+      "import": "./dist/ui/message.js",
+      "require": "./dist/ui/message.js",
+      "default": "./dist/ui/message.js"
+    },
+    "./ui/trace": {
+      "types": "./dist/ui/trace.d.ts",
+      "import": "./dist/ui/trace.js",
+      "require": "./dist/ui/trace.js",
+      "default": "./dist/ui/trace.js"
+    }
   },
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
