@@ -310,11 +310,33 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 
 function hasResponseBrand(value: object): boolean {
   try {
-    // The current realm intrinsic performs an unforgeable internal-slot check.
-    // Objects from unsupported fetch implementations must fail closed: their
-    // constructor and accessors are caller-controlled and cannot establish a
-    // native Response brand.
-    return value instanceof Response
+    if (value instanceof Response) return true
+
+    // A supported foreign implementation cannot be checked with this realm's
+    // Web IDL accessors. Validate its own Response constructor by exercising
+    // the implementation's static factories and prototype methods; this also
+    // rejects response-shaped objects that only copy the four accessors.
+    let prototype: object | null = Object.getPrototypeOf(value)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (typeof constructor === "function" && constructor.name === "Response") {
+        const error = Reflect.get(constructor, "error")
+        const json = Reflect.get(constructor, "json")
+        const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+        if (typeof error !== "function" || typeof json !== "function" || typeof clone !== "function") return false
+        const probe = Reflect.apply(error, constructor, [])
+        if (Object.getPrototypeOf(probe) !== prototype) return false
+        const jsonProbe = Reflect.apply(json, constructor, [{ ok: true }])
+        if (Object.getPrototypeOf(jsonProbe) !== prototype) return false
+        const clonedProbe = Reflect.apply(clone, probe, [])
+        return Object(clonedProbe) === clonedProbe && Object.getPrototypeOf(clonedProbe) === prototype
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
   }
   catch {
     return false
@@ -426,7 +448,6 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
     // a genuine cross-runtime response.
-    if (!nativeProperties && !(value instanceof Response) && nativeHeaderMethods) return
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
