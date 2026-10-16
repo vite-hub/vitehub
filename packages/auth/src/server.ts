@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -322,7 +321,20 @@ function hasResponseBrand(value: object): boolean {
     const clone = responsePropertyDescriptor(prototype, "clone")?.value
     if (typeof clone !== "function") return false
     const cloned = Reflect.apply(clone, value, [])
-    return Object(cloned) === cloned && cloned !== value
+    if (Object(cloned) !== cloned || cloned === value) return false
+
+    // A candidate supplied clone method is not itself a brand proof. Require
+    // the returned value to expose the same complete response prototype and
+    // header carrier; forged methods that merely return an arbitrary object
+    // therefore fail closed before any response data is normalized.
+    const clonedPrototype = Object.getPrototypeOf(cloned)
+    if (responsePropertyDescriptor(clonedPrototype, "clone")?.value !== clone) return false
+    for (const key of authorizationResponseProperties) {
+      if (!responsePropertyDescriptor(clonedPrototype, key)) return false
+    }
+    const clonedHeaders = Reflect.get(cloned, "headers")
+    if (clonedHeaders === null || Object(clonedHeaders) !== clonedHeaders) return false
+    return responsePropertyDescriptor(clonedHeaders, "forEach")?.value !== undefined
   }
   catch {
     return false
@@ -490,7 +502,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }
   }
   catch {
-    return
+    return undefined
   }
 }
 
