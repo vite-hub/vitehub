@@ -281,7 +281,7 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  const response = normalizeAuthorizationResponse(result)
+  const response = await normalizeAuthorizationResponse(result)
   if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
@@ -309,38 +309,48 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
   }
 }
 
-function hasResponsePrototype(value: unknown): boolean {
+let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+
+async function getUndiciResponse(): Promise<typeof Response | undefined> {
+  if (undiciResponsePromise) return undiciResponsePromise
+  undiciResponsePromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.Response as typeof Response)
+    .catch(() => undefined)
+  return undiciResponsePromise
+}
+
+async function hasResponsePrototype(value: unknown): Promise<boolean> {
+  const targets = new Set<object>([Response.prototype])
+  const UndiciResponse = await getUndiciResponse()
+  if (UndiciResponse) targets.add(UndiciResponse.prototype)
   try {
-    let prototype: object | null = Object.getPrototypeOf(Object(value))
+    let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) return false
-      seen.add(prototype)
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      // Constructor identity is the runtime brand. Names, source text, accessors,
-      // and static methods can all be reproduced by user code.
-      if ((constructor === Response || constructor === UndiciResponse)
-        && prototype === constructor.prototype) return true
-      // Native Response implementations from another realm have different
-      // constructor identities. Their constructor and Web IDL accessors are
-      // still intrinsic native functions, which user-defined spoofs cannot
-      // reproduce through source text or prototype metadata alone.
-      if (typeof constructor === "function" && constructor.name === "Response"
-        && Function.prototype.toString.call(constructor).includes("[native code]")) {
-        const nativeAccessors = authorizationResponseProperties.every(key => {
-          const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-          return typeof descriptor?.get === "function"
-            && Function.prototype.toString.call(descriptor.get).includes("[native code]")
-        })
-        if (nativeAccessors && prototype === constructor.prototype) return true
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) return false
+      seen.add(current)
+      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+      const accessors = authorizationResponseProperties.map(key => Object.getOwnPropertyDescriptor(current, key)?.get)
+      if (accessors.every(getter => typeof getter === "function")) {
+        // Applying the intrinsic accessors proves the candidate carries the
+        // response implementation's internal brand. Prototype metadata and
+        // native-looking source text alone are forgeable.
+        try {
+          for (const getter of accessors) Reflect.apply(getter!, value, [])
+          if (constructor === Response || constructor === UndiciResponse || current === constructor?.prototype) return true
+        }
+        catch {
+          // Continue searching for a supported response prototype.
+        }
       }
-      prototype = Object.getPrototypeOf(prototype)
+      if (targets.has(current)) return true
+      current = Object.getPrototypeOf(current)
     }
+    return false
   }
   catch {
     return false
   }
-  return false
 }
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
@@ -353,6 +363,31 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   // the intrinsic method directly and does not invoke those overrides.
   const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
   return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+
+  try {
+    const candidate = Object(body)
+    // Resolve the stream intrinsics from the body's own realm. Applying the
+    // getter performs the brand check and works across JavaScript realms.
+    if (Object.getOwnPropertyDescriptor(candidate, "getReader")) return false
+    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    const getReader = ReadableStream.prototype.getReader
+    if (typeof locked !== "function" || typeof getReader !== "function") return false
+    if (Reflect.apply(locked, candidate, [])) return false
+    // Validate the native reader against a fresh stream. The candidate's
+    // inherited reader overrides are intentionally ignored.
+    const freshStream = new ReadableStream()
+    const reader = Reflect.apply(getReader, freshStream, [])
+    if (Object(reader) !== reader) return false
+    const readerObject = reader as object
+    if (typeof Reflect.get(readerObject, "read") !== "function"
+      || typeof Reflect.get(readerObject, "cancel") !== "function"
+      || typeof Reflect.get(readerObject, "releaseLock") !== "function") return false
+    Reflect.apply(Reflect.get(readerObject, "releaseLock"), readerObject, [])
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
@@ -394,13 +429,12 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   return { stream, release }
 }
 
-function normalizeAuthorizationResponse(value: unknown): Response | undefined {
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
   try {
     const candidate = Object(value)
-    if (!hasResponsePrototype(candidate)) return
-    // Native response fields live on the trusted prototype. Own data properties
-    // can shadow them on an Object.create(...) spoof, so reject that shape.
+    if (!await hasResponsePrototype(candidate)) return
+    // Own data properties can shadow native response fields on a spoof.
     if (authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
@@ -418,22 +452,32 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     let nativeProperties = false
+    let nativeBodyUnused = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
         const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
         return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
+      const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyUnused = Boolean(bodyUsedGetter && !Reflect.apply(bodyUsedGetter, candidate, []))
+        && (body === null || Boolean(lockedGetter && !Reflect.apply(lockedGetter, body, [])))
     }
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    // A foreign implementation must carry its own native Headers methods.
+    // Accepting a foreign Response prototype paired with current-realm Headers
+    // would make a user-defined Response-shaped object indistinguishable from
+    // a genuine cross-runtime response.
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    const nativeBodyMethod = body === null
+      || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
@@ -441,9 +485,22 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
+    let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
-      if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, value)
+      if (key.toLowerCase() === "set-cookie") {
+        if (cookies.length === 0) combinedCookies = value
+        return
+      }
+      normalizedHeaders.append(key, value)
     }])
+    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // followed by another cookie assignment at the cookie-pair boundary proves that
+    // multiple values were merged. Assignment-like text after an extension attribute
+    // can still be part of that attribute's value, so do not reject it as a merge.
+    if (combinedCookies !== undefined) {
+      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      normalizedHeaders.append("set-cookie", combinedCookies)
+    }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
     // Validate status and native body state before acquiring reader ownership.
@@ -461,7 +518,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }
   }
   catch {
-    return undefined
+    return
   }
 }
 
@@ -484,7 +541,8 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = route instanceof Object ? route.authorize : undefined
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route configuration crosses JavaScript realms; runtime object narrowing preserves foreign authorize callbacks.
+      const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }

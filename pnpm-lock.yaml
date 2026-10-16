@@ -88,7 +88,7 @@ catalogs:
       specifier: 4.1.4
       version: 4.1.4
     forges:
-      specifier: https://pkg.pr.new/danielroe/forges@43be2a6
+      specifier: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       version: 0.0.0
     proper-lockfile:
       specifier: 4.1.2
@@ -376,6 +376,9 @@ catalogs:
     motion-v:
       specifier: ^2.5.2
       version: 2.5.2
+    reka-ui:
+      specifier: ^2.10.5
+      version: 2.10.5
   unjs:
     defu:
       specifier: ^6.1.7
@@ -791,7 +794,7 @@ importers:
         version: 0.27.7
       forges:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@43be2a6
+        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -939,6 +942,9 @@ importers:
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
+      undici:
+        specifier: 7.30.0
+        version: 7.30.0
     devDependencies:
       '@types/json-schema':
         specifier: catalog:ai
@@ -962,7 +968,7 @@ importers:
         specifier: catalog:tooling
         version: 6.0.3
       undici:
-        specifier: ^7.30.0
+        specifier: 7.30.0
         version: 7.30.0
       vite:
         specifier: catalog:vite
@@ -1316,34 +1322,64 @@ importers:
 
   packages/content:
     dependencies:
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../workspace
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0)
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
+      yaml:
+        specifier: catalog:tooling
+        version: 2.9.1
     devDependencies:
+      '@libsql/client':
+        specifier: catalog:database
+        version: 0.18.0
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       comark-content:
         specifier: catalog:markdown
         version: 0.4.1(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.5.0)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0))(tailwindcss@4.3.3))
+      drizzle-orm:
+        specifier: catalog:database
+        version: 0.45.3(@cloudflare/workers-types@5.20261003.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.2)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
       publint:
         specifier: catalog:tooling
         version: 0.3.25
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
+      valibot:
+        specifier: catalog:runtime
+        version: 1.5.0(typescript@6.0.3)
       vite-plus:
         specifier: catalog:tooling
         version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@20.14.5)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(happy-dom@20.14.5)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      zod:
+        specifier: catalog:runtime
+        version: 4.6.5
 
   packages/database:
     dependencies:
@@ -1557,6 +1593,9 @@ importers:
       '@cloudflare/vitest-plugin':
         specifier: 'catalog:'
         version: 1.3.6(@cloudflare/workers-types@5.20261003.1)(@types/node@24.19.1)(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11)
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
       '@types/semver':
         specifier: ^7.8.0
         version: 7.8.0
@@ -1713,6 +1752,9 @@ importers:
       ws:
         specifier: ^8.22.0
         version: 8.22.0
+      undici:
+        specifier: 7.30.0
+        version: 7.30.0
     devDependencies:
       '@types/node':
         specifier: catalog:tooling
@@ -2217,6 +2259,9 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
+      reka-ui:
+        specifier: catalog:ui
+        version: 2.10.5(vue@3.5.43(typescript@6.0.3))
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
@@ -2617,6 +2662,9 @@ importers:
 
   packages/workspace:
     dependencies:
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.11.0(rollup@4.64.0)
@@ -2720,9 +2768,6 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.27.7)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@20.14.5)
-      vue:
-        specifier: 3.5.43
-        version: 3.5.43(typescript@6.0.3)
 
   packages/workspace/examples/vite:
     dependencies:
@@ -11958,9 +12003,9 @@ packages:
     resolution: {integrity: sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==}
     engines: {node: '>= 0.4'}
 
-  forges@https://pkg.pr.new/danielroe/forges@43be2a6:
-    resolution: {integrity: sha512-ahanYLa4/fWGU8CiV5Q6AaVfJQsa2nZxqG7UtrQEpr6tcXurZgiBzdOPQZCOFR1Y1PsjhtdwdEHjpF77NdAYLA==, tarball: https://pkg.pr.new/danielroe/forges@43be2a6}
-    version: 0.0.0
+  forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b:
+    resolution: {integrity: sha512-J1Jz3lu/Oc1b/WXA9RCuyQ6MCp/LQvA+ztVqvAMIVwgmqsaFAFFbjOmULVow1krKt0Kw2U4rpxf7AHEIaMjRrg==, tarball: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b}
+    version: 0.1.0
     engines: {node: '>=22.18'}
 
   form-data-encoder@4.1.0:
@@ -27962,7 +28007,7 @@ snapshots:
     dependencies:
       is-callable: 1.2.7
 
-  forges@https://pkg.pr.new/danielroe/forges@43be2a6: {}
+  forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b: {}
 
   form-data-encoder@4.1.0: {}
 

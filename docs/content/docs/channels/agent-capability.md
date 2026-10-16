@@ -30,6 +30,7 @@ const reportAgent = defineAgent({
       options: { recipient: 'user:7b0bff9d' },
       description: 'Send the finished weekly report. Call once.',
       required: true,
+      reminder: true,
       validate: (message) => {
         if (message.split(/\s+/u).length > 300) throw new Error('The report must be at most 300 words.')
       },
@@ -64,11 +65,42 @@ Without `description`, the tool description names the Channel and states how man
 - Counters are per Agent Invocation. One definition can serve many Agent Invocations.
 - The delivery tool name must be unique among Capability tools. A collision fails setup with `CHANNEL_DELIVERY_TOOL_CONFLICT` before the Driver runs.
 
+## Remind the Agent to send
+
+Models sometimes finish with the answer as their final text and never call the tool. With `required: true`, set `reminder` to run the Driver again before the Agent Invocation fails:
+
+```ts
+channelDelivery({
+  channel: useChannel('teams'),
+  options: { recipient: 'user:7b0bff9d' },
+  required: true,
+  reminder: { turns: 1, instruction: 'Send the finished report with send_message now.' },
+})
+```
+
+`reminder: true` is one turn with the default instruction. A reminder turn works like this:
+
+- It runs only when the Agent finished without calling the tool. After any send attempt, including a failed one, there is no reminder, because a failed send can still reach the recipient.
+- It runs in the same Agent Invocation, with the same tools and counters. `maxCalls` still limits send attempts across all turns. `turns` limits reminder turns.
+- The Driver receives the original messages, the previous final text as an assistant message, and the instruction as a user message. Each further turn appends to that transcript.
+- The previous turn's tool calls and tool results are not replayed. A Driver that resumes its own session sees them. Other Drivers see only the final text, so the reminder asks the Agent to send that text instead of repeating the work.
+- For streamed results, the reminder check runs after the stream has been consumed and its tools have finished. A stream, UI message stream, or `Response` therefore receives its configured reminder after the caller reads it and the stream settles.
+- When all turns finish without a successful send, the Agent Invocation fails with `CHANNEL_DELIVERY_REQUIRED`. The error `details` include `attempts` and `reminders`.
+- Each turn emits an `agent.channel.delivery.reminder` Trace Event with the turn number, the tool name, the length of the previous final text, and the previous turn's token usage when the Driver reports it.
+- The finish usage record covers the last turn only. Earlier turns are in the reminder Trace Events.
+
+| Agent Driver | Reminder turn |
+| --- | --- |
+| Model-backed | A new model call with the transcript. |
+| Provider-backed | Resumes the provider session when the Agent Invocation has a thread or chat session that the provider keeps. Otherwise it starts a new provider session with the transcript as the prompt. |
+| Custom-run-backed | `driver.run` runs again with the transcript in `context.messages` and `context.input.prompt`. Stream and `Response` results are checked after they settle. |
+
 ## Requirements
 
 - A Channel client with `send(text, options)` that returns `[error, null]` or `[null, { deliveryId }]`. `useChannel(name)` from `vite-hub/channels/server` returns one.
 - `maxCalls` must be a positive integer.
-- `channelDelivery()` throws a `TypeError` when the Agent Definition loads if `channel` has no `send()` function or `maxCalls` is invalid.
+- `reminder` requires `required: true`. `reminder.turns` must be a positive integer, and `reminder.instruction` must be a non-empty string.
+- `channelDelivery()` throws a `TypeError` when the Agent Definition loads if `channel` has no `send()` function, or if `maxCalls` or `reminder` is invalid.
 
 ## Security and approval
 
@@ -88,9 +120,10 @@ Without `description`, the tool description names the Channel and states how man
 ## Verify Channel delivery
 
 1. When the Capability is on a discovered Agent, start the Vite development server.
-2. Run `vitehub agent info --agent <name> --json`. Confirm that `tools` contains an entry with `name: "send_message"`, and that `capabilities` contains `{ id: "channel-delivery.send_message" }` with the expected `channel`, `maxCalls`, and `required` metadata.
+2. Run `vitehub agent info --agent <name> --json`. Confirm that `tools` contains an entry with `name: "send_message"`, and that `capabilities` contains `{ id: "channel-delivery.send_message" }` with the expected `channel`, `maxCalls`, `required`, and `reminder` metadata.
 3. Run the Agent with a test recipient. Confirm that the tool result contains a `deliveryId` and that the message arrives in the Channel.
 4. With `required: true`, run the Agent with a prompt that does not ask for a send. Confirm that the Agent Invocation fails with `CHANNEL_DELIVERY_REQUIRED`.
+5. With `reminder`, run the same prompt. Confirm an `agent.channel.delivery.reminder` Trace Event for each reminder turn, and that the error `details.reminders` matches the turns that ran when no send follows.
 
 ## Options
 
@@ -101,7 +134,8 @@ Without `description`, the tool description names the Channel and states how man
 | `name` | `string` | `"send_message"` | Tool name. The Capability ID is `channel-delivery.<name>`. |
 | `description` | `string` | generated | Tool description for the model. |
 | `required` | `boolean` | `false` | Fail the Agent Invocation without a successful send. |
-| `maxCalls` | `number` | `1` | Maximum send attempts per Agent Invocation. |
+| `reminder` | `boolean \| { turns?: number, instruction?: string }` | none | With `required: true`, run up to `turns` (default `1`) reminder turns when the Agent finishes without calling the tool. See [Remind the Agent to send](#remind-the-agent-to-send). |
+| `maxCalls` | `number` | `1` | Maximum send attempts per Agent Invocation, across all turns. |
 | `format` | `(message, context) => string \| Promise<string>` | none | Build the Channel text from the message. |
 | `validate` | `(message) => void \| Promise<void>` | none | Throw to reject a message. |
 
