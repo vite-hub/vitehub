@@ -150,7 +150,7 @@ describe("docs product navigation", () => {
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.title)
+    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle)
       .toBe("Runtime policy, approvals, and traces");
   });
 
