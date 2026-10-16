@@ -157,7 +157,8 @@ function readObjectPropertyValue(body: string | undefined, property: string): st
   if (!body) return
   for (const entry of splitTopLevel(body)) {
     if (readEntryKey(entry) !== property) continue
-    return readEntryValue(entry)
+    // Preserve shorthand entries so callers can resolve the referenced value.
+    return readEntryValue(entry) ?? property
   }
 }
 
@@ -360,7 +361,8 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
       }
       const key = readEntryKey(normalized)
       if (key !== "databaseId" && key !== "databaseName") continue
-      if (readEntryValue(normalized)?.trim() !== "undefined") ownership = true
+      const value = readEntryValue(normalized)?.trim() ?? key
+      if (value !== "undefined") ownership = true
     }
     return ownership
   }
@@ -381,7 +383,10 @@ function readOpaqueHttpOnly(expression: string | undefined, source: string, seen
       if (!normalized) continue
       const key = readEntryKey(normalized)
       if (key === "http") {
-        const value = readEntryValue(normalized)?.trim()
+        const rawValue = readEntryValue(normalized)?.trim() ?? key
+        const value = rawValue === key
+          ? readOpaqueDeclarationExpression(key, source)?.trim()
+          : rawValue
         if (value === "true") httpOnly = true
         else if (value === "false") httpOnly = false
         else httpOnly = undefined
@@ -430,7 +435,13 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
     return { resource, configured: false, ownsOpaqueResource, opaqueHttpOnly }
   }
   if (body === undefined) return { resource, configured: cloudflareEntries.length > 0 && expression?.trim() !== "undefined", ownsOpaqueResource: false }
-  const httpExpression = readObjectPropertyValue(body, "http")?.trim()
+  const resolveProperty = (property: string) => {
+    const raw = readObjectPropertyValue(body, property)?.trim()
+    if (!raw || raw === "undefined") return raw
+    if (!/^[A-Za-z_$][\w$]*$/.test(raw)) return raw
+    return readOpaqueDeclarationExpression(raw, source)?.trim() ?? raw
+  }
+  const httpExpression = resolveProperty("http")
   const httpBody = objectLiteralBody(httpExpression)
   const http = httpExpression === "true"
     ? true
@@ -441,11 +452,11 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
         } satisfies CloudflareD1HttpConfig
       : undefined
   const value: CloudflareD1BindingConfig = {
-    binding: readStringValue(body, "binding"),
-    databaseId: readConfigValue(body, "databaseId"),
-    databaseName: readConfigValue(body, "databaseName"),
-    migrationsTable: readStringValue(body, "migrationsTable"),
-    previewDatabaseId: readConfigValue(body, "previewDatabaseId"),
+    binding: readStringValue(`binding: ${resolveProperty("binding")}`, "binding"),
+    databaseId: readConfigValue(`databaseId: ${resolveProperty("databaseId")}`, "databaseId"),
+    databaseName: readConfigValue(`databaseName: ${resolveProperty("databaseName")}`, "databaseName"),
+    migrationsTable: readStringValue(`migrationsTable: ${resolveProperty("migrationsTable")}`, "migrationsTable"),
+    previewDatabaseId: readConfigValue(`previewDatabaseId: ${resolveProperty("previewDatabaseId")}`, "previewDatabaseId"),
   }
   if (http && (http === true || http.authToken || http.url)) value.http = http
   return {
