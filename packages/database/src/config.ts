@@ -58,10 +58,13 @@ function objectLiteralBody(value: string | undefined) {
       trimmed = trimmed.slice(1, -1).trim()
       continue
     }
-    const assertion = trimmed?.match(/^(.*)\s+as\s+(?:const|[A-Za-z_$][\w$]*(?:\s*<[^>]*>)?(?:\[\])?)$/s)
-    if (assertion) {
-      trimmed = assertion[1]!.trim()
-      continue
+    if (trimmed?.startsWith("{")) {
+      const closeIndex = findMatching(trimmed, 0, "{", "}")
+      const suffix = closeIndex === undefined ? undefined : trimmed.slice(closeIndex + 1).trim()
+      if (closeIndex !== undefined && suffix !== undefined && /^as\b/.test(suffix)) {
+        trimmed = trimmed.slice(0, closeIndex + 1).trim()
+        continue
+      }
     }
     break
   }
