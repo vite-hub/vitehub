@@ -113,9 +113,16 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // each instance (happy-dom does this) instead of prototype getters.
         return typeof descriptor?.get === "function" || Object.prototype.hasOwnProperty.call(value, method)
       })
+      // At least one standard accessor must be implementation-owned on the
+      // prototype. A caller-created prototype can copy the method and tag
+      // descriptors, but cannot provide a genuine accessor-backed Response
+      // surface while keeping all fields as arbitrary own values.
+      const hasPrototypeAccessor = accessors.some(method =>
+        typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function")
       if (typeof cloneDescriptor?.value === "function"
         && hasResponseMethods
         && hasResponseAccessors
+        && hasPrototypeAccessor
         && tagDescriptor
         && typeof constructor === "function"
         && constructor.prototype === responsePrototype) break
