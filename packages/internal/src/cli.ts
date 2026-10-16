@@ -66,7 +66,7 @@ type StdoutWriteCallback = (error?: Error | null) => void
 const stdoutRedirectQueueKey = Symbol.for("vite-hub.internal.stdout-redirect-queue")
 type StdoutRedirectGlobal = typeof globalThis & {
   [stdoutRedirectQueueKey]?: Promise<void>
-  [stdoutRedirectWriterKey]?: (chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => boolean
+  [stdoutRedirectWriterKey]?: typeof process.stdout.write
 }
 
 const stdoutRedirectWriterKey = Symbol.for("vite-hub.internal.stdout-redirect-writer")
@@ -84,8 +84,8 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
   await previous
 
   const write = process.stdout.write
-  stdoutRedirectGlobal[stdoutRedirectWriterKey] ??= write.bind(process.stdout)
-  process.stdout.write = (chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => {
+  stdoutRedirectGlobal[stdoutRedirectWriterKey] ??= write.bind(process.stdout) as typeof process.stdout.write
+  process.stdout.write = ((chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => {
     const done = typeof encoding === "function" ? encoding : callback
     let called = false
     const onComplete = (error?: Error | null) => {
@@ -111,7 +111,7 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
       }
     }
     return result as boolean
-  }
+  }) as typeof process.stdout.write
   try {
     return await run()
   }
