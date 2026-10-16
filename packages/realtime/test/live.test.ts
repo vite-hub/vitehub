@@ -489,6 +489,20 @@ describe("identity and authorization", () => {
     expect((await server.connect("page")).closed).toEqual({ code: 401, reason: "rejected" })
     expect((await server.connect("page", { headers: { "x-user": "ana" } })).closed).toBeUndefined()
   })
+
+  it("refuses a rejected upgrade instead of opening a socket without hooks", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const server = createTestServer(secured(memory, { auth: true }))
+
+    const { response } = await server.connect("page")
+    const hooks = (response as Response & { crossws?: { open?: unknown, upgrade?: (request: Request) => unknown } }).crossws
+    // crossws upgrades a response without hooks into a silent socket; only an upgrade hook can refuse it.
+    expect(response.status).toBe(401)
+    expect(hooks?.open).toBeUndefined()
+    const refusal = await hooks?.upgrade?.(new Request("https://example.com"))
+    expect(refusal).toBeInstanceOf(Response)
+    expect((refusal as Response).status).toBe(401)
+  })
 })
 
 describe("history checkpoints", () => {
