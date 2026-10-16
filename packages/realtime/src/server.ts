@@ -901,7 +901,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const guard = await verifyDocument(room.editor, source)
     const next = await seedDocument(room.editor, source, guard)
     // Verification and seeding are asynchronous. Preserve edits that arrive while they run.
-    if (room.destroyed || (preserveEdits && (room.dirty || room.revision !== revision))) return false
+    // A client update can arrive during verification or seeding. The revision
+    // guard applies to every reseed, including conflict recovery, so that the
+    // live document is never replaced after a concurrent edit.
+    if (room.destroyed || room.revision !== revision || (preserveEdits && room.dirty)) return false
     const previous = { awareness: room.awareness, document: room.document }
     const peers = [...room.peers]
     // Keep peers and writers tracked until their close callbacks run so the room is released when reset sockets close.
