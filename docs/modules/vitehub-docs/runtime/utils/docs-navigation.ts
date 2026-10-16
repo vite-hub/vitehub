@@ -19,8 +19,8 @@ export type DocsCatalogGroup = {
   sections: DocsSection[];
 };
 
-/** Sections shown in the documentation rail, excluding platform topics. */
-export function getDocsRailCatalog(sections: DocsSection[]) {
+/** Groups shown in the docs rail, excluding platform sections reached from Start. */
+export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
   return getDocsCatalog(sections).filter(group => group.category !== "Platform");
 }
 
@@ -54,6 +54,7 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
     }))
     .filter(group => group.sections.length > 0);
 }
+
 
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
   return sections.filter(section => !isDocsCategory(section.category));

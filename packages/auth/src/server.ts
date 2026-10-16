@@ -430,8 +430,16 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     if (!headerNativePrototype
       || Object.getOwnPropertyDescriptor(headerNativePrototype, "get")?.value !== headersGet
       || Object.getOwnPropertyDescriptor(headerNativePrototype, "forEach")?.value !== headersForEach) return
-    Reflect.apply(headersGet, headers, ["content-type"])
-    Reflect.apply(headersForEach, headers, [() => {}])
+    // The local Web API methods perform an internal-slot check. This rejects
+    // self-consistent forged prototypes while still allowing implementations
+    // whose own methods expose the same Headers data to be copied below.
+    try {
+      Reflect.apply(Object.getOwnPropertyDescriptor(Headers.prototype, "get")!.value, headers, ["content-type"])
+      Reflect.apply(Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")!.value, headers, [() => {}])
+    }
+    catch {
+      return
+    }
     const snapshot = { status, statusText, headers, body }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
