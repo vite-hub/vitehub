@@ -26,6 +26,7 @@ const pageGroups = computed(() => {
     ) return group;
     return { ...group, pages: [...group.pages, perspective] };
   });
+});
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
