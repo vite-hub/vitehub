@@ -82,6 +82,9 @@ const stdoutRedirectGlobal = globalThis as StdoutRedirectGlobal
  * Vite, Nitro, Nuxt, and their plugins log info lines to stdout. Those lines must not mix with JSON or raw command output.
  */
 export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteHubCliStreams["stderr"] = process.stderr as unknown as ViteHubCliStreams["stderr"]): Promise<T> {
+  // Capture a newly installed process writer before the redirect is active.
+  // This keeps first-use payload writes on the invocation's real stdout.
+  getStableStdoutWrite()
   const previous = stdoutRedirectGlobal[stdoutRedirectQueueKey] ?? Promise.resolve()
   let release!: () => void
   stdoutRedirectGlobal[stdoutRedirectQueueKey] = new Promise<void>(resolve => { release = resolve })
