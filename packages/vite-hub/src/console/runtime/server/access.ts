@@ -84,8 +84,11 @@ function isResponseLike(value: unknown): value is Response {
     let nativeBrand = false
     try {
       // SAFETY: Response.prototype.body is the platform getter and performs the internal-slot brand check.
-      Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get?.call(value)
-      nativeBrand = true
+      const bodyGetter = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
+      if (bodyGetter) {
+        bodyGetter.call(value)
+        nativeBrand = true
+      }
     }
     catch {
       // Foreign implementations (for example happy-dom) do not share the platform slots.
@@ -94,9 +97,15 @@ function isResponseLike(value: unknown): value is Response {
     // complete state set when accepting a shimmed implementation so copied public
     // slots on an ordinary object still fail closed.
     const shimStateSymbols = new Set(["cachedResponse", "buffer", "virtualServerFile", "aborted", "error", "body"])
-    const hasShimState = Object.getOwnPropertySymbols(value).every(symbol => shimStateSymbols.has(symbol.description ?? ""))
-      && Object.getOwnPropertySymbols(value).some(symbol => symbol.description === "body")
-      && shimStateSymbols.size === Object.getOwnPropertySymbols(value).length
+    const ownSymbols = Object.getOwnPropertySymbols(value)
+    const symbolsByDescription = new Map(ownSymbols.map(symbol => [symbol.description, symbol] as const))
+    const hasShimState = ownSymbols.length === shimStateSymbols.size
+      && ownSymbols.every(symbol => shimStateSymbols.has(symbol.description ?? ""))
+      && ["cachedResponse", "buffer", "virtualServerFile", "error", "body"].every((name) => {
+        const symbol = symbolsByDescription.get(name)
+        return symbol !== undefined && (value as Record<symbol, unknown>)[symbol] === null
+      })
+      && (typeof (value as Record<symbol, unknown>)[symbolsByDescription.get("aborted")!] === "boolean")
     // Native Responses are identified by the platform getter's internal-slot
     // check. Supported DOM shims expose their complete private state symbols;
     // require that state rather than accepting forgeable public properties,
