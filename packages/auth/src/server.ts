@@ -375,7 +375,12 @@ function streamLockedGetter(body: object): (() => boolean) | undefined {
       const descriptor = Object.getOwnPropertyDescriptor(current, "locked")
       const getter = descriptor?.get
       const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-      if (typeof getter === "function" && constructor?.name === "ReadableStream") return getter as () => boolean
+      if (typeof getter === "function" && constructor?.name === "ReadableStream") {
+        if (body instanceof ReadableStream) {
+          if (getter !== Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get) return undefined
+        }
+        return getter as () => boolean
+      }
       current = Object.getPrototypeOf(current)
     }
   }
@@ -424,7 +429,10 @@ function nativeStreamMethod<T extends keyof ReadableStream<Uint8Array>>(body: ob
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
     if (descriptor && typeof descriptor.value === "function") {
       const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-      if (constructor?.name === "ReadableStream") return descriptor.value as ReadableStream<Uint8Array>[T]
+      if (constructor?.name === "ReadableStream") {
+        if (body instanceof ReadableStream && descriptor.value !== ReadableStream.prototype[key]) return undefined
+        return descriptor.value as ReadableStream<Uint8Array>[T]
+      }
     }
     current = Object.getPrototypeOf(current)
   }
@@ -441,7 +449,11 @@ function nativeReaderMethod<T extends "read" | "cancel" | "releaseLock">(reader:
     const descriptor = Object.getOwnPropertyDescriptor(current, key)
     if (descriptor && typeof descriptor.value === "function") {
       const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-      if (typeof constructor?.name === "string" && constructor.name.includes("Reader")) return descriptor.value
+      if (typeof constructor?.name === "string" && constructor.name.includes("Reader")) {
+        if (typeof ReadableStreamDefaultReader !== "undefined" && reader instanceof ReadableStreamDefaultReader
+          && descriptor.value !== ReadableStreamDefaultReader.prototype[key]) return undefined
+        return descriptor.value
+      }
     }
     current = Object.getPrototypeOf(current)
   }
