@@ -309,7 +309,7 @@ function isResponseLike(value: unknown): Response | false {
       const descriptors = Object.getOwnPropertyDescriptors(prototype)
       for (const [key, nativeGetter] of [["status", status], ["statusText", statusText], ["headers", headers], ["body", body]] as const) {
         const getter = descriptors[key]?.get
-        if (getter && getter !== nativeGetter) return false
+        if (getter && getter !== nativeGetter) throw new TypeError("foreign Response")
       }
       prototype = Object.getPrototypeOf(prototype)
     }
@@ -345,6 +345,7 @@ function isResponseLike(value: unknown): Response | false {
       const seen = new Set<object>()
       let depth = 0
       while (prototype && depth < maxPrototypeDepth && (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !typeGetter || !urlGetter || !redirectedGetter || !okGetter || !bodyUsedGetter || !cloneMethod) && !seen.has(prototype)) {
+        if (prototype === Response.prototype) return false
         depth++
         seen.add(prototype)
         const descriptors = Object.getOwnPropertyDescriptors(prototype)
@@ -369,6 +370,10 @@ function isResponseLike(value: unknown): Response | false {
       if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
       const body = bodyGetter.call(value)
       if (typeof typeGetter.call(value) !== "string" || typeof urlGetter.call(value) !== "string" || typeof redirectedGetter.call(value) !== "boolean" || typeof okGetter.call(value) !== "boolean" || typeof bodyUsedGetter.call(value) !== "boolean") return false
+      // Invoke the foreign clone operation as a brand-bearing check. Native
+      // implementations throw when called on a non-Response value.
+      const cloned = cloneMethod.call(value)
+      if (cloned === null || typeof cloned !== "object" || cloned === value) return false
       // Response.error() is the only valid status-zero response. Preserve its
       // representation when normalizing a foreign response.
       if (status === 0) {
