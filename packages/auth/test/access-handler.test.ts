@@ -397,7 +397,10 @@ describe("Auth access handlers", () => {
     })
     Object.defineProperty(foreign.headers, "getSetCookie", { value: undefined })
 
-    const response = await runAccessAuthorize(() => foreign, request)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
 
     expect(response?.headers.get("set-cookie")).toBe("session=one; Extension=alpha, beta=gamma")
   })
