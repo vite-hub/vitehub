@@ -40,8 +40,8 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
 | `vite-hub/agent/server/github-inbox` | Durable GitHub pull request inbox storage, webhook ingestion, hydration, claims, and [explicit waits](/docs/reference/github-inbox-waits). |
 | `vite-hub/agent/invocations/d1` | Cloudflare D1 Agent Invocation Journal and explicit schema statements. |
+| `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
-| `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a discovered ViteHub Database. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/agent/runtime/process` | Adaptive process-local Agent capacity for self-hosted Node applications. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
@@ -107,6 +107,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/source/mcp` | MCP Resources implementation with its private SDK closure. |
 | `vite-hub/source/vite` | Source discovery, generated artifacts, and Nitro route integration for custom Vite plugin composition. |
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | AI interface components, headless message scrolling, and default styles. |
+| `vite-hub/ui/attachment`, `vite-hub/ui/bubble`, `vite-hub/ui/marker`, `vite-hub/ui/message`, and `vite-hub/ui/trace` | Focused imports for shadcn/ui Agent interface parts. |
 | `vite-hub/ui/agent-chat`, `vite-hub/ui/agent-chat-message`, `vite-hub/ui/agent-chat-prompt`, `vite-hub/ui/agent-message-parts` | Focused imports for chat components. |
 | `vite-hub/ui/agent-invocation`, `vite-hub/ui/agent-invocation-inspector`, `vite-hub/ui/agent-invocation-list`, `vite-hub/ui/agent-invocation-timeline` | Focused imports for agent Invocation components. |
 | `vite-hub/ui/agent-capability-inspector`, `vite-hub/ui/agent-tool-list`, `vite-hub/ui/agent-trace` | Focused imports for capability and trace inspection components. |

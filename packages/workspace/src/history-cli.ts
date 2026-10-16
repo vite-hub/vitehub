@@ -174,7 +174,7 @@ function createRequest(command: WorkspaceHistoryCommand, parsed: ParsedHistoryAr
     if (path !== undefined) request.path = path
     return request
   }
-  const request: WorkspaceHistoryDevRequest = {
+  const request: Extract<WorkspaceHistoryDevRequest, { operation: "history" }> = {
     operation: "history",
     workspace,
   }
@@ -353,13 +353,13 @@ export async function runWorkspaceHistoryCli(
   if (!token) return writeFailure(parsed.json, context, { message: "No private Workspace History token found. Start the Compatible Vite Development Server first." })
   let response: Response
   try {
-    const requestOptions: Omit<RequestInit, "headers"> & { headers?: Record<string, string> } = {
+    const options: RequestInit = {
       body: JSON.stringify(request),
       headers: { accept: "application/json", "content-type": "application/json", [viteHubDevTokenHeader]: token, [workspaceHistoryDevTokenServerHeader]: serverId },
       method: "POST",
     }
-    if (signal) requestOptions.signal = signal
-    response = await fetchViteHubDevEndpoint(fetchImpl, server.url, workspaceHistoryDevEndpoint, requestOptions)
+    if (signal) options.signal = signal
+    response = await fetchViteHubDevEndpoint(fetchImpl, server.url, workspaceHistoryDevEndpoint, options)
   }
   catch (error) {
     return writeFailure(parsed.json, context, { message: `Workspace history request failed: ${error instanceof Error ? error.message : String(error)}` })

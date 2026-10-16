@@ -33,7 +33,7 @@ const related = computed(() =>
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
-const platformSections = docsManifest.sections.filter((item) => item.category === "Platform");
+const platformSections = computed(() => docsManifest.sections.filter(section => section.category === "Platform"));
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);

@@ -65,6 +65,12 @@ const docsShellUi = {
   }
 }
 
+/* Keep the desktop rail sticky while clipping only horizontal overflow. */
+@media (min-width: 64rem) {
+  .vh-docs-shell {
+    overflow-x: clip;
+  }
+
 @media (min-width: 64rem) {
   .vh-docs-aside {
     position: sticky;
