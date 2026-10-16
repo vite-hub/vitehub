@@ -163,8 +163,11 @@ function packedTargetMatches(files: Set<string>, target: string) {
   const normalized = target.replace(/^\.\//, "")
   const wildcardCount = normalized.split("*").length - 1
   if (wildcardCount === 0) return files.has(`package/${normalized}`)
-  if (wildcardCount > 1) throw new Error(`Export target ${target} contains more than one wildcard`)
-  const pattern = new RegExp(`^package/${normalized.split("*").map(part => part.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")).join("(.+)")}$`)
+  const parts = normalized.split("*")
+  const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"))
+  const pattern = wildcardCount === 1
+    ? new RegExp(`^package/${escaped[0]}(.+)${escaped[1]}$`)
+    : new RegExp(`^package/${escaped[0]}(.+)${escaped.slice(1).map(part => `\\\\1${part}`).join("")}$`)
   return [...files].some(file => pattern.test(file))
 }
 
