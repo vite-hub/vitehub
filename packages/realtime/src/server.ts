@@ -487,11 +487,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         if (typeof getter !== "function") return undefined
         // Workerd exposes storage.sql as a native lazy accessor. Do not
         // invoke arbitrary inherited getters from polluted prototypes.
-        // Workerd exposes the SQL instance through its native `get sql()`
-        // accessor. Restrict the name as well as the native shape so an
-        // unrelated built-in accessor such as `Object.prototype.__proto__`
-        // cannot be used to smuggle a fabricated SQL carrier through here.
-        const nativeGetterSource = /^function\s+get\s+sql\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
+        // Workerd exposes the SQL instance through a native getter. Require
+        // the native accessor form so unrelated built-in accessors cannot be
+        // used to smuggle a fabricated SQL carrier through here.
+        const nativeGetterSource = /^function\s+get(?:\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
         if (!nativeGetterSource.test(Function.prototype.toString.call(getter))) return undefined
       }
       if ("value" in sqlDescriptor) return undefined
