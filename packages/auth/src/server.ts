@@ -65,16 +65,12 @@ function isRequestLike(value: AuthRequest): value is Request {
     // host-provided implementations are trusted code, not an authenticity boundary.
     if (Object.prototype.toString.call(value) !== "[object Request]") return false
     const hasPrototypeTag = (target: object, tag: string): boolean => {
-      let current: object | null = Object.getPrototypeOf(target)
-      while (current) {
-        const descriptor = Object.getOwnPropertyDescriptor(current, Symbol.toStringTag)
-        if (descriptor) {
-          if (typeof descriptor.get === "function") return descriptor.get.call(target) === tag
-          return "value" in descriptor && descriptor.value === tag
-        }
-        current = Object.getPrototypeOf(current)
-      }
-      return false
+      const prototype = Object.getPrototypeOf(target)
+      if (!prototype) return false
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)
+      if (!descriptor) return false
+      if (typeof descriptor.get === "function") return descriptor.get.call(target) === tag
+      return "value" in descriptor && descriptor.value === tag
     }
     const hasBrandedAccessor = (target: object, property: string): boolean => {
       let current: object | null = Object.getPrototypeOf(target)
