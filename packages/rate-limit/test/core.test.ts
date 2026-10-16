@@ -184,13 +184,14 @@ describe("Rate Limit core", () => {
     Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
     try {
       const driver = memoryRateLimitDriver()
-      const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
       for (const cause of [tagged, foreign]) {
         Object.assign(driver, { peek: () => [cause, undefined], reset: () => [cause] })
+        const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
         await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ cause, status: "unavailable" })
         await expect(limiter.reset({ key: "user" })).resolves.toEqual({ cause, status: "unavailable" })
       }
       Object.assign(driver, { peek: () => [spoof, undefined], reset: () => [spoof] })
+      const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
       await expect(limiter.peek({ key: "user" })).rejects.toThrow("must return [null, value] or [Error, undefined]")
       await expect(limiter.reset({ key: "user" })).rejects.toThrow("must return [null] or [Error]")
     }
@@ -231,7 +232,8 @@ describe("Rate Limit core", () => {
     await expect(limiter.reset({ key: "user" })).resolves.toEqual({ status: "reset" })
     const cause = new Error("offline")
     Object.assign(driver, { reset: () => [cause] })
-    await expect(limiter.reset({ key: "user" })).resolves.toEqual({ cause, status: "unavailable" })
+    const errorLimiter = createRateLimiter({ driver, limit: 1, window: "1m" })
+    await expect(errorLimiter.reset({ key: "user" })).resolves.toEqual({ cause, status: "unavailable" })
   })
 
   it("validates and normalizes policies", () => {

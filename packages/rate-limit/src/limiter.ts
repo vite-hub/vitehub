@@ -146,7 +146,12 @@ function assertKey(input: RateLimitConsumeInput, operation: "peek" | "reset"): v
 function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Limiter options are opaque runtime inputs; reject primitives before guarded driver inspection.
   if (!value || typeof value !== "object") return false
-  return !Array.isArray(value)
+  try {
+    return !Array.isArray(value)
+  }
+  catch {
+    return false
+  }
 }
 
 function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
