@@ -348,7 +348,11 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   if (Object(body) !== body) return false
   const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
   if (!locked || Reflect.apply(locked, body, [])) return false
-  return responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+  // An own override is not a native stream operation and must be rejected.
+  // Inherited overrides can occur on otherwise genuine streams; bridging uses
+  // the intrinsic method directly and does not invoke those overrides.
+  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {

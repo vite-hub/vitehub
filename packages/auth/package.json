@@ -68,8 +68,7 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui",
-    "undici": "^7.30.0"
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
     "@types/json-schema": "catalog:ai",
