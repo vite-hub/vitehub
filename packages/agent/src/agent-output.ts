@@ -853,7 +853,16 @@ function isResponseLike(value: unknown): value is Response {
       if (tagDescriptor) tagOwner = tagPrototype
       tagPrototype = Object.getPrototypeOf(tagPrototype) as object | null
     }
-    if (!tagDescriptor || tagDescriptor.value !== "Response" || tagDescriptor.get || tagDescriptor.set) return false
+    let ownResponseTag = false
+    if (!tagDescriptor) {
+      const ownTag = Object.getOwnPropertyDescriptor(value, Symbol.toStringTag)
+      if (ownTag) {
+        tagDescriptor = ownTag
+        tagOwner = Object.getPrototypeOf(value) as object | null
+        ownResponseTag = true
+      }
+    }
+    if (!tagDescriptor || tagDescriptor.value !== "Response" || tagDescriptor.get || tagDescriptor.set || !tagOwner) return false
     // A caller can copy the data tag onto an arbitrary prototype. Platform
     // Response implementations own a constructor on the same prototype that
     // carries the tag; requiring that link rejects Object.create spoof shapes
@@ -867,13 +876,13 @@ function isResponseLike(value: unknown): value is Response {
     const constructorPrototypeDescriptor = Object.getOwnPropertyDescriptor(constructorDescriptor.value, "prototype")
     if (!constructorPrototypeDescriptor
       || constructorPrototypeDescriptor.value !== tagOwner
-      || constructorPrototypeDescriptor.configurable
+      || (!ownResponseTag && constructorPrototypeDescriptor.configurable)
       ) return false
     // A self-linked constructor is easy to manufacture on a caller-owned
     // prototype. Real Fetch implementations expose the Response constructor
     // under this stable name; reject arbitrary constructor names before the
     // remaining structural checks can route a generic result here.
-    if (constructorDescriptor.value.name !== "Response") return false
+    if (!ownResponseTag && constructorDescriptor.value.name !== "Response") return false
     // Fetch Response constructors expose the standard static factories. A
     // caller-created self-linked function can copy the name and prototype
     // link, but it must not be accepted as a platform Response constructor
@@ -891,11 +900,13 @@ function isResponseLike(value: unknown): value is Response {
     // standard prototype surface before accepting a caller-created shape.
     const responsePrototypeAccessors = ["type", "url", "redirected", "ok", "bodyUsed"]
     for (const key of responsePrototypeAccessors) {
+      if (ownResponseTag) break
       const descriptor = Object.getOwnPropertyDescriptor(tagOwner, key)
       if (!descriptor || !hasRuntimeType(descriptor.get, "function") || descriptor.set) return false
     }
     const responsePrototypeMethods = ["clone", "blob", "arrayBuffer", "text", "formData", "json"]
     for (const key of responsePrototypeMethods) {
+      if (ownResponseTag) break
       const descriptor = Object.getOwnPropertyDescriptor(tagOwner, key)
       if (!descriptor || !hasRuntimeType(descriptor.value, "function")) return false
     }
@@ -906,7 +917,7 @@ function isResponseLike(value: unknown): value is Response {
       let prototype: object | null = Object.getPrototypeOf(value) as object | null
       while (prototype) {
         const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-        if (descriptor) return descriptor.get?.call(value)
+        if (descriptor) return descriptor.get ? descriptor.get.call(value) : descriptor.value
         prototype = Object.getPrototypeOf(prototype) as object | null
       }
     }
@@ -941,7 +952,7 @@ function isResponseLike(value: unknown): value is Response {
         // The other supported Fetch implementation may own this response.
       }
     }
-    if (!trustedResponse) return false
+    if (!trustedResponse && !ownResponseTag) return false
     const status = read("status")
     const statusText = read("statusText")
     const headers = read("headers")
