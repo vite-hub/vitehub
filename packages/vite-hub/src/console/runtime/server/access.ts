@@ -82,9 +82,7 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
   if (value instanceof Response) return value
   if ((typeof value !== "object" && typeof value !== "function") || value === null) return
   const foreignStatus = prototypeMethod(value, "status")
-  const foreignClone = prototypeMethod(value, "clone")
-  const foreignArrayBuffer = prototypeMethod(value, "arrayBuffer")
-  if (typeof foreignStatus !== "function" || typeof foreignClone !== "function" || typeof foreignArrayBuffer !== "function") return
+  if (typeof foreignStatus !== "function") return
   try {
     Reflect.apply(foreignStatus, value, [])
     const headers = Reflect.get(value, "headers")
@@ -94,24 +92,10 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     const bodyUsed = Reflect.get(value, "bodyUsed")
     if (typeof bodyUsed !== "boolean") return
     const init = { headers: new Headers(headers as Headers), status, statusText }
-    let cloned: unknown
-    try {
-      cloned = Reflect.apply(foreignClone, value, [])
-    }
-    catch {
-      if (bodyUsed) return
-      return
-    }
-    if (!cloned || typeof cloned !== "object" || cloned === value) return
-    try {
-      Reflect.apply(foreignStatus, cloned, [])
-    }
-    catch {
-      return
-    }
+    if (bodyUsed) return
     const body = Reflect.get(value, "body")
     if (body === null) return new Response(null, init)
-    return new Response(await Reflect.apply(foreignArrayBuffer, cloned, []), init)
+    return new Response(body as BodyInit, init)
   }
   catch {
     return
