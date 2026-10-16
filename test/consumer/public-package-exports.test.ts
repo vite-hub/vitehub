@@ -167,7 +167,7 @@ function packedTargetMatches(files: Set<string>, target: string) {
   const escaped = parts.map(part => part.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"))
   const pattern = wildcardCount === 1
     ? new RegExp(`^package/${escaped[0]}(.+)${escaped[1]}$`)
-    : new RegExp(`^package/${escaped[0]}(.+)${escaped.slice(1).map(part => `\\\\1${part}`).join("")}$`)
+    : new RegExp(`^package/${escaped[0]}(.+)${escaped.slice(1).map(part => `\\1${part}`).join("")}$`)
   return [...files].some(file => pattern.test(file))
 }
 
