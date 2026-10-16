@@ -21,8 +21,8 @@ export type DocsCatalogGroup = {
 
 const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
 
-/** Platform topics are reached from Get started and the catalog, instead of adding rail entries. */
-export function getDocsRailCatalog(sections: DocsSection[]) {
+/** Groups shown in the docs rail, excluding platform sections reached from Start. */
+export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
   return getDocsCatalog(sections).filter(group => group.category !== "Platform");
 }
 
@@ -83,7 +83,13 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     groups.set(label, [...(groups.get(label) || []), page]);
   }
 
-  return [...groups].map(([label, pages]) => ({ label, pages }));
+  const entries = [...groups].map(([label, pages], index) => ({ label, pages, index }));
+  if (!primitiveCategories.has(section.category || "")) {
+    return entries.map(({ label, pages }) => ({ label, pages }));
+  }
+  return entries
+    .sort((left, right) => left.index - right.index)
+    .map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
 }
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */

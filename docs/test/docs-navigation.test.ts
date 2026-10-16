@@ -63,7 +63,7 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Tutorial");
       expect(templateTitles, sectionId).toContain("Server API");
-      // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
+      // Product-specific concepts can sit between the shared template pages.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
       const lastTemplateIndex = Math.max(...templateTitles.map(title => titles.indexOf(title)));
       expect(titles.slice(lastTemplateIndex + 1).some(title => template.includes(title)), sectionId).toBe(false);

@@ -1479,6 +1479,13 @@ describe("tiptap-markdown documents", () => {
 })
 
 describe("workspace changes", () => {
+  it.each(["docs//file.md", "docs///file.md"])("rejects noncanonical path %s in every change field", (path) => {
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "delete", path }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: path, to: "docs/new.md" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: path }))).toBeUndefined()
+  })
+
   it("round-trips typed filesystem changes and rejects malformed payloads", () => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/new.md" })))
       .toEqual({ operation: "create", path: "docs/new.md" })
@@ -1491,7 +1498,6 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git./config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT /config" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git::$INDEX_ALLOCATION/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git::$INDEX_ALLOCATION/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git. /config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs//file" }))).toBeUndefined()
