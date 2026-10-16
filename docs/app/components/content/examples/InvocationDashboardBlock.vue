@@ -11,6 +11,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 const now = useState("ui-dashboard-clock", () => Date.now());
 const clock = ref<ReturnType<typeof setInterval>>();
 onMounted(() => {
+  now.value = Date.now();
   clock.value = setInterval(() => {
     now.value = Date.now();
   }, 60_000);
