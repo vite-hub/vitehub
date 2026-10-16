@@ -139,6 +139,17 @@ describe("Auth access handlers", () => {
     await expect(response?.text()).resolves.toBe("Policy rejected")
   })
 
+
+  it("rejects consumed foreign authorization responses", async () => {
+    const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
+    await foreignResponse.text()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it.each([["local", Response], ["foreign", ForeignResponse]] as const)("preserves authorization responses without getSetCookie from the %s runtime", async (_runtime, ResponseConstructor) => {
     const response = new ResponseConstructor("Policy rejected", { status: 409 })
     Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
@@ -288,6 +299,20 @@ describe("Auth access handlers", () => {
     }
   })
 
+
+  it.each([false, true])("checks foreign body state when bodyUsed is shadowed (consumed: %s)", async (consumed) => {
+    const source = new ForeignResponse("Policy rejected", { status: 409 })
+    if (consumed) await source.text()
+    Object.defineProperty(source, "bodyUsed", { value: false })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => source as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+    expect(response?.status).toBe(consumed ? 403 : 409)
+    if (!consumed) await expect(response?.text()).resolves.toBe("Policy rejected")
+  })
+
   it("rejects an already-consumed body from the foreign runtime", async () => {
     const ResponseConstructor = ForeignResponse
     const source = new ResponseConstructor("Policy rejected", { status: 409 })
@@ -331,6 +356,8 @@ describe("Auth access handlers", () => {
       statusText: { get: () => "Conflict" },
       headers: { get: headers },
       body: { get: body },
+
+      bodyUsed: { get: () => false },
     })
     const candidate = Object.create(prototype)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
