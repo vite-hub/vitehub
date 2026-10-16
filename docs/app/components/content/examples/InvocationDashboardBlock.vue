@@ -7,7 +7,7 @@ import {
 } from "@vite-hub/ui";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
-// Keep running timestamps relative to the page load, including server rendering.
+// Serialize the SSR clock, then refresh it once on the client so static pages stay current.
 const now = useState("ui-dashboard-clock", () => Date.now());
 const clock = ref<ReturnType<typeof setInterval>>();
 onMounted(() => {

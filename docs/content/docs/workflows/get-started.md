@@ -3,7 +3,7 @@
 title: Start your first Workflow
 description: Start a two-step onboarding Workflow and inspect its run id.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
