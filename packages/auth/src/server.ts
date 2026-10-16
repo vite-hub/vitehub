@@ -423,7 +423,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // unless the value was created by a Web Headers implementation.
     const headersGet = responsePropertyDescriptor(headerCarrier, "get")?.value
     const headersForEach = responsePropertyDescriptor(headerCarrier, "forEach")?.value
-    if (!isNativeFunction(headersGet) || !isNativeFunction(headersForEach)) return
+    if (typeof headersGet !== "function" || typeof headersForEach !== "function") return
     const headerPrototype = Object.getPrototypeOf(headerCarrier)
     const headerConstructor = headerPrototype && Object.getOwnPropertyDescriptor(headerPrototype, "constructor")?.value
     const headerNativePrototype = typeof headerConstructor === "function" ? headerConstructor.prototype : undefined
