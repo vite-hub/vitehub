@@ -75,6 +75,19 @@ const CANCELLATION_VERIFICATION_INTERVAL_MS = 100
 const STORE_OPERATION_TIMEOUT_MS = 1_000
 const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
 const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
+const intrinsicFunctionToString = Function.prototype.toString
+const nativeErrorConstructorSource = intrinsicFunctionToString.call(Error)
+const nativeAggregateErrorConstructorSource = intrinsicFunctionToString.call(AggregateError)
+
+function isNativeConstructor(value: unknown, source: string): value is Function {
+  if (!hasRuntimeType(value, "function")) return false
+  try {
+    return intrinsicFunctionToString.call(value) === source
+  }
+  catch {
+    return false
+  }
+}
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -596,7 +609,7 @@ function isErrorValue(value: unknown): value is Error {
       const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
       if (typeof name === "string" && typeof message === "string") {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (hasRuntimeType(constructor, "function") && constructor.prototype === prototype && constructor.name === "Error") return true
+        if (isNativeConstructor(constructor, nativeErrorConstructorSource) && constructor.prototype === prototype) return true
       }
       prototype = Object.getPrototypeOf(prototype)
     }
@@ -617,9 +630,8 @@ function isAggregateErrorValue(value: unknown): value is AggregateError {
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       if (
         name === "AggregateError"
-        && hasRuntimeType(constructor, "function")
+        && isNativeConstructor(constructor, nativeAggregateErrorConstructorSource)
         && constructor.prototype === prototype
-        && constructor.name === "AggregateError"
         && Object.hasOwn(value, "errors")
         && isArray((value as Record<string, unknown>).errors)
       ) return true
