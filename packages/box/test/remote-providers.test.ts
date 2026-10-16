@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { runInNewContext } from "node:vm";
 
 import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
 import { resolveBox } from "../src/index.ts";
-import { createVercelRuntime, type VercelSandboxInstance } from "../src/vercel.ts";
+import { createVercelRuntime, type VercelBoxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -305,6 +306,24 @@ describe("remote Box providers", () => {
     expect(box.plan.executionAuthority.network).toBe("unknown");
   });
 
+  it.each([
+    Object.create({ allow: ["*"] }) as Exclude<VercelBoxNetworkPolicy, string>,
+    Object.create({ subnets: { deny: ["10.0.0.0/8"] } }) as Exclude<VercelBoxNetworkPolicy, string>,
+    { allow: Object.setPrototypeOf(Object.assign([], { length: 1 }), { 0: "*" }) },
+    { allow: Object.assign([], { length: 1 }) },
+    { subnets: { allow: Object.assign([], { length: 1 }) } },
+    { subnets: { deny: Object.assign([], { length: 1 }) } },
+  ])("does not infer Vercel network authority from inherited policy members", async networkPolicy => {
+    const box = await resolveBox({
+      runtime: createVercelRuntime({
+        create: async () => vercelInstance(),
+        networkPolicy,
+      }),
+    }, {});
+
+    expect(box.plan.executionAuthority.network).toBe("unknown");
+  });
+
   it("keeps Cloudflare network authority explicit when the namespace policy is opaque", async () => {
     const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
     const box = await resolveBox({
@@ -359,6 +378,27 @@ describe("remote Box providers", () => {
     const accessCalls = access.mock.calls.length;
     await expect(session.files.read("/workspace/private.txt")).rejects.toBe(deniedRead);
     expect(access).toHaveBeenCalledTimes(accessCalls);
+    await session.close();
+  });
+
+  it("recognizes cross-realm missing Vercel files", async () => {
+    const missing = runInNewContext("Object.assign(new Error('missing'), { code: 'ENOENT' })") as Error & { code: string };
+    const instance = vercelInstance();
+    instance.fs = {
+      async access() { throw missing; },
+      async mkdir() {},
+      async readFile() { throw missing; },
+      async readdir() { return []; },
+      async rename() {},
+      async rm() {},
+      async stat() { throw missing; },
+      async writeFile() {},
+    };
+    const box = await resolveBox({ runtime: createVercelRuntime({ create: async () => instance }) }, {});
+    const session = await box.open();
+
+    await expect(session.files.exists("/workspace/missing.txt")).resolves.toBe(false);
+    await expect(session.files.read("/workspace/missing.txt")).resolves.toBeNull();
     await session.close();
   });
 });
