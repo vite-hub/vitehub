@@ -441,7 +441,7 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
           // Probe the source runtime's reader prototype before acquiring the
           // caller's body lock. This lets malformed foreign readers fail
           // closed without relying on a host-realm releaseLock operation.
-          const probeStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
+          const probeStream = Reflect.construct(constructor, [{ start(controller: ReadableStreamDefaultController<Uint8Array>) { controller.close() } }]) as ReadableStream<Uint8Array>
           const probeReader = Reflect.apply(descriptor.value, probeStream, []) as object
           if (!hasNativeAuthorizationReaderPrototype(probeReader)) return
           const probePrototype = Object.getPrototypeOf(probeReader)
@@ -450,12 +450,21 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
             Object.getOwnPropertyDescriptor(probePrototype, key)?.value,
           ])) as Record<string, Function>
           if (Object.values(probeMethods).some(method => typeof method !== "function")) return
-          const probeRelease = probeMethods.releaseLock
-          Reflect.apply(probeRelease, probeReader, [])
-          // A spoofed method can imitate the native source text while doing
-          // nothing. Verify the intrinsic operation actually releases the
-          // probe lock before allowing a source reader to be acquired.
-          if (probeStream.locked) return
+          // Exercise every operation in the source runtime. This rejects
+          // callable replacements that do not preserve Web Streams behavior,
+          // without comparing implementation-specific function source text.
+          const readResult = Reflect.apply(probeMethods.read, probeReader, [])
+          if (readResult === null || (typeof readResult !== "object" && typeof readResult !== "function")
+            || typeof (readResult as PromiseLike<unknown>).then !== "function") return
+          const cancelStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
+          const cancelReader = Reflect.apply(descriptor.value, cancelStream, []) as object
+          const cancelResult = Reflect.apply(probeMethods.cancel, cancelReader, [])
+          if (cancelResult === null || (typeof cancelResult !== "object" && typeof cancelResult !== "function")
+            || typeof (cancelResult as PromiseLike<unknown>).then !== "function") return
+          const releaseStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
+          const releaseReader = Reflect.apply(descriptor.value, releaseStream, []) as object
+          Reflect.apply(probeMethods.releaseLock, releaseReader, [])
+          if (releaseStream.locked) return
           foreignReaderMethods.set(descriptor.value, probeMethods)
           return descriptor.value
         }
