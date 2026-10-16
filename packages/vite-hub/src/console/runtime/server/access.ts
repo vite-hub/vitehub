@@ -107,14 +107,11 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
       if (value !== undefined) setHeader(name, Array.isArray(value) ? value.join(", ") : String(value))
     }
   }
-  // Match consoleRequestURL(): request headers take precedence, with the Node
-  // request as its fallback. Event-level headers are used only when no request
-  // header container is present.
-  if (event.req?.headers === undefined) {
-    copyHeaders(event.headers)
-    copyHeaders(event.node?.req?.headers, false)
-  }
-  copyHeaders(event.req?.headers)
+  // Match consoleRequestURL(): request headers take precedence per header,
+  // followed by event-level and Node request headers as fallbacks.
+  copyHeaders(event.node?.req?.headers)
+  copyHeaders(event.headers, false)
+  copyHeaders(event.req?.headers, true)
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
 }
 
