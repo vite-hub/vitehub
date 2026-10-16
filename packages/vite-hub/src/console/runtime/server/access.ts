@@ -58,11 +58,16 @@ function isRequestLike(value: unknown): value is Request {
   try {
     const request = value as Record<string, unknown>
     const headers = request.headers
+    const requestMethods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
     return typeof request.method === "string"
       && typeof request.url === "string"
       && headers !== null
       && typeof headers === "object"
       && typeof (headers as { get?: unknown }).get === "function"
+      && requestMethods.every((method) => typeof request[method] === "function")
+      && "body" in request
+      && "bodyUsed" in request
+      && "signal" in request
   }
   catch {
     return false
