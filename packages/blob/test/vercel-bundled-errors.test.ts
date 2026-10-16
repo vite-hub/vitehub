@@ -73,6 +73,7 @@ describe("Vercel Blob missing errors", () => {
     const descriptor = Object.getOwnPropertyDescriptor(source, "stack")!
     const error = Object.create(Error.prototype) as { name: string }
     Object.defineProperty(error, "name", { value: "BlobNotFoundError", configurable: true })
+    Object.defineProperty(error, "message", { value: "Blob not found", configurable: true })
     Object.defineProperty(error, "stack", { ...descriptor, configurable: true })
     vercel.head.mockRejectedValue(error)
     const driver = createDriver(options)

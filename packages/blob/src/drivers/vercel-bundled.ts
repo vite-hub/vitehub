@@ -106,7 +106,7 @@ function isMissingBlobError(error: unknown) {
             // Error.prototype supplies an inherited empty message string, so the
             // message must be an own slot (which is preserved through proxies).
             const message = Object.getOwnPropertyDescriptor(candidate, "message")
-            if (!(candidate instanceof Error) || message?.value === undefined || typeof message.value !== "string") return false
+            if (!(candidate instanceof Error) || message?.value === undefined || typeof message.value !== "string" || message.writable !== true) return false
           }
           // A genuine native getter returns no stack for an object which merely shares
           // the Error prototype. Bound and forged getters instead return their captured
