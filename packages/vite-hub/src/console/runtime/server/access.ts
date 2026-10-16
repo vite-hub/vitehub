@@ -4,6 +4,7 @@ import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostic
 import { consoleRequestError, consoleRequestURL, type ConsoleRequestEvent } from "./request.ts"
 
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
+import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
 
 /**
@@ -190,6 +191,17 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
  * Returns the policy rejection when the policy rejects the request, so the Connections handler returns the same
  * Console diagnostic. Returns `403` with `CONSOLE_MANAGER_REQUIRED` when an `auth` session has no user id.
  */
+/** Map the verified Console user to the Agent Actor used by invocations and replay. */
+export function consoleAccessActor(user: ConsoleUser | undefined): AgentActor | undefined {
+  if (!user?.id) return undefined
+  const label = "email" in user && typeof user.email === "string" && user.email
+    ? user.email
+    : "name" in user && typeof user.name === "string" && user.name
+      ? user.name
+      : user.id
+  return { id: user.id, kind: "authUser", label, meta: { authUserId: user.id } }
+}
+
 export async function consoleConnectionsActor(
   event: ConsoleRequestEvent,
   sessionActor?: () => Promise<string | undefined>,

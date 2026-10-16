@@ -617,6 +617,7 @@ describe("vitehub", () => {
       "@vite-hub/env/vite",
       "@vite-hub/auth/vite",
       "@vite-hub/sandbox/vite",
+      "vite-hub/agent-invocations",
       "@vite-hub/agent/vite",
       "@vite-hub/channels/vite",
       "@vite-hub/connections/types-cleanup",

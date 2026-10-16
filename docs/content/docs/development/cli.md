@@ -35,7 +35,7 @@ The Agent Package contributes `agent` and `channels` when `hubAgent()` is active
 Usage: vitehub <namespace> <feature> [args...]
 
 Available namespaces:
-  workspace   Workspace development workflows.
+  workspace   Workspace development workflows and retained history.
   console     Console development workflows.
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores in a running Vite + Nitro Development Server.
@@ -96,6 +96,9 @@ Available namespaces:
 | `vitehub workflow cancel` | Available | Workflow Package | Cancel a run when the provider supports it. |
 | `vitehub workflow resume` | Available | Workflow Package | Resume a Workflow signal by hook token. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
+| `vitehub workspace history` | Available | Workspace Package | List the retained revisions of a Workspace with ref, author, message, and time. |
+| `vitehub workspace refs` | Available | Workspace Package | List the history refs of a Workspace and their head revisions. |
+| `vitehub workspace show` | Available | Workspace Package | Show one revision and its files, or print one file as it was in that revision. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
 | `vitehub inspect provider-output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
@@ -595,6 +598,37 @@ If you omit the command in an interactive terminal, the CLI opens a prompt for r
 Connected to docs at http://localhost:5173
 > pnpm test
 ```
+
+## Read Workspace history during development
+
+Use `vitehub workspace history`, `refs`, and `show` to read the [retained history](/docs/workspace/server-api#retained-folder-history) of a Workspace: its refs, such as `draft` and `published`, and the revisions on each ref. Start the app's Vite + Nitro Development Server, then run the commands from another terminal. The commands only read. They never commit or move a ref.
+
+```bash [Terminal]
+pnpm vitehub workspace history content
+pnpm vitehub workspace history content --ref draft --limit 10
+pnpm vitehub workspace refs content
+pnpm vitehub workspace show content draft
+pnpm vitehub workspace show content published posts/hello.md
+pnpm vitehub workspace show content 9a97b4caf7ed04dd7d590ab9192ee21211375d0fb7652c586bd506049bd39f3a posts/hello.md
+```
+
+```txt [Output]
+REVISION                                                          REF        CREATED AT                AUTHOR  FILES  MESSAGE
+bc4cf2341f4244c405de80d58ff6b53b5855b27e22dfb9b61567c9cfc44a4f3d  draft      2026-10-15T12:12:47.744Z  maxi    2      Edit hello
+9a97b4caf7ed04dd7d590ab9192ee21211375d0fb7652c586bd506049bd39f3a  published  2026-10-15T12:12:47.733Z  editor  1      Publish hello
+c08f4415a5303b77a6a0e58436b885215950ed298e3e6cebbc85c18f2b97edb9  draft      2026-10-15T12:12:47.727Z  maxi    2      Save hello
+8d104bde6b19e80361256ab8f6f0bfee81c2756210c864c5db1ea95a25e40d0f  main       2026-10-15T12:12:47.716Z  -       1      Start content
+```
+
+- `history <workspace>` lists revisions newest first. Without `--ref`, it merges every ref and shows the newest `--limit` revisions (default `20`, maximum `100`). With `--ref <ref>`, it lists one ref and prints the `--cursor` value of the next page.
+- `refs <workspace>` lists each ref with its head revision.
+- `show <workspace> <ref|revision> [path]` takes a ref name or a full revision id. A ref name wins over a revision id with the same text. Without a path, it prints the revision and its files with size, media type, and SHA-256 digest. With a file path, it prints the file bytes as they were in that revision, so you can redirect them to a file. With a directory path, it lists the files under it.
+
+`AUTHOR` is the `author` string in the revision `metadata`, or `-`. Times are ISO 8601 in UTC. Blob + Database revision ids are SHA-256 digests of the revision manifest. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`. With `--json`, the CLI prints the revision objects with `id`, `ref`, `parentId`, `createdAt`, `message`, `metadata`, `author`, `files`, and `bytes`, and `show` returns file content as `utf8` text or `base64` bytes. Errors go to stderr, or into the JSON body with `--json`, and the exit status is 1.
+
+A Workspace whose Store does not keep revisions fails with `WORKSPACE_R0069` and names the [Blob + Database Store](/docs/workspace/configure#blob-database-store), which retains refs and revisions.
+
+The commands use a guarded dev endpoint that `hubWorkspace()` registers only on the Development Server. The endpoint forwards each read into the Nitro dev environment, which owns the Workspace registry and the Blob and Database bindings of the Store. Reads require a private token scoped to the project and server instance; shutdown removes it. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501. Deployed runtimes do not expose the endpoint.
 
 ## Preview provisioning
 

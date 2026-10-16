@@ -34,6 +34,36 @@ export interface ConsoleAccessBuild {
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
 }
 
+interface ConsoleRuntimeCapabilityImport {
+  exportName: string
+  name: string
+}
+
+const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[] = [
+  { exportName: "blob", name: "blob" },
+  { exportName: "connections", name: "connections" },
+  { exportName: "content", name: "content" },
+  { exportName: "console", name: "console" },
+  { exportName: "agentDb", name: "db" },
+  { exportName: "email", name: "email" },
+  { exportName: "kv", name: "kv" },
+]
+
+function renderConsoleRuntimeCapabilities(imports: Record<string, false | string> | undefined): { imports: string[], install?: string } {
+  if (!imports) return { imports: [] }
+  const capabilities = consoleRuntimeCapabilityImports.flatMap(({ exportName, name }) => {
+    const module = imports[name]
+    if (!module) return []
+    const alias = `vitehubConsoleAgent${name[0]!.toUpperCase()}${name.slice(1)}`
+    return [{ alias, exportName, module, name }]
+  })
+  if (!capabilities.length) return { imports: [] }
+  return {
+    imports: capabilities.map(({ alias, exportName, module }) => `import { ${exportName} as ${alias} } from ${JSON.stringify(module)}`),
+    install: `capabilities: { ${capabilities.map(({ alias, name }) => `${name}: ${alias}`).join(", ")} }`,
+  }
+}
+
 function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports: string[], install: string[] } {
   if (!access) return { imports: [], install: [] }
   const imports: string[] = []
@@ -90,8 +120,10 @@ function renderConsoleNitroPlugin(
   independentAuth: true | "cloudflare-access" | false = false,
   retention?: AgentInvocationRetentionOptions,
   access?: ConsoleAccessBuild,
+  runtimeCapabilityImports?: Record<string, false | string>,
 ): string {
   const accessCode = renderConsoleAccess(access)
+  const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const definitions = agents.map((agent, index) => {
     const skills = readColocatedAgentSkills(agent.handler)
     const module = `vitehubConsoleAgent${index}`
@@ -117,6 +149,7 @@ function renderConsoleNitroPlugin(
   return [
     `import { ${access ? "installConsoleAccess, " : ""}installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
+    ...(agentsEnabled ? runtimeCapabilities.imports : []),
     ...(blobEnabled
       ? [
           `import { installConsoleBlob } from "vite-hub/console/blob"`,
@@ -160,9 +193,9 @@ function renderConsoleNitroPlugin(
       ? fixture
         ? [
             `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
-            `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations })`,
+            `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`,
           ]
-        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${journal && "databaseUrl" in journal ? `, databaseUrl: ${JSON.stringify(journal.databaseUrl)}` : ""}${journal && "d1Binding" in journal ? `, d1: { binding: ${JSON.stringify(journal.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }` : ""}${retention !== undefined ? `, retention: { maxAgeMs: ${renderRetentionLimit(retention.maxAgeMs)}, maxRecords: ${renderRetentionLimit(retention.maxRecords)} }` : ""} })`]
+        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${journal && "databaseUrl" in journal ? `, databaseUrl: ${JSON.stringify(journal.databaseUrl)}` : ""}${journal && "d1Binding" in journal ? `, d1: { binding: ${JSON.stringify(journal.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }` : ""}${retention !== undefined ? `, retention: { maxAgeMs: ${renderRetentionLimit(retention.maxAgeMs)}, maxRecords: ${renderRetentionLimit(retention.maxRecords)} }` : ""}${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`]
       : []),
     ...(kvEnabled
       ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
@@ -189,6 +222,7 @@ export async function writeConsoleNitroPlugin(
   independentAuth: true | "cloudflare-access" | false = false,
   retention?: AgentInvocationRetentionOptions,
   access?: ConsoleAccessBuild,
+  runtimeCapabilityImports?: Record<string, false | string>,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -198,7 +232,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
