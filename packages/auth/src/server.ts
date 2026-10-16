@@ -291,7 +291,7 @@ async function runAccessAuthorize(
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
+function isResponseLike(value: unknown): Response | false {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject primitives before validating the native Response brand below.
   if (value === null || typeof value !== "object") return false
   try {
@@ -321,7 +321,7 @@ function isResponseLike(value: unknown): value is Response {
     body.call(value)
     // Do not clone the response here: cloning throws when its body is already
     // consumed or locked, but the original native response is still valid.
-    return true
+    return value as Response
   }
   catch {
     // A response from another runtime has a different native brand. Validate
@@ -352,12 +352,16 @@ function isResponseLike(value: unknown): value is Response {
       for (const getter of [statusGetter, statusTextGetter, headersGetter, bodyGetter]) {
         if (!Function.prototype.toString.call(getter).includes("[native code]")) return false
       }
-      statusGetter.call(value)
-      statusTextGetter.call(value)
+      const status = statusGetter.call(value)
+      const statusText = statusTextGetter.call(value)
       const headers = headersGetter.call(value)
+      if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return false
+      if (typeof statusText !== "string") return false
       if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
-      bodyGetter.call(value)
-      return true
+      const body = bodyGetter.call(value)
+      // Normalize foreign responses before crossing the host boundary. This
+      // gives serialization the local Response, Headers, and stream brands.
+      return new Response(body as BodyInit | null, { status, statusText, headers: new Headers(headers as HeadersInit) })
     }
     catch {
       return false

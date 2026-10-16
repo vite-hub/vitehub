@@ -164,13 +164,15 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toHaveProperty("status", 403)
   })
 
-  it("returns native responses constructed by another realm unchanged", async () => {
+  it("normalizes native responses constructed by another realm", async () => {
     const response = runInNewContext(`new (class extends Response {})("Policy rejected", { status: 409 })`, { Response })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => response }] },
     }))
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
-    expect(await response.text()).toBe("Policy rejected")
+    const normalized = await handler(new Request("https://app.example/"))
+    expect(normalized).not.toBe(response)
+    expect(normalized?.status).toBe(409)
+    expect(await normalized?.text()).toBe("Policy rejected")
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
