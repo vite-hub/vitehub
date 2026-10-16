@@ -24,33 +24,6 @@ interface BlobMethods {
 const blobArrayBuffer = Blob.prototype.arrayBuffer
 const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
 
-function getForeignBlobMethods(value: object): { stream: (value: object) => ReadableStream, type: string } | undefined {
-  let prototype: object | null = Object.getPrototypeOf(value)
-  while (prototype) {
-    const text = Object.getOwnPropertyDescriptor(prototype, "text")
-    const stream = Object.getOwnPropertyDescriptor(prototype, "stream")
-    const slice = Object.getOwnPropertyDescriptor(prototype, "slice")
-    const type = Object.getOwnPropertyDescriptor(prototype, "type")
-    const size = Object.getOwnPropertyDescriptor(prototype, "size")
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")
-    if (typeof text?.value === "function" &&
-      typeof stream?.value === "function" && typeof slice?.value === "function" &&
-      (typeof type?.get === "function" || typeof Object.getOwnPropertyDescriptor(value, "type")?.value === "string") &&
-      (typeof size?.get === "function" || typeof Object.getOwnPropertyDescriptor(value, "size")?.value === "number") &&
-      typeof constructor?.value === "function" && constructor.value.name === "Blob") {
-      const typeValue = typeof type?.get === "function"
-        ? Reflect.apply(type.get, value, [])
-        : Object.getOwnPropertyDescriptor(value, "type")?.value
-      return {
-        stream: candidate => Reflect.apply(stream.value, candidate, []) as ReadableStream,
-        type: String(typeValue),
-      }
-    }
-    prototype = Object.getPrototypeOf(prototype)
-  }
-  return undefined
-}
-
 function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
@@ -71,23 +44,8 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
       },
     })
     let type: string
-    if (typeof blobType === "function") {
-      try {
-        type = String(Reflect.apply(blobType, value, []))
-      }
-      catch {
-        const foreign = getForeignBlobMethods(value)
-        if (!foreign) return undefined
-        readStream = foreign.stream
-        type = foreign.type
-      }
-    }
-    else {
-      const foreign = getForeignBlobMethods(value)
-      if (!foreign) return undefined
-      readStream = foreign.stream
-      type = foreign.type
-    }
+    if (typeof blobType !== "function") return undefined
+    type = String(Reflect.apply(blobType, value, []))
     return {
       type,
       body: () => new ReadableStream<Uint8Array>({
