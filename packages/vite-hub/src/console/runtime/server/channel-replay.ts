@@ -66,9 +66,11 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
   const { agent: _, ...replay } = replayBody
   const agent = getConsoleAgentDefinition(name)
   if (!agent) return replayError("Channel replay is not available. Enable Console invocation for this Agent.", 404)
+  const actor = consoleAccessActor(access.user)
   const tasks = createRuntimeWaitUntilController({ forward: event.waitUntil })
   const context = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
+    ...(actor ? { actor } : {}),
     capabilities: { ...getConsoleAgentCapabilities(), console },
     memo: memo(),
     request: consoleRequest(event),
@@ -76,7 +78,7 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
   })
-  return await handleChannelReplayRequest(agent, replay, { actor: consoleAccessActor(access.user), maxLimit: maximumReplayItemsPerRequest, runtime: context })
+  return await handleChannelReplayRequest(agent, replay, { actor, maxLimit: maximumReplayItemsPerRequest, runtime: context })
 }
 
 const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler, { section: "agents", user: true })

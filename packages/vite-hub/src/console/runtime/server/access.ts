@@ -100,6 +100,14 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
   if (iterate instanceof Function) {
     for (const [name, value] of iterate.call(iterableHeaders)) headers.set(name, value)
   }
+  else if (requestHeaders) {
+    // ConsoleHeaders intentionally guarantees get() without requiring iteration.
+    // Preserve the request headers used by Auth and Console routing for that shape.
+    for (const name of ["authorization", "cookie", "content-type", "origin", "host", "x-forwarded-host", "x-forwarded-proto"]) {
+      const value = requestHeaders.get(name)
+      if (value !== null) headers.set(name, value)
+    }
+  }
   for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
     if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value)
   }
