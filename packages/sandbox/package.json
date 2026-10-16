@@ -38,36 +38,52 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
-      "import": "./dist/runtime/empty-registry.js"
+      "import": "./dist/runtime/empty-registry.js",
+      "require": "./dist/runtime/empty-registry.js",
+      "default": "./dist/runtime/empty-registry.js"
     },
     "./runtime/provider-loader": {
       "types": "./dist/runtime/provider-loader.d.ts",
-      "import": "./dist/runtime/provider-loader.js"
+      "import": "./dist/runtime/provider-loader.js",
+      "require": "./dist/runtime/provider-loader.js",
+      "default": "./dist/runtime/provider-loader.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
-      "import": "./dist/runtime/state.js"
+      "import": "./dist/runtime/state.js",
+      "require": "./dist/runtime/state.js",
+      "default": "./dist/runtime/state.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./package.json": "./package.json",
     "./_internal/runtime": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./_internal/runtime/providers/cloudflare": {
       "types": "./dist/runtime/providers/cloudflare.d.ts",
-      "import": "./dist/runtime/providers/cloudflare.js"
+      "import": "./dist/runtime/providers/cloudflare.js",
+      "require": "./dist/runtime/providers/cloudflare.js",
+      "default": "./dist/runtime/providers/cloudflare.js"
     },
     "./_internal/runtime/providers/vercel": {
       "types": "./dist/runtime/providers/vercel.d.ts",
-      "import": "./dist/runtime/providers/vercel.js"
+      "import": "./dist/runtime/providers/vercel.js",
+      "require": "./dist/runtime/providers/vercel.js",
+      "default": "./dist/runtime/providers/vercel.js"
     }
   },
   "scripts": {
