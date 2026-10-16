@@ -173,7 +173,8 @@ describe("Agent Invocation enforcement", () => {
     }
     vi.spyOn(console, "warn").mockImplementation(() => {})
     const invocations = defineAgentInvocations({ store })
-    const run = vi.fn(async ({ abortSignal }: { abortSignal?: AbortSignal }) => {
+    const run = vi.fn(async ({ input }: { input: { abortSignal?: AbortSignal } }) => {
+      const abortSignal = input.abortSignal
       await new Promise<void>((resolve, reject) => {
         abortSignal?.addEventListener("abort", () => reject(abortSignal.reason), { once: true })
       })

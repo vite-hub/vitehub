@@ -383,7 +383,7 @@ describe("Agent Invocation cancel", () => {
         : { cancelWarningPending: true }))
       await vi.advanceTimersByTimeAsync(10_000)
       expect(modelSignal?.aborted).toBe(true)
-      expect(customSignal?.aborted).toBe(false)
+      expect(customSignal?.aborted).toBe(true)
       vi.useFakeTimers()
       const cancellation = owner.cancel(id).then(result => result, error => error)
       if (warning === "durable") {
@@ -394,7 +394,7 @@ describe("Agent Invocation cancel", () => {
         expect(await cancellation).toMatchObject({ code: "AGENT_R0974" })
       }
       expect(modelSignal?.aborted).toBe(true)
-      expect(customSignal?.aborted).toBe(false)
+      expect(customSignal?.aborted).toBe(true)
       expect((await backing.getSummary(id))?.cancelRequestedAt).toBeDefined()
     }
     finally {
