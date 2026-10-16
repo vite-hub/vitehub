@@ -148,8 +148,11 @@ export function consoleRequestURL(event: ConsoleRequestEvent): URL {
       const raw = source instanceof Object && "get" in source && source.get instanceof Function
         ? source.get(name)
         : source?.[name]
-      const value = (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
-      if (value) return value
+      // An empty header is still a selected value. This must match
+      // `consoleRequest()`, which preserves empty strings in the Request.
+      if (raw === undefined || raw === null) continue
+      const value = (Array.isArray(raw) ? raw[0] ?? "" : raw).split(",")[0]?.trim() ?? ""
+      return value
     }
   }
   const url = value instanceof URL ? new URL(value) : new URL(value, "http://localhost")

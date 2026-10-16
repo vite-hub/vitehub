@@ -21,4 +21,19 @@ describe("Console request header reconstruction", () => {
     expect(request.headers.get("origin")).toBe("https://console.example")
     expect(request.headers.get("host")).toBe("console.example")
   })
+
+  it("keeps an empty higher-precedence header instead of falling back", () => {
+    const event = {
+      method: "GET",
+      req: {
+        headers: { get: (name: string) => name === "host" ? "" : null },
+        url: "/_vitehub/console",
+      },
+      node: { req: { headers: { host: "console.example" } } },
+    }
+
+    const request = consoleRequest(event)
+    expect(request.headers.get("host")).toBe("")
+    expect(consoleRequestURL(event).hostname).toBe("localhost")
+  })
 })
