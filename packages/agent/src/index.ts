@@ -5098,7 +5098,9 @@ function immediateAgentUsageRecord(
   run: Partial<AgentRunMetadata> | undefined,
 ): ReturnType<typeof usageRecordFromStreamChunk> {
   if (!value || !hasRuntimeType(value, "object")) return
+  // SAFETY: The runtime object guard establishes a record-shaped value for property inspection.
   const record = value as Record<string, unknown>
+  // SAFETY: The runtime object guard establishes a record-shaped candidate before reading `then`.
   const isPending = (candidate: unknown): candidate is PromiseLike<unknown> =>
     Boolean(candidate && hasRuntimeType(candidate, "object") && hasRuntimeType((candidate as Record<string, unknown>).then, "function"))
   const usageRecord = record.usageRecord
