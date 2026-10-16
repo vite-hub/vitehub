@@ -1,5 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
+import { Response as UndiciResponse } from "undici"
 
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
@@ -311,7 +312,9 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 
 function hasResponsePrototype(value: unknown): boolean {
   try {
-    if (value instanceof Response) return true
+    if (value instanceof Response || value instanceof UndiciResponse) return true
+    return false
+    /*
     let current: object | null = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
@@ -377,6 +380,7 @@ function hasResponsePrototype(value: unknown): boolean {
       current = Object.getPrototypeOf(current)
     }
     return false
+    */
   }
   catch {
     return false
