@@ -117,7 +117,7 @@ export function createAgentUIMessageStreamResponse(options: {
   status?: number
   statusText?: string
   stream: ReadableStream<unknown>
-}): Response {
+}): Response & { body: ReadableStream<Uint8Array> } {
   const headers = new Headers(options.headers)
   for (const [key, value] of Object.entries(uiMessageStreamHeaders)) {
     if (!headers.has(key)) headers.set(key, value)
@@ -135,7 +135,7 @@ export function createAgentUIMessageStreamResponse(options: {
     headers,
     status: options.status,
     statusText: options.statusText,
-  })
+  }) as Response & { body: ReadableStream<Uint8Array> }
 }
 
 export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {
