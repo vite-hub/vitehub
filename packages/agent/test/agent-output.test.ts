@@ -1,4 +1,5 @@
 import { runInNewContext } from "node:vm"
+import { Response as ForeignResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
@@ -1139,12 +1140,9 @@ describe("agent output helpers", () => {
   })
 
   it("emits body chunks from a genuine foreign Response implementation", async () => {
-    const { response, ForeignResponse } = runInNewContext(
-      "class ForeignResponse extends Base {} ; ({ response: new ForeignResponse('foreign'), ForeignResponse })",
-      { Base: Response },
-    ) as { response: Response, ForeignResponse: typeof Response }
+    const response = new ForeignResponse("foreign")
     expect(response).toBeInstanceOf(ForeignResponse)
-    expect(response).toBeInstanceOf(Response)
+    expect(response).not.toBeInstanceOf(Response)
     const events = []
     for await (const event of streamAgentOutputToEvents(response)) events.push(event)
     expect(events).toEqual([{ text: "foreign", type: "text-delta" }, { type: "finish" }])
