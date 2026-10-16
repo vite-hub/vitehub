@@ -286,8 +286,6 @@ async function runAccessAuthorize(
   return createForbiddenResponse(context.request)
 }
 
-const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
-
 const authorizationResponsePrototypeLimit = 32
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
@@ -424,10 +422,14 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
         const nativeHeaders = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
         const nativeBody = Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get
         if (!nativeStatus || !nativeStatusText || !nativeHeaders || !nativeBody) return
+        // Validate the internal slots directly. This also accepts legitimate
+        // Response subclasses that override accessors while rejecting proxies,
+        // whose native accessors fail the brand check.
         Reflect.apply(nativeStatus, candidate, [])
         Reflect.apply(nativeStatusText, candidate, [])
         Reflect.apply(nativeHeaders, candidate, [])
         Reflect.apply(nativeBody, candidate, [])
+        return candidate as Response
       }
       catch {
         return
@@ -445,30 +447,16 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     if (headers === null || Object(headers) !== headers) return
 
     const headerCarrier = Object(headers)
-    const snapshot = { status, statusText, headers, body }
-    const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
-      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
-    let nativeProperties = false
-    try {
-      nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
-        const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
-        return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
-      })
-    }
-    catch {
-      // A proxy can expose native descriptors without owning native response state.
-    }
-    // A local Response proxy can pass instanceof while shadowing its fields.
-    // Never normalize such a value from trapped properties; only transparent
-    // local responses may pass through unchanged.
-    if (value instanceof Response && !nativeProperties) return
+    // Local Response values were returned above after native slot validation;
+    // an instanceof value that failed that validation is a proxy or malformed wrapper.
+    if (value instanceof Response) return
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    if (!nativeHeaderMethods || !nativeCookieMethod || !nativeBodyMethod) return
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
