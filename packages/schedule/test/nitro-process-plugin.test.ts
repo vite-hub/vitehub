@@ -204,7 +204,7 @@ describe("generated Nitro Process Runtime plugin", () => {
     expect(app.captureError).toHaveBeenCalledWith(installationError, { tags: ["vitehub-schedule"] })
   })
 
-  it("does not replace installation failures when runtime error coercion fails", async () => {
+  it("reports installation failures when runtime error coercion fails", async () => {
     const thrownValue = {
       toString() {
         throw new Error("runtime error coercion failed")
@@ -215,7 +215,10 @@ describe("generated Nitro Process Runtime plugin", () => {
 
     expect(() => plugin(app)).not.toThrow()
     await expect(hooks.get("request")!()).rejects.toBe(thrownValue)
-    expect(app.captureError).not.toHaveBeenCalled()
+    expect(app.captureError).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "SCHEDULE_R0035", cause: thrownValue }),
+      { tags: ["vitehub-schedule"] },
+    )
   })
 
   it("does not replace Nitro's local fetch entrypoint", async () => {
