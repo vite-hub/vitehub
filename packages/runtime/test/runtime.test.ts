@@ -1187,6 +1187,74 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("falls back to private for WebAssembly.Module payloads from another realm", async () => {
+    // SAFETY: Node exposes WebAssembly.Module even though the test's ambient global type omits it.
+    const WebAssemblyModule = (globalThis as typeof globalThis & {
+      WebAssembly: {
+        Module: {
+          new (bytes: Uint8Array): object
+          exports(module: object): readonly unknown[]
+        }
+      }
+    }).WebAssembly.Module
+    const module = runInNewContext("new WebAssembly.Module(Uint8Array.of(0, 97, 115, 109, 1, 0, 0, 0))")
+    expect(module).not.toBeInstanceOf(WebAssemblyModule)
+    expect(WebAssemblyModule.exports(module)).toEqual([])
+
+    const log = createTraceEventLog()
+    await log.append({
+      name: "foreign.module",
+      payload: { value: { module }, visibility: "public" },
+      type: "lifecycle",
+    })
+
+    expect(log.entries()[0]).toMatchObject({
+      attributes: { "vitehub.payload.visibility": "private" },
+      payload: { visibility: "private" },
+    })
+  })
+
+  it.each(["permissive", "throwing"])("does not trust a %s replacement of WebAssembly.Module.exports after import", async (replacement) => {
+    const WebAssemblyModule = (globalThis as typeof globalThis & {
+      WebAssembly: {
+        Module: {
+          exports(module: object): readonly unknown[]
+        }
+      }
+    }).WebAssembly.Module
+    const originalExports = WebAssemblyModule.exports
+    WebAssemblyModule.exports = () => {
+      if (replacement === "throwing") throw new Error("replaced exports")
+      return []
+    }
+    try {
+      const log = createTraceEventLog()
+      await log.append({
+        name: "spoofed.module",
+        payload: { value: { module: {} }, visibility: "public" },
+        type: "lifecycle",
+      })
+
+      expect(log.entries()[0]).toMatchObject({
+        attributes: { "vitehub.payload.visibility": "public" },
+        payload: { visibility: "public" },
+      })
+      const module = runInNewContext("new WebAssembly.Module(Uint8Array.of(0, 97, 115, 109, 1, 0, 0, 0))")
+      await log.append({
+        name: "foreign.module",
+        payload: { value: { module }, visibility: "public" },
+        type: "lifecycle",
+      })
+      expect(log.entries()[1]).toMatchObject({
+        attributes: { "vitehub.payload.visibility": "private" },
+        payload: { visibility: "private" },
+      })
+    }
+    finally {
+      WebAssemblyModule.exports = originalExports
+    }
+  })
+
   it("isolates stored entries from returned and observed payloads", async () => {
     let observed: TraceEventLogEntry | undefined
     const log = createTraceEventLog({
