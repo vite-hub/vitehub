@@ -852,6 +852,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   let generatedConsolePluginPath: string | undefined
   let consoleWorkflowConfigResolved = false
   let consoleAccess: ConsoleAccessBuild | undefined
+  let consoleAuthMode: true | "cloudflare-access" | false = false
   if (options.console) {
     const configuredConsole = options.console
     const viteAuth = nuxt.options.vite?.auth
@@ -869,7 +870,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         sections: consoleSections,
         base: nuxt.options.app?.baseURL,
       })
-      const consoleAuthMode = registeredConsoleAuthMode(consoleAuthConfig(configuredConsole), Boolean(nuxt.options.dev))
+      consoleAuthMode = registeredConsoleAuthMode(consoleAuthConfig(configuredConsole), Boolean(nuxt.options.dev))
       consoleAccess = resolveConsoleAccessBuild(configuredConsole, {
         appAuth,
         base: nuxt.options.app?.baseURL,
@@ -1258,7 +1259,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         const consoleAlias = (config.alias ??= {}) as Record<string, string>
         consoleAlias[consoleConnectionsActorId] = await writeConsoleConnectionsActor(
           viteRoot,
-          consoleAuthMode ? consoleAuthMiddlewareFile(viteRoot) : undefined,
+          consoleAuthMode === true ? consoleAuthMiddlewareFile(viteRoot) : undefined,
         )
       }
       const consoleCatalog = await discoverConsoleBuildCatalog({
