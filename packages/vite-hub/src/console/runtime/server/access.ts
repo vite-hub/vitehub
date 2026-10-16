@@ -100,7 +100,12 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       // but it must not be mistaken for a Response implementation without
       // the rest of its standard accessors.
       const accessors = ["body", "bodyUsed", "headers", "status", "statusText", "type", "url", "redirected", "ok"]
-      const hasResponseAccessors = accessors.every(method => typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function")
+      const hasResponseAccessors = accessors.every(method => {
+        const descriptor = Object.getOwnPropertyDescriptor(responsePrototype, method)
+        // Fetch implementations may expose these properties as own fields on
+        // each instance (happy-dom does this) instead of prototype getters.
+        return typeof descriptor?.get === "function" || Object.prototype.hasOwnProperty.call(value, method)
+      })
       if (typeof cloneDescriptor?.value === "function"
         && hasResponseMethods
         && hasResponseAccessors
