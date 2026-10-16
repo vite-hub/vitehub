@@ -271,6 +271,28 @@ describe("realtime server handler", () => {
     expect(idFromName).not.toHaveBeenCalled()
   })
 
+  it("rejects prototype-only bindings when a namespace constructor exists", async () => {
+    const get = vi.fn(() => ({ fetch: vi.fn(async () => new Response("forwarded")) }))
+    const idFromName = vi.fn((name: string) => name)
+    class Namespace {
+      get = get
+      idFromName = idFromName
+    }
+    vi.stubGlobal("DurableObjectNamespace", Namespace)
+    const binding = Object.create(Namespace.prototype)
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      method: "POST",
+    }) as Request & { runtime?: unknown }
+    request.runtime = { cloudflare: { env: { $DurableObject: binding } } }
+
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(request)
+
+    expect(response.status).toBe(405)
+    expect(get).not.toHaveBeenCalled()
+    expect(idFromName).not.toHaveBeenCalled()
+  })
+
   it("rejects renamed bound functions that imitate host bindings", async () => {
     const fetch = vi.fn(async () => new Response("forwarded"))
     // Bound functions stringify as native, but do not retain a named native

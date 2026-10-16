@@ -177,7 +177,10 @@ function isDurableObjectNamespaceBrand(value: object): boolean {
   const constructor = (globalThis as Record<string, unknown>).DurableObjectNamespace
   if (typeof constructor === "function") {
     try {
-      return value instanceof constructor
+      if (!(value instanceof constructor)) return false
+      const get = Object.getOwnPropertyDescriptor(value, "get")
+      const idFromName = Object.getOwnPropertyDescriptor(value, "idFromName")
+      return get?.value instanceof Function && idFromName?.value instanceof Function
     }
     catch {
       return false
