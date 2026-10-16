@@ -280,6 +280,9 @@ export class FakeSql {
       return rows([])
     }
     if (query.startsWith("INSERT INTO vitehub_realtime_document_updates")) {
+      if (this.intermediateJournal && query.includes("client_update")) {
+        throw new Error("table vitehub_realtime_document_updates has no column named client_update")
+      }
       this.updates.push({ room_key: String(bindings[0]), sequence: ++this.sequence, update_blob: bindings[1] as ArrayBuffer, client_update: Number(bindings[2] ?? 1) })
       return rows([])
     }

@@ -772,12 +772,25 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
 
   function persistRoomUpdate(room: DocumentRoom, update: Uint8Array, clientUpdate: boolean): void {
     if (!room.sql) return
-    room.sql.exec(
-      "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, ?)",
-      room.key,
-      Uint8Array.from(update).buffer,
-      clientUpdate ? 1 : 0,
-    )
+    const blob = Uint8Array.from(update).buffer
+    try {
+      room.sql.exec(
+        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, ?)",
+        room.key,
+        blob,
+        clientUpdate ? 1 : 0,
+      )
+    }
+    catch {
+      // Some Durable Object SQLite versions reject ALTER TABLE on an existing
+      // journal. Keep those deployments writable until the column can be
+      // added; restored rows are treated as client updates by default.
+      room.sql.exec(
+        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
+        room.key,
+        blob,
+      )
+    }
     room.persistedUpdates++
     if (room.persistedUpdates >= durableUpdateCompactionInterval) persistRoom(room)
   }
