@@ -781,7 +781,8 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
           return false
         })())
     if (!branded) return
-    return { message: String(Reflect.get(error, "message")), value: error }
+    const message = Reflect.get(error, "message")
+    return { message: message === undefined ? "" : String(message), value: error }
   }
   catch {
     return

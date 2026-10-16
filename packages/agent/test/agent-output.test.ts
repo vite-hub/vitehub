@@ -590,6 +590,14 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("preserves empty messages from cross-realm stream errors", () => {
+    const error = runInNewContext("new Error()")
+    expect(toAgentStreamEvent({ error, type: "error" })).toEqual({
+      error: "",
+      type: "error",
+    })
+  })
+
   it("preserves tagged cross-realm errors without native brand checks", () => {
     const errorConstructor = Error as ErrorConstructor & { isError?: unknown }
     const nativeIsError = errorConstructor.isError
