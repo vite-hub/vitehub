@@ -117,6 +117,7 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
 type WorkspaceDevHeaders = Headers | Record<string, string | string[] | undefined> | { get(name: string): string | null }
 
 function headerValue(headers: WorkspaceDevHeaders, name: string): string | undefined {
+  try {
   const prototype = Object.getPrototypeOf(headers)
   const constructor = prototype
     ? Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
@@ -179,6 +180,10 @@ function headerValue(headers: WorkspaceDevHeaders, name: string): string | undef
     const value: unknown = Reflect.get(headers, name)
     if (Array.isArray(value)) return hasRuntimeType(value[0], "string") ? value[0] : undefined
     return hasRuntimeType(value, "string") ? value : undefined
+  }
+  catch {
+    return undefined
+  }
   }
   catch {
     return undefined

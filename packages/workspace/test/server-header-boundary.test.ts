@@ -59,6 +59,18 @@ describe("workspace dev token headers", () => {
     await expect(validateWorkspaceDevToken(root, headers, options)).resolves.toBe(false)
   })
 
+  it("rejects headers whose prototype lookup throws", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
+    roots.push(root)
+    const options = { serverId: "throwing-prototype-test" }
+    await refreshWorkspaceDevToken(root, options)
+    const headers = new Proxy({}, {
+      getPrototypeOf() { throw new Error("malformed headers") },
+    }) as Record<string, string | string[] | undefined>
+
+    await expect(validateWorkspaceDevToken(root, headers, options)).resolves.toBe(false)
+  })
+
   it("rejects forged Headers branding on inherited getters", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
     roots.push(root)
