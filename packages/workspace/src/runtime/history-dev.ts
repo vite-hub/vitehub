@@ -49,20 +49,22 @@ function isoTime(value: string): string {
 
 function describeRevision(revision: WorkspaceRevision): WorkspaceHistoryDevRevision {
   const author = revision.metadata?.author
-  return {
+  const described: WorkspaceHistoryDevRevision = {
     ...revision,
     createdAt: isoTime(revision.createdAt),
-    ...(hasRuntimeType(author, "string") && author ? { author } : {}),
   }
+  if (hasRuntimeType(author, "string") && author) described.author = author
+  return described
 }
 
 function describeFile(entry: WorkspaceEntry): WorkspaceHistoryDevFile {
-  return {
+  const described: WorkspaceHistoryDevFile = {
     path: entry.path,
-    ...(entry.size === undefined ? {} : { size: entry.size }),
-    ...(entry.mediaType === undefined ? {} : { mediaType: entry.mediaType }),
-    ...(entry.digest === undefined ? {} : { digest: entry.digest }),
   }
+  if (entry.size !== undefined) described.size = entry.size
+  if (entry.mediaType !== undefined) described.mediaType = entry.mediaType
+  if (entry.digest !== undefined) described.digest = entry.digest
+  return described
 }
 
 function encodeContent(bytes: Uint8Array): Pick<WorkspaceHistoryDevContent, "content" | "encoding"> {
@@ -80,13 +82,14 @@ async function listHistory(workspace: string, history: WorkspaceHistoryReader, r
   const limit = request.limit ?? defaultHistoryLimit
   if (request.ref !== undefined) {
     const page = await history.list({ cursor: request.cursor, limit, ref: request.ref })
-    return {
+    const result: WorkspaceHistoryDevList = {
       workspace,
       ref: request.ref,
       revisions: page.revisions.map(describeRevision),
-      ...(page.cursor ? { cursor: page.cursor } : {}),
       more: Boolean(page.cursor),
     }
+    if (page.cursor) result.cursor = page.cursor
+    return result
   }
   // The newest `limit` revisions across refs are inside the newest `limit` revisions of each ref.
   const pages = await Promise.all((await history.refs()).map(async ref => await history.list({ limit, ref: ref.name })))
@@ -152,7 +155,9 @@ export async function readWorkspaceHistoryDev(request: WorkspaceHistoryDevReques
 }
 
 function failure(status: number, message: string, code?: string): Response {
-  return Response.json({ error: { ...(code ? { code } : {}), message: redactInspectionText(message) } }, { headers: { "cache-control": "no-store" }, status })
+  const error: { code?: string, message: string } = { message: redactInspectionText(message) }
+  if (code) error.code = code
+  return Response.json({ error }, { headers: { "cache-control": "no-store" }, status })
 }
 
 /** Answers one history request with JSON. Failures use `{ error: { code?, message } }`. */

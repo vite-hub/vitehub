@@ -275,119 +275,206 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
-function hasResponseShadow(value: object): boolean {
-  for (const key of ["status", "statusText", "headers", "body", "clone"]) {
-    if (Object.prototype.hasOwnProperty.call(value, key)) return true
-  }
-  return false
-}
-
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = await normalizeAuthorizationResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): Response | false {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject primitives before validating the native Response brand below.
-  if (value === null || typeof value !== "object") return false
+const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
+
+const authorizationResponsePrototypeLimit = 32
+
+function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
-    // Use the local native getter when the response comes from this runtime.
-    const responsePrototype = Response.prototype
-    const status = Object.getOwnPropertyDescriptor(responsePrototype, "status")!.get!
-    const statusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")!.get!
-    const headers = Object.getOwnPropertyDescriptor(responsePrototype, "headers")!.get!
-    const body = Object.getOwnPropertyDescriptor(responsePrototype, "body")!.get!
-    // Own fields or prototype overrides can shadow native accessors and break host serialization.
-    if (hasResponseShadow(value)) return false
-    let prototype: object | null = value
-    let depth = 0
-    while (prototype && prototype !== responsePrototype && depth++ < 8) {
-      const descriptors = Object.getOwnPropertyDescriptors(prototype)
-      for (const [key, nativeGetter] of [["status", status], ["statusText", statusText], ["headers", headers], ["body", body]] as const) {
-        const getter = descriptors[key]?.get
-        if (getter && getter !== nativeGetter) throw new TypeError("foreign Response")
-      }
-      prototype = Object.getPrototypeOf(prototype)
+    let current: object | null = Object(value)
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) throw new Error("Cyclic authorization response prototype")
+      seen.add(current)
+      const descriptor = Object.getOwnPropertyDescriptor(current, key)
+      if (descriptor) return descriptor
+      current = Object.getPrototypeOf(current)
     }
-    if (prototype !== responsePrototype) return false
-    status.call(value)
-    statusText.call(value)
-    const responseHeaders = headers.call(value)
-    if (responseHeaders === null || typeof responseHeaders !== "object" || typeof (responseHeaders as { get?: unknown }).get !== "function") return false
-    body.call(value)
-    // Do not clone the response here: cloning throws when its body is already
-    // consumed or locked, but the original native response is still valid.
-    return value as Response
+    if (current) throw new Error("Authorization response prototype chain is too deep")
   }
   catch {
-    // A response from another runtime has a different native brand. Validate
-    // its own prototype accessors instead, without consuming or cloning it.
+    // Fail the whole snapshot rather than treating malformed reflection as a missing method.
+    throw new Error("Malformed authorization response prototype")
+  }
+}
+
+let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+
+async function getUndiciResponse(): Promise<typeof Response | undefined> {
+  if (undiciResponsePromise) return undiciResponsePromise
+  undiciResponsePromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.Response as typeof Response)
+    .catch(() => undefined)
+  return undiciResponsePromise
+}
+
+async function hasResponsePrototype(value: unknown): Promise<boolean> {
+  const targets = new Set<object>([Response.prototype])
+  const UndiciResponse = await getUndiciResponse()
+  if (UndiciResponse) targets.add(UndiciResponse.prototype)
+  try {
+    let current = Object.getPrototypeOf(Object(value))
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (targets.has(current)) return true
+      if (seen.has(current)) return false
+      seen.add(current)
+      current = Object.getPrototypeOf(current)
+    }
+  }
+  catch {
+    return false
+  }
+  return false
+}
+
+function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
+  if (body === null) return true
+  if (Object(body) !== body) return false
+  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+  if (!locked || Reflect.apply(locked, body, [])) return false
+  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+}
+
+function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
+  // Use native operations on native stream state, never caller-supplied reader methods.
+  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
+  const reader = Reflect.apply(getReader, body, [])
+  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
+  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    Reflect.apply(releaseLock, reader, [])
+  }
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await Reflect.apply(read, reader, [])
+        if (result.done) {
+          release()
+          controller.close()
+        }
+        else controller.enqueue(result.value)
+      }
+      catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await Reflect.apply(cancel, reader, [reason])
+      }
+      finally {
+        release()
+      }
+    },
+  }, { highWaterMark: 0 })
+  return { stream, release }
+}
+
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value === null || Object(value) !== value) return
+  try {
+    const candidate = Object(value)
+    if (!await hasResponsePrototype(candidate)) return
+    // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
+    const status: unknown = Reflect.get(candidate, "status")
+    const statusText: unknown = Reflect.get(candidate, "statusText")
+    const headers: unknown = Reflect.get(candidate, "headers")
+    const body: unknown = Reflect.get(candidate, "body")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
+    if (typeof statusText !== "string") return
+    if (headers === null || Object(headers) !== headers) return
+
+    const headerCarrier = Object(headers)
+    const snapshot = { status, statusText, headers, body }
+    const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
+      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+    let nativeProperties = false
     try {
-      // Foreign responses must also reject caller-owned fields that shadow
-      // the native accessors used by host serialization.
-      if (hasResponseShadow(value)) return false
-      const maxPrototypeDepth = 8
-      let prototype: object | null = value
-      let statusGetter: (() => unknown) | undefined
-      let statusTextGetter: (() => unknown) | undefined
-      let headersGetter: (() => unknown) | undefined
-      let bodyGetter: (() => unknown) | undefined
-      let typeGetter: (() => unknown) | undefined
-      let urlGetter: (() => unknown) | undefined
-      let redirectedGetter: (() => unknown) | undefined
-      let okGetter: (() => unknown) | undefined
-      let bodyUsedGetter: (() => unknown) | undefined
-      let cloneMethod: (() => unknown) | undefined
-      const seen = new Set<object>()
-      let depth = 0
-      while (prototype && depth < maxPrototypeDepth && (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !typeGetter || !urlGetter || !redirectedGetter || !okGetter || !bodyUsedGetter || !cloneMethod) && !seen.has(prototype)) {
-        if (prototype === Response.prototype) return false
-        depth++
-        seen.add(prototype)
-        const descriptors = Object.getOwnPropertyDescriptors(prototype)
-        if (descriptors.status?.get) statusGetter ??= descriptors.status.get as () => unknown
-        if (descriptors.statusText?.get) statusTextGetter ??= descriptors.statusText.get as () => unknown
-        if (descriptors.headers?.get) headersGetter ??= descriptors.headers.get as () => unknown
-        if (descriptors.body?.get) bodyGetter ??= descriptors.body.get as () => unknown
-        if (descriptors.type?.get) typeGetter ??= descriptors.type.get as () => unknown
-        if (descriptors.url?.get) urlGetter ??= descriptors.url.get as () => unknown
-        if (descriptors.redirected?.get) redirectedGetter ??= descriptors.redirected.get as () => unknown
-        if (descriptors.ok?.get) okGetter ??= descriptors.ok.get as () => unknown
-        if (descriptors.bodyUsed?.get) bodyUsedGetter ??= descriptors.bodyUsed.get as () => unknown
-        if (typeof descriptors.clone?.value === "function") cloneMethod ??= descriptors.clone.value as () => unknown
-        prototype = Object.getPrototypeOf(prototype)
-      }
-      if (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter || !typeGetter || !urlGetter || !redirectedGetter || !okGetter || !bodyUsedGetter || !cloneMethod) return false
-      const status = statusGetter.call(value)
-      const statusText = statusTextGetter.call(value)
-      const headers = headersGetter.call(value)
-      if (typeof status !== "number" || !Number.isInteger(status)) return false
-      if (typeof statusText !== "string") return false
-      if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
-      const body = bodyGetter.call(value)
-      if (typeof typeGetter.call(value) !== "string" || typeof urlGetter.call(value) !== "string" || typeof redirectedGetter.call(value) !== "boolean" || typeof okGetter.call(value) !== "boolean" || typeof bodyUsedGetter.call(value) !== "boolean") return false
-      // Invoke the foreign clone operation as a brand-bearing check. Native
-      // implementations throw when called on a non-Response value.
-      const cloned = cloneMethod.call(value)
-      if (cloned === null || typeof cloned !== "object" || cloned === value) return false
-      // Response.error() is the only valid status-zero response. Preserve its
-      // representation when normalizing a foreign response.
-      if (status === 0) {
-        if (statusText !== "" || body !== null) return false
-        return Response.error()
-      }
-      if (status < 200 || status > 599) return false
-      // Normalize foreign responses before crossing the host boundary. This
-      // gives serialization the local Response, Headers, and stream brands.
-      return new Response(body as BodyInit | null, { status, statusText, headers: new Headers(headers as HeadersInit) })
+      nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
+        const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+        return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
+      })
     }
     catch {
-      return false
+      // A proxy can expose native descriptors without owning native response state.
     }
+    const nativeHeaderMethods = ["get", "forEach"].every(key =>
+      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
+    const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
+      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+    const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+    let nativeBodyState = false
+    try {
+      const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyState = bodyUsed !== undefined
+        && !Reflect.apply(bodyUsed, candidate, [])
+        && (body === null || (locked !== undefined && !Reflect.apply(locked, body, [])))
+    }
+    catch {
+      // A proxy can expose native descriptors without owning native response state.
+    }
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
+    if (!isSerializableAuthorizationBody(body)) return
+    const forEach = Reflect.get(headerCarrier, "forEach")
+    const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
+    const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
+    if (!Array.isArray(cookies)) return
+    const normalizedHeaders = new Headers()
+    let combinedCookies: string | undefined
+    Reflect.apply(forEach, headers, [(value: string, key: string) => {
+      if (key.toLowerCase() === "set-cookie") {
+        if (cookies.length === 0) combinedCookies = value
+        return
+      }
+      normalizedHeaders.append(key, value)
+    }])
+    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // followed by another cookie assignment at the cookie-pair boundary proves that
+    // multiple values were merged. Assignment-like text after an extension attribute
+    // can still be part of that attribute's value, so do not reject it as a merge.
+    if (combinedCookies !== undefined) {
+      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      normalizedHeaders.append("set-cookie", combinedCookies)
+    }
+    for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
+
+    // Validate status and native body state before acquiring reader ownership.
+    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
+      ? Response.error()
+      : new Response(body, { status, statusText, headers: normalizedHeaders })
+    if (body === null) return normalizedResponse
+    const bridgedBody = bridgeAuthorizationBody(body)
+    try {
+      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+    }
+    catch (error) {
+      bridgedBody.release()
+      throw error
+    }
+  }
+  catch {
+    return undefined
   }
 }
 
@@ -410,7 +497,8 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = route instanceof Object ? route.authorize : undefined
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route configuration crosses JavaScript realms; runtime object narrowing preserves foreign authorize callbacks.
+      const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }

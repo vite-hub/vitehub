@@ -1,11 +1,13 @@
+import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
 import { createEmail } from "../src/index.ts"
-import { emailProviderError } from "../src/provider.ts"
+import { emailProviderError, isEmailProviderError } from "../src/provider.ts"
 import { email } from "../src/server.ts"
 
 import type { EmailDriver, EmailMessage } from "../src/index.ts"
+import type { EmailProviderError } from "../src/types.ts"
 
 const message: EmailMessage = {
   attachments: [
@@ -214,6 +216,206 @@ describe("createEmail", () => {
     })
 
     await expect(client.send(message)).rejects.toBe(error)
+  })
+
+  it("maps structurally valid provider errors from another realm", async () => {
+    const cause = runInNewContext(
+      `Object.assign(new Error("slow down"), { code: "RATE_LIMIT", driver: "custom", retryable: true })`,
+    ) as EmailProviderError
+    const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+
+    await expect(client.send(message)).rejects.toMatchObject({
+      code: "EMAIL_RATE_LIMITED",
+      details: { driver: "custom" },
+    })
+  })
+
+  it("does not classify provider-shaped plain objects as errors", async () => {
+    const cause = { code: "RATE_LIMIT", driver: "custom", message: "slow down" } as EmailProviderError
+    const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+
+    await expect(client.send(message)).rejects.toMatchObject({
+      code: "EMAIL_PROVIDER_FAILED",
+      details: { driver: "fixture" },
+    })
+  })
+
+  it("preserves tagged provider errors without native Error.isError", async () => {
+    const cause = Object.assign(new Error("slow down"), {
+      code: "RATE_LIMIT" as const,
+      driver: "custom",
+      retryable: true,
+      [Symbol.toStringTag]: "ProviderError",
+    })
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_RATE_LIMITED", details: { driver: "custom" } })
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
+  })
+
+  it("preserves tagged provider errors from another realm without native Error.isError", async () => {
+    const cause = runInNewContext(
+      `Object.assign(new Error("slow down"), { code: "RATE_LIMIT", driver: "custom", [Symbol.toStringTag]: "ProviderError" })`,
+    ) as EmailProviderError
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_RATE_LIMITED", details: { driver: "custom" } })
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
+  })
+
+  it("rejects tagged objects with a custom prototype without native Error.isError", async () => {
+    const cause = Object.create({ [Symbol.toStringTag]: "Error" }) as EmailProviderError
+    Object.assign(cause, { code: "RATE_LIMIT", driver: "custom", message: "slow down" })
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
+  })
+
+  it("rejects objects that only inherit Error.prototype without native Error.isError", async () => {
+    const cause = Object.assign(Object.create(Error.prototype), {
+      code: "RATE_LIMIT" as const,
+      driver: "custom",
+      message: "slow down",
+    }) as EmailProviderError
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
+  })
+
+  it("rejects an own-stack Error.prototype impostor without native Error.isError", async () => {
+    const cause = Object.assign(Object.create(Error.prototype), {
+      stack: "spoofed stack",
+      code: "RATE_LIMIT" as const,
+      driver: "custom",
+      message: "slow down",
+    }) as EmailProviderError
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
+  })
+
+  it("rejects an own-stack impostor when native brand intrinsics are unavailable", async () => {
+    const cause = Object.assign(Object.create(Error.prototype), {
+      stack: "spoofed stack",
+      code: "RATE_LIMIT" as const,
+      driver: "custom",
+      message: "slow down",
+    }) as EmailProviderError
+    const errorDescriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    const cloneDescriptor = Object.getOwnPropertyDescriptor(globalThis, "structuredClone")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    Object.defineProperty(globalThis, "structuredClone", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+    }
+    finally {
+      if (errorDescriptor) Object.defineProperty(Error, "isError", errorDescriptor)
+      else Reflect.deleteProperty(Error, "isError")
+      if (cloneDescriptor) Object.defineProperty(globalThis, "structuredClone", cloneDescriptor)
+      else Reflect.deleteProperty(globalThis, "structuredClone")
+    }
+  })
+
+  it.each([
+    { realm: "same realm", create: () => Object.assign(new (class Error {})(), { code: "RATE_LIMIT", driver: "custom", message: "slow down" }) },
+    { realm: "foreign realm", create: () => runInNewContext('Object.assign(new (class Error {})(), { code: "RATE_LIMIT", driver: "custom", message: "slow down" })') },
+  ])("rejects a user class named Error from the $realm without native Error.isError", async ({ create }) => {
+    const cause = create() as EmailProviderError
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED", details: { driver: "fixture" } })
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
+  })
+
+  it("preserves tagged foreign Error subclasses without native Error.isError", async () => {
+    const cause = runInNewContext(
+      'Object.assign(new (class ProviderError extends TypeError {})("slow down"), { code: "RATE_LIMIT", driver: "custom", [Symbol.toStringTag]: "ProviderError" })',
+    ) as EmailProviderError
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+      await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_RATE_LIMITED", details: { driver: "custom" } })
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
+  })
+
+  it.each(["cyclic", "fresh"])("bounds a %s proxy prototype chain without native Error.isError", (kind) => {
+    let reads = 0
+    let proxy: object
+    const handler: ProxyHandler<object> = {
+      getPrototypeOf() {
+        reads++
+        return kind === "cyclic" ? proxy : new Proxy({}, handler)
+      },
+    }
+    proxy = new Proxy({}, handler)
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      expect(isEmailProviderError(proxy)).toBe(false)
+      expect(reads).toBeLessThanOrEqual(65)
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
+  })
+
+  it("rejects failed prototype reflection without native Error.isError", () => {
+    const proxy = new Proxy({}, { getPrototypeOf() { throw new Error("reflection failed") } })
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    Object.defineProperty(Error, "isError", { configurable: true, value: undefined })
+    try {
+      expect(isEmailProviderError(proxy)).toBe(false)
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+      else Reflect.deleteProperty(Error, "isError")
+    }
   })
 
   it("preserves structurally valid custom provider errors", async () => {
