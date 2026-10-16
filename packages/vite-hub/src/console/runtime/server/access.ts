@@ -88,25 +88,33 @@ function productionRuntime(): boolean {
 export function consoleRequest(event: ConsoleRequestEvent): Request {
   if (event.req instanceof Request) return event.req
   const headers = new Headers()
-  const copyHeaders = (source: unknown): void => {
+  const copyHeaders = (source: unknown, overwrite = true): void => {
+    const setHeader = (name: string, value: string): void => {
+      if (overwrite || !headers.has(name)) headers.set(name, value)
+    }
     if (source instanceof Headers) {
-      source.forEach((value, name) => headers.set(name, value))
+      source.forEach((value, name) => setHeader(name, value))
       return
     }
     if (source instanceof Object && "get" in source && source.get instanceof Function) {
-      for (const name of ["accept", "authorization", "cookie", "content-type", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
+      for (const name of ["accept", "authorization", "cookie", "content-type", "host", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
         const value = source.get(name)
-        if (typeof value === "string") headers.set(name, value)
+        if (typeof value === "string") setHeader(name, value)
       }
     }
     if (!(source instanceof Object)) return
     for (const [name, value] of Object.entries(source)) {
-      if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : String(value))
+      if (value !== undefined) setHeader(name, Array.isArray(value) ? value.join(", ") : String(value))
     }
   }
-  copyHeaders(event.node?.req?.headers)
+  // Match consoleRequestURL(): request headers take precedence, with the Node
+  // request as its fallback. Event-level headers are used only when no request
+  // header container is present.
+  if (event.req?.headers === undefined) {
+    copyHeaders(event.headers)
+    copyHeaders(event.node?.req?.headers, false)
+  }
   copyHeaders(event.req?.headers)
-  copyHeaders(event.headers)
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
 }
 
