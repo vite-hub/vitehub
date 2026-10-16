@@ -8,7 +8,9 @@ function readHeader(headers: Headers | Record<string, unknown> | undefined, name
   if (isHeadersLike(headers)) {
     try {
       const descriptor = getPrototypeDescriptor(headers, "get")
-      if (!isBrandedMethod(descriptor?.value, headers, descriptor?.owner, undefined, "probe").ok) return
+      if (!descriptor) return
+      const result = isBrandedMethod(descriptor.value, headers, descriptor.owner, undefined, "probe")
+      if (!result.ok) return
       const value = descriptor.value.call(headers, name)
       const confirmed = descriptor.value.call(headers, name)
       if (value !== confirmed) return
@@ -45,8 +47,9 @@ function isHeadersLike(value: unknown): value is Headers {
     // region for the actual object.
     if (Object.prototype.hasOwnProperty.call(value, "get")) return false
     const descriptor = getPrototypeDescriptor(value, "get")
-    if (!isBrandedMethod(descriptor?.value, value, descriptor?.owner, undefined, "probe").ok) return false
-    return true
+    if (!descriptor) return false
+    const result = isBrandedMethod(descriptor.value, value, descriptor.owner, undefined, "probe")
+    return result.ok
   }
   catch {
     return false

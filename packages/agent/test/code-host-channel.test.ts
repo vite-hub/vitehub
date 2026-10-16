@@ -16,7 +16,7 @@ function effectContext(effect: AgentChannelDeliveryEffectIntent, input = { conte
 }
 
 function fakeProvider() {
-  return fake({ kind: "github", instance: "github.com", seed: { threads: [{ repo: "acme/app", kind: "pull_request", number: 42, title: "Fix", comments: [{ body: "old" }] }] } }).create()
+  return fake({ forge: "github", instance: "github.com", seed: { threads: [{ repo: "acme/app", kind: "pull_request", number: 42, title: "Fix", comments: [{ body: "old" }] }] } }).create()
 }
 
 describe("Code Host Channel core", () => {
@@ -40,7 +40,7 @@ describe("Code Host Channel core", () => {
   })
 
   it("keeps metadata raw and caps pages at the extra item used for omitted counts", async () => {
-    const provider = fake({ kind: "gitlab", instance: "github.com", seed: { threads: [{ repo: "acme/app", kind: "pull_request", number: 42, title: "Fix",
+    const provider = fake({ forge: "gitlab", instance: "github.com", seed: { threads: [{ repo: "acme/app", kind: "pull_request", number: 42, title: "Fix",
       comments: Array.from({ length: 120 }, (_, id) => ({ body: `comment ${id}` })),
       files: Array.from({ length: 120 }, (_, id) => ({ path: `file-${id}.ts` })),
     }] } }).create()
