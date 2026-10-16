@@ -54,9 +54,24 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
           return (clone as (value: unknown) => unknown)(candidate) instanceof Error
         }
         catch {
-          // A non-configurable non-cloneable field cannot be hidden safely.
-          // There is no reliable cross-realm brand primitive in this branch;
-          // accepting a string tag would allow proxies and forged objects.
+          // A non-configurable enumerable field cannot be hidden safely. Use
+          // the intrinsic Error prototype shape as a conservative fallback.
+          // The constructor must be native and point back to this prototype;
+          // candidate-provided predicate functions are never invoked.
+          let prototype: object | null = Reflect.getPrototypeOf(candidate)
+          while (prototype) {
+            const constructorDescriptor = Reflect.getOwnPropertyDescriptor(prototype, "constructor")
+            const constructor = constructorDescriptor && "value" in constructorDescriptor ? constructorDescriptor.value : undefined
+            if (hasRuntimeType(constructor, "function")) {
+              const nativeSource = Reflect.apply(Function.prototype.toString, constructor, [])
+              if (nativeSource.includes("[native code]") && Reflect.get(constructor, "prototype") === prototype && Reflect.get(constructor, "name") === "Error") {
+                const stack = Reflect.getOwnPropertyDescriptor(candidate, "stack")
+                const message = Reflect.getOwnPropertyDescriptor(candidate, "message")
+                return Boolean(stack && message)
+              }
+            }
+            prototype = Reflect.getPrototypeOf(prototype)
+          }
           return false
         }
       }
