@@ -342,6 +342,8 @@ export interface WorkspaceHistoryChanges {
 export interface WorkspaceHistoryCommitBase extends WorkspaceHistoryRefOptions {
   /** The expected head of `ref`. Use null for the first revision on the ref. */
   ifHead: string | null
+  /** Additional ref heads that must match atomically when this commit advances its ref. */
+  ifHeads?: Record<string, string | null>
   message?: string
   metadata?: Record<string, unknown>
 }
@@ -369,6 +371,8 @@ export type WorkspaceStoreHistoryCommitOptions = WorkspaceHistoryCommitBase & (
 export interface WorkspaceHistoryListOptions extends WorkspaceHistoryRefOptions {
   cursor?: string
   limit?: number
+  /** Return revisions whose file manifest changed at this file or folder path. */
+  path?: string
 }
 
 export interface WorkspaceHistoryListResult {

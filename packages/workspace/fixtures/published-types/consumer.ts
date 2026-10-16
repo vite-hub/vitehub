@@ -1,7 +1,7 @@
 import { ViteHubError, type ViteHubErrorShape } from "@vite-hub/runtime"
 
 import type { WorkspaceErrorCode } from "@vite-hub/workspace"
-import { registerWorkspacePlugin, useWorkspace } from "@vite-hub/workspace"
+import { registerWorkspacePlugin, useWorkspace, workspaceFile } from "@vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { Database } from "@vite-hub/database"

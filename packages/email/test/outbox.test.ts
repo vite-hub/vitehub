@@ -111,6 +111,12 @@ describe("Email development outbox", () => {
     expect(getEmailOutbox()).toBeUndefined()
   })
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])("uses the default limit for non-finite runtime option %s", async (limit) => {
+    await createEmailDevOutboxDriver({ deliver: false, driver: providerDriver(), limit, provider: "resend" })
+
+    expect(getEmailOutbox()?.limit).toBe(defaultEmailOutboxLimit)
+  })
+
   it("captures messages without delivery and never creates the provider driver", async () => {
     const createProviderDriver = vi.fn(() => providerDriver())
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: false, driver: createProviderDriver, provider: "resend" }) })
