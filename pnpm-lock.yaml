@@ -1076,12 +1076,12 @@ importers:
       '@vite-hub/netlify-blobs-runtime':
         specifier: npm:@netlify/blobs@11.1.3
         version: '@netlify/blobs@11.1.3(patch_hash=0442d5aa3103362ea084742770306552a43b2047322742af4e5ce9782a3ba6b8)'
-      files-sdk:
-        specifier: catalog:storage
-        version: 2.6.2(0e0126661dfb3a9c78ea630da2c57da4)
       fetch-blob:
         specifier: 3.2.0
         version: 3.2.0
+      files-sdk:
+        specifier: catalog:storage
+        version: 2.6.2(0e0126661dfb3a9c78ea630da2c57da4)
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
@@ -2807,6 +2807,9 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.27.7)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@20.14.5)
+      vue:
+        specifier: 3.5.43
+        version: 3.5.43(typescript@6.0.3)
 
   packages/workspace/examples/vite:
     dependencies:
