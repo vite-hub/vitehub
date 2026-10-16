@@ -189,7 +189,8 @@ describe("UI documentation", () => {
     expect(layout).toContain(".vh-docs-aside");
     expect(layout).toContain("hidden lg:flex");
     expect(layout).toContain("overflow: visible;");
-    expect(layout).toContain("<UPage v-else :ui=\"docsShellUi\">");
+    expect(layout).toContain("<UPage v-else");
+    expect(layout).toContain(':ui="docsShellUi"');
     expect(layout).toContain("class=\"vh-docs-aside\"");
     expect(layout).toContain("lg:!flex-1 lg:!min-w-0");
   });
