@@ -338,6 +338,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const getReader = nativeStreamMethod(stream, "getReader")
     const locked = streamLockedGetter(stream)
     if (typeof getReader !== "function" || !locked || !hasNativeStreamBrand(stream)) return false
+    // A foreign stream must expose its native capabilities from one prototype.
+    // A forged layer can otherwise provide a reader method while leaving the
+    // genuine lock state (or vice versa) below it.
+    if (!(stream instanceof ReadableStream) && streamCapabilityOwners(stream) !== true) return false
     if (Reflect.apply(locked, stream, []) !== false) return false
     const reader: unknown = Reflect.apply(getReader, stream, [])
     if (Object(reader) !== reader || Reflect.apply(locked, stream, []) !== true) return false
@@ -362,6 +366,29 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
         return false
       }
     }
+  }
+  catch {
+    return false
+  }
+}
+
+
+function streamCapabilityOwners(body: object): boolean {
+  try {
+    let current: object | null = body
+    const seen = new Set<object>()
+    let methodOwner: object | undefined
+    let lockOwner: object | undefined
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) return false
+      seen.add(current)
+      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+      const isSelfConstructing = typeof constructor === "function" && constructor.prototype === current
+      if (isSelfConstructing && !methodOwner && Object.getOwnPropertyDescriptor(current, "getReader")?.value === nativeStreamMethod(body, "getReader")) methodOwner = current
+      if (isSelfConstructing && !lockOwner && Object.getOwnPropertyDescriptor(current, "locked")?.get === streamLockedGetter(body)) lockOwner = current
+      current = Object.getPrototypeOf(current)
+    }
+    return !!methodOwner && methodOwner === lockOwner
   }
   catch {
     return false
