@@ -134,6 +134,10 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
     // plain objects whose custom prototype only imitates those slots.
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (!responsePrototype) return invalidAuthorizationResponse
+    // A foreign response with a null body provides no implementation-owned
+    // operation to validate. Reject it here so a caller-created object that
+    // only imitates the Response surface cannot be normalized as a response.
+    if (value.body === null) return invalidAuthorizationResponse
     const cloneMethod = Reflect.get(value, "clone")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Verify the foreign Response clone method before invoking it.
     if (typeof cloneMethod !== "function") return invalidAuthorizationResponse
@@ -159,7 +163,6 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       || !("body" in clone)) return invalidAuthorizationResponse
     // Validate init before taking ownership of a foreign stream.
     const empty = new Response(null, init)
-    if (value.body === null) return empty
     if ([204, 205, 304].includes(value.status)) return invalidAuthorizationResponse
     // Calling the native stream method checks its internal brand across realms;
     // piping into a local stream also avoids realm-sensitive Fetch body checks.
