@@ -68,15 +68,25 @@ function rejection(status: number, message: string): Response {
   })
 }
 
-const responseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-const responseClone = Response.prototype.clone
-const responseArrayBuffer = Response.prototype.arrayBuffer
+function prototypeMethod(value: object, key: "status" | "clone" | "arrayBuffer"): ((...args: never[]) => unknown) | undefined {
+  let prototype: object | null = value
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
+    const method = descriptor?.get ?? descriptor?.value
+    if (typeof method === "function") return method as (...args: never[]) => unknown
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
 
 async function authorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value instanceof Response) return value
-  if (typeof responseStatus !== "function") return
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) return
+  const foreignStatus = prototypeMethod(value, "status")
+  const foreignClone = prototypeMethod(value, "clone")
+  const foreignArrayBuffer = prototypeMethod(value, "arrayBuffer")
+  if (typeof foreignStatus !== "function" || typeof foreignClone !== "function" || typeof foreignArrayBuffer !== "function") return
   try {
-    Reflect.apply(responseStatus, value, [])
+    Reflect.apply(foreignStatus, value, [])
     const headers = Reflect.get(value, "headers")
     const status = Reflect.get(value, "status")
     const statusText = Reflect.get(value, "statusText")
@@ -86,7 +96,7 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     const init = { headers: new Headers(headers as Headers), status, statusText }
     let cloned: unknown
     try {
-      cloned = Reflect.apply(responseClone, value, [])
+      cloned = Reflect.apply(foreignClone, value, [])
     }
     catch {
       if (bodyUsed) return
@@ -94,14 +104,14 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     }
     if (!cloned || typeof cloned !== "object" || cloned === value) return
     try {
-      Reflect.apply(responseStatus, cloned, [])
+      Reflect.apply(foreignStatus, cloned, [])
     }
     catch {
       return
     }
     const body = Reflect.get(value, "body")
     if (body === null) return new Response(null, init)
-    return new Response(await Reflect.apply(responseArrayBuffer, cloned, []), init)
+    return new Response(await Reflect.apply(foreignArrayBuffer, cloned, []), init)
   }
   catch {
     return
