@@ -60,18 +60,6 @@
       "require": "./dist/cloudflare.js",
       "default": "./dist/cloudflare.js"
     },
-    "./collections": {
-      "types": "./dist/collections.d.ts",
-      "import": "./dist/collections.js",
-      "require": "./dist/collections.js",
-      "default": "./dist/collections.js"
-    },
-    "./collections/client": {
-      "types": "./dist/collections/client.d.ts",
-      "import": "./dist/collections/client.js",
-      "require": "./dist/collections/client.js",
-      "default": "./dist/collections/client.js"
-    },
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js",
@@ -187,6 +175,7 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
@@ -220,7 +209,6 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui",
     "drizzle-orm": "catalog:database",
     "miniflare": "4.20260730.0",
     "@libsql/client": "catalog:database"
@@ -229,7 +217,6 @@
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:ui",
     "drizzle-orm": "catalog:database"
   },
   "peerDependenciesMeta": {
@@ -237,9 +224,6 @@
       "optional": true
     },
     "vite": {
-      "optional": true
-    },
-    "vue": {
       "optional": true
     },
     "drizzle-orm": {

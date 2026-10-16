@@ -494,7 +494,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
   }
   catch {
-    return undefined
+    return
   }
 }
 

@@ -5139,8 +5139,9 @@ function withEagerStreamUsageExtensions<
   return (async function* () {
     let extensionsRun = false
     let sourceCompleted = false
+    // Finish extensions enrich the record they receive, so callers yield the returned record.
     const runExtensions = async (usageRecord: ReturnType<typeof usageRecordFromStreamChunk>) => {
-      if (extensionsRun) return
+      if (!usageRecord || extensionsRun) return usageRecord
       extensionsRun = true
       const usage = usageRecord ? { ...usageRecord } : undefined
       const eventBase = {
@@ -5158,22 +5159,21 @@ function withEagerStreamUsageExtensions<
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       await createAgentInvocationExtensions(eventBase as never, providers)
+      return usage
     }
 
     try {
       for await (const chunk of stream) {
         const usageRecord = usageRecordFromStreamChunk(chunk, result)
-        if (usageRecord) await runExtensions(usageRecord)
         if (!usageRecord) {
           if (isRuntimeRecord(chunk) && chunk.type === "finish") {
-            const fallbackUsage = await resolveAgentUsageRecord(result, context.run)
-            await runExtensions(fallbackUsage)
+            const fallbackUsage = await runExtensions(await resolveAgentUsageRecord(result, context.run))
             if (fallbackUsage) yield { type: "usage", usageRecord: fallbackUsage }
           }
           yield chunk
           continue
         }
-        const usage = { ...usageRecord }
+        const usage = { ...await runExtensions(usageRecord) }
         if (chunk && hasRuntimeType(chunk, "object")) {
           const prototype = Object.getPrototypeOf(chunk)
           if (prototype !== Object.prototype && prototype !== null) {
@@ -5228,8 +5228,8 @@ function withEagerStreamUsageExtensions<
         // available. Do not run finish extensions with undefined usage in that
         // case: finish hooks may perform side effects or reject cancellation.
         if (usageRecord) {
-          await runExtensions(usageRecord)
-          if (sourceCompleted && usageRecord) yield { type: "usage", usageRecord }
+          const enrichedUsage = await runExtensions(usageRecord)
+          if (sourceCompleted && enrichedUsage) yield { type: "usage", usageRecord: enrichedUsage }
         }
       }
     }
