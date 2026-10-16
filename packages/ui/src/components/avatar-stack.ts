@@ -32,6 +32,7 @@ export const AvatarStack = defineComponent({
     max: { default: 3, type: [Number, null] as PropType<number | null> },
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
     size: { default: "default", type: String as PropType<AvatarStackSize> },
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
     variant: { default: "default", type: String as PropType<AvatarStackVariant> },
   },
   setup(props) {
