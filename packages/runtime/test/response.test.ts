@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest"
+import { Window } from "happy-dom"
 import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
 
 describe("durable Response representation", () => {
   it("preserves Blob bodies created in another realm", async () => {
-    const blob = new Blob(["test"], { type: "text/plain" })
+    const blob = new (new Window()).Blob(["test"], { type: "text/plain" })
 
     const response = toResponse(blob)
     expect(response.headers.get("content-type")).toBe("text/plain")

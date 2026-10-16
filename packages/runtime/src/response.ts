@@ -24,6 +24,21 @@ interface BlobMethods {
 const blobArrayBuffer = Blob.prototype.arrayBuffer
 const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
 
+function getForeignBlobMethods(value: object): { arrayBuffer: (value: object) => Promise<ArrayBuffer>, type: string } | undefined {
+  let prototype: object | null = Object.getPrototypeOf(value)
+  let arrayBuffer: ((value: object) => Promise<ArrayBuffer>) | undefined
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, "arrayBuffer")
+    if (descriptor && typeof descriptor.value === "function") {
+      arrayBuffer = (candidate: object) => Reflect.apply(descriptor.value, candidate, []) as Promise<ArrayBuffer>
+      break
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  if (!arrayBuffer) return undefined
+  return { arrayBuffer, type: String(Reflect.get(value, "type")) }
+}
+
 function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
@@ -31,14 +46,31 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
     // operations. Applying them performs the Web IDL brand check, including
     // for Blob objects from another realm, without consulting structuredClone's
     // host-specific clone registry.
-    if (typeof blobType !== "function") return undefined
-    const type = String(Reflect.apply(blobType, value, []))
+    let readArrayBuffer: (value: object) => Promise<ArrayBuffer> = candidate => Reflect.apply(blobArrayBuffer, candidate, []) as Promise<ArrayBuffer>
+    let type: string
+    if (typeof blobType === "function") {
+      try {
+        type = String(Reflect.apply(blobType, value, []))
+      }
+      catch {
+        const foreign = getForeignBlobMethods(value)
+        if (!foreign) return undefined
+        readArrayBuffer = foreign.arrayBuffer
+        type = foreign.type
+      }
+    }
+    else {
+      const foreign = getForeignBlobMethods(value)
+      if (!foreign) return undefined
+      readArrayBuffer = foreign.arrayBuffer
+      type = foreign.type
+    }
     return {
       type,
       body: () => new ReadableStream<Uint8Array>({
         async start(controller) {
           try {
-            const bytes = await Reflect.apply(blobArrayBuffer, value, []) as ArrayBuffer
+            const bytes = await readArrayBuffer(value)
             controller.enqueue(new Uint8Array(bytes))
             controller.close()
           }
