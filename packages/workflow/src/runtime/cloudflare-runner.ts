@@ -54,8 +54,8 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
           return (clone as (value: unknown) => unknown)(candidate) instanceof Error
         }
         catch {
-          // A non-configurable enumerable field cannot be hidden safely. Use
-          // the intrinsic Error prototype shape as a conservative fallback.
+          // A non-configurable enumerable field cannot be hidden safely. Use a
+          // foreign realm's intrinsic Error.isError predicate when available.
           // The constructor must be native and point back to this prototype;
           // candidate-provided predicate functions are never invoked.
           let prototype: object | null = Reflect.getPrototypeOf(candidate)
@@ -65,9 +65,10 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
             if (hasRuntimeType(constructor, "function")) {
               const nativeSource = Reflect.apply(Function.prototype.toString, constructor, [])
               if (nativeSource.includes("[native code]") && Reflect.get(constructor, "prototype") === prototype && Reflect.get(constructor, "name") === "Error") {
-                const stack = Reflect.getOwnPropertyDescriptor(candidate, "stack")
-                const message = Reflect.getOwnPropertyDescriptor(candidate, "message")
-                return Boolean(stack && message)
+                const foreignIsError = Reflect.getOwnPropertyDescriptor(constructor, "isError")
+                if (foreignIsError && "value" in foreignIsError && hasRuntimeType(foreignIsError.value, "function")) {
+                  return Reflect.apply(foreignIsError.value, constructor, [candidate]) === true
+                }
               }
             }
             prototype = Reflect.getPrototypeOf(prototype)
