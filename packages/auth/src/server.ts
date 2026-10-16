@@ -347,7 +347,10 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       releaseLock = nativeReaderMethod(readerObject, "releaseLock")
       const read = nativeReaderMethod(readerObject, "read")
       const cancel = nativeReaderMethod(readerObject, "cancel")
-      if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") return false
+      const closed = nativeReaderClosedGetter(readerObject)
+      if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function" || !closed) return false
+      const closedPromise = Reflect.apply(closed, readerObject, [])
+      if (!closedPromise || typeof (closedPromise as Promise<unknown>).then !== "function") return false
       return true
     }
     finally {
@@ -394,10 +397,6 @@ function hasNativeStreamBrand(body: object): boolean {
   let current: object | null = body
   const seen = new Set<object>()
   try {
-    // The Response constructor performs the native stream state check that
-    // distinguishes an unused stream from one whose body was disturbed.
-    // Unlike acquiring a reader, this probe leaves a valid stream unlocked.
-    new Response(body as ReadableStream<Uint8Array>)
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(current)) return false
       seen.add(current)
@@ -417,6 +416,24 @@ function hasNativeStreamBrand(body: object): boolean {
     return false
   }
   return false
+}
+
+function nativeReaderClosedGetter(reader: object): (() => Promise<unknown>) | undefined {
+  let current: object | null = reader
+  const seen = new Set<object>()
+  try {
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) return undefined
+      seen.add(current)
+      const descriptor = Object.getOwnPropertyDescriptor(current, "closed")
+      if (typeof descriptor?.get === "function") return descriptor.get as () => Promise<unknown>
+      current = Object.getPrototypeOf(current)
+    }
+  }
+  catch {
+    return undefined
+  }
+  return undefined
 }
 
 function nativeStreamMethod<T extends keyof ReadableStream<Uint8Array>>(body: object, key: T): ReadableStream<Uint8Array>[T] | undefined {
