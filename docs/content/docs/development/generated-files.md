@@ -26,7 +26,7 @@ instead of generated files.
 | `.vitehub/email/templates/*.mjs` | Email Package | Bundled Markdown email templates used by provider builds. |
 | `.vitehub/rate-limit/manifest.json` | Rate Limit Package | Sorted Rate Limit IDs, resolved providers, and inspectable driver capabilities. |
 | `.vitehub/nitro/realtime/registry.mjs` | Realtime Package | Generated registry for discovered Realtime Definitions. |
-| `.vitehub/nitro/realtime/handler.ts` | Realtime Package | Generated WebSocket and checkpoint route handler. |
+| `.vitehub/nitro/realtime/handler.ts` | Realtime Package | Generated WebSocket, save, refresh, and checkpoint route handler. |
 | `.vitehub/agent/chat-webhook-route.ts` | Agent Package | Generated Chat Webhook Route handler for discovered chat-capable Agents. |
 | `.vitehub/agent/discord-gateway-plugin.ts` | Agent Package | Generated Nitro process lifecycle for Discord Gateway listeners on the Node preset. |
 | `.vitehub/agent/discord-gateway-route.ts` | Agent Package | Generated Nitro route handler that wakes the Discord Gateway listener for discovered Discord Agents. |

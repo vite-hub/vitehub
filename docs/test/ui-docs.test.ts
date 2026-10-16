@@ -129,14 +129,14 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("gives component pages the shared article layout and page outline", () => {
+  it("renders docs through the shared article and tutorial layouts", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
     const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
 
-    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain("UContentToc");
+    expect(page).toContain('<DocsTutorial v-else-if="page && isTutorialPage"');
+    expect(page).toContain('<DocsArticle v-else-if="page"');
+    expect(article).toContain('class="vh-docs-article"');
     expect(article).toContain('aria-label="Page outline"');
-    expect(article).toContain("min-w-0");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -187,10 +187,10 @@ describe("UI documentation", () => {
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
-    const page = readFileSync(resolve(docsRoot, "content/docs/getting-started/built-for-vue.md"), "utf8");
+    const page = readFileSync(resolve(docsRoot, "content/docs/ui/built-for-vue.md"), "utf8");
 
     expect(page).not.toContain("navigation: false");
-    expect(page).toContain("navigation.title: Built for the Vue ecosystem");
-    expect(page).toContain("ViteHub is a server primitive library.");
+    expect(page).toContain("navigation.title: Why Vue?");
+    expect(page).toContain("The server packages work independently of Vue.");
   });
 });
