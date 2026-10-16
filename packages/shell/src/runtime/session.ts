@@ -91,11 +91,24 @@ class RuntimeShellSession implements ShellSession {
       : policyOutputLength === undefined
         ? requestedOutputLength
         : Math.min(requestedOutputLength, policyOutputLength)
+    let stdoutRemaining = maxOutputLength
+    let stderrRemaining = maxOutputLength
+    const limitedCallback = (callback: ((data: string) => void) | undefined, remaining: () => number | undefined, consume: (value: number) => void) =>
+      callback && ((data: string) => {
+        const limit = remaining()
+        if (limit === undefined) return callback(data)
+        if (limit <= 0) return
+        const chunk = data.slice(0, limit)
+        consume(chunk.length)
+        if (chunk) callback(chunk)
+      })
     const result = await this.provider.exec(command, {
       ...options,
       env: { ...this.env, ...options.env },
       maxOutputLength,
       timeout: options.timeout ?? this.policy.timeout,
+      onStdout: limitedCallback(options.onStdout, () => stdoutRemaining, value => { stdoutRemaining = Math.max(0, (stdoutRemaining ?? 0) - value) }),
+      onStderr: limitedCallback(options.onStderr, () => stderrRemaining, value => { stderrRemaining = Math.max(0, (stderrRemaining ?? 0) - value) }),
     })
 
     const timedOut = result.timedOut
