@@ -397,8 +397,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
-    const isErrorResponse = status === 0 && statusText === "" && body === null
-    if (typeof status !== "number" || !Number.isInteger(status) || (status < 200 && !isErrorResponse) || status > 599) return
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
@@ -461,9 +460,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
     // Validate status and native body state before acquiring reader ownership.
-    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
-      ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
+    const normalizedResponse = new Response(body, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
     const bridgedBody = bridgeAuthorizationBody(body)
     try {
