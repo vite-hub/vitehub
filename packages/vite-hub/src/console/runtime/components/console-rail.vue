@@ -29,6 +29,7 @@ const signedIn = ref(false);
 const signingOut = ref(false);
 const signOutFailed = ref(false);
 const accessIdentity = ref<{ label?: string; signOutURL: string }>();
+const userIdentity = ref<{ email?: string; image?: string; name?: string }>();
 const authBase = props.sectionsBase.replace(/\/sections$/, "/auth");
 const authClientURL = props.sectionsBase.replace(/\/sections$/, "/client.js");
 const signInURL = props.sectionsBase.replace(/\/api\/_vitehub\/console\/sections$/, "/_vitehub/sign-in");
@@ -44,8 +45,6 @@ const sections = computed(() =>
 );
 // The standalone Console provides its appearance. A Nuxt host owns color mode, so the rail hides the control there.
 const appearance = inject(consoleAppearanceKey, undefined);
-const currentAppearance = computed(() => consoleAppearanceOptions[appearance?.preference.value ?? "system"]);
-const appearanceLabel = computed(() => `Appearance: ${currentAppearance.value.label}`);
 const appearanceItems = computed<DropdownMenuItem[]>(() => [
   { type: "label", label: "Appearance" },
   ...consoleAppearances.map((option): DropdownMenuItem => ({
@@ -57,7 +56,34 @@ const appearanceItems = computed<DropdownMenuItem[]>(() => [
   })),
 ]);
 const groups = computed(() => groupConsoleSections(sections.value));
-const signOutLabel = computed(() => (accessIdentity.value?.label ? `Sign out ${accessIdentity.value.label}` : "Sign out"));
+const userLabel = computed(() => userIdentity.value?.name || userIdentity.value?.email || accessIdentity.value?.label || "Account");
+const userEmail = computed(() => userIdentity.value?.email && userIdentity.value.email !== userLabel.value ? userIdentity.value.email : undefined);
+const userInitials = computed(() => {
+  if (!signedIn.value) return "";
+  const words = userLabel.value.split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+});
+const userMenuLabel = computed(() => signedIn.value ? userLabel.value : "Account");
+const userMenuItems = computed<DropdownMenuItem[]>(() => {
+  const items: DropdownMenuItem[] = [];
+  if (signedIn.value) {
+    items.push({ type: "label", label: userLabel.value });
+    if (userEmail.value) items.push({ type: "label", label: userEmail.value });
+  }
+  if (appearance) {
+    if (items.length > 0) items.push({ type: "separator" });
+    items.push(...appearanceItems.value);
+  }
+  if (signedIn.value) {
+    items.push({ type: "separator" }, {
+      icon: signingOut.value ? "i-lucide-loader-circle" : "i-lucide-log-out",
+      label: signOutFailed.value ? "Retry sign out" : "Sign out",
+      disabled: signingOut.value,
+      onSelect: () => void signOut(),
+    });
+  }
+  return items;
+});
 
 async function open(routeName: string): Promise<void> {
   const name = resolveConsoleRouteName(route.name, routeName);
@@ -149,8 +175,15 @@ async function loadAuthSession(): Promise<void> {
   try {
     const authClient = await consoleAuthClient();
     const { data } = await authClient.getSession();
-    signedIn.value = Boolean(data?.session);
+    const session = data as { session?: unknown; user?: unknown } | null | undefined;
+    const user = session?.user as { email?: unknown; image?: unknown; name?: unknown } | null | undefined;
+    const name = typeof user?.name === "string" && user.name.trim() ? user.name.trim() : undefined;
+    const email = typeof user?.email === "string" && user.email.trim() ? user.email.trim() : undefined;
+    const image = typeof user?.image === "string" && user.image.trim() ? user.image.trim() : undefined;
+    userIdentity.value = name || email || image ? { ...(email ? { email } : {}), ...(image ? { image } : {}), ...(name ? { name } : {}) } : undefined;
+    signedIn.value = Boolean(session?.session);
   } catch {
+    userIdentity.value = undefined;
     signedIn.value = false;
   }
 }
@@ -168,6 +201,7 @@ async function signOut(): Promise<void> {
     if (error) throw error;
     window.location.assign(signInURL);
   } catch {
+    userIdentity.value = undefined;
     signOutFailed.value = true;
     signingOut.value = false;
   }
@@ -251,26 +285,24 @@ onBeforeUnmount(() => {
         </UDashboardSearchButton>
       </UTooltip>
       <UDropdownMenu
-        v-if="appearance"
-        :items="appearanceItems"
+        v-if="appearance || signedIn"
+        :items="userMenuItems"
         :content="{ side: 'right', align: 'end', sideOffset: 8 }"
-        :ui="{ content: 'min-w-40' }"
+        :ui="{ content: 'min-w-52' }"
       >
-        <UTooltip :text="appearanceLabel" :content="{ side: 'right' }" :disabled="expanded">
-          <PrimitiveRailItem :label="appearanceLabel">
-            <UIcon :name="currentAppearance.icon" class="size-4" />
+        <UTooltip :text="userMenuLabel" :content="{ side: 'right' }" :disabled="expanded">
+          <PrimitiveRailItem :label="userMenuLabel">
+            <UAvatar
+              :src="userIdentity?.image"
+              :alt="userLabel"
+              :text="userInitials"
+              :icon="userInitials ? undefined : 'i-lucide-user-round'"
+              size="sm"
+              class="size-5"
+            />
           </PrimitiveRailItem>
         </UTooltip>
       </UDropdownMenu>
-      <UTooltip v-if="signedIn" :text="signOutFailed ? 'Could not sign out. Try again.' : signOutLabel" :content="{ side: 'right' }" :disabled="expanded">
-        <PrimitiveRailItem
-          :label="signOutFailed ? 'Retry sign out' : signOutLabel"
-          :disabled="signingOut"
-          @click="signOut"
-        >
-          <UIcon :name="signingOut ? 'i-lucide-loader-circle' : 'i-lucide-log-out'" class="size-4" :class="signingOut ? 'animate-spin' : ''" />
-        </PrimitiveRailItem>
-      </UTooltip>
     </template>
   </PrimitiveRail>
 </template>

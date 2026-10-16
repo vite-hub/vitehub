@@ -33,6 +33,13 @@ The package declares Node.js 24 or newer. Import the root entry for portable
 Runtime contracts. When inspected, the `/node` entry reads Node process
 information and, on Linux, `/proc` and cgroup v2 files.
 
+Trace payload inspection relies on the host's platform intrinsics. Load the
+Runtime before application code replaces platform methods. The Runtime captures
+`WebAssembly.Module.exports` at import time to recognize foreign modules even
+when that method is later replaced. It cannot recover the original intrinsic
+if the host replaces it before import; payload inspection is not an isolation
+boundary for code that can modify the host's JavaScript environment.
+
 Long-lived Node services can also use `createProcessReconciler()` from the `/node`
 entry to coalesce event-driven work, run periodic repair, stop admission, and await
 tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
