@@ -122,7 +122,7 @@ describe("Cloudflare workflow errors", () => {
   })
 
   it("does not translate a sealed non-cloneable error without a trusted brand predicate when Error.isError is unavailable", async () => {
-    const original = runInNewContext("(() => { const error = new Error('sealed non-cloneable input'); Object.defineProperty(error, 'context', { value: () => {}, configurable: false }); error.isRetryable = false; return error })()") as Error & { isRetryable: false }
+    const original = runInNewContext("(() => { const error = new Error('sealed non-cloneable input'); Object.defineProperty(error, 'context', { value: () => {}, configurable: false, enumerable: true }); error.isRetryable = false; return error })()") as Error & { isRetryable: false }
     const createNonRetryableError = vi.fn((_error: Error & { isRetryable: false }) => new Error("converted"))
     const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
     try {
