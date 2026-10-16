@@ -5105,6 +5105,7 @@ function withEagerStreamUsageExtensions<
   if (!providers.length) return stream
   return (async function* () {
     let extensionsRun = false
+    let sourceCompleted = false
     const runExtensions = async (usageRecord: ReturnType<typeof usageRecordFromStreamChunk>) => {
       if (extensionsRun) return
       extensionsRun = true
@@ -5131,6 +5132,11 @@ function withEagerStreamUsageExtensions<
         const usageRecord = usageRecordFromStreamChunk(chunk, result)
         if (usageRecord) await runExtensions(usageRecord)
         if (!usageRecord) {
+          if (isRuntimeRecord(chunk) && chunk.type === "finish") {
+            const fallbackUsage = await resolveAgentUsageRecord(result, context.run)
+            await runExtensions(fallbackUsage)
+            if (fallbackUsage) yield { type: "usage", usageRecord: fallbackUsage }
+          }
           yield chunk
           continue
         }
@@ -5162,12 +5168,27 @@ function withEagerStreamUsageExtensions<
         }
         yield { type: "usage", usageRecord: usage }
       }
+      sourceCompleted = true
+    }
+    catch (error) {
+      if (!extensionsRun) {
+        const usageRecord = result && hasRuntimeType(result, "object") && "usageRecord" in result
+          ? usageRecordFromStreamChunk({ type: "usage", usageRecord: result.usageRecord }, result, context.run)
+          : undefined
+        await runExtensions(usageRecord)
+      }
+      throw error
     }
     finally {
       if (!extensionsRun) {
-        const usageRecord = await resolveAgentUsageRecord(result, context.run)
+        const immediateUsage = !sourceCompleted && result && hasRuntimeType(result, "object") && "usageRecord" in result
+          ? usageRecordFromStreamChunk({ type: "usage", usageRecord: result.usageRecord }, result, context.run)
+          : undefined
+        const usageRecord = immediateUsage ?? (sourceCompleted
+          ? await resolveAgentUsageRecord(result, context.run)
+          : undefined)
         await runExtensions(usageRecord)
-        if (usageRecord) yield { type: "usage", usageRecord }
+        if (sourceCompleted && usageRecord) yield { type: "usage", usageRecord }
       }
     }
   })()
