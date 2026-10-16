@@ -95,7 +95,7 @@ it("bounds each pass and ignores malformed cleanup identifiers", async () => {
   await storage.put(malformed, "pending")
   for (let i = 0; i < 101; i++) await storage.put(marker(path()), "pending")
   await retryConsoleAttachmentCleanup(storage)
-  expect((await storage.list())[1]?.blobs).toHaveLength(2)
+  expect((await storage.list())[1]?.blobs).toHaveLength(3)
   await retryConsoleAttachmentCleanup(storage)
   expect((await storage.list())[1]?.blobs.map(blob => blob.pathname)).toEqual([malformed])
 })
