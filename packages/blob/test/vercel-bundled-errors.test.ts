@@ -97,6 +97,15 @@ describe("Vercel Blob missing errors", () => {
     await withoutNativeErrorCheck(() => expect(driver[operation]("missing.txt")).rejects.toBe(error))
   })
 
+  it.each(["head", "get", "getArrayBuffer"] as const)("accepts a proxied native Error in %s without the native check", async operation => {
+    const error = new Proxy(Object.assign(new Error("Blob not found"), { name: "BlobNotFoundError" }), {})
+    expect(error).toBeInstanceOf(Error)
+    vercel.head.mockRejectedValue(error)
+    const driver = createDriver(options)
+
+    await withoutNativeErrorCheck(() => expect(driver[operation]("missing.txt")).resolves.toBeNull())
+  })
+
   it("does not treat an Error prototype chain spoof as a missing object", async () => {
     const error = Object.create(Error.prototype) as { name: string }
     error.name = "BlobNotFoundError"

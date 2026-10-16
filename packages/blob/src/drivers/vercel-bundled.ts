@@ -98,7 +98,13 @@ function isMissingBlobError(error: unknown) {
           // Accepting an undefined result would also accept an Error.prototype spoof
           // that copied both native accessors without carrying Error internal state.
           const stackValue = stack.get.call(candidate)
-          if (typeof stackValue !== "string") return false
+          if (typeof stackValue !== "string") {
+            // V8 does not expose the target Error's stack slot through a Proxy.
+            // Keep the compatibility accepted by the old `instanceof Error` path,
+            // but require the proxy to retain a genuine Error message. This rejects
+            // copied-accessor Error.prototype spoofs, which have no message slot.
+            if (!(candidate instanceof Error) || typeof Reflect.get(candidate, "message") !== "string") return false
+          }
           // A genuine native getter returns no stack for an object which merely shares
           // the Error prototype. Bound and forged getters instead return their captured
           // or fabricated value, so they cannot establish the candidate's Error brand.
