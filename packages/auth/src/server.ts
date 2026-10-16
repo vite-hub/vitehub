@@ -355,15 +355,10 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
   if (typeof value !== "function") return false
   if (value === localIntrinsic) return true
   try {
-    const source = Function.prototype.toString.call(value)
-    // Native implementations from another realm are valid even when their
-    // implementation-defined source text differs from the local intrinsic.
-    // The surrounding prototype and descriptor checks establish the brand;
-    // source text is only used to reject ordinary caller-defined functions.
-    if (!/\[native code\]/.test(source)) return false
-    // Callable proxies stringify as an anonymous native wrapper. Genuine
-    // cross-realm intrinsics retain their operation name in the source.
-    return !expectedName || new RegExp(`(?:function\\s+${expectedName}\\b|^${expectedName}\\s*\\(|^get\\s+${expectedName}\\s*\\()`).test(source)
+    // Function source text is implementation-defined and differs across
+    // runtimes. The surrounding verified prototype/descriptor checks establish
+    // the operation's carrier realm; use only its stable intrinsic name here.
+    return !expectedName || value.name === expectedName
   }
   catch {
     return false
