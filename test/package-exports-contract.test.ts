@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const runtimeConditions = new Set(["browser", "default", "import", "node", "worker", "workerd"]);
+const runtimeConditions = new Set(["browser", "default", "import", "node", "require", "worker", "workerd"]);
 
 function isDistModuleTarget(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("./dist/") && value.endsWith(".js");
