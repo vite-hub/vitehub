@@ -167,9 +167,9 @@ describe("UI documentation", () => {
     expect(sidebarPanel).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: visible;");
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
-    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
-    expect(layout).toContain("flex: 1;");
+    expect(layout).toContain('<UPageAside class="vh-docs-aside">');
+    expect(layout).toMatch(/\.vh-docs-aside \{\s*display: none;/);
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
