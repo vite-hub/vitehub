@@ -121,6 +121,33 @@ describe("Cloudflare workflow errors", () => {
     }
   })
 
+  it("does not trust a candidate prototype Error.isError predicate", async () => {
+    const constructor = { isError: () => true }
+    const original = Object.create({ constructor }) as Error & { isRetryable: false }
+    original.isRetryable = false
+    const createNonRetryableError = vi.fn((_error: Error & { isRetryable: false }) => new Error("converted"))
+    const descriptor = Object.getOwnPropertyDescriptor(Error, "isError")
+    try {
+      Reflect.deleteProperty(Error, "isError")
+      await expect(runCloudflareWorkflow({
+        config: { provider: "cloudflare" },
+        createNonRetryableError,
+        env: {},
+        event: { id: "constructor-predicate-spoof" },
+        name: "constructor-predicate-spoof",
+        registry: {
+          "constructor-predicate-spoof": async () => ({
+            default: { handler: async () => { throw original } },
+          }),
+        },
+      })).rejects.toBe(original)
+      expect(createNonRetryableError).not.toHaveBeenCalled()
+    }
+    finally {
+      if (descriptor) Object.defineProperty(Error, "isError", descriptor)
+    }
+  })
+
   it.each(["local", "foreign"])("does not translate a %s Error.prototype spoof when Error.isError is unavailable", async (realm) => {
     const original = (realm === "local" ? Object.create(Error.prototype) : runInNewContext("Object.create(Error.prototype)")) as Error & { isRetryable: false }
     Object.defineProperty(original, Symbol.toStringTag, { value: "Error" })

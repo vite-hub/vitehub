@@ -34,17 +34,6 @@ function isNonRetryableError(error: unknown): error is Error & { isRetryable: fa
       return (nativeIsError as (value: unknown) => unknown)(candidate) === true
     }
 
-    // A foreign realm may expose its own intrinsic Error.isError even when the
-    // current realm does not. Use that brand predicate before cloning so
-    // non-cloneable own fields cannot hide a genuine Error.
-    let prototype: object | null = Reflect.getPrototypeOf(candidate)
-    while (prototype) {
-      const constructor = Reflect.get(prototype, "constructor")
-      const realmIsError = hasRuntimeType(constructor, "function") ? Reflect.get(constructor, "isError") : undefined
-      if (hasRuntimeType(realmIsError, "function") && (realmIsError as (value: unknown) => unknown)(candidate) === true) return true
-      prototype = Reflect.getPrototypeOf(prototype)
-    }
-
     const clone = Reflect.get(globalThis, "structuredClone")
     if (!hasRuntimeType(clone, "function")) return false
     try {
