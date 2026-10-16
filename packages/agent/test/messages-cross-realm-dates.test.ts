@@ -99,6 +99,19 @@ describe("Agent message date boundaries", () => {
     expect(JSON.parse(JSON.stringify(message)).metadata).toEqual({ value: { timestamp: "date-like" } })
   })
 
+  it("accepts a bound inherited custom Date-like JSON hook", () => {
+    const value: unknown = runInNewContext("Object.create({ getTime: Date.prototype.getTime, toISOString: Date.prototype.toISOString, toJSON: (() => 'custom').bind(null) })")
+    const message = createMessage({ metadata: { value }, parts: [{ data: value, type: "data" }], role: "user" })
+    expect(() => validateMessage(message)).not.toThrow()
+    expect(JSON.parse(JSON.stringify(message)).metadata).toEqual({ value: "custom" })
+  })
+
+  it("rejects a hidden Date-like proxy whose JSON hook throws", () => {
+    const value: unknown = runInNewContext("new Proxy(new Date(), { getPrototypeOf() { return Object.prototype }, get(target, key) { if (key === 'toJSON') return () => { throw new Error('cannot serialize') }; return Reflect.get(target, key) } })")
+    expect(() => createMessage({ metadata: { value }, role: "user" })).toThrow("must be serialized before storing")
+    expect(() => validateMessage({ id: "message-1", parts: [{ data: { value }, type: "data" }], role: "user" })).toThrow("must be serialized before storing")
+  })
+
   it("rejects a Date-like proxy whose JSON hook is an accessor", () => {
     const value: unknown = runInNewContext("Object.create({ getTime: Date.prototype.getTime, toISOString: Date.prototype.toISOString, get toJSON() { return Date.prototype.toJSON } })")
     expect(() => createMessage({ metadata: { value }, role: "user" })).toThrow("must be serialized before storing")
