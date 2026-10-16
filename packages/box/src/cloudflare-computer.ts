@@ -312,11 +312,12 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
   const chunks: Uint8Array[] = [];
   let size = 0;
   let abort: (() => void) | undefined;
+  let cancellation: Promise<void> | undefined;
   const aborted = signal
     ? new Promise<never>((_resolve, reject) => {
         abort = () => {
-          void reader.cancel(signal.reason).catch(() => {});
-          reject(signal.reason);
+          cancellation = reader.cancel(signal.reason).catch(() => {});
+          void cancellation.then(() => reject(signal.reason));
         };
         signal.addEventListener("abort", abort, { once: true });
       })
@@ -324,11 +325,25 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
   try {
     while (true) {
       signal?.throwIfAborted();
-      const { done, value } = await (aborted ? Promise.race([reader.read(), aborted]) : reader.read());
-      signal?.throwIfAborted();
-      if (done) break;
-      chunks.push(value);
-      size += value.byteLength;
+      const read = reader.read().then(
+        value => ({ ok: true as const, value }),
+        error => ({ ok: false as const, error }),
+      );
+      const result = await (aborted ? Promise.race([read, aborted]) : read);
+      if (!result.ok) {
+        if (signal?.aborted && cancellation) {
+          await cancellation;
+          throw signal.reason;
+        }
+        throw result.error;
+      }
+      if (signal?.aborted && cancellation) {
+        await cancellation;
+        throw signal.reason;
+      }
+      if (result.value.done) break;
+      chunks.push(result.value.value);
+      size += result.value.value.byteLength;
     }
   } finally {
     if (abort) signal?.removeEventListener("abort", abort);

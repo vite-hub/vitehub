@@ -85,7 +85,8 @@ function randomId(prefix: string): string {
 
 function timestamp(value: Date | string | undefined): string | undefined {
   if (!value) return
-  return value instanceof Date ? value.toISOString() : value
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The provider contract permits Date or string; preserve strings and serialize Dates across realms.
+  return typeof value === "string" ? value : Date.prototype.toISOString.call(value)
 }
 
 function assertAudience(value: unknown): asserts value is string {

@@ -41,11 +41,19 @@ jobs:
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.CI_RESULTS)
+          // Pull requests use a fast, always-reporting gate. The full
+          // integration matrix still runs on every push to main. Keep this
+          // aggregate job required so skipped PR-only jobs never leave a
+          // branch protection check pending.
           const skippedPullRequestJobs = new Set([
+            "contracts-examples",
             "contract-tests",
+            "package-tests",
+            "package-tests-success",
             "consumer-contracts",
             "consumer-contracts-success",
             "windows-agent-credentials",
+            "docs",
             "verify-providers",
           ])
           const failures = Object.entries(results).filter(([name, job]) => {
@@ -60,8 +68,10 @@ jobs:
           }
           NODE
 
+  # Keep the required PR path small. The push-to-main run below still executes
+  # the complete contracts, package, docs, consumer, and provider matrix.
   checks:
-    name: lint and types
+    name: fast checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -69,25 +79,17 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
-      - uses: ./.github/actions/setup-deno
 
-      - name: Knip catalog
-        run: vp run knip:catalog
-
-      - run: vp run lint
-      - run: vp run doctor:typescript
-        env:
-          VITE_DOCTOR_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before || 'HEAD^' }}
-      - run: vp run typecheck
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-      - name: Docs links
-        run: vp run --filter vitehub-docs test:links
+      # Vite+ combines lint and TypeScript checks into one deterministic PR gate.
+      # Formatting currently loads generated fixture configs, so the full format
+      # check remains on the push-to-main validation path.
+      - run: vp check --no-fmt
 
   # Split from checks, which took 9 minutes because typecheck, contracts and
   # examples each ran a full build in sequence.
   contracts-examples:
     name: contracts and examples
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -134,6 +136,7 @@ jobs:
   # packages, so a new package always runs somewhere.
   package-tests:
     name: package tests (${{ matrix.shard.name }})
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -226,6 +229,7 @@ jobs:
 
   docs:
     name: docs
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

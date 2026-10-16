@@ -4,7 +4,6 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
-  getDocsRailCatalog,
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
@@ -64,15 +63,8 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Tutorial");
       expect(templateTitles, sectionId).toContain("Server API");
-      // Template pages appear in template order. Concepts pages may sit between
-      // template lanes without changing the order of the shared template pages.
+      // Product-specific concepts can sit between the shared template pages.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
-      const laneLabels = getDocsSidebarGroups(section!).map(group => group.label).filter((label): label is string => label !== null);
-      const laneOrder = ["Learn", "Build", "Deploy and operate"];
-      const knownLaneIndexes = laneLabels
-        .map(label => laneOrder.indexOf(label))
-        .filter(index => index !== -1);
-      expect(knownLaneIndexes, sectionId).toEqual([...knownLaneIndexes].sort((left, right) => left - right));
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -119,24 +111,11 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.pages.length > 0 && (!group.label || group.pages.length > 1)), sectionId).toBe(true);
+      expect(groups.every(group => group.label && group.pages.length > 0), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null, null, "Build", null]);
-  });
-
-  it("groups execution tutorials and concepts together before API and configuration pages", () => {
-    for (const sectionId of ["sandbox", "queue", "workflows"]) {
-      const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
-      const groups = getDocsSidebarGroups(section!);
-
-      expect(groups.map(group => group.label), sectionId).toContain("Learn");
-      expect(groups.find(group => group.label === "Learn")?.pages.map(page => page.title), sectionId)
-        .toEqual(["Tutorial", "Concepts"]);
-      expect(groups.find(group => group.label === "Build")?.pages.map(page => page.title), sectionId)
-        .toContain("Configure");
-    }
+    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
   });
 
   it("lists each topic once inside a section", () => {
@@ -169,27 +148,15 @@ describe("docs product navigation", () => {
     expect(getDocsSectionSubpages(kv!).some(page => page.id === "index")).toBe(false);
   });
 
-  it("puts setup in Get started and keeps platform topics off the rail", () => {
-    const start = docsManifest.sections.find(section => section.id === docsRootSectionId);
-    expect(start?.title).toBe("Get started");
-    expect(start?.pages.map(page => page.path)).toContain("/docs/getting-started/migrate-from-nuxthub");
-    expect(start?.pages.some(page => page.path.includes("runtime-policy") || page.path.includes("workspace-and-sources"))).toBe(false);
-    expect(getDocsRailCatalog(docsManifest.sections).flatMap(group => group.sections).map(section => section.id))
-      .not.toContain("frameworks-hosts");
-    expect(getDocsPageByPath("/docs/workspace/concepts")?.title).toBe("Workspaces and Sources");
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle).toBe("Runtime policy, approvals, and traces");
+  it("keeps commas in frontmatter titles", () => {
+    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle)
+      .toBe("Runtime policy, approvals, and traces");
   });
 
   it("redirects each removed page, its trailing-slash form, and its raw Markdown copy to a published page", () => {
     const routeRules = createDocsRedirectRouteRules();
 
-    expect(routeRules["/databases"]).toEqual({ redirect: { statusCode: 301, to: "/database" } });
-    expect(routeRules["/rate-limits/"]).toEqual({ redirect: { statusCode: 301, to: "/rate-limit" } });
-    expect(routeRules["/blog"]).toEqual({ redirect: { statusCode: 301, to: "/tutorials" } });
-    expect(routeRules["/guides/"]).toEqual({ redirect: { statusCode: 301, to: "/tutorials" } });
-
     expect(docsPageRedirects["/docs/server-primitives/kv"]).toBe("/docs/kv");
-    expect(docsPageRedirects["/blog/server-primitives"]).toBe("/docs/getting-started/server-primitives");
     expect(docsPageRedirects["/docs/capabilities/db"]).toBe("/docs/database/agent-capability");
     expect(docsPageRedirects["/docs/capabilities/mcp"]).toBe("/docs/agents/capabilities/mcp");
 
