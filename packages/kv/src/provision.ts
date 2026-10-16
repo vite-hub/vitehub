@@ -36,17 +36,6 @@ function parseNamespaces(value: unknown): CloudflareKVNamespace[] {
   return value as CloudflareKVNamespace[]
 }
 
-function parseNamespace(value: unknown): CloudflareKVNamespace {
-  if (!value || Object(value) !== value) throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
-  const id = Reflect.get(value, "id")
-  const title = Reflect.get(value, "title")
-  if (!Object.hasOwn(value, "id") || !Object.hasOwn(value, "title") || typeof id !== "string" || typeof title !== "string") {
-    throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
-  }
-  // SAFETY: The structural checks above validate the namespace's required fields.
-  return value as CloudflareKVNamespace
-}
-
 function parseCreatedNamespace(value: unknown): { id: string } {
   if (!value || Object(value) !== value) throw kvErrorDiagnostics.KV_R0020({ message: "Cloudflare provisioning returned an invalid KV namespace." })
   const id = Reflect.get(value, "id")
