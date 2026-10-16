@@ -1,6 +1,5 @@
 import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
-import { Response as ForeignResponse } from "undici"
 
 import { applyStreamEvent } from "../src/messages.ts"
 import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-output.ts"
@@ -1140,7 +1139,7 @@ describe("agent output helpers", () => {
   })
 
   it("emits body chunks from a genuine foreign Response implementation", async () => {
-    const response = new ForeignResponse("foreign")
+    const response = runInNewContext("new Response('foreign')", { Response }) as Response
     expect(response).not.toBeInstanceOf(Response)
     const events = []
     for await (const event of streamAgentOutputToEvents(response)) events.push(event)
