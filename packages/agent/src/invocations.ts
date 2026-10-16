@@ -594,8 +594,11 @@ function isErrorValue(value: unknown): value is Error {
     // fallback below for runtimes without that accessor.
     if (errorStackGetter) {
       try {
-        const stack = errorStackGetter.call(value)
-        if (hasRuntimeType(stack, "string")) return true
+        // Calling the intrinsic accessor performs the non-spoofable Error
+        // internal-slot check. The stack value may be non-string when a
+        // foreign realm customizes prepareStackTrace.
+        errorStackGetter.call(value)
+        return true
       }
       catch {
         // A custom stack formatter can make the intrinsic getter throw. Keep
@@ -818,9 +821,9 @@ async function collectBoundedObservationBuiltIns(
       }
       let count = 0
       let steps = 0
-      for (const key in value) {
+      for (const key of Object.keys(value)) {
         if (steps++ >= MAX_OBSERVATION_COLLECTION_ITEMS || count >= MAX_OBSERVATION_COLLECTION_ITEMS) break
-        if (!Object.hasOwn(value, key) || key === "cause" || key === "errors") continue
+        if (key === "cause" || key === "errors") continue
         count++
         await collectBoundedObservationBuiltIns(value[key], builtIns, budget, seen, depth + 1)
       }
@@ -985,9 +988,9 @@ function boundedObservationValue(
     if (Object.hasOwn(value, "cause")) details.push(["cause", read("cause")])
     try {
       let steps = 0
-      for (const key in value) {
+      for (const key of Object.keys(value)) {
         if (steps++ >= collectionItems || details.length >= collectionItems) break
-        if (!Object.hasOwn(value, key) || key === "cause" || key === "errors") continue
+        if (key === "cause" || key === "errors") continue
         details.push([key, read(key)])
       }
     }
