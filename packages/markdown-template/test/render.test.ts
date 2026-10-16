@@ -441,6 +441,12 @@ Unavailable
     await expect(renderMarkdownTemplate('<div :ONCLICK="data.handler"></div>', {
       data: { handler: "globalThis.compromised = true" },
     })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
+    await expect(renderMarkdownTemplate('<div :onbeforeunload="data.handler"></div>', {
+      data: { handler: "globalThis.compromised = true" },
+    })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
+    await expect(renderMarkdownTemplate('<div :onanimationstart="data.handler"></div>', {
+      data: { handler: "globalThis.compromised = true" },
+    })).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0031" })
     await expect(renderMarkdownTemplate('<div :data-onclick="data.handler"></div>', {
       data: { handler: "literal" },
     })).resolves.toContain('data-onclick="literal"')

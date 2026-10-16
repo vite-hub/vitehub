@@ -38,21 +38,6 @@ const urlAttributesByTag = new Map([
 ])
 // Comark normalizes SVG image tags to img nodes.
 const svgUrlAttributes = new Set(["a", "animate", "feimage", "image", "use"])
-const htmlEventAttributes = new Set([
-  "abort", "auxclick", "beforeinput", "beforematch", "beforetoggle", "blur", "cancel",
-  "canplay", "canplaythrough", "change", "click", "close", "contextmenu", "cuechange",
-  "dblclick", "drag", "dragend", "dragenter", "dragleave", "dragover", "dragstart",
-  "drop", "durationchange", "emptied", "ended", "error", "focus", "formdata",
-  "input", "invalid", "keydown", "keypress", "keyup", "load", "loadeddata",
-  "loadedmetadata", "loadstart", "mousedown", "mouseenter", "mouseleave", "mousemove",
-  "mouseout", "mouseover", "mouseup", "paste", "pause", "play", "playing",
-  "pointercancel", "pointerdown", "pointerenter", "pointerleave", "pointermove",
-  "pointerout", "pointerover", "pointerup", "progress", "ratechange", "reset",
-  "resize", "scroll", "scrollend", "securitypolicyviolation", "seeked", "seeking",
-  "select", "slotchange", "stalled", "submit", "suspend", "timeupdate", "toggle",
-  "touchcancel", "touchend", "touchmove", "touchstart", "transitioncancel",
-  "transitionend", "transitionrun", "transitionstart", "volumechange", "waiting", "wheel",
-])
 
 export async function renderMarkdownTemplate(template: string, options: RenderMarkdownTemplateOptions = {}): Promise<string> {
   return await renderMarkdownTemplateInternal(template, options)
@@ -167,7 +152,7 @@ function rejectBoundEventHandlers(source: Record<string, unknown>): void {
   for (const key of Object.keys(source)) {
     if (!key.startsWith(":")) continue
     const attribute = key.slice(1).toLowerCase()
-    if (attribute.startsWith("on") && htmlEventAttributes.has(attribute.slice(2))) {
+    if (attribute.startsWith("on") && attribute !== "once") {
       throw diagnostics.MARKDOWN_TEMPLATE_R0031({ message: `[vitehub] Markdown template binding "${String(source[key])}" cannot target an HTML event-handler attribute.` })
     }
   }
