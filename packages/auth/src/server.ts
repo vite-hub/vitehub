@@ -351,7 +351,7 @@ function streamIntrinsic<T extends PropertyKey>(body: object, key: T): { value: 
   }
 }
 
-function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName?: string): value is (...args: never[]) => unknown {
+function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName?: string, allowPrototype = false): value is (...args: never[]) => unknown {
   if (typeof value !== "function") return false
   if (value === localIntrinsic) return true
   try {
@@ -359,7 +359,7 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // never ordinary function declarations with their own prototype object.
     // Reject those declarations before their body can be invoked. This also
     // excludes the common forged `function namedLikeAnIntrinsic() {}` shape.
-    if (Object.getOwnPropertyDescriptor(value, "prototype")) return false
+    if (!allowPrototype && Object.getOwnPropertyDescriptor(value, "prototype")) return false
     // Function source text is implementation-defined and differs across
     // runtimes. The surrounding verified prototype/descriptor checks establish
     // the operation's carrier realm; use only its stable intrinsic name here.
@@ -407,8 +407,8 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
   }
   const forEachEntry = findMethod("forEach")
   const cookieEntry = findMethod("getSetCookie")
-  if (!forEachEntry || !isNativeFunction(forEachEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value, "forEach")) return
-  if (cookieEntry && !isNativeFunction(cookieEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie")) return
+  if (!forEachEntry || !isNativeFunction(forEachEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value, "forEach", true)) return
+  if (cookieEntry && !isNativeFunction(cookieEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie", true)) return
   if (cookieEntry && cookieEntry.owner !== forEachEntry.owner) return
   const owner = forEachEntry.owner
   const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
@@ -429,7 +429,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const streamPrototype = locked.owner
   const streamConstructor = Object.getOwnPropertyDescriptor(streamPrototype, "constructor")?.value
   // The constructor is metadata only. Never call or construct a value supplied by the response.
-  if (!isNativeFunction(streamConstructor, ReadableStream, "ReadableStream") || streamConstructor.name !== "ReadableStream"
+  if (!isNativeFunction(streamConstructor, ReadableStream, "ReadableStream", true) || streamConstructor.name !== "ReadableStream"
     || streamConstructor.prototype !== streamPrototype) throw new Error("Non-native response stream")
   const getReader = getReaderIntrinsic.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
@@ -445,7 +445,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
       || Object.prototype.hasOwnProperty.call(reader, "cancel")
       || Object.prototype.hasOwnProperty.call(reader, "releaseLock")) throw new Error("Non-native response reader")
     const readerConstructor = Object.getOwnPropertyDescriptor(readerPrototype, "constructor")?.value
-    if (!isNativeFunction(readerConstructor, nativeReaderPrototype.constructor, "ReadableStreamDefaultReader")
+    if (!isNativeFunction(readerConstructor, nativeReaderPrototype.constructor, "ReadableStreamDefaultReader", true)
       || readerConstructor.name !== "ReadableStreamDefaultReader"
       || readerConstructor.prototype !== readerPrototype) throw new Error("Non-native response reader")
     // The returned reader may have a caller-controlled immediate prototype. Its
@@ -458,9 +458,9 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     // Native reader operations have stable names across realms. This rejects
     // replacements installed on a shared reader prototype before any
     // caller-controlled operation is invoked.
-    if (!isNativeFunction(read, nativeReaderRead, "read") || read.name !== "read"
-    || !isNativeFunction(cancel, nativeReaderCancel, "cancel") || cancel.name !== "cancel"
-    || !isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock") || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
+    if (!isNativeFunction(read, nativeReaderRead, "read", true) || read.name !== "read"
+    || !isNativeFunction(cancel, nativeReaderCancel, "cancel", true) || cancel.name !== "cancel"
+    || !isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock", true) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
     let released = false
     const release = () => {
       if (released) return
