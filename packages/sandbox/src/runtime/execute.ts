@@ -133,6 +133,14 @@ async function executeSandboxDefinitionOnce<TPayload>(
     if (output.ok)
       return await decodeSandboxValue(sandbox, output.result, files.outputAssetsDir, 'result', signal)
 
+    if (output.error?.code === 'SANDBOX_SERIALIZATION_ERROR') {
+      throw sandboxError(output.error.message || 'Sandbox result must be JSON-serializable.', {
+        code: 'SANDBOX_SERIALIZATION_ERROR',
+        provider: sandbox.provider,
+        cause: output.error.cause,
+      })
+    }
+
     throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
       name: output.error?.name,
       stack: output.error?.stack,
