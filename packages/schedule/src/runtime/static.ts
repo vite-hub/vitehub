@@ -99,12 +99,21 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
 
 function validateScheduledAt(scheduledAt: Date | undefined): Date {
   const value = scheduledAt ?? new Date()
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+  let time: number
+  try {
+    time = Date.prototype.getTime.call(value)
+  }
+  catch {
     throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
       details: invalidScheduleValueDetails("scheduledAt", value),
     })
   }
-  return value
+  if (Number.isNaN(time)) {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+      details: invalidScheduleValueDetails("scheduledAt", value),
+    })
+  }
+  return new Date(time)
 }
 
 export async function executeCloudflareStaticSchedules(
