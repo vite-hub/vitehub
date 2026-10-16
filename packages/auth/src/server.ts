@@ -345,7 +345,8 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (Reflect.apply(locked, stream, []) !== false) return false
     const reader: unknown = Reflect.apply(getReader, stream, [])
     if (Object(reader) !== reader || Reflect.apply(locked, stream, []) !== true) return false
-    const readerObject = reader as object
+      const readerObject = reader as object
+    if (!(readerObject instanceof ReadableStreamDefaultReader) && !readerCapabilityOwners(readerObject)) return false
     let releaseLock: unknown
     try {
       releaseLock = nativeReaderMethod(readerObject, "releaseLock")
@@ -439,16 +440,13 @@ function hasNativeStreamBrand(body: object): boolean {
 }
 
 function nativeReaderClosedGetter(reader: object): (() => Promise<unknown>) | undefined {
-  let current: object | null = reader
-  const seen = new Set<object>()
   try {
-    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(current)) return undefined
-      seen.add(current)
-      const descriptor = Object.getOwnPropertyDescriptor(current, "closed")
-      if (typeof descriptor?.get === "function") return descriptor.get as () => Promise<unknown>
-      current = Object.getPrototypeOf(current)
-    }
+    const prototype = Object.getPrototypeOf(reader)
+    const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, "closed")
+    if (typeof descriptor?.get !== "function") return undefined
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    if (typeof constructor !== "function" || constructor.prototype !== prototype || !constructor.name.includes("Reader")) return undefined
+    return descriptor.get as () => Promise<unknown>
   }
   catch {
     return undefined
@@ -479,24 +477,28 @@ function nativeStreamMethod<T extends keyof ReadableStream<Uint8Array>>(body: ob
 
 function nativeReaderMethod<T extends "read" | "cancel" | "releaseLock">(reader: object, key: T): Function | undefined {
   if (Object.prototype.hasOwnProperty.call(reader, key)) return undefined
-  let current: object | null = reader
-  const seen = new Set<object>()
-  let result: Function | undefined
-  for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-    if (seen.has(current)) return undefined
-    seen.add(current)
-    const descriptor = Object.getOwnPropertyDescriptor(current, key)
-    if (descriptor && typeof descriptor.value === "function") {
-      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-      if (typeof constructor?.name === "string" && constructor.name.includes("Reader")) {
-        if (typeof ReadableStreamDefaultReader !== "undefined" && reader instanceof ReadableStreamDefaultReader
-          && descriptor.value !== ReadableStreamDefaultReader.prototype[key]) return undefined
-        result = descriptor.value
-      }
-    }
-    current = Object.getPrototypeOf(current)
+  const prototype = Object.getPrototypeOf(reader)
+  const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, key)
+  if (typeof descriptor?.value !== "function") return undefined
+  const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+  if (typeof constructor !== "function" || constructor.prototype !== prototype || !constructor.name.includes("Reader")) return undefined
+  if (typeof ReadableStreamDefaultReader !== "undefined" && reader instanceof ReadableStreamDefaultReader
+    && descriptor.value !== ReadableStreamDefaultReader.prototype[key]) return undefined
+  return descriptor.value
+}
+
+function readerCapabilityOwners(reader: object): boolean {
+  try {
+    const prototype = Object.getPrototypeOf(reader)
+    if (!prototype) return false
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    if (typeof constructor !== "function" || constructor.prototype !== prototype || !constructor.name.includes("Reader")) return false
+    return ["read", "cancel", "releaseLock"].every(key => typeof Object.getOwnPropertyDescriptor(prototype, key)?.value === "function")
+      && typeof Object.getOwnPropertyDescriptor(prototype, "closed")?.get === "function"
   }
-  return result
+  catch {
+    return false
+  }
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
