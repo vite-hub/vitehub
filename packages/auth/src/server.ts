@@ -325,6 +325,18 @@ function hasResponsePrototype(value: unknown): boolean {
         // complete Response prototype provides the brand-checked accessors.
         if (constructor?.name === "Response") {
           for (const accessor of accessors) Reflect.apply(accessor as (...args: never[]) => unknown, value, [])
+          // A foreign implementation must carry its own Headers brand. A
+          // caller-created prototype can copy every Response accessor and
+          // method, but it cannot make a host Headers instance belong to that
+          // foreign Response implementation. Same-realm responses returned
+          // above already take the native fast path.
+          const headers = Reflect.get(value, "headers")
+          if (headers instanceof Headers) return false
+          const headerPrototype = Object.getPrototypeOf(Object(headers))
+          const hostHeaderPrototype = Headers.prototype
+          if (!headerPrototype || headerPrototype === hostHeaderPrototype) return false
+          if (typeof Object.getOwnPropertyDescriptor(headerPrototype, "get")?.value !== "function"
+            || typeof Object.getOwnPropertyDescriptor(headerPrototype, "forEach")?.value !== "function") return false
           // Check the complete Response method surface without invoking clone.
           // Calling clone() rejects valid responses whose body is already used
           // or locked, while a forged prototype that only supplies accessors is
