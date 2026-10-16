@@ -287,7 +287,7 @@ async function runAccessAuthorize(
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
-const authorizationResponsePrototypeLimit = 8
+const authorizationResponsePrototypeLimit = 32
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
