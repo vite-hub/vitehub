@@ -116,7 +116,7 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
 
 type WorkspaceDevHeaders = Headers | Record<string, string | string[] | undefined> | { get(name: string): string | null }
 
-function headerValue(headers: WorkspaceDevHeaders, name: string): string | undefined {
+function headerValue(headers: WorkspaceDevHeaders, name: string, expectedToken?: string): string | undefined {
   try {
   const prototype = Object.getPrototypeOf(headers)
   const constructor = prototype
@@ -153,9 +153,9 @@ function headerValue(headers: WorkspaceDevHeaders, name: string): string | undef
     let crossRealmGetterIsSafe = true
     if (prototypeGet !== get) {
       try {
-        const probe = Reflect.construct(constructor, [])
+        const probe = Reflect.construct(constructor, expectedToken === undefined ? [] : [[[name, expectedToken]]])
         const probeValue = Reflect.apply(prototypeGet, probe, [name])
-        crossRealmGetterIsSafe = probeValue == null
+        crossRealmGetterIsSafe = probeValue === expectedToken
       }
       catch {
         crossRealmGetterIsSafe = false
@@ -228,8 +228,9 @@ export async function readWorkspaceDevToken(rootDir: string, options: WorkspaceD
 }
 
 export async function validateWorkspaceDevToken(rootDir: string, headers: WorkspaceDevHeaders, options: WorkspaceDevTokenOptions = {}): Promise<boolean> {
-  const token = headerValue(headers, workspaceDevTokenHeader)
-  return isViteHubSecretEqual(token, await ensureWorkspaceDevToken(rootDir, options))
+  const expectedToken = await ensureWorkspaceDevToken(rootDir, options)
+  const token = headerValue(headers, workspaceDevTokenHeader, expectedToken)
+  return isViteHubSecretEqual(token, expectedToken)
 }
 
 async function resolveWorkspace<Name extends WorkspaceName>(

@@ -95,6 +95,21 @@ describe("workspace dev token headers", () => {
     await expect(validateWorkspaceDevToken(root, headers, options)).resolves.toBe(false)
   })
 
+  it("rejects receiver-sensitive inherited Headers getters", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
+    roots.push(root)
+    const options = { serverId: "receiver-sensitive-test" }
+    const token = await refreshWorkspaceDevToken(root, options)
+    let probe: object | undefined
+    class Headers {
+      constructor() { probe = this }
+      get() { return this === probe ? null : token }
+    }
+    const headers = Object.create(Headers.prototype) as Record<string, string | string[] | undefined>
+
+    await expect(validateWorkspaceDevToken(root, headers, options)).resolves.toBe(false)
+  })
+
   it("accepts own record tokens and case-insensitive Headers tokens", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
     roots.push(root)
