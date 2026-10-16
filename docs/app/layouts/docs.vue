@@ -17,12 +17,12 @@ const docsShellUi = {
 
 <template>
   <UMain class="vh-docs-shell">
-    <UContainer v-if="isSupportMatrix">
+    <UContainer v-if="isSupportMatrix" class="vh-docs-content">
       <AnnouncementBanner />
       <slot />
     </UContainer>
 
-    <div v-else-if="isLanding" class="vh-docs-landing">
+    <div v-else-if="isLanding" class="vh-docs-content vh-docs-landing">
       <slot />
     </div>
 
@@ -54,6 +54,10 @@ const docsShellUi = {
   flex: 1 1 auto;
 }
 
+.vh-docs-content {
+  flex: 1 1 auto;
+}
+
 .vh-docs-main,
 .vh-docs-landing {
   margin: 0 auto;
@@ -68,10 +72,6 @@ const docsShellUi = {
   max-width: 84rem;
 }
 
-.vh-docs-footer {
-  margin-top: 3rem;
-}
-
 @media (min-width: 40rem) {
   .vh-docs-main,
   .vh-docs-landing {
@@ -79,7 +79,12 @@ const docsShellUi = {
   }
 }
 
+/* Keep the desktop rail sticky while clipping only horizontal overflow. */
 @media (min-width: 64rem) {
+  .vh-docs-shell {
+    overflow-x: clip;
+  }
+
   .vh-docs-aside {
     position: sticky;
     top: var(--ui-header-height);
@@ -94,15 +99,7 @@ const docsShellUi = {
   }
 
   :deep(.vh-docs-sidebars) {
-    height: 100%;
-    min-height: 0;
-    flex-direction: row;
     overflow: visible;
-    border-right: 1px solid var(--ui-border);
-  }
-
-  :deep(.vh-docs-panel) {
-    max-height: calc(100dvh - var(--ui-header-height));
   }
 }
 </style>

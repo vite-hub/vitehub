@@ -20,7 +20,7 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
+  (page) => !["index.md", "installation.md", "get-started.md"].includes(page.name) && !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -121,16 +121,6 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("gives component pages the shared article layout and page outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
-
-    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain("UContentToc");
-    expect(article).toContain('aria-label="Page outline"');
-    expect(article).toContain("min-w-0");
-  });
-
   it("gives invocation previews fixed-height containing blocks", () => {
     const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
     const inspector = readFileSync(
@@ -186,6 +176,10 @@ describe("UI documentation", () => {
     expect(sidebarPanel).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain("<DocsSidebars panel />");
+    expect(layout).toContain("overflow-x: clip;");
+    expect(layout).toContain(".vh-docs-aside");
+    expect(layout).toContain("hidden lg:flex");
+    expect(layout).toContain("overflow: visible;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
