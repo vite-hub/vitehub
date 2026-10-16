@@ -50,14 +50,14 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console/auth/cloudflare-access` | Verify Cloudflare Access tokens for the Console guard. |
 | `vite-hub/console/auth/inline` | Build the Node-only inline GitHub Console Auth Definition. |
 | `vite-hub/console/blob` | Read-only Blob inspection registration for framework server integrations. |
-| `vite-hub/console/connections` | Connections management, connect, and callback route registration for framework server integrations. |
 | `vite-hub/console/database` | Read-only Database inspection registration for framework server integrations. |
+| `vite-hub/console/documents` | Read-only Content document inspection registration for framework server integrations. |
 | `vite-hub/console/definitions` | Read-only Definition inspection registration for framework server integrations. |
 | `vite-hub/console/env` | Server Env declaration inventory registration for framework server integrations. |
 | `vite-hub/console/kv` | Read-only KV inspection registration for framework server integrations. |
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
-| `vite-hub/content`, `vite-hub/content/client`, and `vite-hub/content/database` | Comark Content definition, editable document collections and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, and the sessions table schema. |
+| `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition, editable document collections and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |
@@ -113,6 +113,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/ui/agent-capability-inspector`, `vite-hub/ui/agent-tool-list`, `vite-hub/ui/agent-trace` | Focused imports for capability and trace inspection components. |
 | `vite-hub/ui/agent-code-view`, `vite-hub/ui/agent-file`, `vite-hub/ui/agent-file-diff`, `vite-hub/ui/agent-multi-file-diff`, `vite-hub/ui/agent-patch-diff`, `vite-hub/ui/agent-unresolved-file` | Focused imports for code and diff components. |
 | `vite-hub/ui/agent-file-tree`, `vite-hub/ui/agent-markdown`, `vite-hub/ui/agent-session` | Focused imports for file tree, Markdown, and session components. |
+| `vite-hub/ui/avatar-stack`, `vite-hub/ui/connection-status`, `vite-hub/ui/sync-status` | Focused imports for collaboration components. |
 | `vite-hub/ui/nuxt` and `vite-hub/ui/vite` | Register the canonical UI package for Nuxt or Vue with Vite. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |

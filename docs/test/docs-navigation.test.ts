@@ -106,6 +106,7 @@ describe("docs product navigation", () => {
       "Start",
       "Console",
       "Chat",
+      "Collaboration",
       "Agent work",
       "Utilities",
     ]);

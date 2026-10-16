@@ -112,6 +112,14 @@
       "types": "./dist/agent-unresolved-file.d.ts",
       "import": "./dist/agent-unresolved-file.js"
     },
+    "./avatar-stack": {
+      "types": "./dist/avatar-stack.d.ts",
+      "import": "./dist/avatar-stack.js"
+    },
+    "./connection-status": {
+      "types": "./dist/connection-status.d.ts",
+      "import": "./dist/connection-status.js"
+    },
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js"
@@ -123,6 +131,10 @@
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
       "import": "./dist/primitive-rail.js"
+    },
+    "./sync-status": {
+      "types": "./dist/sync-status.d.ts",
+      "import": "./dist/sync-status.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
