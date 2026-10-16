@@ -945,12 +945,22 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (envPlugin) plugins.push(envPlugin)
 
+  const runtimeCapabilityImports = {
+    blob: blobEnabled ? `${generatedImportBase}/blob` : false,
+    connections: options.connections ? "vite-hub/connections/agent" : false,
+    console: options.console ? "vite-hub/console/server" : false,
+    db: options.database ? "vite-hub/database/drizzle" : false,
+    email: "vite-hub/email/server",
+    kv: `${generatedImportBase}/kv`,
+  } satisfies Record<string, false | string>
+
   if (options.console) {
     const invocationRootState = {}
     plugins.push(consoleVitePlugin({
       blobStores: consoleBlobStores,
       console: options.console,
       connections: options.connections,
+      runtimeCapabilityImports,
       resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { root, serverDirs }),
       databaseUrl: consoleDatabaseUrl(options),
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
@@ -1021,14 +1031,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/agent`,
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
-      runtimeCapabilityImports: {
-        blob: blobEnabled ? `${generatedImportBase}/blob` : false,
-        connections: options.connections ? "vite-hub/connections/agent" : false,
-        console: options.console ? "vite-hub/console/server" : false,
-        db: options.database ? "vite-hub/database/drizzle" : false,
-        email: "vite-hub/email/server",
-        kv: `${generatedImportBase}/kv`,
-      },
+      runtimeCapabilityImports,
       scheduleRuntimeImport: `${generatedImportBase}/schedule/runtime`,
       workflowImportBase: `${generatedImportBase}/workflow`,
       workspaceDependencyRuntimeImports,
