@@ -330,7 +330,7 @@ function hasResponsePrototype(value: unknown): boolean {
           // method, but it cannot make a host Headers instance belong to that
           // foreign Response implementation. Same-realm responses returned
           // above already take the native fast path.
-          const headers = Reflect.get(value, "headers")
+          const headers = Reflect.get(Object(value), "headers")
           if (headers instanceof Headers) return false
           const headerPrototype = Object.getPrototypeOf(Object(headers))
           const hostHeaderPrototype = Headers.prototype
@@ -343,6 +343,16 @@ function hasResponsePrototype(value: unknown): boolean {
           // not a usable Response implementation.
           const methods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
           if (methods.some(method => typeof Object.getOwnPropertyDescriptor(current, method)?.value !== "function")) return false
+          // A null-body Response can be cloned without consuming any stream.
+          // Require the clone to retain the implementation prototype so a
+          // caller cannot brand an arbitrary object with an unrelated stub.
+          if (Reflect.get(Object(value), "body") === null) {
+            const clone = Reflect.get(current, "clone")
+            if (typeof clone !== "function") return false
+            const cloned = Reflect.apply(clone, value, [])
+            if (Object(cloned) !== cloned || cloned === value) return false
+            if (Object.getPrototypeOf(cloned) !== current) return false
+          }
           return true
         }
       }

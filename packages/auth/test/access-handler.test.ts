@@ -395,6 +395,32 @@ describe("Auth access handlers", () => {
     expect(response?.status).toBe(403)
   })
 
+  it("rejects a forged complete Response surface with a caller-created header carrier", async () => {
+    const prototype = Object.create(null)
+    Object.defineProperties(prototype, {
+      constructor: { value: function Response() {} },
+      status: { get: () => 409 },
+      statusText: { get: () => "Conflict" },
+      headers: { get: () => Object.create({
+        get: () => null,
+        forEach: () => undefined,
+      }) },
+      body: { get: () => null },
+      clone: { value: () => ({}) },
+      arrayBuffer: { value: () => Promise.resolve(new ArrayBuffer(0)) },
+      blob: { value: () => Promise.resolve(new Blob([])) },
+      formData: { value: () => Promise.resolve(new FormData()) },
+      json: { value: () => Promise.resolve({}) },
+      text: { value: () => Promise.resolve("") },
+    })
+    const candidate = Object.create(prototype)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => candidate }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("preserves foreign status, body, and separate Set-Cookie headers", async () => {
     const foreign = new ForeignResponse("Policy rejected", {
       status: 409,
