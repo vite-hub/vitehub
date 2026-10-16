@@ -7,7 +7,7 @@ import {
 } from "@vite-hub/ui";
 import { computed, onMounted, ref } from "vue";
 
-// Replace the server-rendered clock after hydration so static pages stay current.
+// Keep hydration stable, then refresh the example timestamps when the reader opens the page.
 const now = useState("ui-dashboard-clock", () => Date.now());
 onMounted(() => {
   now.value = Date.now();
