@@ -160,8 +160,18 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
   }
 }
 
-function inspectRateLimiterOptions(options: CreateRateLimiterOptions): { policy: CreateRateLimiterOptions, capabilities: RateLimitDriverCapabilities, driverName: string } {
+function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
+  policy: CreateRateLimiterOptions
+  capabilities: RateLimitDriverCapabilities
+  driverName: string
+  consume: CreateRateLimiterOptions["driver"]["consume"]
+  peek: CreateRateLimiterOptions["driver"]["peek"]
+  reset: CreateRateLimiterOptions["driver"]["reset"]
+} {
   const driver = Reflect.get(options, "driver") as CreateRateLimiterOptions["driver"]
+  const consume = Reflect.get(driver, "consume") as CreateRateLimiterOptions["driver"]["consume"]
+  const peek = Reflect.get(driver, "peek") as CreateRateLimiterOptions["driver"]["peek"]
+  const reset = Reflect.get(driver, "reset") as CreateRateLimiterOptions["driver"]["reset"]
   const capabilities = Reflect.get(driver, "capabilities") as RateLimitDriverCapabilities
   if (!capabilities || typeof capabilities !== "object") {
     return {
@@ -175,6 +185,9 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): { policy:
       },
       capabilities,
       driverName: Reflect.get(driver, "name"),
+      consume,
+      peek,
+      reset,
     }
   }
   const windows = Reflect.get(capabilities, "windows")
@@ -195,6 +208,9 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): { policy:
     },
     capabilities: inspectedCapabilities,
     driverName: Reflect.get(driver, "name"),
+    consume,
+    peek,
+    reset,
   }
 }
 
@@ -246,6 +262,9 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
     windowMs: policy.windowMs,
   })
   const driver = inspected.policy.driver
+  const consume = inspected.consume
+  const peek = inspected.peek
+  const reset = inspected.reset
 
   return {
     capabilities,
@@ -253,7 +272,7 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
       if (!input || !v.is(v.string(), input.key) || input.key.length === 0) {
         throw rateLimitErrorDiagnostics.RATE_LIMIT_R0030({ message: "[vitehub] Rate Limiter consume() requires a non-empty key." })
       }
-      const outcome = await driver.consume(driverInput(input))
+      const outcome = await consume.call(driver, driverInput(input))
       if (!v.is(driverOutcomeSchema, outcome)) {
         throw rateLimitErrorDiagnostics.RATE_LIMIT_R0044({ message: "[vitehub] Rate Limit driver consume() must return [null, value] or [Error, undefined]." })
       }
@@ -271,10 +290,10 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
     },
     async peek(input) {
       assertKey(input, "peek")
-      if (!v.is(v.function(), driver.peek)) {
-        return { limit: policy.limit, reason: unsupportedReason(driver.name, "peek"), status: "unsupported", windowMs: policy.windowMs }
+      if (!v.is(v.function(), peek)) {
+        return { limit: policy.limit, reason: unsupportedReason(inspected.driverName, "peek"), status: "unsupported", windowMs: policy.windowMs }
       }
-      const outcome: unknown = await driver.peek(driverInput(input))
+      const outcome: unknown = await peek.call(driver, driverInput(input))
       const parsed = v.safeParse(driverOutcomeSchema, outcome)
       if (!parsed.success) throw rateLimitErrorDiagnostics.RATE_LIMIT_R0043({ message: "[vitehub] Rate Limit driver peek() must return [null, value] or [Error, undefined]." })
       const [error, result] = parsed.output
@@ -284,10 +303,10 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
     policy,
     async reset(input) {
       assertKey(input, "reset")
-      if (!v.is(v.function(), driver.reset)) {
-        return { reason: unsupportedReason(driver.name, "reset"), status: "unsupported" }
+      if (!v.is(v.function(), reset)) {
+        return { reason: unsupportedReason(inspected.driverName, "reset"), status: "unsupported" }
       }
-      const outcome: unknown = await driver.reset(driverInput(input))
+      const outcome: unknown = await reset.call(driver, driverInput(input))
       const parsed = v.safeParse(v.strictTuple([v.nullable(driverErrorSchema)]), outcome)
       if (!parsed.success) throw rateLimitErrorDiagnostics.RATE_LIMIT_R0042({ message: "[vitehub] Rate Limit driver reset() must return [null] or [Error]." })
       const [error] = parsed.output

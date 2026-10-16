@@ -86,6 +86,28 @@ describe("Rate Limit core", () => {
     expect(consume).toHaveBeenCalledWith(expect.objectContaining({ name: "inspected" }))
   })
 
+  it("uses inspected driver methods for runtime calls", async () => {
+    const driver = memoryRateLimitDriver()
+    const consume = vi.fn(driver.consume)
+    const peek = vi.fn(() => [null, { used: 0 }])
+    const reset = vi.fn(() => [null])
+    Object.assign(driver, { consume, peek, reset })
+    const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
+
+    Object.assign(driver, {
+      consume: vi.fn(() => { throw new Error("changed consume") }),
+      peek: vi.fn(() => { throw new Error("changed peek") }),
+      reset: vi.fn(() => { throw new Error("changed reset") }),
+    })
+
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
+    await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ used: 0 })
+    await expect(limiter.reset({ key: "user" })).resolves.toMatchObject({ status: "reset" })
+    expect(consume).toHaveBeenCalled()
+    expect(peek).toHaveBeenCalled()
+    expect(reset).toHaveBeenCalled()
+  })
+
   it.each(["allow", "deny"] as const)("rejects malformed consume tuples before applying failure %s", async (failure) => {
     const invalid = [
       ["malformed-error", undefined],
