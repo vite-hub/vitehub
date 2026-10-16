@@ -346,7 +346,10 @@ const authorizationReaderCancel = authorizationReaderPrototype
 const authorizationReaderReleaseLock = authorizationReaderPrototype
   ? Object.getOwnPropertyDescriptor(authorizationReaderPrototype, "releaseLock")?.value
   : undefined
-const authorizationUint8ArraySubarray = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "subarray")?.value
+const authorizationUint8ArraySubarray = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  "subarray",
+)?.value
 const authorizationTypedArrayTag = Object.getOwnPropertyDescriptor(
   Object.getPrototypeOf(Uint8Array.prototype),
   Symbol.toStringTag,
