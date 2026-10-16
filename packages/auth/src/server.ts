@@ -450,7 +450,12 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
             key,
             Object.getOwnPropertyDescriptor(probePrototype, key)?.value,
           ])) as Record<string, Function>
-          if (Object.values(probeMethods).some(method => typeof method !== "function")) return
+          const readerMethodShape = { read: ["read", 0], cancel: ["cancel", 1], releaseLock: ["releaseLock", 0] } as const
+          if ((Object.entries(probeMethods) as Array<[keyof typeof readerMethodShape, Function]>).some(([key, method]) =>
+            typeof method !== "function"
+            || method.name !== readerMethodShape[key][0]
+            || method.length !== readerMethodShape[key][1]
+            || Object.prototype.hasOwnProperty.call(method, "prototype"))) return
           // The local realm has immutable references captured above. A patched
           // local prototype must not become trusted merely because its
           // replacements return promise-shaped values during the probe.
