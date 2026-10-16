@@ -334,6 +334,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     if (response.body === null) return new Response(null, { headers, status: response.status, statusText: response.statusText })
     if (typeof response.body.getReader !== "function") return
+    const foreignBody = response.body
     const reader = response.body.getReader()
     let cleaned = false
     const releaseReader = async () => {
@@ -348,22 +349,31 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       catch {}
       try {
         if (typeof reader.cancel === "function") await reader.cancel()
+        else if (typeof foreignBody.cancel === "function") await foreignBody.cancel()
+        else return
+        cleaned = true
       }
       catch {}
-      cleaned = true
     }
     const cancelReader = async (reason: unknown) => {
       if (cleaned) return
-      cleaned = true
       try {
         if (typeof reader.cancel === "function") await reader.cancel(reason)
+        else if (typeof foreignBody.cancel === "function") await foreignBody.cancel(reason)
+        else return
+        cleaned = true
       }
       catch {}
       finally {
-        try {
-          if (typeof reader.releaseLock === "function") reader.releaseLock()
+        if (!cleaned) {
+          try {
+            if (typeof reader.releaseLock === "function") {
+              reader.releaseLock()
+              cleaned = true
+            }
+          }
+          catch {}
         }
-        catch {}
       }
     }
     if (typeof reader.read !== "function") {
