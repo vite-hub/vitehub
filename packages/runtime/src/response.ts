@@ -26,17 +26,30 @@ const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
 
 function getForeignBlobMethods(value: object): { arrayBuffer: (value: object) => Promise<ArrayBuffer>, type: string } | undefined {
   let prototype: object | null = Object.getPrototypeOf(value)
-  let arrayBuffer: ((value: object) => Promise<ArrayBuffer>) | undefined
   while (prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, "arrayBuffer")
-    if (descriptor && typeof descriptor.value === "function") {
-      arrayBuffer = (candidate: object) => Reflect.apply(descriptor.value, candidate, []) as Promise<ArrayBuffer>
-      break
+    const arrayBuffer = Object.getOwnPropertyDescriptor(prototype, "arrayBuffer")
+    const text = Object.getOwnPropertyDescriptor(prototype, "text")
+    const stream = Object.getOwnPropertyDescriptor(prototype, "stream")
+    const slice = Object.getOwnPropertyDescriptor(prototype, "slice")
+    const type = Object.getOwnPropertyDescriptor(prototype, "type")
+    const size = Object.getOwnPropertyDescriptor(prototype, "size")
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")
+    if (typeof arrayBuffer?.value === "function" && typeof text?.value === "function" &&
+      typeof stream?.value === "function" && typeof slice?.value === "function" &&
+      (typeof type?.get === "function" || typeof Object.getOwnPropertyDescriptor(value, "type")?.value === "string") &&
+      (typeof size?.get === "function" || typeof Object.getOwnPropertyDescriptor(value, "size")?.value === "number") &&
+      typeof constructor?.value === "function" && constructor.value.name === "Blob") {
+      const typeValue = typeof type?.get === "function"
+        ? Reflect.apply(type.get, value, [])
+        : Object.getOwnPropertyDescriptor(value, "type")?.value
+      return {
+        arrayBuffer: candidate => Reflect.apply(arrayBuffer.value, candidate, []) as Promise<ArrayBuffer>,
+        type: String(typeValue),
+      }
     }
     prototype = Object.getPrototypeOf(prototype)
   }
-  if (!arrayBuffer) return undefined
-  return { arrayBuffer, type: String(Reflect.get(value, "type")) }
+  return undefined
 }
 
 function getBlobMethods(value: unknown): BlobMethods | undefined {
