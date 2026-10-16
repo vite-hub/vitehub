@@ -110,7 +110,13 @@ function isResponseLike(value: unknown): value is Response {
     // check. Supported DOM shims expose their complete private state symbols;
     // require that state rather than accepting forgeable public properties,
     // constructors, or factory methods as a response brand.
+    const prototype = Object.getPrototypeOf(value)
+    const prototypeTag = prototype && Object.getOwnPropertyDescriptor(prototype, Symbol.toStringTag)?.value
     const foreignImplementation = hasShimState
+      && prototypeTag === "Response"
+      && typeof prototype?.constructor === "function"
+      && prototype.constructor.name === "Response"
+      && responseMethods.every((method) => typeof (prototype as Record<string, unknown>)[method] === "function")
     return typeof response.status === "number"
       && typeof response.statusText === "string"
       && (nativeBrand || foreignImplementation)
