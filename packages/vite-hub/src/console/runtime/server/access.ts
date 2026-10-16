@@ -84,7 +84,8 @@ function productionRuntime(): boolean {
   return globalThis.process?.env?.NODE_ENV === "production"
 }
 
-function webRequest(event: ConsoleRequestEvent): Request {
+/** Build the standard Fetch request passed to Console authorization and runtime contexts. */
+export function consoleRequest(event: ConsoleRequestEvent): Request {
   if (event.req instanceof Request) return event.req
   const headers = new Headers()
   for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
@@ -131,7 +132,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     if (!policy.authorize) {
       return rejection(500, "CONSOLE_AUTHORIZE_REQUIRED")
     }
-    const result = await policy.authorize({ request: webRequest(event) })
+    const result = await policy.authorize({ request: consoleRequest(event) })
     if (result instanceof Response) return result
     authorization = result
   }
@@ -147,7 +148,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   }
   let sections: ConsoleAccess["sections"]
   if (policy.mode !== "host-managed" && policy.mode !== "local" && policy.authorize) {
-    const result: unknown = await policy.authorize(user ? { request: webRequest(event), user } : { request: webRequest(event) })
+    const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
     if (result instanceof Response) return result
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
     if (result !== true) {
