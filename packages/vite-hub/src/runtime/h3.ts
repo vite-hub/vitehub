@@ -61,6 +61,10 @@ function isRequest(value: unknown): value is Request {
       while (prototype !== null) {
         if (seen.has(prototype)) return false
         seen.add(prototype)
+        // A foreign Request prototype must not be layered over this realm's
+        // Request prototype. Such a chain can copy native methods onto a
+        // forged object while the receiver still lacks the foreign slots.
+        if (prototype === Request.prototype) return false
         const objectConstructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         if (typeof objectConstructor === "function" && objectConstructor.name === "Object" && objectConstructor.prototype === prototype) {
           reachedObjectPrototype = true
