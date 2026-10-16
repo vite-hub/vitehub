@@ -62,6 +62,15 @@ function isRequestLike(value: AuthRequest): value is Request {
   try {
     const isBrandCheckError = (error: unknown): boolean => {
       if ((typeof error !== "object" && typeof error !== "function") || error === null) return false
+      // A caller-controlled object can imitate the name and message of a
+      // Web-IDL exception. Require an actual Error value as well; this remains
+      // safe across realms because Object#toString uses the Error brand.
+      try {
+        if (Object.prototype.toString.call(error) !== "[object Error]") return false
+      }
+      catch {
+        return false
+      }
       let name: unknown
       let message: unknown
       try {
@@ -98,12 +107,17 @@ function isRequestLike(value: AuthRequest): value is Request {
         if (descriptor) {
           if (typeof descriptor.get !== "function") return false
           try {
-            const probe = descriptor.get.call(Object.create(null))
-            // Some independent Fetch implementations use ordinary accessors
-            // that return an empty value for an invalid receiver instead of
-            // throwing a Web-IDL brand error. Reject concrete values, which
-            // would let a structural prototype spoof pass this probe.
-            if (probe !== undefined && probe !== null) return false
+            descriptor.get.call(Object.create(null))
+            // An invalid receiver must not produce a usable value. Accepting
+            // an empty result lets a structural prototype spoof opt out of
+            // the brand check and reach Better Auth unchanged.
+            if (target !== value) return false
+            const ownSymbols = Object.getOwnPropertySymbols(value)
+            const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
+            const happyDomState = ["method", "body", "headers", "signal", "bodyUsed", "url"].every(name =>
+              ownSymbols.some(symbol => symbol.description === name),
+            ) && prototypeSymbols.some(symbol => symbol.description === "window")
+            return happyDomState
           }
           catch (error) {
             if (!isBrandCheckError(error)) return false
