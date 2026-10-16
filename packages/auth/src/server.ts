@@ -388,7 +388,11 @@ function streamCapabilityOwners(body: object): boolean {
       if (isSelfConstructing && !lockOwner && Object.getOwnPropertyDescriptor(current, "locked")?.get === streamLockedGetter(body)) lockOwner = current
       current = Object.getPrototypeOf(current)
     }
-    return !!methodOwner && methodOwner === lockOwner
+    // A foreign stream must expose both capabilities directly on its native
+    // prototype. An inserted self-constructing prototype can otherwise make
+    // forged methods look like a coherent stream surface while the actual
+    // stream brand lives further down the chain.
+    return !!methodOwner && methodOwner === lockOwner && Object.getPrototypeOf(body) === methodOwner
   }
   catch {
     return false
