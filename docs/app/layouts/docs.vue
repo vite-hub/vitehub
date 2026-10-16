@@ -44,6 +44,11 @@ const docsShellUi = {
 </template>
 
 <style scoped>
+.vh-docs-aside {
+  display: none;
+  overflow: visible;
+}
+
 .vh-docs-main,
 .vh-docs-landing {
   margin: 0 auto;
