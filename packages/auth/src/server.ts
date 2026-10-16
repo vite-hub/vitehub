@@ -349,9 +349,6 @@ function isResponseLike(value: unknown): Response | false {
         prototype = Object.getPrototypeOf(prototype)
       }
       if (!statusGetter || !statusTextGetter || !headersGetter || !bodyGetter) return false
-      for (const getter of [statusGetter, statusTextGetter, headersGetter, bodyGetter]) {
-        if (!Function.prototype.toString.call(getter).includes("[native code]")) return false
-      }
       const status = statusGetter.call(value)
       const statusText = statusTextGetter.call(value)
       const headers = headersGetter.call(value)
