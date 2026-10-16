@@ -745,17 +745,10 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
       }
     }
     const branded = cloneBranded || nativeBranded === true || (nativeBranded === undefined && (() => {
-          // A same-realm Error retains its intrinsic prototype even when its
-          // stack is a data property. If cloning failed because of an extra
-          // non-cloneable own field, preserve that genuine instance without
-          // accepting the bare Error.prototype shape used by forgeries.
-          if (cloneFailed && error instanceof Error && Reflect.getPrototypeOf(error) === Error.prototype) {
-            // A real Error has an own stack slot in engines that expose this
-            // fallback. Require it before considering non-cloneable fields;
-            // Object.create(Error.prototype) alone has no intrinsic slots.
-            return Object.prototype.hasOwnProperty.call(error, "stack")
-              && Object.getOwnPropertyNames(error).some((key) => !["message", "stack"].includes(key))
-          }
+          // A failed clone provides no intrinsic brand signal. Prototype and
+          // property shapes are forgeable (including an own accessor stack),
+          // so fail closed rather than preserving attacker-controlled values.
+          if (cloneFailed) return false
           const hasIntrinsicStack = () => {
             const stack = Object.getOwnPropertyDescriptor(error, "stack")
             // Native Errors expose stack through the engine's intrinsic
