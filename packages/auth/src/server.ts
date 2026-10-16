@@ -331,31 +331,53 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (response.body === null) return new Response(null, { headers, status: response.status, statusText: response.statusText })
     if (typeof response.body.getReader !== "function") return
     const reader = response.body.getReader()
-    if (typeof reader.read !== "function") {
-      reader.releaseLock?.()
-      return
+    let cleaned = false
+    const releaseReader = () => {
+      if (cleaned) return
+      cleaned = true
+      try {
+        if (typeof reader.releaseLock === "function") reader.releaseLock()
+      }
+      catch {}
     }
-    const abortReader = async (reason: unknown) => {
-      try { await reader.cancel?.(reason) }
+    const cancelReader = async (reason: unknown) => {
+      if (cleaned) return
+      cleaned = true
+      try {
+        if (typeof reader.cancel === "function") await reader.cancel(reason)
+      }
       catch {}
       finally {
-        try { reader.releaseLock?.() }
+        try {
+          if (typeof reader.releaseLock === "function") reader.releaseLock()
+        }
         catch {}
       }
     }
+    if (typeof reader.read !== "function") {
+      await cancelReader(new TypeError("Authorization response body reader is unusable."))
+      return
+    }
+    if (typeof reader.cancel !== "function" && typeof reader.releaseLock !== "function") {
+      try {
+        if (typeof response.body.cancel === "function") await response.body.cancel()
+      }
+      catch {}
+      return
+    }
     const body = new ReadableStream<Uint8Array>({
-      cancel: reason => abortReader(reason),
+      cancel: reason => cancelReader(reason),
       pull: async controller => {
         try {
           const chunk = await reader.read()
           if (chunk.done) {
-            reader.releaseLock?.()
+            releaseReader()
             controller.close()
           }
           else controller.enqueue(chunk.value)
         }
         catch (error) {
-          await abortReader(error)
+          await cancelReader(error)
           controller.error(error)
         }
       },

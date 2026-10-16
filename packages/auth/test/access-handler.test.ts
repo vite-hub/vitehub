@@ -128,6 +128,27 @@ describe("Auth access handlers", () => {
     expect((await handler(new Request("https://app.example/")))!.status).toBe(403)
   })
 
+  it("cleans up an acquired malformed foreign reader", async () => {
+    let cancelled = false
+    const foreignResponse = {
+      status: 409,
+      statusText: "Conflict",
+      headers: new Headers(),
+      body: {
+        cancel: () => { cancelled = true },
+        getReader: () => ({
+          cancel: () => { cancelled = true },
+        }),
+      },
+      [Symbol.toStringTag]: "Response",
+    }
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))!.status).toBe(403)
+    expect(cancelled).toBe(true)
+  })
+
   it.each([
     Response.error(),
     { status: 409, statusText: "Conflict", headers: { get() { return null } }, body: null, [Symbol.toStringTag]: "Response" },
