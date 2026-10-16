@@ -435,11 +435,24 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
         return
       }
     }
-    // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
+    // Snapshot foreign responses only when their native accessors agree with
+    // the exposed values. This rejects proxies that shadow response fields.
+    const nativeField = (key: PropertyKey, exposed: unknown) => {
+      const descriptor = responsePropertyDescriptor(candidate, key)
+      if (!descriptor?.get) return false
+      try {
+        return Object.is(Reflect.apply(descriptor.get, candidate, []), exposed)
+      }
+      catch {
+        return false
+      }
+    }
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
+    if (!nativeField("status", status) || !nativeField("statusText", statusText)
+      || !nativeField("headers", headers) || !nativeField("body", body)) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
