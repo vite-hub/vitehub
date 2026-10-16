@@ -335,6 +335,8 @@ function hasResponsePrototype(value: unknown): boolean {
           const headerPrototype = Object.getPrototypeOf(Object(headers))
           const hostHeaderPrototype = Headers.prototype
           if (!headerPrototype || headerPrototype === hostHeaderPrototype) return false
+          const headerConstructor = Object.getOwnPropertyDescriptor(headerPrototype, "constructor")?.value
+          if (typeof headerConstructor !== "function" || headerConstructor.name !== "Headers") return false
           if (typeof Object.getOwnPropertyDescriptor(headerPrototype, "get")?.value !== "function"
             || typeof Object.getOwnPropertyDescriptor(headerPrototype, "forEach")?.value !== "function") return false
           // Check the complete Response method surface without invoking clone.
@@ -343,16 +345,6 @@ function hasResponsePrototype(value: unknown): boolean {
           // not a usable Response implementation.
           const methods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
           if (methods.some(method => typeof Object.getOwnPropertyDescriptor(current, method)?.value !== "function")) return false
-          // A null-body Response can be cloned without consuming any stream.
-          // Require the clone to retain the implementation prototype so a
-          // caller cannot brand an arbitrary object with an unrelated stub.
-          if (Reflect.get(Object(value), "body") === null) {
-            const clone = Reflect.get(current, "clone")
-            if (typeof clone !== "function") return false
-            const cloned = Reflect.apply(clone, value, [])
-            if (Object(cloned) !== cloned || cloned === value) return false
-            if (Object.getPrototypeOf(cloned) !== current) return false
-          }
           return true
         }
       }
