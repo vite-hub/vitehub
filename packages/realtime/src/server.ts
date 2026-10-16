@@ -80,7 +80,8 @@ const workspaceChangeLimit = 100
 const workspaceChangeWindowMs = 1_000
 /**
  * Document updates per connection: a burst of 40, refilled at 20 per second. Typing sends one update per keystroke, so
- * fast typing fits; a peer that keeps sending faster is closed rather than having updates dropped.
+ * fast typing fits. Updates past the budget wait, merged, until it refills (a held key repeats ~30 times a second); a
+ * peer that holds back more than one message's worth is closed rather than having updates dropped.
  */
 const syncUpdateBurst = 40
 const syncUpdatesPerSecond = 20
@@ -546,6 +547,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   const peerWorkspaceChanges = new WeakMap<WebSocketPeer, { count: number, startedAt: number }>()
   const peerInitialSyncStep2 = new WeakSet<WebSocketPeer>()
   const peerSyncUpdates = new WeakMap<WebSocketPeer, { at: number, tokens: number }>()
+  const peerHeldUpdates = new WeakMap<WebSocketPeer, { bytes: number, timer: ReturnType<typeof setTimeout>, updates: Uint8Array[] }>()
 
   function resolveCloudflare(event: { context: Record<string, unknown>, req: Request }): Record<string, unknown> | undefined {
     const runtime = (event.req as Request & { runtime?: { cloudflare?: Record<string, unknown> } }).runtime?.cloudflare
@@ -1162,6 +1164,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const clientEpoch = request.searchParams.get("epoch")
 
     function leave(peer: WebSocketPeer) {
+      applyHeldUpdates(peer)
       if (!room.peers.delete(peer)) return
       const pendingAwareness = peerPendingAwareness.get(peer)
       if (pendingAwareness) clearTimeout(pendingAwareness.timer)
@@ -1184,6 +1187,56 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         return
       }
       releaseRoom(room)
+    }
+
+    function applyDocumentMessage(peer: WebSocketPeer, data: Uint8Array) {
+      if (room.kind !== "document") return
+      try {
+        const readOnly = room.guard.readOnly ? readOnlyDocumentRejection : !writable
+        const response = applyRealtimeSyncMessage(data, room.document, peer, { readOnly })
+        if (response) peer.send(response)
+      }
+      catch (error) {
+        if (error instanceof RealtimeWriteRejected) peer.close(realtimeForbiddenWriteCloseCode, error.message)
+        else peer.close(4400, "Realtime document exceeds its 8 MiB room quota.")
+      }
+    }
+
+    function refillUpdates(peer: WebSocketPeer) {
+      const now = Date.now()
+      const bucket = peerSyncUpdates.get(peer) ?? { at: now, tokens: syncUpdateBurst }
+      bucket.tokens = Math.min(syncUpdateBurst, bucket.tokens + (now - bucket.at) * syncUpdatesPerSecond / 1_000)
+      bucket.at = now
+      peerSyncUpdates.set(peer, bucket)
+      return bucket
+    }
+
+    function holdUpdate(peer: WebSocketPeer, update: Uint8Array, bucket: { tokens: number }) {
+      const held = peerHeldUpdates.get(peer)
+      const bytes = (held?.bytes ?? 0) + update.byteLength
+      if (bytes > maxMessageBytes) {
+        applyHeldUpdates(peer)
+        peer.close(1013, "Realtime updates are arriving too quickly.")
+        return
+      }
+      if (held) {
+        held.updates.push(update)
+        held.bytes = bytes
+        return
+      }
+      const wait = Math.ceil((1 - bucket.tokens) * 1_000 / syncUpdatesPerSecond)
+      peerHeldUpdates.set(peer, { bytes, timer: setTimeout(() => applyHeldUpdates(peer), wait), updates: [update] })
+    }
+
+    /** Applies the updates a peer sent past its budget as one merged update, for one token. */
+    function applyHeldUpdates(peer: WebSocketPeer) {
+      const held = peerHeldUpdates.get(peer)
+      if (!held) return
+      peerHeldUpdates.delete(peer)
+      clearTimeout(held.timer)
+      const bucket = refillUpdates(peer)
+      bucket.tokens = Math.max(0, bucket.tokens - 1)
+      applyDocumentMessage(peer, encodeSyncUpdate(held.updates.length === 1 ? held.updates[0]! : Y.mergeUpdates(held.updates)))
     }
 
     function applyAwareness(peer: WebSocketPeer, input: Uint8Array) {
@@ -1329,24 +1382,18 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           const initialSyncStep2 = syncType === syncProtocol.messageYjsSyncStep2 && !peerInitialSyncStep2.has(peer)
           if (initialSyncStep2) peerInitialSyncStep2.add(peer)
           else if (syncType === syncProtocol.messageYjsSyncStep2 || syncType === syncProtocol.messageYjsUpdate) {
-            const now = Date.now()
-            const bucket = peerSyncUpdates.get(peer) ?? { at: now, tokens: syncUpdateBurst }
-            bucket.tokens = Math.min(syncUpdateBurst, bucket.tokens + (now - bucket.at) * syncUpdatesPerSecond / 1_000)
-            bucket.at = now
-            peerSyncUpdates.set(peer, bucket)
-            if (bucket.tokens < 1) {
-              peer.close(1013, "Realtime updates are arriving too quickly.")
+            const bucket = refillUpdates(peer)
+            // Keep the order: once one update waits, the ones after it wait too.
+            if (peerHeldUpdates.has(peer) || bucket.tokens < 1) {
+              holdUpdate(peer, decoding.readVarUint8Array(decoder), bucket)
               return
             }
             bucket.tokens--
           }
-          const readOnly = room.guard.readOnly ? readOnlyDocumentRejection : !writable
-          const response = applyRealtimeSyncMessage(data, room.document, peer, { readOnly })
-          if (response) peer.send(response)
+          applyDocumentMessage(peer, data)
         }
-        catch (error) {
-          if (error instanceof RealtimeWriteRejected) peer.close(realtimeForbiddenWriteCloseCode, error.message)
-          else peer.close(4400, "Realtime document exceeds its 8 MiB room quota.")
+        catch {
+          peer.close(4400, "Invalid realtime message.")
         }
       },
       close(peer) {
