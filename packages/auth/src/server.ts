@@ -358,6 +358,19 @@ function hasResponsePrototype(value: unknown): boolean {
           // not a usable Response implementation.
           const methods = ["clone", "arrayBuffer", "blob", "formData", "json", "text"]
           if (methods.some(method => typeof Object.getOwnPropertyDescriptor(current, method)?.value !== "function")) return false
+          // A genuine null-body Response can be cloned without consuming a
+          // stream. Probe the clone's independent header state; forged method
+          // surfaces commonly return the same object or omit this state.
+          if (Reflect.get(Object(value), "body") === null) {
+            const clone = Reflect.apply(
+              Object.getOwnPropertyDescriptor(current, "clone")!.value as (...args: never[]) => unknown,
+              value,
+              [],
+            )
+            if (Object(clone) !== clone || clone === value) return false
+            const cloneHeaders = Reflect.get(Object(clone), "headers")
+            if (cloneHeaders === headers) return false
+          }
           return true
         }
       }
