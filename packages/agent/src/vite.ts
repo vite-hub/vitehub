@@ -276,7 +276,8 @@ async function writeStandaloneAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root">,
   capabilities: GeneratedAgentRuntimeCapability[],
 ): Promise<GeneratedAgentRuntimeCapability[]> {
-  // Database-backed primitives need the host runtime.
+  // Standalone schedules do not have the host-generated Connections registry or
+  // database-backed store, so do not advertise either capability.
   const standaloneCapabilities = capabilities.filter(capability => capability.name !== "db" && capability.name !== "connections")
   const emailCapability = standaloneCapabilities.find(capability =>
     capability.name === "email" && capability.packageName !== false
