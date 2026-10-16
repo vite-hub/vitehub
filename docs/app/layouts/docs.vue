@@ -77,5 +77,9 @@ const docsShellUi = {
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
   }
+
+  :deep(.vh-docs-sidebars) {
+    overflow: visible;
+  }
 }
 </style>
