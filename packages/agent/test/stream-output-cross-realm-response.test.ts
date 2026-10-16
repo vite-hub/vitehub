@@ -181,6 +181,18 @@ describe("Agent UI stream response boundaries", () => {
     expect(normalizeUIMessageStreamResponse(value)).toBeUndefined()
   })
 
+  it("rejects a Response prototype carrier with supplied fields", () => {
+    const value = Object.create(Response.prototype, {
+      status: { get: () => 200 },
+      statusText: { get: () => "OK" },
+      headers: { get: () => new Headers({ "x-vercel-ai-ui-message-stream": "v1" }) },
+      body: { get: () => new ReadableStream() },
+      type: { get: () => "default" },
+    })
+    expect(isUIMessageStreamResponse(value)).toBe(false)
+    expect(normalizeUIMessageStreamResponse(value)).toBeUndefined()
+  })
+
   it.each([
     null,
     {},

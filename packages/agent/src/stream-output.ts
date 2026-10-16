@@ -86,12 +86,25 @@ function hasResponsePrototype(value: unknown): boolean {
   return current === branded
 }
 
+function hasResponseBrand(value: unknown, branded: object): boolean {
+  // A same-realm Response prototype getter performs the internal-slot check.
+  // This rejects Object.create(Response.prototype) carriers while leaving
+  // genuine foreign Responses to their own realm's accessors.
+  if (branded !== intrinsicResponse.prototype) return true
+  const statusGetter = Object.getOwnPropertyDescriptor(intrinsicResponse.prototype, "status")?.get
+  if (!statusGetter) return false
+  Reflect.apply(statusGetter, value, [])
+  return true
+}
+
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
   try {
     // Response accessors perform an internal-slot brand check, so the host
     // realm's getters reject an otherwise genuine Response from another realm.
     // Select the accessors from the candidate's branded Response prototype.
     if (!hasResponsePrototype(value)) return false
+    const branded = responsePrototype(value)
+    if (!branded || !hasResponseBrand(value, branded)) return false
     const bodyGetter = responsePropertyDescriptor(value, "body")?.get
     const headersGetter = responsePropertyDescriptor(value, "headers")?.get
     const body = bodyGetter && Reflect.apply(bodyGetter, value, [])
@@ -199,6 +212,8 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
   try {
     // This shape only selects compatibility candidates. It does not prove origin.
     if (!hasResponsePrototype(value)) return
+    const branded = responsePrototype(value)
+    if (!branded || !hasResponseBrand(value, branded)) return
     const status: unknown = Reflect.get(value, "status")
     const statusText: unknown = Reflect.get(value, "statusText")
     const headers: unknown = Reflect.get(value, "headers")
@@ -208,7 +223,6 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     const type: unknown = Reflect.get(value, "type")
     if (!hasRuntimeType(type, "string")) return
     const snapshot = { status, statusText, headers, body, type }
-    const branded = responsePrototype(value)
     const markerGetter = headersDescriptor(headers, "get")?.value
     if (!branded || !hasRuntimeType(markerGetter, "function")
       || Reflect.apply(markerGetter, headers, ["x-vercel-ai-ui-message-stream"]) !== "v1") return
