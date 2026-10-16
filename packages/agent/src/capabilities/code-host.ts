@@ -335,10 +335,10 @@ async function call(
   signal?: AbortSignal,
 ): Promise<unknown> {
   const split = repository.lastIndexOf("/")
-  const origin = { forge: provider.kind, instance: provider.instance }
+  const origin = { forge: provider.forge, instance: provider.instance }
   const repo = { ...origin, owner: repository.slice(0, split), name: repository.slice(split + 1) }
   const thread = (number: number) => ({
-    forge: provider.kind,
+    forge: provider.forge,
     instance: provider.instance,
     repo,
     kind: "pull_request" as const,
@@ -424,7 +424,7 @@ async function call(
     case "rerun_check": {
       const input = v.parse(schemas.rerun_check, value)
       await provider.checks.rerun({
-        forge: provider.kind,
+        forge: provider.forge,
         instance: provider.instance,
         repo,
         id: String(input.check.id),
