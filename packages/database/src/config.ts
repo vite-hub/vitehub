@@ -404,7 +404,7 @@ function readOpaqueHttpOnly(expression: string | undefined, source: string, seen
   return readOpaqueHttpOnly(readOpaqueDeclarationExpression(identifier, source), source, seen)
 }
 
-function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource?: boolean, opaqueHttpOnly?: boolean, value?: CloudflareD1BindingConfig } {
+function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource?: boolean, opaqueHttpOnly?: boolean, opaqueBinding?: string, value?: CloudflareD1BindingConfig } {
   const source = readFileSync(file, "utf8")
   const definitionBody = readDefinitionObjectBody(file)
   const definitionEntries = definitionBody === undefined
@@ -430,7 +430,25 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
   if (resource === "opaque") {
     const ownsOpaqueResource = readOpaqueResourceOwnership(expression, source)
     const opaqueHttpOnly = readOpaqueHttpOnly(expression, source)
-    if (cloudflareEntries.length && expression?.trim() !== "undefined") return { resource, configured: true, ownsOpaqueResource, opaqueHttpOnly, value: {} }
+    const resolvedExpression = body === undefined && expression
+      ? readOpaqueDeclarationExpression(expression.trim(), source)
+      : expression
+    const opaqueBody = objectLiteralBody(resolvedExpression)
+    const rawBinding = opaqueBody ? readObjectPropertyValue(opaqueBody, "binding")?.trim() : undefined
+    const bindingExpression = rawBinding && /^[A-Za-z_$][\w$]*$/.test(rawBinding)
+      ? readOpaqueDeclarationExpression(rawBinding, source)?.trim() ?? rawBinding
+      : rawBinding
+    const binding = bindingExpression ? readStaticStringLiteral(bindingExpression) : undefined
+    if (cloudflareEntries.length && expression?.trim() !== "undefined") {
+      return {
+        resource,
+        configured: true,
+        ownsOpaqueResource,
+        opaqueHttpOnly,
+        ...(binding ? { opaqueBinding: binding } : {}),
+        value: {},
+      }
+    }
     return { resource, configured: false, ownsOpaqueResource, opaqueHttpOnly }
   }
   if (body === undefined) return { resource, configured: cloudflareEntries.length > 0 && expression?.trim() !== "undefined", ownsOpaqueResource: false }
@@ -810,7 +828,8 @@ export function resolveDBViteConfig(
     if (definitionCloudflare.resource === "opaque" && (definitionCloudflare.ownsOpaqueResource === true || definitionCloudflare.opaqueHttpOnly === true)) continue
     const effectiveCloudflare = databases[definition.name]?.cloudflare
     if (effectiveCloudflare?.http) continue
-    const binding = effectiveCloudflare?.binding
+    const binding = (definitionCloudflare.resource !== "opaque" ? effectiveCloudflare?.binding : undefined)
+      ?? definitionCloudflare.opaqueBinding
       ?? (definitionCloudflare.resource !== "opaque" || (definitionCloudflare.ownsOpaqueResource === false && definitionCloudflare.opaqueHttpOnly !== undefined)
         ? (definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
         : undefined)
