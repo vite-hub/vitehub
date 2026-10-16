@@ -12,6 +12,8 @@ export const docsCategoryOrder = [
   "Platform",
 ] as const;
 
+const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
+
 export type DocsCategory = (typeof docsCategoryOrder)[number];
 
 export type DocsCatalogGroup = {
@@ -49,10 +51,14 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
 export function getDocsSectionKind(section: DocsSection) {
   if (section.id === "agents") return "Agent runtime";
   if (section.id === "ui") return "UI components";
-  if (primitiveCategories.has(section.category || "")) return "Server Primitive";
+  if (["Data", "Compute", "Access", "Delivery", "Files"].includes(section.category || "")) return "Server Primitive";
   if (section.category === "Start") return "Getting started";
   if (section.category === "Platform") return "Platform";
   return section.category || "Documentation";
+}
+
+export function getDocsRailCatalog(sections: DocsSection[]) {
+  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
 }
 
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
@@ -85,7 +91,7 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
 
   const entries = [...groups].map(([label, pages], index) => ({ label, pages, index }));
   if (!primitiveCategories.has(section.category || "")) {
-    return entries.map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
+    return entries.map(({ label, pages }) => ({ label, pages }));
   }
   return entries
     .sort((left, right) => left.index - right.index)
