@@ -128,6 +128,14 @@ describe("UI documentation", () => {
     expect(article).toContain('v-if="tocLinks.length"');
     expect(article).toContain('aria-label="Page outline"');
     expect(article).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 6rem)");
+  it("renders docs through the shared article and tutorial layouts", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
+
+    expect(page).toContain('<DocsTutorial v-else-if="page && isTutorialPage"');
+    expect(page).toContain('<DocsArticle v-else-if="page"');
+    expect(article).toContain('class="vh-docs-article"');
+    expect(article).toContain('aria-label="Page outline"');
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -179,14 +187,17 @@ describe("UI documentation", () => {
     expect(layout).toContain('<UPageAside class="vh-docs-aside hidden lg:flex">');
     expect(layout).toContain(".vh-docs-aside");
     expect(layout).toContain("display: flex;");
+    expect(layout).toContain("overflow: visible;");
+    expect(layout).toContain("<UPage v-else :ui=\"docsShellUi\">");
+    expect(layout).toContain("class=\"vh-docs-aside\"");
+    expect(layout).toContain("lg:!flex-1 lg:!min-w-0");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
-    const page = readFileSync(resolve(docsRoot, "content/docs/getting-started/built-for-vue.md"), "utf8");
+    const page = readFileSync(resolve(docsRoot, "content/docs/ui/built-for-vue.md"), "utf8");
 
     expect(page).not.toContain("navigation: false");
-    expect(page).toContain("navigation.title: Built for the Vue ecosystem");
-    expect(page).toContain("I am Maxi");
-    expect(page).toContain("ViteHub is a server primitive library.");
+    expect(page).toContain("navigation.title: Why Vue?");
+    expect(page).toContain("The server packages work independently of Vue.");
   });
 });

@@ -11,6 +11,11 @@ import type { RuntimeScheduleWakeDriverFactory } from "./driver.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ProcessScheduleWakeDriverOptions {
+  /**
+   * How far back, in milliseconds, the driver dispatches due minutes that it did not check, such as minutes
+   * during a restart. It only catches up a Schedule that already has a run. Defaults to one hour. `0` disables it.
+   */
+  catchUpMs?: number
   concurrency?: number
   intervalMs?: number
   now?: () => Date
@@ -18,17 +23,22 @@ export interface ProcessScheduleWakeDriverOptions {
 
 const DEFAULT_INTERVAL_MS = 60_000
 const DEFAULT_CONCURRENCY = 1
+const DEFAULT_CATCH_UP_MS = 60 * 60_000
 
-function validateOptions(options: ProcessScheduleWakeDriverOptions): { concurrency: number, intervalMs: number } {
+function validateOptions(options: ProcessScheduleWakeDriverOptions): { catchUpMs: number, concurrency: number, intervalMs: number } {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY
+  const catchUpMs = options.catchUpMs ?? DEFAULT_CATCH_UP_MS
+  if (!Number.isFinite(catchUpMs) || catchUpMs < 0) {
+    throw scheduleErrorDiagnostics.SCHEDULE_R0024({ message: "Process Schedule Wake Driver catchUpMs must be a finite number of zero or more." })
+  }
   if (!Number.isFinite(intervalMs) || intervalMs <= 0 || intervalMs > DEFAULT_INTERVAL_MS) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0024({ message: "Process Schedule Wake Driver intervalMs must be a positive number no greater than 60000." })
   }
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0025({ message: "Process Schedule Wake Driver concurrency must be a positive integer." })
   }
-  return { concurrency, intervalMs }
+  return { catchUpMs, concurrency, intervalMs }
 }
 
 class ProcessWakeRuntimeService extends Context.Service<ProcessWakeRuntimeService, ProcessWakeRuntime>()("@vite-hub/schedule/ProcessWakeRuntime") {}
@@ -66,10 +76,10 @@ function createProcessScheduler(): Scheduler.Scheduler {
 
 export function createProcessScheduleWakeDriver(options: ProcessScheduleWakeDriverOptions = {}): RuntimeScheduleWakeDriverFactory {
   return (context) => {
-    const { concurrency, intervalMs } = validateOptions(options)
+    const { catchUpMs, concurrency, intervalMs } = validateOptions(options)
     const ProcessWakeRuntimeLive = Layer.effect(
       ProcessWakeRuntimeService,
-      makeProcessWakeRuntime({ concurrency, context, intervalMs, now: options.now }),
+      makeProcessWakeRuntime({ catchUpMs, concurrency, context, intervalMs, now: options.now }),
     ).pipe(
       Layer.provide(Layer.mergeAll(
         Layer.succeed(Clock.Clock, createProcessClock()),

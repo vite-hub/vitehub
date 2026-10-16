@@ -16,14 +16,15 @@ Use these imports and methods to read Sources from server code and expose them t
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `sourceIgnores` from `vite-hub/source` | Reuse ignore patterns for dependencies, generated output, media, secrets, and system files. |
 | `file` from `vite-hub/source/file`, `glob` from `vite-hub/source/glob`, `markdown` from `vite-hub/source/markdown`, `github` from `vite-hub/source/github`, `mcpResources` from `vite-hub/source/mcp` | Select one built-in loader. Each subpath also exports its option types. |
-| `defineCollection`, `table` from `vite-hub/source` | Turn a Drizzle table or a custom loader into a typed, paginated HTTP read model. |
+| `defineCollection`, `array`, `table` from `vite-hub/source` | Turn an array, a Drizzle table, or a custom loader into a typed, paginated HTTP read model. |
+| `workspaceFile` from `vite-hub/workspace` | Use a JSON array in a Workspace file as a Collection source. |
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Consume a Collection from Vue and detect access errors. |
 | `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a keyed reader with Nitro cache options, or mount a Collection handler manually. |
 | `hubSource` from `vite-hub/source/vite` | Discover Collections and Content and generate their routes. `vitehub()` and the Nuxt module install it. |
 | `useDatabase` from `vite-hub/database/drizzle` | Access a discovered database and its generated schema for `table()`. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
 
-Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Libraries that install `@vite-hub/source` directly use the matching `@vite-hub/source/*` paths. `table()`, the object form of `defineCollection({ source })`, and `cachedSource()` exist only in the `vite-hub` distribution. `@vite-hub/source` exports only the loader form of `defineCollection()`.
+Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Libraries that install `@vite-hub/source` directly use the matching `@vite-hub/source/*` paths. `table()` and `cachedSource()` exist only in the `vite-hub` distribution. `@vite-hub/source` exports both forms of `defineCollection()` and `array()`.
 
 ## Source reader API
 
@@ -207,6 +208,57 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
 
 The generic Collection requests one extra row from the loader, enforces its configured limits, and turns the last visible row into an opaque cursor. `transform()` is the server-to-client boundary, so private columns and provider objects stay out of the response.
 
+### Collections over an array
+
+When the whole data set fits in server memory, use `array()` as the source. It filters, searches, sorts, and pages the array, and each page reports `total` and `facets`:
+
+```ts [server/collections/articles.ts]
+import { array, defineCollection } from 'vite-hub/source'
+
+export const articles = defineCollection({
+  source: array(() => loadArticles(), {
+    filters: ['category', 'authors.name'],
+    search: ['title', 'summary'],
+    facets: ['category'],
+    sort: { field: 'publishedAt', direction: 'desc' },
+    key: 'slug',
+  }),
+  transform: article => ({ slug: article.slug, title: article.title }),
+})
+```
+
+| Option | Description |
+| --- | --- |
+| `filters` | Field paths a client may filter by. `?category=guide` matches without case, a repeated key matches any of its values, and `?empty=category` matches items with no value. Dot paths read nested objects and every element of nested arrays. A `Date` value matches its ISO string. |
+| `search` | Field paths that `?search=` matches as a case-insensitive substring. Without it, a non-empty `search` returns `400`. |
+| `facets` | Field paths counted into `page.facets` as `{ value, count }` lists over every matching item. |
+| `sort` | Field path and direction for every page. Numbers sort numerically and `Date` values by time. Omit it to keep the array order. |
+| `key` | Field path that `collection.get(key)` matches in server code. |
+| `schema` | Standard Schema for one item. Every item is validated on load, and its output type becomes the item type. |
+| `defaultLimit`, `maxLimit` | Page size and the largest accepted `limit`. `maxLimit` also caps the values kept per facet. |
+
+The loader runs on every request. It can return the array or `{ items, digest }`. Each cursor is bound to the digest and the query, so a cursor from changed data or from another filter returns `409`. Without `digest`, ViteHub hashes the items. Server code can filter on any field: `articles.page({ query: { category: ['guide'] } })`.
+
+A JSON array in a Workspace file uses the same engine through `workspaceFile()`:
+
+```ts [server/collections/articles.ts]
+import * as v from 'valibot'
+import { defineCollection } from 'vite-hub/source'
+import { workspaceFile } from 'vite-hub/workspace'
+
+export const articles = defineCollection({
+  source: workspaceFile({
+    workspace: 'content',
+    path: 'data/articles.json',
+    schema: v.object({ slug: v.string(), title: v.string(), category: v.optional(v.string()) }),
+    filters: ['category'],
+    search: ['title'],
+  }),
+})
+```
+
+The file's Workspace digest binds the cursors, so a write to the file makes older cursors stale. Without `schema`, items are typed as `Record<string, unknown>`.
+
 ```vue [app/pages/articles.vue]
 <script setup lang="ts">
 const author = ref<string>()
@@ -218,7 +270,7 @@ const { items, pending, error, hasMore, loadMore } = useCollection('articles', {
 
 ViteHub discovers modules in `server/collections` and generates their type registry and read-only GET routes. Each module exports a Collection with the same name as its filename, so `articles.ts` exports `articles` and maps to `/api/articles`. Do not create a matching `server/api` handler. The Nuxt module auto-imports `useCollection`. Outside Nuxt, import it from `vite-hub/source/client`. Restart Nuxt after you add, remove, or rename a Collection module so Nitro rebuilds its handler manifest.
 
-`useCollection()` accepts `filter`, `limit`, `all`, `immediate`, and `request`. `filter` stays fixed while `loadMore()` advances the opaque cursor. For a bounded Collection, set `all: true` to fetch every page asynchronously.
+`useCollection()` accepts `filter`, `limit`, `all`, `immediate`, and `request`. `filter` stays fixed while `loadMore()` advances the opaque cursor. For a bounded Collection, set `all: true` to fetch every page asynchronously. It returns `items`, `pending`, `error`, `hasMore`, `loadMore()`, and `refresh()`, plus `total` and `facets` from the latest page when the Collection reports them.
 
 ### Protect a Collection
 

@@ -216,6 +216,42 @@ origin-specific query. Collection owns limit enforcement, opaque cursor
 transport, response shaping, and the exact item and filter types consumed by
 `useCollection()`.
 
+### Collections over an array
+
+When the whole data set fits in memory, pass `array()` as the Collection source.
+It filters, searches, sorts, counts, and pages the array, and returns `total` and
+`facets` with each page:
+
+```ts
+// server/collections/articles.ts
+import { array, defineCollection } from "@vite-hub/source"
+
+export const articles = defineCollection({
+  source: array(() => loadArticles(), {
+    facets: ["category"],
+    filters: ["category", "authors.name"],
+    key: "slug",
+    search: ["title", "summary"],
+    sort: { field: "title" },
+  }),
+  transform: article => ({ slug: article.slug, title: article.title }),
+})
+```
+
+Clients filter with the declared field paths: `?category=guide` matches without
+case, a repeated key matches any of its values, `?empty=category` matches items
+with no value, and `?search=` matches the `search` fields. Any other key returns
+`400`. Cursors are bound to the data and the query. A cursor from changed data or
+another query returns `409`. `load` runs on every request; return
+`{ items, digest }` when the origin already has a content digest, or ViteHub
+hashes the items. `useCollection()` exposes `total` and `facets` from the latest
+page. `key` adds `collection.get(key)` for server code, and `schema` validates
+every item and types it from the schema output. Use a database `table()`
+when the data set should not be loaded per request.
+
+`workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
+in a Workspace file.
+
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured
 data and its assets as one logical item.
