@@ -292,17 +292,11 @@ const authorizationResponsePrototypeLimit = 32
 const nativeReaderMethods = Object.fromEntries(([
   "read", "cancel", "releaseLock",
 ] as const).map(key => [key, Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, key)?.value])) as Record<string, unknown>
-const functionToString = Function.prototype.toString
-const nativeReaderMethodSources = Object.fromEntries(Object.entries(nativeReaderMethods).map(([key, value]) => [
-  key,
-  typeof value === "function" ? functionToString.call(value) : undefined,
-])) as Record<string, string | undefined>
 function isNativeReaderMethod(value: unknown, key: string): value is (...args: unknown[]) => unknown {
-  if (value === nativeReaderMethods[key]) return true
-  if (typeof value !== "function") return false
-  try { return functionToString.call(value) === nativeReaderMethodSources[key] }
-  catch { return false }
+  return value === nativeReaderMethods[key]
 }
+
+const foreignReaderMethods = new WeakMap<Function, Record<string, Function>>()
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
@@ -392,7 +386,7 @@ function hasNativeAuthorizationReaderPrototype(reader: object): boolean {
       }
       for (const key of methods) {
         const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-        if (!descriptor || !isNativeReaderMethod(descriptor.value, key)) return false
+        if (!descriptor || typeof descriptor.value !== "function") return false
         let parent = Object.getPrototypeOf(prototype)
         for (let parentDepth = 0; parent && parentDepth < authorizationResponsePrototypeLimit; parentDepth++) {
           if (Object.getOwnPropertyDescriptor(parent, key)) return false
@@ -447,16 +441,22 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
           // Probe the source runtime's reader prototype before acquiring the
           // caller's body lock. This lets malformed foreign readers fail
           // closed without relying on a host-realm releaseLock operation.
-          const probeStream = Reflect.construct(constructor, [{}])
+          const probeStream = Reflect.construct(constructor, [{}]) as ReadableStream<Uint8Array>
           const probeReader = Reflect.apply(descriptor.value, probeStream, []) as object
           if (!hasNativeAuthorizationReaderPrototype(probeReader)) return
-          const probeRelease = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(probeReader), "releaseLock")?.value
-          if (typeof probeRelease !== "function") return
+          const probePrototype = Object.getPrototypeOf(probeReader)
+          const probeMethods = Object.fromEntries((["read", "cancel", "releaseLock"] as const).map(key => [
+            key,
+            Object.getOwnPropertyDescriptor(probePrototype, key)?.value,
+          ])) as Record<string, Function>
+          if (Object.values(probeMethods).some(method => typeof method !== "function")) return
+          const probeRelease = probeMethods.releaseLock
           Reflect.apply(probeRelease, probeReader, [])
           // A spoofed method can imitate the native source text while doing
           // nothing. Verify the intrinsic operation actually releases the
           // probe lock before allowing a source reader to be acquired.
           if (probeStream.locked) return
+          foreignReaderMethods.set(descriptor.value, probeMethods)
           return descriptor.value
         }
         return
@@ -482,7 +482,9 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
       const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
       if (descriptor) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (!isNativeReaderMethod(descriptor.value, key) || constructor?.name !== "ReadableStreamDefaultReader") {
+        const expected = foreignReaderMethods.get(getReader as unknown as Function)?.[key]
+        if ((expected ? descriptor.value !== expected : !isNativeReaderMethod(descriptor.value, key))
+          || constructor?.name !== "ReadableStreamDefaultReader") {
           throw new Error("Malformed authorization response reader")
         }
         let parent = Object.getPrototypeOf(prototype)
@@ -511,7 +513,9 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
       seen.add(prototype)
       const descriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
       if (descriptor) {
-        if (typeof descriptor.value === "function" && isNativeReaderMethod(descriptor.value, "releaseLock")) {
+        const expected = foreignReaderMethods.get(getReader as unknown as Function)?.releaseLock
+        if (typeof descriptor.value === "function"
+          && (expected ? descriptor.value === expected : isNativeReaderMethod(descriptor.value, "releaseLock"))) {
           sourceReleaseLock = descriptor.value as (this: object) => unknown
         }
         break
