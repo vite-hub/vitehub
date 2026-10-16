@@ -309,7 +309,40 @@ function runAccessAuthorize(
         nativePromise = true
       }
       catch {
-        // Non-Promise values continue through the guarded thenable reflection below.
+        // Promise subclasses can throw while constructing the child promise when
+        // their species constructor is invalid. Preserve the native brand path
+        // by retrying with a native constructor on the source itself, instead of
+        // downgrading a branded Promise to mutable thenable handling.
+        try {
+          const descriptor = Object.getOwnPropertyDescriptor(result, "constructor")
+          if (!descriptor || descriptor.configurable) {
+            Object.defineProperty(result, "constructor", { configurable: true, value: Promise })
+            try {
+              Reflect.apply(intrinsicPromiseThen, result, [
+                (resolved: unknown) => {
+                  try {
+                    const response = normalizeAuthorizationResponse(resolved)
+                    if (response) resolve({ response })
+                    else if (resolved !== true) resolve({ response: createForbiddenResponse(context.request) })
+                    else resolve({})
+                  }
+                  catch (error) {
+                    reject(error)
+                  }
+                },
+                reject,
+              ])
+              nativePromise = true
+            }
+            finally {
+              if (descriptor) Object.defineProperty(result, "constructor", descriptor)
+              else Reflect.deleteProperty(result, "constructor")
+            }
+          }
+        }
+        catch {
+          // Non-Promise values continue through the guarded thenable reflection below.
+        }
       }
     })
     if (nativePromise) return adopted

@@ -141,6 +141,21 @@ describe("Auth access handlers", () => {
     await expect(pending!).resolves.toBeUndefined()
   })
 
+  it("observes rejected native promises when species construction throws", async () => {
+    const reason = new Error("authorization rejected")
+    class BrokenSpeciesPromise<T> extends Promise<T> {
+      static get [Symbol.species](): typeof Promise { throw new Error("invalid species") }
+    }
+    const result = BrokenSpeciesPromise.reject(reason)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => result as never }] },
+    }))
+    // Replace the instance method to ensure the branded path never falls back
+    // to mutable thenable assimilation.
+    Object.defineProperty(result, "then", { value: () => { throw new Error("must not call mutable then") } })
+    await expect(handler(new Request("https://app.example/"))).rejects.toBe(reason)
+  })
+
   it.each([
     ["a Promise subclass", new (class extends Promise<boolean> {
       then(): never { throw new Error("subclass then must not be called") }
