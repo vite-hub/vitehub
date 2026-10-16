@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 
 import { createImportPath } from "@vite-hub/internal/build/paths"
-import { dirname, join, relative } from "pathe"
+import { dirname, isAbsolute, join, relative } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
 import { describeDatabaseContribution } from "../contributions.ts"
@@ -45,7 +45,10 @@ function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDataba
     `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     ...contributions.map((contribution, index) => {
       const variable = parts[index + 1]!.expression
-      const source = JSON.stringify(createImportPath(file, contribution.module))
+      // Package specifiers must stay bare imports. `createImportPath` is only
+      // valid for absolute filesystem contributions and would turn a package
+      // name into a relative path from the generated schema file.
+      const source = JSON.stringify(isAbsolute(contribution.module) ? createImportPath(file, contribution.module) : contribution.module)
       return contribution.export ? `import { ${contribution.export} as ${variable} } from ${source}` : `import ${variable} from ${source}`
     }),
   ]
