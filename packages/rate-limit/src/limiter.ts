@@ -154,7 +154,8 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Driver methods may cross realms or belong to callable objects; validate callability without invoking the method.
     return typeof consume === "function"
   }
-  catch {
+  catch (error) {
+    if (isRateLimitDiagnostic(error)) throw error
     return false
   }
 }

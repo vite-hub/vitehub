@@ -5,7 +5,7 @@ import { createRateLimiter } from "../src/index.ts"
 import { memoryRateLimitDriver } from "../src/drivers/memory.ts"
 import { rateLimitErrorDiagnostics } from "../src/error-diagnostics.ts"
 
-import type { RateLimitDriver, RateLimitDriverCapabilities } from "../src/index.ts"
+import type { CreateRateLimiterOptions, RateLimitDriver, RateLimitDriverCapabilities } from "../src/index.ts"
 
 const strictCapabilities = {
   enforcement: "strict",
@@ -20,6 +20,15 @@ describe("Rate Limit core", () => {
     Object.defineProperty(driver, "capabilities", { get: () => { throw diagnostic } })
 
     expect(() => createRateLimiter({ driver, limit: 1, window: "1m" })).toThrow(diagnostic)
+  })
+
+  it("preserves Rate Limit diagnostics thrown while reading options", () => {
+    const diagnostic = rateLimitErrorDiagnostics.RATE_LIMIT_R0031({ message: "options failure" })
+    const driver = memoryRateLimitDriver()
+    const options: CreateRateLimiterOptions = { driver, limit: 1, window: "1m" }
+    Object.defineProperty(options, "driver", { get: () => { throw diagnostic } })
+
+    expect(() => createRateLimiter(options)).toThrow(diagnostic)
   })
 
   it("accepts callable driver objects", async () => {
