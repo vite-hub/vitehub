@@ -166,7 +166,7 @@ describe("Auth access handlers", () => {
   })
 
   it("normalizes native responses constructed by another realm", async () => {
-    const response = runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })
+    const response = new ForeignResponse("Policy rejected", { status: 409 })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => response }] },
     }))
