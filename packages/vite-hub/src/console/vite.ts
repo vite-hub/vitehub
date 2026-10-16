@@ -526,6 +526,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       resolvedAppAuth = appAuth
       baseURL = config.base ?? "/"
       assertConsoleAccess(configured, { auth: appAuth, base: baseURL, sections })
+      assertConsoleProductionAccess(configured, {
+        auth: appAuth,
+        base: baseURL,
+        development: environment.command !== "build",
+        sections,
+      })
       openAccessBuildWarning = environment.command === "build" && !cliDiscovery ? consoleOpenAccessBuildWarning(configured, options.preset) : undefined
       const configuredConsoleAuth = consoleAuthConfig(configured)
       const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
