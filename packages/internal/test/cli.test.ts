@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { collectViteHubCliContribution, withStdoutOnStderr } from "../src/cli.ts"
+import { collectViteHubCliContribution, getStableStdoutWrite, withStdoutOnStderr } from "../src/cli.ts"
 
 import type { ProvisionStep } from "../src/provision.ts"
 
@@ -165,5 +165,25 @@ describe("CLI primitives", () => {
     }, { write })
 
     expect(callback).toHaveBeenCalledOnce()
+  })
+
+  it("refreshes the default stdout writer when the process writer changes", () => {
+    const original = process.stdout.write
+    const first = vi.fn(() => true)
+    const second = vi.fn(() => true)
+    try {
+      process.stdout.write = first as typeof process.stdout.write
+      const firstWriter = getStableStdoutWrite()
+      process.stdout.write = second as typeof process.stdout.write
+      const secondWriter = getStableStdoutWrite()
+
+      firstWriter("first\n")
+      secondWriter("second\n")
+      expect(first).toHaveBeenCalledWith("first\n")
+      expect(second).toHaveBeenCalledWith("second\n")
+    }
+    finally {
+      process.stdout.write = original
+    }
   })
 })

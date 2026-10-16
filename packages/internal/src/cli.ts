@@ -67,9 +67,13 @@ const stdoutRedirectQueueKey = Symbol.for("vite-hub.internal.stdout-redirect-que
 type StdoutRedirectGlobal = typeof globalThis & {
   [stdoutRedirectQueueKey]?: Promise<void>
   [stdoutRedirectWriterKey]?: typeof process.stdout.write
+  [stdoutRedirectSourceKey]?: typeof process.stdout.write
+  [stdoutRedirectActiveKey]?: boolean
 }
 
 const stdoutRedirectWriterKey = Symbol.for("vite-hub.internal.stdout-redirect-writer")
+const stdoutRedirectSourceKey = Symbol.for("vite-hub.internal.stdout-redirect-source")
+const stdoutRedirectActiveKey = Symbol.for("vite-hub.internal.stdout-redirect-active")
 
 const stdoutRedirectGlobal = globalThis as StdoutRedirectGlobal
 
@@ -84,7 +88,7 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
   await previous
 
   const write = process.stdout.write
-  stdoutRedirectGlobal[stdoutRedirectWriterKey] ??= write.bind(process.stdout) as typeof process.stdout.write
+  stdoutRedirectGlobal[stdoutRedirectActiveKey] = true
   process.stdout.write = ((chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => {
     const done = typeof encoding === "function" ? encoding : callback
     let called = false
@@ -117,13 +121,19 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
   }
   finally {
     process.stdout.write = write
+    stdoutRedirectGlobal[stdoutRedirectActiveKey] = false
     release()
   }
 }
 
 /** Returns the unredirected process stdout writer for payload output. */
 export function getStableStdoutWrite() {
-  return stdoutRedirectGlobal[stdoutRedirectWriterKey] ?? process.stdout.write.bind(process.stdout)
+  const current = process.stdout.write
+  if (!stdoutRedirectGlobal[stdoutRedirectActiveKey] && stdoutRedirectGlobal[stdoutRedirectSourceKey] !== current) {
+    stdoutRedirectGlobal[stdoutRedirectSourceKey] = current
+    stdoutRedirectGlobal[stdoutRedirectWriterKey] = current.bind(process.stdout) as typeof process.stdout.write
+  }
+  return stdoutRedirectGlobal[stdoutRedirectWriterKey] ?? current.bind(process.stdout)
 }
 
 async function resolveContributor(value: ViteHubCliPluginMetadata["cli"]): Promise<ViteHubCliContributor | undefined> {
