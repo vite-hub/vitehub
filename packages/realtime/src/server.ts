@@ -1236,7 +1236,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       const held = peerHeldUpdates.get(peer)
       const bytes = (held?.bytes ?? 0) + update.byteLength
       if (bytes > maxMessageBytes) {
-        applyHeldUpdates(peer)
+        terminalPeers.add(peer)
+        clearHeldUpdates(peer)
         peer.close(1013, "Realtime updates are arriving too quickly.")
         return
       }

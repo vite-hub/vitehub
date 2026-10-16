@@ -3725,6 +3725,7 @@ button.vh-agent-tool-list__count:focus-visible {
 
 .ProseMirror-yjs-selection {
   background-color: color-mix(in srgb, currentColor 25%, transparent);
+}
 /*
  * shadcn/ui agentic parts: Message, Bubble, Marker, Trace, and Attachment.
  * These rules translate the default classes of https://ui.shadcn.com/docs/components/trace and its siblings to Nuxt UI tokens:
