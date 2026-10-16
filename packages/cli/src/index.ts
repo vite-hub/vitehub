@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
-import { collectViteHubCliContribution, withStdoutOnStderr } from "@vite-hub/internal/cli"
+import { collectViteHubCliContribution, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
@@ -196,7 +196,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   // Keep command writes on the stream writer captured before config loading.
   // Config loading temporarily patches process.stdout.write, and another CLI
   // invocation may own that patch when this command emits its payload.
-  const stdout: ViteHubCliStream = { write: output.write.bind(output) }
+  const stdout: ViteHubCliStream = { write: options.stdout ? output.write.bind(output) : getStableStdoutWrite() }
   if (args[0] === "-v" || args[0] === "--version") {
     stdout.write(`${readPackageVersion()}\n`)
     return 0

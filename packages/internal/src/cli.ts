@@ -66,7 +66,10 @@ type StdoutWriteCallback = (error?: Error | null) => void
 const stdoutRedirectQueueKey = Symbol.for("vite-hub.internal.stdout-redirect-queue")
 type StdoutRedirectGlobal = typeof globalThis & {
   [stdoutRedirectQueueKey]?: Promise<void>
+  [stdoutRedirectWriterKey]?: (chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => boolean
 }
+
+const stdoutRedirectWriterKey = Symbol.for("vite-hub.internal.stdout-redirect-writer")
 
 const stdoutRedirectGlobal = globalThis as StdoutRedirectGlobal
 
@@ -81,6 +84,7 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
   await previous
 
   const write = process.stdout.write
+  stdoutRedirectGlobal[stdoutRedirectWriterKey] ??= write.bind(process.stdout)
   process.stdout.write = (chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => {
     const done = typeof encoding === "function" ? encoding : callback
     let called = false
@@ -102,7 +106,7 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
           error => onComplete(error instanceof Error ? error : new Error(String(error))),
         )
       }
-      else if (typeof result !== "boolean") {
+      else if (stderr.write.length < 2) {
         onComplete()
       }
     }
@@ -115,6 +119,11 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
     process.stdout.write = write
     release()
   }
+}
+
+/** Returns the unredirected process stdout writer for payload output. */
+export function getStableStdoutWrite() {
+  return stdoutRedirectGlobal[stdoutRedirectWriterKey] ?? process.stdout.write.bind(process.stdout)
 }
 
 async function resolveContributor(value: ViteHubCliPluginMetadata["cli"]): Promise<ViteHubCliContributor | undefined> {
