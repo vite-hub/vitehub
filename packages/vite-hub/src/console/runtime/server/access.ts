@@ -95,8 +95,11 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
       const methods = ["arrayBuffer", "blob", "formData", "json", "text"]
       const hasResponseMethods = methods.every(method => typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.value === "function")
+      const accessors = ["body", "bodyUsed", "headers", "status", "statusText"]
+      const hasResponseAccessors = accessors.every(method => typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function")
       if (typeof cloneDescriptor?.value === "function"
         && hasResponseMethods
+        && hasResponseAccessors
         && tagDescriptor
         && typeof constructor === "function"
         && constructor.prototype === responsePrototype) break
