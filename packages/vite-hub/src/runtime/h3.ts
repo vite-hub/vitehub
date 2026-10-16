@@ -39,6 +39,7 @@ function isRequest(value: unknown): value is Request {
   try {
     if (value instanceof Request) return true
     if (value === null || typeof value !== "object") return false
+    if (Object.prototype.toString.call(value) !== "[object Request]") return false
     // A native accessor performs the Request internal-slot check without
     // consulting properties supplied by the candidate. This covers the
     // current realm directly.
@@ -53,6 +54,8 @@ function isRequest(value: unknown): value is Request {
       // bodyUsed getter; copied methods on a forged prototype still fail the
       // internal-slot check.
       const seen = new Set<object>()
+      let branded = false
+      let valid = true
       let prototype: object | null = value
       while (prototype !== null) {
         if (seen.has(prototype)) return false
@@ -61,12 +64,18 @@ function isRequest(value: unknown): value is Request {
         const getter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
         if (typeof constructor === "function" && constructor.name === "Request"
           && constructor.prototype === prototype && typeof getter === "function") {
-          getter.call(value)
-          return true
+          try {
+            getter.call(value)
+            branded = true
+          } catch {
+            // Every Request prototype in the chain must accept the receiver.
+            // This rejects a forged accessor layered over a native prototype.
+            valid = false
+          }
         }
         prototype = Object.getPrototypeOf(prototype)
       }
-      return false
+      return branded && valid
     }
   } catch {
     return false
