@@ -16,7 +16,7 @@ const docsShellUi = {
 </script>
 
 <template>
-  <UMain>
+  <UMain class="vh-docs-shell">
     <UContainer v-if="isSupportMatrix">
       <AnnouncementBanner />
       <slot />
@@ -26,7 +26,7 @@ const docsShellUi = {
       <slot />
     </div>
 
-    <UPage v-else :ui="docsShellUi">
+    <UPage v-else :ui="docsShellUi" class="vh-docs-page">
       <template #left>
         <UPageAside class="vh-docs-aside hidden lg:flex">
           <DocsSidebars panel />
@@ -38,12 +38,22 @@ const docsShellUi = {
         <slot />
       </div>
     </UPage>
-  </UMain>
 
-  <AppFooter />
+    <AppFooter class="vh-docs-footer" />
+  </UMain>
 </template>
 
 <style scoped>
+.vh-docs-shell {
+  display: flex;
+  min-height: calc(100dvh - var(--ui-header-height));
+  flex-direction: column;
+}
+
+.vh-docs-page {
+  flex: 1 1 auto;
+}
+
 .vh-docs-main,
 .vh-docs-landing {
   margin: 0 auto;
@@ -55,7 +65,11 @@ const docsShellUi = {
 }
 
 .vh-docs-landing {
-  max-width: var(--vh-landing-width);
+  max-width: 84rem;
+}
+
+.vh-docs-footer {
+  margin-top: 3rem;
 }
 
 @media (min-width: 40rem) {
@@ -73,9 +87,22 @@ const docsShellUi = {
     height: calc(100dvh - var(--ui-header-height));
     max-height: calc(100dvh - var(--ui-header-height));
     min-height: calc(100dvh - var(--ui-header-height));
+    flex: 0 0 auto;
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
+  }
+
+  :deep(.vh-docs-sidebars) {
+    height: 100%;
+    min-height: 0;
+    flex-direction: row;
+    overflow: visible;
+    border-right: 1px solid var(--ui-border);
+  }
+
+  :deep(.vh-docs-panel) {
+    max-height: calc(100dvh - var(--ui-header-height));
   }
 }
 </style>

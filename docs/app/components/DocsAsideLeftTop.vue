@@ -8,7 +8,8 @@ const sectionPath = computed(() => currentSection.value?.path || "/docs");
 const sectionTitle = computed(() => currentSection.value?.title || "All products");
 const sectionCategory = computed(() => {
   const category = currentSection.value?.category;
-  return category || "Getting started";
+  if (!category) return "Getting started";
+  return category === currentSection.value?.title ? "" : category;
 });
 const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
 </script>
@@ -35,7 +36,7 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
         class="size-4 shrink-0 text-muted"
       />
       <span class="vh-docs-context-copy">
-        <span class="vh-docs-context-category">{{ sectionCategory }}</span>
+        <span v-if="sectionCategory" class="vh-docs-context-category">{{ sectionCategory }}</span>
         <span class="vh-docs-context-title">{{ sectionTitle }}</span>
       </span>
       <UIcon name="i-lucide-arrow-up-right" class="vh-docs-context-arrow size-3.5 shrink-0" aria-hidden="true" />

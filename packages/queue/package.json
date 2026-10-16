@@ -27,15 +27,60 @@
   "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./internal/runtime/cloudflare-client": "./dist/internal/runtime/cloudflare-client.js",
-    "./internal/runtime/cloudflare-vite": "./dist/internal/runtime/cloudflare-vite.js",
-    "./internal/runtime/state": "./dist/internal/runtime/state.js",
-    "./internal/runtime/vercel-client": "./dist/internal/runtime/vercel-client.js",
-    "./internal/runtime/vercel-vite": "./dist/internal/runtime/vercel-vite.js",
-    "./nuxt": "./dist/nuxt.js",
-    "./runtime/hosted": "./dist/runtime/hosted.js",
-    "./vite": "./dist/vite.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./internal/runtime/cloudflare-client": {
+      "types": "./dist/internal/runtime/cloudflare-client.d.ts",
+      "import": "./dist/internal/runtime/cloudflare-client.js",
+      "require": "./dist/internal/runtime/cloudflare-client.js",
+      "default": "./dist/internal/runtime/cloudflare-client.js"
+    },
+    "./internal/runtime/cloudflare-vite": {
+      "types": "./dist/internal/runtime/cloudflare-vite.d.ts",
+      "import": "./dist/internal/runtime/cloudflare-vite.js",
+      "require": "./dist/internal/runtime/cloudflare-vite.js",
+      "default": "./dist/internal/runtime/cloudflare-vite.js"
+    },
+    "./internal/runtime/state": {
+      "types": "./dist/internal/runtime/state.d.ts",
+      "import": "./dist/internal/runtime/state.js",
+      "require": "./dist/internal/runtime/state.js",
+      "default": "./dist/internal/runtime/state.js"
+    },
+    "./internal/runtime/vercel-client": {
+      "types": "./dist/internal/runtime/vercel-client.d.ts",
+      "import": "./dist/internal/runtime/vercel-client.js",
+      "require": "./dist/internal/runtime/vercel-client.js",
+      "default": "./dist/internal/runtime/vercel-client.js"
+    },
+    "./internal/runtime/vercel-vite": {
+      "types": "./dist/internal/runtime/vercel-vite.d.ts",
+      "import": "./dist/internal/runtime/vercel-vite.js",
+      "require": "./dist/internal/runtime/vercel-vite.js",
+      "default": "./dist/internal/runtime/vercel-vite.js"
+    },
+    "./nuxt": {
+      "types": "./dist/nuxt.d.ts",
+      "import": "./dist/nuxt.js",
+      "require": "./dist/nuxt.js",
+      "default": "./dist/nuxt.js"
+    },
+    "./runtime/hosted": {
+      "types": "./dist/runtime/hosted.d.ts",
+      "import": "./dist/runtime/hosted.js",
+      "require": "./dist/runtime/hosted.js",
+      "default": "./dist/runtime/hosted.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
