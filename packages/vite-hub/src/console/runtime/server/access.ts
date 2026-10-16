@@ -88,9 +88,25 @@ function productionRuntime(): boolean {
 export function consoleRequest(event: ConsoleRequestEvent): Request {
   if (event.req instanceof Request) return event.req
   const headers = new Headers()
-  for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
-    if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value)
+  const copyHeaders = (source: unknown): void => {
+    if (source instanceof Headers) {
+      source.forEach((value, name) => headers.set(name, value))
+      return
+    }
+    if (source instanceof Object && "get" in source && source.get instanceof Function) {
+      for (const name of ["accept", "authorization", "cookie", "content-type", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
+        const value = source.get(name)
+        if (typeof value === "string") headers.set(name, value)
+      }
+    }
+    if (!(source instanceof Object)) return
+    for (const [name, value] of Object.entries(source)) {
+      if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : String(value))
+    }
   }
+  copyHeaders(event.node?.req?.headers)
+  copyHeaders(event.req?.headers)
+  copyHeaders(event.headers)
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
 }
 
