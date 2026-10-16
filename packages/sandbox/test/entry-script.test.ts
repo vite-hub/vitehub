@@ -139,6 +139,25 @@ describe("package entry result transport", () => {
     expect(execution.output.result).not.toHaveProperty(SANDBOX_VALUE_MARKER)
   })
 
+  it("rejects spoofs with an own forged constructor", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = {}`,
+      `  Object.defineProperties(prototype, { clone: { value() { return Object.create(prototype) } }, body: { get() { return null } } })`,
+      `  const constructor = function Response() {}`,
+      `  constructor.prototype = prototype`,
+      `  const value = Object.assign(Object.create(prototype), { constructor, status: 201, statusText: 'Created', headers, arrayBuffer: async () => new ArrayBuffer() })`,
+      `  return value`,
+      `}`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ status: 201, statusText: "Created" })
+    expect(execution.output.result).not.toHaveProperty(SANDBOX_VALUE_MARKER)
+  })
+
   it("preserves ordinary objects with non-enumerable response-like prototype members", async () => {
     const execution = await executePackageEntry([
       `export default () => {`,
