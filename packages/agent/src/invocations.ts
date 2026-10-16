@@ -816,10 +816,12 @@ async function collectBoundedObservationBuiltIns(
       if (Object.hasOwn(value, "cause")) {
         await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
       }
-      for (const [key, child] of Object.entries(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
-        if (key !== "cause" && key !== "errors") {
-          await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
-        }
+      let count = 0
+      for (const key in value) {
+        if (count >= MAX_OBSERVATION_COLLECTION_ITEMS) break
+        if (!Object.hasOwn(value, key) || key === "cause" || key === "errors") continue
+        count++
+        await collectBoundedObservationBuiltIns(value[key], builtIns, budget, seen, depth + 1)
       }
       return
     }
@@ -981,8 +983,10 @@ function boundedObservationValue(
     if (isAggregateErrorValue(value)) details.push(["errors", read("errors")])
     if (Object.hasOwn(value, "cause")) details.push(["cause", read("cause")])
     try {
-      for (const [key, child] of Object.entries(value)) {
-        if (key !== "cause" && key !== "errors") details.push([key, child])
+      for (const key in value) {
+        if (details.length >= collectionItems) break
+        if (!Object.hasOwn(value, key) || key === "cause" || key === "errors") continue
+        details.push([key, read(key)])
       }
     }
     catch {
