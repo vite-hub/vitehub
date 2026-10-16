@@ -44,6 +44,7 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
     } } : {}),
   }
+  }
   if (options.console) {
     const consoleConfig = {
       ...options.console,

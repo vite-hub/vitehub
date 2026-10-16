@@ -102,9 +102,8 @@ function normalizeDriverResult(
     : { ...decision, allowed: false, reason: "limited" }
 }
 
-function assertDriverSupportsPolicy(options: CreateRateLimiterOptions, capabilities: RateLimitDriverCapabilities, windowMs: number): void {
-  const requestedEnforcement = options.enforcement ?? "best-effort"
-  if (requestedEnforcement === "strict" && capabilities.enforcement !== "strict") {
+function assertDriverSupportsPolicy(options: CreateRateLimiterOptions, enforcement: ResolvedRateLimitPolicy["enforcement"], capabilities: RateLimitDriverCapabilities, windowMs: number): void {
+  if (enforcement === "strict" && capabilities.enforcement !== "strict") {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0027({ message: `[vitehub] Rate Limit driver "${options.driver.name}" provides best-effort enforcement, but this policy requires strict enforcement.` })
   }
   const windows = capabilities.windows
@@ -149,7 +148,7 @@ export function createRateLimiter(options: CreateRateLimiterOptions): RateLimite
   }
   const policy = normalizeRateLimitPolicy(options)
   const capabilities = resolveDriverCapabilities(options)
-  assertDriverSupportsPolicy(options, capabilities, policy.windowMs)
+  assertDriverSupportsPolicy(options, policy.enforcement, capabilities, policy.windowMs)
 
   const driverInput = (input: RateLimitConsumeInput): RateLimitDriverInput => ({
     key: input.key,

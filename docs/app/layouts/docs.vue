@@ -28,9 +28,8 @@ const docsShellUi = {
 
     <UPage v-else :ui="docsShellUi">
       <template #left>
-        <UPageAside class="vh-docs-aside">
-          <DocsAsideLeftTop />
-          <DocsAsideLeftBody />
+        <UPageAside class="vh-docs-aside hidden lg:block">
+          <DocsSidebars panel />
         </UPageAside>
       </template>
 
@@ -59,10 +58,6 @@ const docsShellUi = {
   max-width: var(--vh-landing-width);
 }
 
-.vh-docs-footer {
-  margin-top: 3rem;
-}
-
 @media (min-width: 40rem) {
   .vh-docs-main,
   .vh-docs-landing {
@@ -70,7 +65,11 @@ const docsShellUi = {
   }
 }
 
+/* Keep the desktop rail sticky while clipping only horizontal overflow. */
 @media (min-width: 64rem) {
+  .vh-docs-shell {
+    overflow-x: clip;
+  }
   .vh-docs-aside {
     position: sticky;
     top: var(--ui-header-height);
@@ -78,19 +77,13 @@ const docsShellUi = {
     height: calc(100dvh - var(--ui-header-height));
     max-height: calc(100dvh - var(--ui-header-height));
     min-height: calc(100dvh - var(--ui-header-height));
+    flex: 0 0 auto;
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
   }
 
-  .vh-docs-content {
-    flex: 1;
-  }
-
   :deep(.vh-docs-sidebars) {
-    height: 100%;
-    min-height: 0;
-    flex-direction: row;
     overflow: visible;
     border-right: 1px solid var(--ui-border);
     width: max-content;
