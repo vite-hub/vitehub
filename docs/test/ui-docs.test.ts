@@ -181,7 +181,6 @@ describe("UI documentation", () => {
     expect(layout).toContain(".vh-docs-aside {\n  display: none;");
     expect(layout).toContain("flex-direction: column;");
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
-    expect(layout).toContain(".vh-docs-aside");
     expect(layout).toContain("flex: 1;");
   });
 
