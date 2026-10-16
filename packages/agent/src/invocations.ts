@@ -589,6 +589,47 @@ function isArrayBufferView(value: unknown): value is ArrayBufferView {
 function isErrorValue(value: unknown): value is Error {
   if (!value || !hasRuntimeType(value, "object")) return false
   try {
+    // Probe the intrinsic Error slot before reading `stack`. A foreign realm
+    // can cache a non-string formatter result (including `undefined`) on the
+    // first read, which would otherwise make the later brand probe fail.
+    if (errorStackGetter) {
+      let prototype = Object.getPrototypeOf(value)
+      while (prototype && prototype !== Object.prototype) {
+        const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
+        const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (
+          typeof name === "string"
+          && typeof message === "string"
+          && isNativeConstructor(constructor, nativeErrorConstructorSource)
+          && constructor.prototype === prototype
+        ) {
+          const prepareDescriptor = Object.getOwnPropertyDescriptor(constructor, "prepareStackTrace")
+          const sentinel = {}
+          try {
+            Object.defineProperty(constructor, "prepareStackTrace", {
+              configurable: true,
+              value: () => sentinel,
+              writable: true,
+            })
+            if (errorStackGetter.call(value) === sentinel) return true
+          }
+          catch {
+            // Continue to the remaining checks when the realm is locked down.
+          }
+          finally {
+            try {
+              if (prepareDescriptor) Object.defineProperty(constructor, "prepareStackTrace", prepareDescriptor)
+              else delete constructor.prepareStackTrace
+            }
+            catch {
+              // Ignore restoration failures; classification remains bounded.
+            }
+          }
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+    }
     // V8's intrinsic stack accessor performs the Error internal-slot check and
     // works for Error instances created in another realm. Keep the structural
     // fallback below for runtimes without that accessor.
@@ -617,33 +658,7 @@ function isErrorValue(value: unknown): value is Error {
       if (typeof name === "string" && typeof message === "string") {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         if (isNativeConstructor(constructor, nativeErrorConstructorSource) && constructor.prototype === prototype) {
-          // A foreign Error may use a formatter that returns undefined. Force a
-          // sentinel result so the intrinsic accessor still proves its brand;
-          // objects that merely inherit Error.prototype continue to return undefined.
-          if (errorStackGetter) {
-            const prepareDescriptor = Object.getOwnPropertyDescriptor(constructor, "prepareStackTrace")
-            const sentinel = {}
-            try {
-              Object.defineProperty(constructor, "prepareStackTrace", {
-                configurable: true,
-                value: () => sentinel,
-                writable: true,
-              })
-              if (errorStackGetter.call(value) === sentinel) return true
-            }
-            catch {
-              // Continue to the next prototype when the foreign realm is locked down.
-            }
-            finally {
-              try {
-                if (prepareDescriptor) Object.defineProperty(constructor, "prepareStackTrace", prepareDescriptor)
-                else delete constructor.prepareStackTrace
-              }
-              catch {
-                // Ignore restoration failures; classification remains bounded.
-              }
-            }
-          }
+          // The intrinsic sentinel probe above is the non-spoofable brand check.
         }
       }
       prototype = Object.getPrototypeOf(prototype)
