@@ -1,8 +1,9 @@
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
-import { consoleRequestError, consoleRequestURL, type ConsoleRequestEvent } from "./request.ts"
+import { consoleRequestError, consoleRequestURL, type ConsoleHeaders, type ConsoleRequestEvent } from "./request.ts"
 
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
+import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
 
 /**
@@ -40,8 +41,8 @@ export interface ConsoleAccess {
  * - `anySection: true`: the route serves every Console user, such as the section list and the RPC transport.
  */
 export type ConsoleRouteScope =
-  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined) }
-  | { anySection: true }
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean }
+  | { anySection: true, user?: boolean }
 
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
 export type ConsoleGuardedHandler<TEvent, TResult> = (event: TEvent, access: ConsoleAccess) => TResult | Promise<TResult>
@@ -89,9 +90,24 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   }
 }
 
-function webRequest(event: ConsoleRequestEvent): Request {
+/** Rebuild the host request for runtimes that need its headers, such as Auth sessions. */
+export function consoleRequest(event: ConsoleRequestEvent): Request {
   if (event.req instanceof Request) return event.req
   const headers = new Headers()
+  const requestHeaders = event.req?.headers ?? event.headers
+  const iterableHeaders = requestHeaders as (ConsoleHeaders & { [Symbol.iterator]?: () => IterableIterator<[string, string]> }) | undefined
+  const iterate = iterableHeaders?.[Symbol.iterator]
+  if (iterate instanceof Function) {
+    for (const [name, value] of iterate.call(iterableHeaders)) headers.set(name, value)
+  }
+  else if (requestHeaders) {
+    // ConsoleHeaders intentionally guarantees get() without requiring iteration.
+    // Preserve the request headers used by Auth and Console routing for that shape.
+    for (const name of ["authorization", "cookie", "content-type", "origin", "host", "x-forwarded-host", "x-forwarded-proto"]) {
+      const value = requestHeaders.get(name)
+      if (value !== null) headers.set(name, value)
+    }
+  }
   for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
     if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value)
   }
@@ -124,7 +140,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   }
   let sections: ConsoleAccess["sections"] = "all"
   if (policy.authorize) {
-    const request = webRequest(event)
+    const request = consoleRequest(event)
     const result: unknown = await policy.authorize(user ? { request, user } : { request })
     if (result instanceof Response) return result
     if (result === false) return rejection(403, "Forbidden.")
@@ -169,6 +185,17 @@ export async function consoleConnectionsActor(event: ConsoleRequestEvent): Promi
   return `user:${access.mode}`
 }
 
+/** Map the verified Console user to the Agent Actor used by invocations and replay. */
+export function consoleAccessActor(user: ConsoleUser | undefined): AgentActor | undefined {
+  if (!user?.id) return undefined
+  const label = "email" in user && typeof user.email === "string" && user.email
+    ? user.email
+    : "name" in user && typeof user.name === "string" && user.name
+      ? user.name
+      : user.id
+  return { id: user.id, kind: "authUser", label, meta: { authUserId: user.id } }
+}
+
 function resolveRouteSection(routeScope: ConsoleRouteScope, event: ConsoleRequestEvent): { section: ConsoleSectionId | undefined } | undefined {
   if (!("section" in routeScope)) return
   return { section: routeScope.section instanceof Function ? routeScope.section(event) : routeScope.section }
@@ -200,7 +227,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   const route = async (event: TEvent): Promise<TResult | Response> => {
     let access = checkedEvents.get(event)
     if (!access || !consoleAccessGrant.isValid(access)) {
-      const checked = await checkConsoleAccess(event)
+      const checked = await checkConsoleAccess(event, { user: declared.user === true })
       if (checked instanceof Response) return checked
       checkedEvents.set(event, checked)
       access = checked

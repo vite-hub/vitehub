@@ -12,19 +12,14 @@ export const docsCategoryOrder = [
   "Platform",
 ] as const;
 
+const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
+
 export type DocsCategory = (typeof docsCategoryOrder)[number];
 
 export type DocsCatalogGroup = {
   category: DocsCategory;
   sections: DocsSection[];
 };
-
-/** Platform topics are reached from Get started and the catalog, instead of adding rail entries. */
-export function getDocsRailCatalog(sections: DocsSection[]) {
-  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
-}
-
-const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
 
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
@@ -45,7 +40,6 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
     .filter(group => group.sections.length > 0);
 }
 
-/** Short label shown beside a product in the catalog. Keep the package name as the primary title. */
 export function getDocsSectionKind(section: DocsSection) {
   if (section.id === "agents") return "Agent runtime";
   if (section.id === "ui") return "UI components";
@@ -54,6 +48,11 @@ export function getDocsSectionKind(section: DocsSection) {
   if (section.category === "Platform") return "Platform";
   return section.category || "Documentation";
 }
+
+export function getDocsRailCatalog(sections: DocsSection[]) {
+  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
+}
+
 
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
   return sections.filter(section => !isDocsCategory(section.category));

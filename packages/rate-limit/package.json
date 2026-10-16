@@ -26,13 +26,48 @@
   "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./cli": "./dist/cli.js",
-    "./drivers/cloudflare": "./dist/drivers/cloudflare.js",
-    "./drivers/memory": "./dist/drivers/memory.js",
-    "./runtime": "./dist/runtime.js",
-    "./runtime/console": "./dist/runtime/console.js",
-    "./vite": "./dist/vite.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "require": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
+    "./drivers/cloudflare": {
+      "types": "./dist/drivers/cloudflare.d.ts",
+      "import": "./dist/drivers/cloudflare.js",
+      "require": "./dist/drivers/cloudflare.js",
+      "default": "./dist/drivers/cloudflare.js"
+    },
+    "./drivers/memory": {
+      "types": "./dist/drivers/memory.d.ts",
+      "import": "./dist/drivers/memory.js",
+      "require": "./dist/drivers/memory.js",
+      "default": "./dist/drivers/memory.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "require": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
+    },
+    "./runtime/console": {
+      "types": "./dist/runtime/console.d.ts",
+      "import": "./dist/runtime/console.js",
+      "require": "./dist/runtime/console.js",
+      "default": "./dist/runtime/console.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
