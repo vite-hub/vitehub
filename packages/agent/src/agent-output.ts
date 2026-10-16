@@ -5,7 +5,6 @@ import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { materializeAgentUsageCost } from "./internal/usage-pricing.ts"
-import { Response as UndiciResponse } from "undici"
 
 import type { AgentActivity, AgentMessagePhase, StreamEvent } from "./messages.ts"
 import type { AgentRunMetadata, AgentRunResult, AgentToolDefinition, AgentUsage, AgentUsageRecord } from "./types.ts"
@@ -818,13 +817,13 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
   return false
 }
 
-function getPrototypeMethod(value: object, key: PropertyKey): ((...args: never[]) => unknown) | undefined {
+function getPrototypeMethod(value: object, key: PropertyKey): ((...args: unknown[]) => unknown) | undefined {
   let prototype: object | null = Object.getPrototypeOf(value) as object | null
   const visited = new Set<object>()
   while (prototype && !visited.has(prototype)) {
     visited.add(prototype)
     const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-    if (descriptor) return hasRuntimeType(descriptor.value, "function") ? descriptor.value as (...args: never[]) => unknown : undefined
+    if (descriptor) return hasRuntimeType(descriptor.value, "function") ? descriptor.value as (...args: unknown[]) => unknown : undefined
     prototype = Object.getPrototypeOf(prototype) as object | null
   }
   return undefined
@@ -853,6 +852,7 @@ function isResponseLike(value: unknown): value is Response {
     // without relying on the current realm's Response constructor.
     const constructorDescriptor = tagOwner && Object.getOwnPropertyDescriptor(tagOwner, "constructor")
     if (!constructorDescriptor || !hasRuntimeType(constructorDescriptor.value, "function") || constructorDescriptor.value.prototype !== tagOwner) return false
+    const responseConstructor = constructorDescriptor.value as typeof Response & { error?: () => unknown, json?: () => unknown, redirect?: () => unknown }
     // Fetch constructors expose their prototype as a fixed, non-configurable
     // function property. A caller-created self-linked constructor has to
     // assign its prototype, leaving this descriptor writable/configurable.
@@ -870,13 +870,13 @@ function isResponseLike(value: unknown): value is Response {
     // caller-created self-linked function can copy the name and prototype
     // link, but it must not be accepted as a platform Response constructor
     // without this constructor surface.
-    if (!hasRuntimeType(constructorDescriptor.value.error, "function")
-      || !hasRuntimeType(constructorDescriptor.value.json, "function")
-      || !hasRuntimeType(constructorDescriptor.value.redirect, "function")) return false
+    if (!hasRuntimeType(responseConstructor.error, "function")
+      || !hasRuntimeType(responseConstructor.json, "function")
+      || !hasRuntimeType(responseConstructor.redirect, "function")) return false
     // The static factories are intrinsic constructors, rather than marker
     // methods. A copied surface with no working factory must not establish
     // Response provenance.
-    const errorResponse = constructorDescriptor.value.error.call(constructorDescriptor.value)
+    const errorResponse = responseConstructor.error.call(responseConstructor)
     if (!isRuntimeObject(errorResponse) || Object.getPrototypeOf(errorResponse) !== tagOwner) return false
     // A copied tag, constructor link, and the three static factories are still
     // insufficient to identify a Fetch Response. Require the rest of the
@@ -921,10 +921,11 @@ function isResponseLike(value: unknown): value is Response {
     // Use the host Fetch brand when available. This rejects caller-created
     // classes that copy the complete Response surface while still allowing a
     // structurally compatible implementation from another realm below.
-    const nativeStatusGetter = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-    const undiciStatusGetter = Object.getOwnPropertyDescriptor(UndiciResponse.prototype, "status")?.get
+    const nativeStatusGetter = typeof Response === "function"
+      ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+      : undefined
     let trustedResponse = false
-    for (const statusGetter of [nativeStatusGetter, undiciStatusGetter]) {
+    for (const statusGetter of [nativeStatusGetter]) {
       if (!hasRuntimeType(statusGetter, "function")) continue
       try {
         statusGetter.call(value)
@@ -957,7 +958,7 @@ function isResponseLike(value: unknown): value is Response {
     // their prototype chain; require that non-callable surface before
     // accepting a failed reader probe as the already-locked case.
     let lockedAccessor: (() => unknown) | undefined
-    let streamReader: ((...args: never[]) => unknown) | undefined
+    let streamReader: ((...args: unknown[]) => unknown) | undefined
     let streamPrototype: object | null = Object.getPrototypeOf(body) as object | null
     const visitedStreamPrototypes = new Set<object>()
     while (streamPrototype && !visitedStreamPrototypes.has(streamPrototype)) {
@@ -969,7 +970,7 @@ function isResponseLike(value: unknown): value is Response {
         }
         const readerDescriptor = Object.getOwnPropertyDescriptor(streamPrototype, "getReader")
         if (readerDescriptor && hasRuntimeType(readerDescriptor.value, "function")) {
-          streamReader = readerDescriptor.value as (...args: never[]) => unknown
+          streamReader = readerDescriptor.value as (...args: unknown[]) => unknown
         }
         break
       }
@@ -981,7 +982,7 @@ function isResponseLike(value: unknown): value is Response {
       // accepted; the host realm's intrinsic rejects those streams.
       const reader = streamReader.call(body)
       if (!isRuntimeObject(reader) || !hasRuntimeType(reader.releaseLock, "function")) return false
-      reader.releaseLock()
+      ;(reader.releaseLock as () => void)()
     }
     catch {
       // A locked genuine stream remains a Response. Confirm the lock state
