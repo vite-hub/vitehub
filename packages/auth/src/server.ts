@@ -348,26 +348,28 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     let cleaned = false
     const cleanupReader = async (reason?: unknown, cancel = false) => {
       if (cleaned) return
-      const operations: Array<() => unknown> = []
+      const operations: Array<{ kind: "release" | "reader-cancel" | "body-cancel", run: () => unknown }> = []
       if (cancel) {
-        if (typeof reader.cancel === "function") operations.push(() => reader.cancel(reason))
-        if (typeof foreignBody.cancel === "function") operations.push(() => foreignBody.cancel(reason))
-        if (typeof reader.releaseLock === "function") operations.push(() => reader.releaseLock())
+        if (typeof reader.cancel === "function") operations.push({ kind: "reader-cancel", run: () => reader.cancel(reason) })
+        if (typeof foreignBody.cancel === "function") operations.push({ kind: "body-cancel", run: () => foreignBody.cancel(reason) })
+        if (typeof reader.releaseLock === "function") operations.push({ kind: "release", run: () => reader.releaseLock() })
       }
       else {
-        if (typeof reader.releaseLock === "function") operations.push(() => reader.releaseLock())
-        if (typeof reader.cancel === "function") operations.push(() => reader.cancel(reason))
-        if (typeof foreignBody.cancel === "function") operations.push(() => foreignBody.cancel(reason))
+        if (typeof reader.releaseLock === "function") operations.push({ kind: "release", run: () => reader.releaseLock() })
+        if (typeof reader.cancel === "function") operations.push({ kind: "reader-cancel", run: () => reader.cancel(reason) })
+        if (typeof foreignBody.cancel === "function") operations.push({ kind: "body-cancel", run: () => foreignBody.cancel(reason) })
       }
-      let succeeded = false
+      let released = false
+      let bodyCancelled = false
       for (const operation of operations) {
         try {
-          await operation()
-          succeeded = true
+          await operation.run()
+          if (operation.kind === "release") released = true
+          if (operation.kind === "body-cancel") bodyCancelled = true
         }
         catch {}
       }
-      if (succeeded) cleaned = true
+      if (released || bodyCancelled) cleaned = true
     }
     const releaseReader = () => cleanupReader()
     const cancelReader = (reason: unknown) => cleanupReader(reason, true)
