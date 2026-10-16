@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 
 import { defineConfig } from "vite-plus";
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 const require = createRequire(import.meta.url);
 const requireFromTinyglobby = createRequire(require.resolve("tinyglobby"));
@@ -64,7 +65,7 @@ try {
     exports: {
       customExports(exports) {
         return {
-          ...Object.fromEntries(Object.entries(exports).map(([key, value]) => {
+          ...normalizePackageExports(Object.fromEntries(Object.entries(exports).map(([key, value]) => {
             if (String(value) !== value || !value.endsWith(".js")) {
               return [key, value];
             }
@@ -75,7 +76,7 @@ try {
                 import: value,
               },
             ];
-          })),
+          }))),
           "./tsconfig": "./tsconfig.vite.json",
         };
       },

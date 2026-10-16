@@ -58,13 +58,13 @@ function describeRevision(revision: WorkspaceRevision): WorkspaceHistoryDevRevis
 }
 
 function describeFile(entry: WorkspaceEntry): WorkspaceHistoryDevFile {
-  const file: WorkspaceHistoryDevFile = {
+  const described: WorkspaceHistoryDevFile = {
     path: entry.path,
   }
-  if (entry.size !== undefined) file.size = entry.size
-  if (entry.mediaType !== undefined) file.mediaType = entry.mediaType
-  if (entry.digest !== undefined) file.digest = entry.digest
-  return file
+  if (entry.size !== undefined) described.size = entry.size
+  if (entry.mediaType !== undefined) described.mediaType = entry.mediaType
+  if (entry.digest !== undefined) described.digest = entry.digest
+  return described
 }
 
 function encodeContent(bytes: Uint8Array): Pick<WorkspaceHistoryDevContent, "content" | "encoding"> {
@@ -82,7 +82,8 @@ async function listHistory(workspace: string, history: WorkspaceHistoryReader, r
   const limit = request.limit ?? defaultHistoryLimit
   if (request.ref !== undefined) {
     const page = await history.list({ cursor: request.cursor, limit, ref: request.ref })
-    const result: WorkspaceHistoryDevHistory = {
+    const result: WorkspaceHistoryDevList = {
+
       workspace,
       ref: request.ref,
       revisions: page.revisions.map(describeRevision),
