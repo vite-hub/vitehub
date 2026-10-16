@@ -852,7 +852,8 @@ function isResponseLike(value: unknown): value is Response {
     const constructorPrototypeDescriptor = Object.getOwnPropertyDescriptor(constructorDescriptor.value, "prototype")
     if (!constructorPrototypeDescriptor
       || constructorPrototypeDescriptor.value !== tagOwner
-      || constructorPrototypeDescriptor.configurable) return false
+      || constructorPrototypeDescriptor.configurable
+      ) return false
     // A self-linked constructor is easy to manufacture on a caller-owned
     // prototype. Real Fetch implementations expose the Response constructor
     // under this stable name; reject arbitrary constructor names before the
@@ -865,6 +866,11 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(constructorDescriptor.value.error, "function")
       || !hasRuntimeType(constructorDescriptor.value.json, "function")
       || !hasRuntimeType(constructorDescriptor.value.redirect, "function")) return false
+    // The static factories are intrinsic constructors, rather than marker
+    // methods. A copied surface with no working factory must not establish
+    // Response provenance.
+    const errorResponse = constructorDescriptor.value.error.call(constructorDescriptor.value)
+    if (!isRuntimeObject(errorResponse) || Object.getPrototypeOf(errorResponse) !== tagOwner) return false
     // A copied tag, constructor link, and the three static factories are still
     // insufficient to identify a Fetch Response. Require the rest of the
     // standard prototype surface before accepting a caller-created shape.
