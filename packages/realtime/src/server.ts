@@ -1,8 +1,5 @@
-import { Editor } from "@tiptap/core"
-import { prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from "@tiptap/y-tiptap"
 import { assertAuthOrigin } from "@vite-hub/auth/server"
-import { getViteHubErrorShape } from "@vite-hub/runtime"
-import { isWorkspaceConflict, normalizeSafeWorkspacePath, resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
+import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace"
 import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
@@ -10,16 +7,63 @@ import * as awarenessProtocol from "y-protocols/awareness"
 import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
-import type { ReadonlyWorkspaceFacade, WorkspaceSnapshot, WritableWorkspaceFacade } from "@vite-hub/workspace"
-import type { WebSocketMessage, WebSocketPeer } from "h3"
+import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeIdentity } from "./presence.ts"
-import type { RealtimeCheckpoint, RealtimeDefinition, RealtimeRegistry } from "./types.ts"
+import type {
+  RealtimeCheckpoint,
+  RealtimeDefinition,
+  RealtimeDocumentAdapter,
+  RealtimeDocumentContext,
+  RealtimeEditor,
+  RealtimeFieldValue,
+  RealtimeIssue,
+  RealtimeLoadedDocument,
+  RealtimeReadOnlyReason,
+  RealtimeRegistry,
+  RealtimeResetReason,
+  RealtimeSaveOptions,
+  RealtimeSaved,
+  RealtimeUser,
+} from "./types.ts"
 import { createRealtimeIdentity } from "./presence.ts"
 import { AwarenessOwnershipConflict, compactRealtimeAwareness, createRealtimeAwarenessOwners } from "./awareness.ts"
-export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
-import { decodeWorkspaceChangePayload, encodeWorkspaceChange, messageAwareness, messageQueryAwareness, messageWorkspaceChange, realtimeCheckpointRejectedCode, realtimeSyncPendingCode } from "./protocol.ts"
-import { createRealtimeEditorExtensions } from "./editor-extensions.ts"
+import { isRealtimeDocumentConflict } from "./conflict.ts"
+import {
+  containsRealtimeState,
+  createRealtimeYDoc,
+  diffRealtimeYDoc,
+  keepRealtimeFinalNewline,
+  readRealtimeStatus,
+  readRealtimeYDoc,
+  realtimeCodecReadsBack,
+  realtimeJsonEqual,
+  realtimeStatusFingerprint,
+  writeRealtimeStatus,
+} from "./document.ts"
+import { realtimeMarkdownEditor } from "./editor.ts"
+import {
+  decodeWorkspaceChangePayload,
+  encodeRealtimeControl,
+  encodeWorkspaceChange,
+  messageAwareness,
+  messageQueryAwareness,
+  messageWorkspaceChange,
+  realtimeForbiddenWriteCloseCode,
+  realtimeReadOnlyCode,
+  realtimeResetCloseCode,
+  realtimeSourceChangedCode,
+  realtimeSyncPendingCode,
+} from "./protocol.ts"
+import { readRealtimeRequestState } from "./transport.ts"
+import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+
+export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
+export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
+export { containsRealtimeState, createRealtimeYDoc, diffRealtimeYDoc, readRealtimeStatus, readRealtimeYDoc, realtimeDocumentLayout } from "./document.ts"
+export { readRealtimeRequestState } from "./transport.ts"
+export { isRealtimeWorkspaceDocument, readRealtimeWorkspaceDocument, workspaceDocument } from "./workspace-document.ts"
+export type { RealtimeWorkspaceDocumentAdapter } from "./workspace-document.ts"
 
 export interface RealtimeHandler {
   (event: unknown): Promise<unknown>
@@ -34,191 +78,35 @@ const awarenessQueryIntervalMs = 10_000
 const awarenessUpdateIntervalMs = 50
 const workspaceChangeLimit = 100
 const workspaceChangeWindowMs = 1_000
-const syncUpdateIntervalMs = 50
-const pendingCheckpointRetentionMs = 30_000
+/**
+ * Document updates per connection: a burst of 40, refilled at 20 per second. Typing sends one update per keystroke, so
+ * fast typing fits. Updates past the budget wait, merged, until it refills (a held key repeats ~30 times a second); a
+ * peer that holds back more than one message's worth is closed rather than having updates dropped.
+ */
+const syncUpdateBurst = 40
+const syncUpdatesPerSecond = 20
 const durableUpdateCompactionInterval = 128
+const maxSaveRetryMs = 60_000
+const holdIntervalMs = 60_000
 const messageSync = 0
+/** Marks the request that `refreshRealtimeDocument()` sends to a Durable Object. The Worker strips it from client requests. */
+const internalRefreshHeader = "x-vitehub-realtime-refresh"
+/**
+ * The one Durable Object instance that holds every room. Nitro's `cloudflare-durable` entry hands each WebSocket upgrade
+ * to this instance before the application runs, so saves, checkpoints, and refreshes must reach it too: a Durable
+ * Object per room would have no peers and never match a room's state.
+ */
+const durableRoomsInstance = "server"
 
-const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!
-const typedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")!.get!
-const typedArrayLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "length")!.get!
-const typedArrayBufferGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "buffer")!.get!
-const typedArrayByteOffsetGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteOffset")!.get!
+export const realtimePersistenceDefaults = Object.freeze({ debounce: 2_000, maxWait: 10_000 })
 
-function normalizeRealtimeCheckpointChunk(value: unknown): Uint8Array | undefined {
-  if (ArrayBuffer.isView(value)) {
-    try {
-      // Walk the full prototype chain and keep the intrinsic width. Subclass
-      // prototypes may shadow BYTES_PER_ELEMENT, while the concrete typed-array
-      // prototype later in the chain carries the actual element width.
-      let prototype = Object.getPrototypeOf(value)
-      let bytesPerElement: unknown
-      while (prototype) {
-        const descriptor = Object.getOwnPropertyDescriptor(prototype, "BYTES_PER_ELEMENT")
-        if (descriptor && "value" in descriptor) {
-          bytesPerElement = descriptor.value
-        }
-        prototype = Object.getPrototypeOf(prototype)
-      }
-      if (bytesPerElement !== 1) return undefined
-      // SAFETY: The intrinsic TypedArray byteLength getter returns a number and throws for incompatible receivers.
-      const byteLength = Reflect.apply(typedArrayByteLengthGetter, value, []) as number
-      // SAFETY: The intrinsic TypedArray length getter returns a number and throws for incompatible receivers.
-      const length = Reflect.apply(typedArrayLengthGetter, value, []) as number
-      if (byteLength !== length) return undefined
-      // SAFETY: Intrinsic TypedArray getters return the branded view's backing buffer and byte offset.
-      const buffer = Reflect.apply(typedArrayBufferGetter, value, []) as ArrayBufferLike
-      // SAFETY: The intrinsic TypedArray byteOffset getter returns a number for this branded view.
-      const byteOffset = Reflect.apply(typedArrayByteOffsetGetter, value, []) as number
-      return new Uint8Array(buffer, byteOffset, byteLength)
-    }
-    catch {
-      return undefined
-    }
-  }
+/** Origin of updates that the server writes itself: seeds, stored-form merges, and status. */
+const serverOrigin = Symbol("vitehub.realtime.server")
 
-  try {
-    Reflect.apply(arrayBufferByteLengthGetter, value, [])
-    // SAFETY: The intrinsic ArrayBuffer byteLength getter above rejects values without the ArrayBuffer internal slots.
-    return new Uint8Array(value as ArrayBuffer)
-  }
-  catch {
-    return undefined
-  }
-}
-const fragmentName = "default"
-
-export function markdownToYDoc(markdown: string): Y.Doc {
-  const editor = new Editor({
-    content: markdown || { type: "doc", content: [{ type: "paragraph" }] },
-    contentType: "markdown",
-    extensions: createRealtimeEditorExtensions(),
-  })
-  try {
-    return prosemirrorJSONToYDoc(editor.schema, editor.getJSON(), fragmentName)
-  }
-  finally {
-    editor.destroy()
-  }
-}
-
-export function yDocToMarkdown(document: Y.Doc): string {
-  const editor = new Editor({
-    content: yDocToProsemirrorJSON(document, fragmentName),
-    extensions: createRealtimeEditorExtensions(),
-  })
-  try {
-    return editor.getMarkdown()
-  }
-  finally {
-    editor.destroy()
-  }
-}
-
-export function replaceRealtimeDocument(document: Y.Doc, markdown: string): Uint8Array {
-  const editor = new Editor({
-    content: markdown || { type: "doc", content: [{ type: "paragraph" }] },
-    contentType: "markdown",
-    extensions: createRealtimeEditorExtensions(),
-  })
-  const state = Y.encodeStateVector(document)
-  try {
-    updateYFragment(document, document.getXmlFragment(fragmentName), editor.state.doc, {
-      isOMark: new Map(),
-      mapping: new Map(),
-    })
-    return Y.encodeStateAsUpdate(document, state)
-  }
-  finally {
-    editor.destroy()
-  }
-}
-
-interface Room {
-  awareness: awarenessProtocol.Awareness
-  awarenessOwners: ReturnType<typeof createRealtimeAwarenessOwners>
-  baselineDigest?: string
-  channel: string
-  checkpoint?: Promise<RealtimeCheckpoint>
-  checkpointState?: Uint8Array
-  document: Y.Doc
-  durableReady: boolean
-  key: string
-  mutated: boolean
-  pendingCheckpoint?: {
-    content?: string
-    digest?: string
-    message: string
-    path: string
-    state: Uint8Array
-    submittedDocument: Y.Doc
-    workspace: WritableWorkspaceFacade
-  }
-  pendingCheckpointTimer?: ReturnType<typeof setTimeout>
-  peers: Set<WebSocketPeer>
-  persistedUpdates: number
-  sql?: RealtimeRoomSql
-}
-
-interface RealtimeRoomSql {
-  exec(query: string, ...bindings: unknown[]): { toArray(): Array<Record<string, unknown>> }
-}
-
-export function realtimeRoomKey(definitionName: string, documentId: string): string {
-  return JSON.stringify([definitionName, documentId])
-}
-
-export async function writeRealtimeDocument(
-  workspace: Pick<WritableWorkspaceFacade, "fs">,
-  documentId: string,
-  document: Y.Doc,
-  ifDigest: string | null,
-): Promise<string> {
-  const current = ifDigest ? await workspace.fs.stat(documentId) : undefined
-  return await workspace.fs.writeFile(documentId, yDocToMarkdown(document), {
-    ifDigest,
-    mediaType: current?.mediaType,
-    metadata: current?.metadata,
-    preservePath: true,
-  })
-}
-
-export async function readRealtimeCheckpointState(request: Request, maxBytes = maxRoomStateBytes): Promise<Uint8Array> {
-  const contentLength = Number(request.headers.get("content-length") || 0)
-  if (contentLength > maxBytes) throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
-  if (!request.body) return new Uint8Array()
-
-  const reader = request.body.getReader()
-  const chunks: Uint8Array[] = []
-  let byteLength = 0
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      const chunk = normalizeRealtimeCheckpointChunk(value)
-      if (!chunk) {
-        await reader.cancel()
-        throw new HTTPError({ status: 400, message: "Realtime checkpoint body contains invalid bytes." })
-      }
-      byteLength += chunk.byteLength
-      if (byteLength > maxBytes) {
-        await reader.cancel()
-        throw new HTTPError({ status: 413, message: "Realtime checkpoint state exceeds 8 MiB." })
-      }
-      chunks.push(chunk)
-    }
-  }
-  finally {
-    reader.releaseLock()
-  }
-
-  const state = new Uint8Array(byteLength)
-  let offset = 0
-  for (const chunk of chunks) {
-    state.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return state
+const readOnlyDocumentMessage = "The editor cannot save this document without loss. The room is read-only."
+const readOnlyDocumentRejection = "This realtime document is read-only: the editor cannot save it without loss."
+const codecReadBackIssue: RealtimeIssue = {
+  message: "The editor cannot read back the Markdown that it saved. Some content can change when the document opens again.",
 }
 
 export function encodeSyncUpdate(update: Uint8Array): Uint8Array {
@@ -235,12 +123,30 @@ export function encodeSyncStep1(document: Y.Doc): Uint8Array {
   return encoding.toUint8Array(encoder)
 }
 
-export function matchesRealtimeState(document: Y.Doc, expected: Uint8Array): boolean {
-  const actual = Y.encodeStateAsUpdate(document)
-  return matchesBytes(actual, expected)
+export function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
+  const encoder = encoding.createEncoder()
+  encoding.writeVarUint(encoder, messageAwareness)
+  encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, clients))
+  return encoding.toUint8Array(encoder)
 }
 
-export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, origin: unknown, maxStateBytes = maxRoomStateBytes): Uint8Array | undefined {
+/** A peer tried to write what it may not: a read-only connection, or the server-written status map. */
+export class RealtimeWriteRejected extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "RealtimeWriteRejected"
+  }
+}
+
+export interface RealtimeSyncOptions {
+  maxStateBytes?: number
+  /** Reject any update that changes the document. A string replaces the rejection message. */
+  readOnly?: boolean | string
+  /** Reject updates that change the server-written `status` map. Default `true`. */
+  protectStatus?: boolean
+}
+
+export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, origin: unknown, options: RealtimeSyncOptions = {}): Uint8Array | undefined {
   const apply = (target: Y.Doc) => {
     const decoder = decoding.createDecoder(data)
     decoding.readVarUint(decoder)
@@ -256,11 +162,27 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
   // serializing the whole room for a frame that cannot increase its state.
   if (syncType === 0) return apply(document)
   const candidate = new Y.Doc()
-  Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document))
-  apply(candidate)
-  const stateBytes = Y.encodeStateAsUpdate(candidate).byteLength
-  candidate.destroy()
-  if (stateBytes > maxStateBytes) throw realtimeErrorDiagnostics.REALTIME_R0005({ message: "Realtime document exceeds its 8 MiB room quota." })
+  try {
+    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document))
+    const before = Y.snapshot(candidate)
+    apply(candidate)
+    if (candidate.store.pendingStructs || candidate.store.pendingDs) {
+      throw new RealtimeWriteRejected("Realtime update depends on state this room does not have.")
+    }
+    if (options.readOnly && !Y.equalSnapshots(before, Y.snapshot(candidate))) {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- `readOnly` is a flag or a rejection message.
+      throw new RealtimeWriteRejected(typeof options.readOnly === "string" ? options.readOnly : "This realtime connection is read-only.")
+    }
+    if (options.protectStatus !== false && realtimeStatusFingerprint(candidate) !== realtimeStatusFingerprint(document)) {
+      throw new RealtimeWriteRejected("Realtime document status is written by the server.")
+    }
+    if (Y.encodeStateAsUpdate(candidate).byteLength > (options.maxStateBytes ?? maxRoomStateBytes)) {
+      throw realtimeErrorDiagnostics.REALTIME_R0005({ message: "Realtime document exceeds its 8 MiB room quota." })
+    }
+  }
+  finally {
+    candidate.destroy()
+  }
   return apply(document)
 }
 
@@ -270,8 +192,8 @@ export function assertRealtimeRoomStateQuota(document: Y.Doc, maxStateBytes = ma
   }
 }
 
-function matchesBytes(actual: Uint8Array | undefined, expected: Uint8Array): boolean {
-  return !!actual && actual.length === expected.length && actual.every((byte, index) => byte === expected[index])
+export function realtimeRoomKey(definitionName: string, documentId: string): string {
+  return JSON.stringify([definitionName, documentId])
 }
 
 function storedUpdate(value: unknown): Uint8Array | undefined {
@@ -279,73 +201,205 @@ function storedUpdate(value: unknown): Uint8Array | undefined {
   if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
 }
 
-export function restoreRealtimeDocument(markdown: string, baselineDigest: string | undefined, stored: Record<string, unknown> | undefined): Y.Doc {
-  const update = storedUpdate(stored?.update_blob)
-  const storedDigest = typeof stored?.baseline_digest === "string" ? stored.baseline_digest : undefined
-  if (!update || storedDigest !== baselineDigest) return markdownToYDoc(markdown)
-  const document = new Y.Doc()
+interface ResolvedRealtimeDefinition {
+  adapter: RealtimeDocumentAdapter
+  definition: RealtimeDefinition
+  /** The codec of one document: the definition's editor, or the one its editor function picks. */
+  editor: (context: RealtimeDocumentContext) => RealtimeEditor
+  persistence: { debounce: number, maxWait: number } | false
+}
+
+const resolvedDefinitions = new WeakMap<RealtimeDefinition, ResolvedRealtimeDefinition>()
+
+function isDocumentAdapter(document: RealtimeDefinition["document"]): document is RealtimeDocumentAdapter {
+  return "load" in document && "save" in document
+}
+
+function duration(value: unknown, fallback: number, name: string): number {
+  if (value === undefined) return fallback
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persistence timing comes from an untyped definition module.
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw realtimeErrorDiagnostics.REALTIME_R0015({ message: `Realtime persistence.${name} must be a non-negative number of milliseconds.` })
+  }
+  return value
+}
+
+/** Resolves the document adapter, editor codec, and persistence timing of a definition. */
+export function resolveRealtimeDefinition(definition: RealtimeDefinition): ResolvedRealtimeDefinition {
+  const cached = resolvedDefinitions.get(definition)
+  if (cached) return cached
+  const document = definition.document
+  const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace)
+  const persistence = definition.persistence === false
+    ? false as const
+    : {
+        debounce: duration(definition.persistence?.debounce, realtimePersistenceDefaults.debounce, "debounce"),
+        maxWait: duration(definition.persistence?.maxWait, realtimePersistenceDefaults.maxWait, "maxWait"),
+      }
+  if (persistence && persistence.maxWait < persistence.debounce) {
+    throw realtimeErrorDiagnostics.REALTIME_R0015({ message: "Realtime persistence.maxWait must be at least persistence.debounce." })
+  }
+  const configured = definition.editor ?? realtimeMarkdownEditor
+  const editor = configured instanceof Function ? configured : () => configured
+  const resolved = { adapter, definition, editor, persistence }
+  resolvedDefinitions.set(definition, resolved)
+  return resolved
+}
+
+interface RoomBase {
+  awareness: awarenessProtocol.Awareness
+  awarenessOwners: ReturnType<typeof createRealtimeAwarenessOwners>
+  channel: string
+  document: Y.Doc
+  key: string
+  peers: Set<WebSocketPeer>
+}
+
+interface EventsRoom extends RoomBase {
+  kind: "events"
+}
+
+interface DocumentRoom extends RoomBase {
+  context: RealtimeDocumentContext
+  destroyed: boolean
+  digest: string | null
+  dirty: boolean
+  /** The editor codec of this document. */
+  editor: RealtimeEditor
+  editors: Map<string, RealtimeUser>
+  /** Whether `adapter.hold()` kept the room, so the last leave calls `adapter.release()`. */
+  held: boolean
+  /** The status error of the last failed `adapter.hold()`, cleared by the next one that succeeds. */
+  holdError?: string
+  holdTimer?: ReturnType<typeof setInterval>
+  /** Connected clients that may write. */
+  writers: Set<WebSocketPeer>
+  epoch: string
+  firstDirtyAt?: number
+  guard: DocumentGuard
+  idleTimer?: ReturnType<typeof setTimeout>
+  kind: "document"
+  operations: number
+  peerUsers: WeakMap<WebSocketPeer, RealtimeUser>
+  persistedUpdates: number
+  queue: Promise<void>
+  resolved: ResolvedRealtimeDefinition
+  retryDelay: number
+  revision: number
+  sql?: RealtimeRoomSql
+}
+
+type Room = DocumentRoom | EventsRoom
+
+/** What the editor codec reported for the stored document, and the save that would change nothing. */
+interface DocumentGuard {
+  /** Body and fields whose save would leave the stored document as it is. */
+  clean: { body: string, fields: Record<string, RealtimeFieldValue> }
+  /** The stored body ends with a newline; saves keep it when the codec drops it. */
+  finalNewline: boolean
+  issues: RealtimeIssue[]
+  /** `verify()` returned `writable: false`. */
+  readOnly: boolean
+}
+
+async function verifyDocument(editor: RealtimeEditor, loaded: RealtimeLoadedDocument): Promise<DocumentGuard> {
+  const result = await editor.verify?.(loaded.body, { fields: loaded.fields })
+  const finalNewline = loaded.body.endsWith("\n")
+  const fields = Object.fromEntries(Object.entries(loaded.fields ?? {}).filter(([, value]) => value !== undefined))
+  return {
+    clean: { body: keepRealtimeFinalNewline(result?.canonical ?? loaded.body, finalNewline), fields },
+    finalNewline,
+    issues: result?.issues ?? [],
+    readOnly: result?.writable === false,
+  }
+}
+
+function guardStatus(guard: DocumentGuard): { error: string | null, issues: RealtimeIssue[] } {
+  return { error: guard.readOnly ? readOnlyDocumentMessage : null, issues: guard.issues }
+}
+
+interface RealtimeRoomSql {
+  exec(query: string, ...bindings: unknown[]): { toArray(): Array<Record<string, unknown>> }
+}
+
+function documentTables(sql: RealtimeRoomSql): boolean {
+  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL)")
+  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL, client_update INTEGER NOT NULL DEFAULT 1)")
+  // Older adapter-era deployments already have this table without the client_update
+  // column. SQLite keeps CREATE TABLE IF NOT EXISTS as a no-op in that case, so
+  // explicitly add the column before any journal inserts.
   try {
-    Y.applyUpdate(document, update)
-    return document
+    sql.exec("ALTER TABLE vitehub_realtime_document_updates ADD COLUMN client_update INTEGER NOT NULL DEFAULT 1")
+    return true
   }
-  catch (error) {
-    document.destroy()
-    throw error
-  }
-}
-
-function canRestoreRealtimeDocument(baselineDigest: string | undefined, stored: Record<string, unknown> | undefined): boolean {
-  const storedDigest = typeof stored?.baseline_digest === "string" ? stored.baseline_digest : undefined
-  return !!storedUpdate(stored?.update_blob) && storedDigest === baselineDigest
-}
-
-export async function readRealtimeWorkspaceDocument(
-  readable: ReadonlyWorkspaceFacade,
-  writable: WritableWorkspaceFacade,
-  documentId: string,
-): Promise<{ baselineDigest: string | undefined, markdown: string }> {
-  const stat = async () => {
+  catch {
+    // A newly-created table already has the column, but some hosts reject every
+    // ALTER TABLE statement. Probe the schema so that this case is not treated
+    // like an older two-column journal.
     try {
-      return await writable.fs.stat(documentId)
+      sql.exec("SELECT client_update FROM vitehub_realtime_document_updates LIMIT 0").toArray()
+      return true
     }
-    catch (error) {
-      const shape = getViteHubErrorShape(error)
-      // Registry failures name the missing Workspace; absent document paths do not.
-      if (shape?.code === "WORKSPACE_NOT_FOUND" && shape.details?.name === undefined) return undefined
-      throw error
+    catch {
+      // The column is genuinely unavailable; retain the two-column fallback.
+      return false
     }
   }
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const before = await stat()
-    let markdown = ""
-    const source = await readable.fs.exists(documentId)
-      ? readable.fs
-      : before
-        ? writable.fs
-        : undefined
-    if (source) {
-      try {
-        markdown = await source.readFile(documentId, { encoding: "utf8" })
-      }
-      catch (error) {
-        if (!(await stat())) continue
-        throw error
-      }
-    }
-    const after = await stat()
-    if (before?.digest === after?.digest) return { baselineDigest: after?.digest, markdown }
+}
+
+/** Copy the pre-adapter Durable Object journal before reading the new schema. */
+function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateColumn: boolean): void {
+  if (sql.exec("SELECT room_key FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray().length) return
+  let legacy: Record<string, unknown> | undefined
+  try {
+    legacy = sql.exec("SELECT baseline_digest, update_blob FROM vitehub_realtime_rooms WHERE room_key = ?", key).toArray()[0]
   }
-  throw new HTTPError({ status: 409, message: "The Workspace document changed while opening its realtime room." })
+  catch {
+    // Existing deployments without the legacy tables need no migration.
+  }
+  if (!legacy) return
+  let updates: Array<Record<string, unknown>> = []
+  try {
+    updates = sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+  }
+  catch {
+    // The first release could persist the snapshot without creating its journal.
+  }
+  const update = storedUpdate(legacy.update_blob)
+  if (!update) return
+  sql.exec(
+    "INSERT INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob) VALUES (?, ?, ?, ?, ?)",
+    key,
+    crypto.randomUUID(),
+    text(legacy.baseline_digest) ?? null,
+    updates.length ? 1 : 0,
+    Uint8Array.from(update).buffer,
+  )
+  for (const row of updates) {
+    const legacyUpdate = storedUpdate(row.update_blob)
+    if (!legacyUpdate) continue
+    const blob = Uint8Array.from(legacyUpdate).buffer
+    try {
+      if (!clientUpdateColumn) throw new Error("client_update column unavailable")
+      sql.exec(
+        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
+        key,
+        blob,
+      )
+    }
+    catch {
+      // Hosts that reject ALTER TABLE may still expose the intermediate
+      // two-column journal schema. Preserve those rows so the room can open.
+      sql.exec(
+        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
+        key,
+        blob,
+      )
+    }
+  }
 }
 
-export function encodeAwarenessState(awareness: awarenessProtocol.Awareness, clients: number[]): Uint8Array {
-  const encoder = encoding.createEncoder()
-  encoding.writeVarUint(encoder, messageAwareness)
-  encoding.writeVarUint8Array(encoder, awarenessProtocol.encodeAwarenessUpdate(awareness, clients))
-  return encoding.toUint8Array(encoder)
-}
-
-function parseRoomPath(url: string): { definitionName: string, documentId: string, workspaceEvents: boolean } {
+function parseRoomPath(url: string): { definitionName: string, documentId: string, searchParams: URLSearchParams, workspaceEvents: boolean } {
   const parsed = new URL(url)
   const path = parsed.pathname
   if (!path.startsWith(routePrefix)) throw new HTTPError({ status: 404 })
@@ -370,12 +424,40 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
   return {
     definitionName,
     documentId,
+    searchParams: parsed.searchParams,
     workspaceEvents: parsed.searchParams.get("workspace") === "events",
   }
 }
 
-async function authorize(request: Request, required: boolean | undefined, event: unknown): Promise<RealtimeIdentity | undefined> {
-  if (!required) return
+function text(value: unknown): string | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Identities and stored rows cross untyped boundaries.
+  return typeof value === "string" && value ? value : undefined
+}
+
+function toRealtimeUser(value: unknown): RealtimeUser | null {
+  if (!value || !(value instanceof Object) || !("id" in value)) return null
+  const id = text(value.id)
+  if (!id) return null
+  const user: RealtimeUser = { id }
+  const name = "name" in value ? text(value.name) : undefined
+  const email = "email" in value ? text(value.email) : undefined
+  const image = "image" in value ? text(value.image) : undefined
+  if (name) user.name = name
+  if (email) user.email = email
+  if (image) user.image = image
+  return user
+}
+
+async function identify(request: Request, event: unknown, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
+  if (definition.identify) {
+    const origin = request.headers.get("origin")
+    // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials.
+    if (origin && origin !== new URL(request.url).origin) throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
+    const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
+    if (definition.auth && !user) throw new HTTPError({ status: 401 })
+    return user
+  }
+  if (!definition.auth) return null
   let auth
   try {
     auth = await assertAuthOrigin(request, event)
@@ -384,9 +466,99 @@ async function authorize(request: Request, required: boolean | undefined, event:
     throw new HTTPError({ status: 403 })
   }
   const session = await auth.api.getSession({ headers: request.headers })
-  if (!session?.user) throw new HTTPError({ status: 401 })
-  return createRealtimeIdentity(session.user)
+  const user = toRealtimeUser(session?.user)
+  if (!user) throw new HTTPError({ status: 401 })
+  return user
 }
+
+async function allows(
+  definition: RealtimeDefinition,
+  context: { definition: string, documentId: string | null, event: unknown, mode: "read" | "write", request: Request, user: RealtimeUser | null },
+): Promise<boolean> {
+  if (!definition.authorize) return true
+  return (await definition.authorize(context)) !== false
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  return "The realtime document could not be saved."
+}
+
+/** Refreshes the open room of one document in this process. Resolves whether the room re-seeded. */
+type LocalRefresh = (definitionName: string, documentId: string) => Promise<boolean>
+type LocalRefreshRef = WeakRef<LocalRefresh>
+
+const localRefreshKey: unique symbol = Symbol.for("vitehub.realtime.local-refresh")
+// SAFETY: This module owns the process slot shared by separately bundled handlers and callers.
+const refreshScope = globalThis as typeof globalThis & { [localRefreshKey]?: Set<LocalRefreshRef> }
+
+function localRefreshers(): Set<LocalRefreshRef> {
+  refreshScope[localRefreshKey] ??= new Set()
+  return refreshScope[localRefreshKey]
+}
+
+/** The `$DurableObject` namespace binding that holds Realtime rooms on Cloudflare. */
+export interface RealtimeDurableObjectNamespace {
+  get(id: unknown): { fetch(request: Request): Promise<Response> }
+  idFromName(name: string): unknown
+}
+
+export interface RealtimeRefreshOptions {
+  /** On Cloudflare, the `$DurableObject` binding. Without it, only rooms of this process refresh. */
+  durableObjects?: RealtimeDurableObjectNamespace
+}
+
+/**
+ * Tells the open room of a document that its stored copy changed outside the room, such as a save by an Agent or the
+ * CLI. A room without unsaved edits re-seeds at once and resets its clients. A room with unsaved edits finds the change
+ * at its next save, which also re-seeds it. A room that is not open loads the stored copy when it opens. Resolves
+ * whether a room re-seeded. It never throws: a failed refresh leaves the next save to find the change.
+ */
+export async function refreshRealtimeDocument(definition: string, documentId: string, options: RealtimeRefreshOptions = {}): Promise<boolean> {
+  let reseeded = false
+  for (const reference of localRefreshers()) {
+    const refresh = reference.deref()
+    if (!refresh) {
+      localRefreshers().delete(reference)
+      continue
+    }
+    try {
+      if (await refresh(definition, documentId)) reseeded = true
+    }
+    catch {
+      // The next save of that room finds the change.
+    }
+  }
+  const binding = options.durableObjects
+  if (!binding) return reseeded
+  try {
+    const room = documentId.split("/").map(encodeURIComponent).join("/")
+    const response = await binding.get(binding.idFromName(durableRoomsInstance)).fetch(new Request(
+      `https://vitehub.internal${routePrefix}${encodeURIComponent(definition)}/${room}?document=refresh`,
+      { method: "POST", headers: { [internalRefreshHeader]: "1" } },
+    ))
+    const result: unknown = response.ok ? await response.json() : undefined
+    return reseeded || (result instanceof Object && "reseeded" in result && result.reseeded === true)
+  }
+  catch {
+    return reseeded
+  }
+}
+
+/**
+ * A rejected upgrade keeps its status, and carries crossws hooks that refuse the socket. Without hooks, crossws (and
+ * Nitro's adapters) still upgrade the request into a socket that never answers.
+ */
+function refuseUpgrade(request: Request, status: number): Response {
+  const hooks: Partial<WebSocketHooks> = { upgrade: () => new Response(null, { status }) }
+  // The same places h3's defineWebSocketHandler leaves hooks for adapters.
+  const target = request as Request & { context?: Record<symbol, unknown>, [webSocketHooksKey]?: Partial<WebSocketHooks> }
+  target[webSocketHooksKey] = hooks
+  if (target.context) target.context[webSocketHooksKey] = hooks
+  return Object.assign(new Response(null, { status }), { crossws: hooks })
+}
+
+const webSocketHooksKey = Symbol.for("crossws.hooks")
 
 export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandler {
   const inactiveMemoryRoomKeys = new Set<string>()
@@ -397,26 +569,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   const peerPendingAwareness = new WeakMap<WebSocketPeer, { timer: ReturnType<typeof setTimeout>, update: Uint8Array }>()
   const peerWorkspaceChanges = new WeakMap<WebSocketPeer, { count: number, startedAt: number }>()
   const peerInitialSyncStep2 = new WeakSet<WebSocketPeer>()
-  const peerSyncUpdateAt = new WeakMap<WebSocketPeer, number>()
-  const workspaceCheckpointQueues = new Map<string, Promise<void>>()
-
-  async function serializeWorkspaceCheckpoint<T>(workspaceName: string, operation: () => Promise<T>): Promise<T> {
-    const previous = workspaceCheckpointQueues.get(workspaceName) || Promise.resolve()
-    let release!: () => void
-    const current = new Promise<void>((resolve) => { release = resolve })
-    workspaceCheckpointQueues.set(workspaceName, current)
-    await previous
-    try {
-      return await operation()
-    }
-    finally {
-      release()
-      if (workspaceCheckpointQueues.get(workspaceName) === current) workspaceCheckpointQueues.delete(workspaceName)
-    }
-  }
-
-  async function refreshWritableWorkspace(workspaceName: string): Promise<WritableWorkspaceFacade> {
-    return useWorkspace(workspaceName, { mode: "write" })
+  const peerSyncUpdates = new WeakMap<WebSocketPeer, { at: number, tokens: number }>()
+  const peerHeldUpdates = new WeakMap<WebSocketPeer, { bytes: number, timer: ReturnType<typeof setTimeout>, updates: Uint8Array[] }>()
+  const terminalPeers = new WeakSet<WebSocketPeer>()
+  function clearHeldUpdates(peer: WebSocketPeer): void {
+    const held = peerHeldUpdates.get(peer)
+    if (!held) return
+    peerHeldUpdates.delete(peer)
+    clearTimeout(held.timer)
   }
 
   function resolveCloudflare(event: { context: Record<string, unknown>, req: Request }): Record<string, unknown> | undefined {
@@ -440,11 +600,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       idFromName(name: string): unknown
     } | undefined
     if (!binding || (typeof context === "object" && context !== null && "storage" in context)) return
-    const { definitionName, documentId, workspaceEvents } = parseRoomPath(event.req.url)
-    const key = workspaceEvents
-      ? JSON.stringify([definitionName, { workspaceEvents: true }])
-      : realtimeRoomKey(definitionName, documentId)
-    return await binding.get(binding.idFromName(key)).fetch(event.req)
+    let request = event.req
+    if (request.headers.has(internalRefreshHeader)) {
+      // Only refreshRealtimeDocument() may send it, straight to the Durable Object.
+      const headers = new Headers(request.headers)
+      headers.delete(internalRefreshHeader)
+      request = new Request(request, { headers })
+    }
+    return await binding.get(binding.idFromName(durableRoomsInstance)).fetch(request)
   }
 
   function resolveRealtimeRoomSql(event: { context: Record<string, unknown>, req: Request }): RealtimeRoomSql | undefined {
@@ -456,95 +619,40 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const loader = Object.hasOwn(registry, definitionName) ? registry[definitionName] : undefined
     const module = await loader?.()
     if (!module) throw new HTTPError({ status: 404, message: `Unknown realtime definition ${JSON.stringify(definitionName)}.` })
-    const definition = module.default
-    return definition
+    return module.default
   }
 
-  async function getRoom(definitionName: string, documentId: string, definition: RealtimeDefinition, sql?: RealtimeRoomSql, workspaceEvents = false): Promise<Room> {
-    const key = workspaceEvents
-      ? JSON.stringify([definitionName, { workspaceEvents: true }])
-      : realtimeRoomKey(definitionName, documentId)
-    let room = rooms.get(key)
+  async function reserveMemoryRoom(): Promise<void> {
+    if (memoryRoomKeys.size < maxMemoryRooms) return
+    const inactiveKey = inactiveMemoryRoomKeys.values().next().value
+    const inactive = inactiveKey ? await rooms.get(inactiveKey)?.catch(() => undefined) : undefined
+    if (
+      inactive
+      && inactiveMemoryRoomKeys.has(inactive.key)
+      && inactive.peers.size === 0
+      && (inactive.kind === "events" || (inactive.operations === 0 && !inactive.dirty))
+    ) {
+      destroyRoom(inactive)
+    }
+    if (memoryRoomKeys.size >= maxMemoryRooms) {
+      throw new HTTPError({ status: 503, message: "The in-memory realtime authority reached its active room limit." })
+    }
+  }
+
+  async function openRoom<T extends Room>(key: string, sql: RealtimeRoomSql | undefined, create: () => Promise<T>): Promise<T> {
+    // SAFETY: Room keys are namespaced by kind: document keys are [definition, path] and event keys carry { workspaceEvents }.
+    let room = rooms.get(key) as Promise<T> | undefined
+    if (!room && !sql) {
+      await reserveMemoryRoom()
+      // SAFETY: Room keys are namespaced by kind, as above.
+      room = rooms.get(key) as Promise<T> | undefined
+    }
     if (!room) {
-      if (!sql && memoryRoomKeys.size >= maxMemoryRooms) {
-        const inactiveKey = inactiveMemoryRoomKeys.values().next().value
-        const inactiveRoom = inactiveKey ? await rooms.get(inactiveKey) : undefined
-        if (
-          inactiveRoom
-          && inactiveKey
-          && inactiveMemoryRoomKeys.has(inactiveKey)
-          && inactiveRoom.peers.size === 0
-          && !inactiveRoom.mutated
-          && !inactiveRoom.checkpoint
-          && !inactiveRoom.pendingCheckpoint
-        ) {
-          destroyRoom(inactiveRoom)
-        }
-        if (memoryRoomKeys.size >= maxMemoryRooms) {
-          throw new HTTPError({ status: 503, message: "The in-memory realtime authority reached its active room limit." })
-        }
-      }
       if (!sql) memoryRoomKeys.add(key)
-      room = (async () => {
-        const workspaceDocument = !workspaceEvents
-        const workspace = workspaceDocument ? useWorkspace(definition.document.workspace) : undefined
-        const writableWorkspace = workspaceDocument ? useWorkspace(definition.document.workspace, { mode: "write" }) : undefined
-        const initial = workspace && writableWorkspace
-          ? await readRealtimeWorkspaceDocument(workspace, writableWorkspace, documentId)
-          : { baselineDigest: undefined, markdown: "" }
-        if (workspaceDocument && sql) {
-          sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_rooms (room_key TEXT PRIMARY KEY, baseline_digest TEXT, update_blob BLOB NOT NULL)")
-          sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL)")
-        }
-        const stored = workspaceDocument && sql
-          ? sql.exec("SELECT baseline_digest, update_blob FROM vitehub_realtime_rooms WHERE room_key = ?", key).toArray()[0]
-          : undefined
-        const restoresStoredDocument = workspaceDocument && canRestoreRealtimeDocument(initial.baselineDigest, stored)
-        const document = workspaceDocument ? restoreRealtimeDocument(initial.markdown, initial.baselineDigest, stored) : new Y.Doc()
-        let awareness: awarenessProtocol.Awareness | undefined
-        try {
-          const storedUpdates = restoresStoredDocument && sql
-            ? sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
-            : []
-          for (const row of storedUpdates) {
-            const update = storedUpdate(row.update_blob)
-            if (update) Y.applyUpdate(document, update)
-          }
-          assertRealtimeRoomStateQuota(document)
-          awareness = new awarenessProtocol.Awareness(document)
-          awareness.setLocalState(null)
-          const value: Room = {
-            awareness,
-            awarenessOwners: createRealtimeAwarenessOwners(),
-            baselineDigest: initial.baselineDigest,
-            channel: `vitehub:realtime:${key}`,
-            document,
-            durableReady: !!sql || !!initial.baselineDigest,
-            key,
-            mutated: false,
-            peers: new Set(),
-            persistedUpdates: storedUpdates.length,
-            sql: workspaceDocument ? sql : undefined,
-          }
-          value.document.on("update", (update: Uint8Array, origin: unknown) => {
-            value.mutated = true
-            persistRoomUpdate(value, update)
-            if (value.peers.has(origin as WebSocketPeer)) {
-              (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
-            }
-          })
-          if (value.sql && !restoresStoredDocument) persistRoom(value)
-          return value
-        }
-        catch (error) {
-          awareness?.destroy()
-          document.destroy()
-          throw error
-        }
-      })()
+      room = create()
       rooms.set(key, room)
       room.catch(() => {
-        rooms.delete(key)
+        if (rooms.get(key) === room) rooms.delete(key)
         inactiveMemoryRoomKeys.delete(key)
         memoryRoomKeys.delete(key)
       })
@@ -554,42 +662,196 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return value
   }
 
-  function persistRoom(room: Room): void {
-    if (!room.sql || !room.durableReady) return
+  function getEventsRoom(definitionName: string): Promise<EventsRoom> {
+    const key = JSON.stringify([definitionName, { workspaceEvents: true }])
+    return openRoom(key, undefined, async () => {
+      const document = new Y.Doc()
+      const awareness = new awarenessProtocol.Awareness(document)
+      awareness.setLocalState(null)
+      return {
+        awareness,
+        awarenessOwners: createRealtimeAwarenessOwners(),
+        channel: `vitehub:realtime:${key}`,
+        document,
+        key,
+        kind: "events",
+        peers: new Set(),
+      }
+    })
+  }
+
+  function createAwareness(document: Y.Doc): awarenessProtocol.Awareness {
+    const awareness = new awarenessProtocol.Awareness(document)
+    awareness.setLocalState(null)
+    return awareness
+  }
+
+  function roomPeer(room: RoomBase, origin: unknown): WebSocketPeer | undefined {
+    for (const peer of room.peers) {
+      if (peer === origin) return peer
+    }
+  }
+
+  function listen(room: DocumentRoom, document: Y.Doc): void {
+    document.on("update", (update: Uint8Array, origin: unknown) => {
+      if (room.document !== document) return
+      persistRoomUpdate(room, update, origin !== serverOrigin)
+      const message = encodeSyncUpdate(update)
+      const sender = roomPeer(room, origin)
+      if (sender) sender.publish(room.channel, message)
+      else for (const peer of room.peers) peer.send(message)
+      if (origin !== serverOrigin) markDirty(room, sender && room.peerUsers.get(sender))
+    })
+  }
+
+  function replaceDocument(room: DocumentRoom, document: Y.Doc): void {
+    room.document = document
+    room.awareness = createAwareness(document)
+    room.awarenessOwners = createRealtimeAwarenessOwners()
+    listen(room, document)
+  }
+
+  async function seedDocument(editor: RealtimeEditor, loaded: RealtimeLoadedDocument, guard: DocumentGuard): Promise<Y.Doc> {
+    const document = await createRealtimeYDoc(editor, loaded)
+    writeRealtimeStatus(document, { digest: loaded.digest, ...guardStatus(guard), savedAt: null, savedBy: null }, serverOrigin)
+    assertRealtimeRoomStateQuota(document)
+    return document
+  }
+
+  function getDocumentRoom(definitionName: string, documentId: string, resolved: ResolvedRealtimeDefinition, sql: RealtimeRoomSql | undefined): Promise<DocumentRoom> {
+    const key = realtimeRoomKey(definitionName, documentId)
+    return openRoom(key, sql, async () => {
+      const context: RealtimeDocumentContext = { authority: sql ? "cloudflare" : "memory", definition: definitionName, documentId }
+      const editor = resolved.editor(context)
+      const loaded = await resolved.adapter.load(context)
+      const guard = await verifyDocument(editor, loaded)
+      if (sql) {
+        const clientUpdateColumn = documentTables(sql)
+        migrateLegacyDocument(sql, key, clientUpdateColumn)
+      }
+      const stored = sql?.exec("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
+      const storedDigest = text(stored?.digest) ?? null
+      const storedEpoch = text(stored?.epoch)
+      const storedState = storedUpdate(stored?.update_blob)
+      // Restore persisted Yjs state while it still describes the stored document. A different
+      // digest means an external write: seed a new room so stale client state cannot merge back.
+      const restores = !!sql && !!storedState && !!storedEpoch && storedDigest === loaded.digest
+      let document: Y.Doc
+      let persistedUpdates = 0
+      let dirty = false
+      if (restores) {
+        document = new Y.Doc()
+        try {
+          Y.applyUpdate(document, storedState)
+          let updates: Array<Record<string, unknown>>
+          try {
+            updates = sql.exec("SELECT update_blob, client_update FROM vitehub_realtime_document_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+          }
+          catch {
+            updates = sql.exec("SELECT update_blob FROM vitehub_realtime_document_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+          }
+          for (const row of updates) {
+            const update = storedUpdate(row.update_blob)
+            if (update) Y.applyUpdate(document, update)
+          }
+          persistedUpdates = updates.length
+          dirty = Number(stored?.dirty) === 1 || updates.some(update => update.client_update === undefined || Number(update.client_update) === 1)
+          assertRealtimeRoomStateQuota(document)
+          // The codec may have changed since the room was persisted: show what it reports now.
+          if (guard.readOnly || readRealtimeStatus(document).error === readOnlyDocumentMessage) {
+            writeRealtimeStatus(document, guardStatus(guard), serverOrigin)
+          }
+        }
+        catch (error) {
+          document.destroy()
+          throw error
+        }
+      }
+      else {
+        document = await seedDocument(editor, loaded, guard)
+      }
+      const room: DocumentRoom = {
+        awareness: createAwareness(document),
+        awarenessOwners: createRealtimeAwarenessOwners(),
+        channel: `vitehub:realtime:${key}`,
+        context,
+        destroyed: false,
+        digest: loaded.digest,
+        document,
+        dirty,
+        editor,
+        editors: new Map(),
+        epoch: restores && storedEpoch ? storedEpoch : crypto.randomUUID(),
+        guard,
+        held: false,
+        writers: new Set(),
+        key,
+        kind: "document",
+        operations: 0,
+        peerUsers: new WeakMap(),
+        peers: new Set(),
+        persistedUpdates,
+        queue: Promise.resolve(),
+        resolved,
+        retryDelay: 0,
+        revision: 0,
+        sql,
+      }
+      listen(room, document)
+      if (sql && !restores) persistRoom(room)
+      if (dirty) scheduleSave(room)
+      return room
+    })
+  }
+
+  function persistRoom(room: DocumentRoom): void {
+    if (!room.sql) return
     // ponytail: full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
     room.sql.exec(
-      "INSERT OR REPLACE INTO vitehub_realtime_rooms (room_key, baseline_digest, update_blob) VALUES (?, ?, ?)",
+      "INSERT OR REPLACE INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob) VALUES (?, ?, ?, ?, ?)",
       room.key,
-      room.baselineDigest ?? null,
+      room.epoch,
+      room.digest,
+      room.dirty ? 1 : 0,
       Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer,
     )
-    room.sql.exec("DELETE FROM vitehub_realtime_updates WHERE room_key = ?", room.key)
+    room.sql.exec("DELETE FROM vitehub_realtime_document_updates WHERE room_key = ?", room.key)
     room.persistedUpdates = 0
   }
 
-  function persistRoomUpdate(room: Room, update: Uint8Array): void {
-    if (!room.sql || !room.durableReady) return
-    room.sql.exec(
-      "INSERT INTO vitehub_realtime_updates (room_key, update_blob) VALUES (?, ?)",
-      room.key,
-      Uint8Array.from(update).buffer,
-    )
+  function persistRoomUpdate(room: DocumentRoom, update: Uint8Array, clientUpdate: boolean): void {
+    if (!room.sql) return
+    const blob = Uint8Array.from(update).buffer
+    try {
+      room.sql.exec(
+        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, ?)",
+        room.key,
+        blob,
+        clientUpdate ? 1 : 0,
+      )
+    }
+    catch {
+      // Some Durable Object SQLite versions reject ALTER TABLE on an existing
+      // journal. Keep those deployments writable until the column can be
+      // added; restored rows are treated as client updates by default.
+      room.sql.exec(
+        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
+        room.key,
+        blob,
+      )
+    }
     room.persistedUpdates++
     if (room.persistedUpdates >= durableUpdateCompactionInterval) persistRoom(room)
   }
 
-  function evictRoom(room: Room): void {
-    if (room.peers.size > 0 || room.checkpoint || room.pendingCheckpoint) return
-    if (!room.sql) {
-      if (room.mutated) return
-      inactiveMemoryRoomKeys.delete(room.key)
-      inactiveMemoryRoomKeys.add(room.key)
-      return
-    }
-    destroyRoom(room)
-  }
-
   function destroyRoom(room: Room): void {
+    if (room.kind === "document") {
+      if (room.idleTimer) clearTimeout(room.idleTimer)
+      room.idleTimer = undefined
+      if (room.holdTimer) clearInterval(room.holdTimer)
+      room.holdTimer = undefined
+      room.destroyed = true
+    }
     room.awareness.destroy()
     room.document.destroy()
     rooms.delete(room.key)
@@ -597,235 +859,345 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     memoryRoomKeys.delete(room.key)
   }
 
-  function clearPendingCheckpoint(room: Room, pending: NonNullable<Room["pendingCheckpoint"]>): void {
-    if (room.pendingCheckpoint !== pending) return
-    room.pendingCheckpoint = undefined
-    if (room.pendingCheckpointTimer) clearTimeout(room.pendingCheckpointTimer)
-    room.pendingCheckpointTimer = undefined
-    pending.submittedDocument.destroy()
-  }
-
-  function reconcilePendingCheckpoint(room: Room, pending: NonNullable<Room["pendingCheckpoint"]>, content: string): void {
-    if (content === yDocToMarkdown(pending.submittedDocument)) return
-    const update = replaceRealtimeDocument(pending.submittedDocument, content)
-    Y.applyUpdate(room.document, update)
-    if (update.byteLength > 0) {
-      const message = encodeSyncUpdate(update)
-      for (const peer of room.peers) peer.send(message)
+  /** Releases an idle room: durable rooms leave memory; clean memory rooms become reclaimable. */
+  function releaseRoom(room: Room): void {
+    if (room.peers.size > 0) return
+    if (room.kind === "events") {
+      inactiveMemoryRoomKeys.delete(room.key)
+      inactiveMemoryRoomKeys.add(room.key)
+      return
     }
-  }
-
-  async function recoverPendingCheckpoint(room: Room, pending: NonNullable<Room["pendingCheckpoint"]>): Promise<void> {
-    const current = await readRealtimeWorkspaceDocument(pending.workspace, pending.workspace, pending.path)
-    room.baselineDigest = current.baselineDigest
-    room.durableReady = !!room.sql || !!room.baselineDigest
-    reconcilePendingCheckpoint(room, pending, current.markdown)
-    persistRoom(room)
-    clearPendingCheckpoint(room, pending)
-  }
-
-  function schedulePendingCheckpointExpiry(
-    room: Room,
-    pending: NonNullable<Room["pendingCheckpoint"]>,
-  ): void {
-    if (room.pendingCheckpoint !== pending || room.pendingCheckpointTimer) return
-    const expire = () => {
-      room.pendingCheckpointTimer = undefined
-      void (async () => {
-        try {
-          await recoverPendingCheckpoint(room, pending)
-        }
-        catch {
-          if (room.pendingCheckpoint === pending) room.pendingCheckpointTimer = setTimeout(expire, pendingCheckpointRetentionMs)
-          return
-        }
-        clearPendingCheckpoint(room, pending)
-        evictRoom(room)
-      })()
+    if (room.operations > 0 || room.destroyed || room.held) return
+    if (room.sql) {
+      persistRoom(room)
+      destroyRoom(room)
+      return
     }
-    room.pendingCheckpointTimer = setTimeout(expire, pendingCheckpointRetentionMs)
+    // Keep dirty memory-only rooms resident: there is no durable destination
+    // from which their unsaved edits could be recovered after eviction.
+    if (room.dirty) return
+    inactiveMemoryRoomKeys.delete(room.key)
+    inactiveMemoryRoomKeys.add(room.key)
   }
 
-  async function checkpointRoom(documentId: string, definition: RealtimeDefinition, room: Room, state: Uint8Array): Promise<RealtimeCheckpoint> {
-    const configured = definition.history?.checkpoint
-    if (!configured) throw new HTTPError({ status: 404 })
-    if (room.checkpoint) {
-      const active = room.checkpoint
-      if (matchesBytes(room.checkpointState, state)) return await active
-      await active
-      return await checkpointRoom(documentId, definition, room, state)
+  function enqueue<T>(room: DocumentRoom, operation: () => Promise<T>): Promise<T> {
+    room.operations++
+    const run = room.queue.then(() => {
+      if (room.destroyed) throw new HTTPError({ status: 409, message: "The realtime room closed." })
+      return operation()
+    })
+    room.queue = run.then(() => {}, () => {})
+    return run.finally(() => {
+      room.operations--
+      releaseRoom(room)
+    })
+  }
+
+  function markDirty(room: DocumentRoom, user: RealtimeUser | undefined): void {
+    room.dirty = true
+    room.revision++
+    if (user) {
+      room.editors.delete(user.id)
+      room.editors.set(user.id, user)
     }
+    scheduleSave(room)
+  }
 
-    const checkpoint = serializeWorkspaceCheckpoint(definition.document.workspace, async () => {
-      let pending = room.pendingCheckpoint
-      if (pending && (pending.content === undefined || pending.digest === undefined)) {
-        await recoverPendingCheckpoint(room, pending)
-        throw new HTTPError({
-          status: 409,
-          message: "The Workspace document changed while recovering its realtime checkpoint.",
-          data: { code: realtimeCheckpointRejectedCode },
-        })
-      }
-      if (pending && !matchesBytes(pending.state, state)) {
-        const current = await readRealtimeWorkspaceDocument(pending.workspace, pending.workspace, pending.path)
-        room.baselineDigest = current.baselineDigest
-        room.durableReady = !!room.sql || !!room.baselineDigest
-        if (current.markdown !== yDocToMarkdown(pending.submittedDocument)) {
-          reconcilePendingCheckpoint(room, pending, current.markdown)
-          persistRoom(room)
-          clearPendingCheckpoint(room, pending)
-          throw new HTTPError({
-            status: 409,
-            message: "The Workspace document changed while recovering its realtime checkpoint.",
-            data: { code: realtimeCheckpointRejectedCode },
-          })
-        }
-        clearPendingCheckpoint(room, pending)
-        pending = undefined
-      }
-      if (!pending) {
-        const workspace = useWorkspace(definition.document.workspace, { mode: "write" })
-        const submittedDocument = new Y.Doc()
-        Y.applyUpdate(submittedDocument, Y.encodeStateAsUpdate(room.document))
-        const message = typeof configured === "object" && configured.message
-          ? configured.message
-          : `docs: checkpoint ${documentId}`
-        let path: string
-        try {
-          path = await writeRealtimeDocument(workspace, documentId, submittedDocument, room.baselineDigest ?? null)
-        }
-        catch (error) {
-          submittedDocument.destroy()
-          if (isWorkspaceConflict(error)) {
-            throw new HTTPError({ status: 409, message: "The document changed in Workspace after this realtime room opened." })
-          }
-          // A write:after hook can fail after the conditional store write committed.
-          // Refresh the baseline so a retry does not remain pinned to the stale digest.
-          const refreshedWorkspace = await refreshWritableWorkspace(definition.document.workspace)
-          room.baselineDigest = (await refreshedWorkspace.fs.stat(documentId))?.digest
-          room.durableReady = !!room.sql || !!room.baselineDigest
-          persistRoom(room)
-          throw error
-        }
-        try {
-          const written = await readRealtimeWorkspaceDocument(workspace, workspace, path)
-          if (!written.baselineDigest) throw realtimeErrorDiagnostics.REALTIME_R0008({ message: "Realtime checkpoints require Workspace file digests." })
-          pending = { content: written.markdown, digest: written.baselineDigest, message, path, state: Uint8Array.from(state), submittedDocument, workspace }
-        }
-        catch (error) {
-          room.pendingCheckpoint = { message, path, state: Uint8Array.from(state), submittedDocument, workspace }
-          schedulePendingCheckpointExpiry(room, room.pendingCheckpoint)
-          throw error
-        }
-        room.pendingCheckpoint = pending
-      }
+  /** Identified users of the writable clients, once each, in the order they joined. */
+  function holdUsers(room: DocumentRoom): RealtimeUser[] {
+    const users = new Map<string, RealtimeUser>()
+    for (const peer of room.writers) {
+      const user = room.peerUsers.get(peer)
+      if (user && !users.has(user.id)) users.set(user.id, user)
+    }
+    return [...users.values()]
+  }
 
-      let snapshot: WorkspaceSnapshot
+  /** Calls `adapter.hold()` for a room with writable clients, such as to keep a lease, and repeats it every minute. */
+  function holdRoom(room: DocumentRoom): void {
+    const hold = room.resolved.adapter.hold
+    if (!hold || room.destroyed || room.guard.readOnly) return
+    if (room.writers.size === 0) {
+      if (room.held) releaseHold(room)
+      return
+    }
+    room.held = true
+    room.holdTimer ??= setInterval(() => holdRoom(room), holdIntervalMs)
+    enqueue(room, async () => {
+      if (room.writers.size === 0) return
       try {
-        try {
-          snapshot = await pending.workspace.history.checkpoint({ message: pending.message })
+        await hold.call(room.resolved.adapter, room.context, { users: holdUsers(room) })
+        if (room.holdError !== undefined && readRealtimeStatus(room.document).error === room.holdError) {
+          writeRealtimeStatus(room.document, { error: null }, serverOrigin)
         }
-        catch (error) {
-          if (!isWorkspaceConflict(error)) throw error
-          await pending.workspace.history.rebase({ takeRemote: [pending.path] })
-          snapshot = await pending.workspace.history.checkpoint({ message: pending.message })
-        }
+        room.holdError = undefined
       }
       catch (error) {
-        if (isWorkspaceConflict(error)) {
-          schedulePendingCheckpointExpiry(room, pending)
-          throw new HTTPError({
-            status: 409,
-            message: "The Workspace changed while checkpointing this realtime document.",
-            data: { code: realtimeCheckpointRejectedCode },
-          })
-        }
-        schedulePendingCheckpointExpiry(room, pending)
-        throw error
+        room.holdError = errorMessage(error)
+        writeRealtimeStatus(room.document, { error: room.holdError }, serverOrigin)
       }
-      if (snapshot.entries[pending.path]?.digest !== pending.digest) {
-        let current: Awaited<ReturnType<typeof readRealtimeWorkspaceDocument>>
-        try {
-          current = await readRealtimeWorkspaceDocument(pending.workspace, pending.workspace, pending.path)
-        }
-        catch (error) {
-          pending.content = undefined
-          pending.digest = undefined
-          schedulePendingCheckpointExpiry(room, pending)
-          throw error
-        }
-        room.baselineDigest = current.baselineDigest
-        room.durableReady = !!room.sql || !!room.baselineDigest
-        reconcilePendingCheckpoint(room, pending, current.markdown)
-        persistRoom(room)
-        clearPendingCheckpoint(room, pending)
+    }).catch(() => {})
+  }
+
+  /** After the last writable client left: save what is left, then call `adapter.release()`. */
+  function releaseHold(room: DocumentRoom): void {
+    if (room.holdTimer) clearInterval(room.holdTimer)
+    room.holdTimer = undefined
+    if (room.dirty && room.resolved.persistence) enqueue(room, () => saveRoom(room, "leave", false)).catch(() => {})
+    enqueue(room, async () => {
+      if (room.writers.size > 0 || !room.held) return
+      room.held = false
+      await room.resolved.adapter.release?.(room.context)
+    }).catch(() => {
+      room.held = false
+    })
+  }
+
+  function scheduleSave(room: DocumentRoom, delay?: number): void {
+    const persistence = room.resolved.persistence
+    if (!persistence || room.destroyed || room.guard.readOnly) return
+    const now = Date.now()
+    room.firstDirtyAt ??= now
+    if (room.idleTimer) clearTimeout(room.idleTimer)
+    const wait = delay ?? Math.max(0, Math.min(persistence.debounce, room.firstDirtyAt + persistence.maxWait - now))
+    room.idleTimer = setTimeout(() => {
+      room.idleTimer = undefined
+      enqueue(room, () => saveRoom(room, "idle", false)).catch(() => {})
+    }, wait)
+  }
+
+  async function reseedRoom(room: DocumentRoom, reason: RealtimeResetReason, loaded?: RealtimeLoadedDocument, preserveEdits = false): Promise<boolean> {
+    const revision = room.revision
+    const source = loaded ?? await room.resolved.adapter.load(room.context)
+    const guard = await verifyDocument(room.editor, source)
+    const next = await seedDocument(room.editor, source, guard)
+    // Verification and seeding are asynchronous. Preserve edits that arrive while they run.
+    // A client update can arrive during verification or seeding. The revision
+    // guard applies to every reseed, including conflict recovery, so that the
+    // live document is never replaced after a concurrent edit.
+    if (room.destroyed || room.revision !== revision || (preserveEdits && room.dirty)) return false
+    const previous = { awareness: room.awareness, document: room.document }
+    const peers = [...room.peers]
+    // Keep peers and writers tracked until their close callbacks run so the room is released when reset sockets close.
+    room.epoch = crypto.randomUUID()
+    room.digest = source.digest
+    room.guard = guard
+    room.dirty = false
+    room.editors.clear()
+    room.firstDirtyAt = undefined
+    room.retryDelay = 0
+    if (room.idleTimer) clearTimeout(room.idleTimer)
+    room.idleTimer = undefined
+    replaceDocument(room, next)
+    previous.awareness.destroy()
+    previous.document.destroy()
+    persistRoom(room)
+    const reset = encodeRealtimeControl({ type: "reset", epoch: room.epoch, reason })
+    for (const peer of peers) {
+      terminalPeers.add(peer)
+      clearHeldUpdates(peer)
+      peer.unsubscribe(room.channel)
+      peer.send(reset)
+      peer.close(realtimeResetCloseCode, "The realtime document was re-seeded.")
+    }
+    return true
+  }
+
+  async function saveRoom(room: DocumentRoom, reason: RealtimeSaveOptions["reason"], force: boolean): Promise<RealtimeSaved | undefined> {
+    const { adapter, persistence } = room.resolved
+    const editor = room.editor
+    if (room.guard.readOnly) {
+      if (!force) return
+      throw new HTTPError({ status: 409, message: readOnlyDocumentMessage, data: { code: realtimeReadOnlyCode } })
+    }
+    if (!room.dirty && !(force && room.digest === null)) {
+      if (!force) return
+      const status = readRealtimeStatus(room.document)
+      return { ...status, document: await readRealtimeYDoc(editor, room.document) }
+    }
+    if (room.idleTimer) clearTimeout(room.idleTimer)
+    room.idleTimer = undefined
+    room.firstDirtyAt = undefined
+    const revision = room.revision
+    const editors = [...room.editors.values()]
+    const user = editors.at(-1)
+    const submitted = new Y.Doc()
+    Y.applyUpdate(submitted, Y.encodeStateAsUpdate(room.document))
+    const finishSave = () => {
+      room.retryDelay = 0
+      if (room.revision === revision) {
+        room.dirty = false
+        room.editors.clear()
+      }
+      else scheduleSave(room)
+      persistRoom(room)
+    }
+    try {
+      const written = await readRealtimeYDoc(editor, submitted)
+      const document = { ...written, body: keepRealtimeFinalNewline(written.body, room.guard.finalNewline) }
+      const { clean } = room.guard
+      if (room.digest !== null && document.body === clean.body && realtimeJsonEqual(document.fields, clean.fields)) {
+        // The edits cancel out, or only change the codec's own form of the stored document: write nothing.
+        writeRealtimeStatus(room.document, { error: null }, serverOrigin)
+        finishSave()
+        return { ...readRealtimeStatus(room.document), document }
+      }
+      const readsBack = await realtimeCodecReadsBack(editor, submitted, written.body)
+      let result
+      try {
+        result = await adapter.save(room.context, document, { editors, ifDigest: room.digest, reason, user })
+      }
+      catch (error) {
+        if (!isRealtimeDocumentConflict(error) && !isWorkspaceConflict(error)) throw error
+        // The stored document changed outside this room. It wins; clients reset and receive the
+        // unsaved document as `previous` in their reset event.
+        await reseedRoom(room, "source-changed")
         throw new HTTPError({
           status: 409,
-          message: "The Workspace document changed while creating its realtime checkpoint.",
-          data: { code: realtimeCheckpointRejectedCode },
+          message: "The stored document changed outside this realtime room. The room was re-seeded.",
+          data: { code: realtimeSourceChangedCode },
         })
       }
-      room.baselineDigest = snapshot.entries[pending.path]?.digest
-      room.durableReady = !!room.sql || !!room.baselineDigest
-      reconcilePendingCheckpoint(room, pending, pending.content!)
-      room.mutated = !matchesRealtimeState(room.document, Y.encodeStateAsUpdate(pending.submittedDocument))
-      persistRoom(room)
-      clearPendingCheckpoint(room, pending)
-      return { content: pending.content!, snapshot }
-    })
-
-    room.checkpoint = checkpoint
-    room.checkpointState = state
-    try {
-      return await checkpoint
+      room.digest = result.digest
+      const storedBody = result.stored?.body ?? document.body
+      room.guard = {
+        clean: { body: storedBody, fields: result.stored?.fields ?? document.fields },
+        finalNewline: storedBody.endsWith("\n"),
+        issues: [],
+        readOnly: false,
+      }
+      if (result.stored) {
+        const update = await diffRealtimeYDoc(editor, submitted, result.stored)
+        if (update.byteLength > 0) Y.applyUpdate(room.document, update, serverOrigin)
+      }
+      const status = {
+        digest: result.digest,
+        error: null,
+        issues: readsBack ? result.issues ?? [] : [...result.issues ?? [], codecReadBackIssue],
+        savedAt: new Date().toISOString(),
+        savedBy: user ?? null,
+      }
+      writeRealtimeStatus(room.document, status, serverOrigin)
+      finishSave()
+      return { ...status, document: { ...document, ...result.stored, fields: result.stored?.fields ?? document.fields } }
+    }
+    catch (error) {
+      if (room.destroyed || !room.dirty) throw error
+      writeRealtimeStatus(room.document, { error: errorMessage(error) }, serverOrigin)
+      if (persistence) {
+        room.retryDelay = Math.min(Math.max(persistence.debounce, room.retryDelay * 2), maxSaveRetryMs)
+        room.firstDirtyAt = undefined
+        scheduleSave(room, room.retryDelay)
+      }
+      throw error
     }
     finally {
-      if (room.checkpoint === checkpoint) {
-        room.checkpoint = undefined
-        room.checkpointState = undefined
-      }
-      evictRoom(room)
+      submitted.destroy()
     }
+  }
+
+  async function refreshRoom(room: DocumentRoom): Promise<{ digest: string | null, reseeded: boolean }> {
+    const revision = room.revision
+    const loaded = await room.resolved.adapter.load(room.context)
+    // A client may edit while the adapter is loading. Preserve that live edit
+    // and let the normal save path reconcile the external change.
+    if (room.dirty || room.revision !== revision) return { digest: room.digest, reseeded: false }
+    if (loaded.digest === room.digest) return { digest: room.digest, reseeded: false }
+    const reseeded = await reseedRoom(room, "source-changed", loaded, true)
+    return { digest: room.digest, reseeded }
+  }
+
+  /** Refreshes an open room without unsaved edits. A dirty room finds the outside change at its next save. */
+  async function refreshOpenRoom(definitionName: string, documentId: string): Promise<boolean> {
+    const pending = rooms.get(realtimeRoomKey(definitionName, documentId))
+    const room = pending ? await pending.catch(() => undefined) : undefined
+    if (!room || room.kind !== "document" || room.destroyed) return false
+    return await enqueue(room, async () => !room.dirty && (await refreshRoom(room)).reseeded)
+  }
+  localRefreshers().add(new WeakRef(refreshOpenRoom))
+
+  async function checkpointRoom(room: DocumentRoom, user: RealtimeUser | null): Promise<RealtimeCheckpoint> {
+    const { adapter, definition } = room.resolved
+    const configured = definition.history?.checkpoint
+    const saved = (await saveRoom(room, "request", true))!
+    if (!saved.digest) throw realtimeErrorDiagnostics.REALTIME_R0008({ message: "Realtime checkpoints require a stored document digest." })
+    let snapshot
+    try {
+      snapshot = await adapter.checkpoint!(room.context, {
+        digest: saved.digest,
+        message: configured === true ? undefined : configured?.message,
+        user: user ?? saved.savedBy ?? undefined,
+      })
+    }
+    catch (error) {
+      if (!isRealtimeDocumentConflict(error) && !isWorkspaceConflict(error)) throw error
+      await reseedRoom(room, "source-changed")
+      throw new HTTPError({
+        status: 409,
+        message: "The stored document changed while checkpointing. The room was re-seeded.",
+        data: { code: realtimeSourceChangedCode },
+      })
+    }
+    return { ...saved, digest: saved.digest, snapshot }
+  }
+
+  async function requestContext(event: { context: Record<string, unknown>, req: Request }) {
+    const { definitionName, documentId, searchParams, workspaceEvents } = parseRoomPath(event.req.url)
+    const definition = await getDefinition(definitionName)
+    const resolved = resolveRealtimeDefinition(definition)
+    const user = await identify(event.req, event, definitionName, definition)
+    const access = (mode: "read" | "write", id: string | null = workspaceEvents ? null : documentId) =>
+      allows(definition, { definition: definitionName, documentId: id, event, mode, request: event.req, user })
+    return { access, definitionName, documentId, resolved, searchParams, user, workspaceEvents }
   }
 
   const httpHandler = defineEventHandler(async (event) => {
-    if (event.req.method !== "POST" || new URL(event.req.url).searchParams.get("history") !== "checkpoint") {
+    const url = new URL(event.req.url)
+    const action = url.searchParams.get("history") === "checkpoint"
+      ? "checkpoint"
+      : url.searchParams.get("document")
+    if (event.req.method !== "POST" || (action !== "checkpoint" && action !== "save" && action !== "refresh")) {
       throw new HTTPError({ status: 405 })
     }
-    const { definitionName, documentId, workspaceEvents } = parseRoomPath(event.req.url)
-    if (workspaceEvents) throw new HTTPError({ status: 400, message: "Workspace events cannot be checkpointed." })
-    const definition = await getDefinition(definitionName)
-    await authorize(event.req, definition.auth, event)
-    if (!definition.history?.checkpoint) throw new HTTPError({ status: 404 })
-    const workspace = useWorkspace(definition.document.workspace, { mode: "write" })
-    if (!(await workspace.capabilities()).conditionalWrites) {
-      throw new HTTPError({ status: 501, message: "Realtime checkpoints require a Workspace Store with conditional writes." })
+    const request = await requestContext(event)
+    if (request.workspaceEvents) throw new HTTPError({ status: 400, message: "Workspace events have no document to save." })
+    if (action === "checkpoint" && (!request.resolved.definition.history?.checkpoint || !request.resolved.adapter.checkpoint)) {
+      throw new HTTPError({ status: 404 })
     }
-    const sql = resolveRealtimeRoomSql(event)
-    if (sql && (await resolveWorkspaceStoreTarget(workspace))?.provider === "memory") {
-      throw new HTTPError({ status: 501, message: "Durable realtime checkpoints require a durable Workspace Store." })
+    if (!(await request.access("read")) || (action !== "refresh" && !(await request.access("write")))) {
+      throw new HTTPError({ status: 403 })
     }
-    const state = await readRealtimeCheckpointState(event.req)
-    if (!state.byteLength) throw new HTTPError({ status: 400, message: "Realtime checkpoint state is required." })
-    const room = await getRoom(definitionName, documentId, definition, sql, workspaceEvents)
-    if (!matchesRealtimeState(room.document, state)) {
-      evictRoom(room)
-      throw new HTTPError({
-        status: 409,
-        message: "The realtime document is still syncing.",
-        data: { code: realtimeSyncPendingCode },
-      })
-    }
-    return await checkpointRoom(documentId, definition, room, state)
+    const state = action === "refresh" ? undefined : await readRealtimeRequestState(event.req)
+    if (state && !state.byteLength) throw new HTTPError({ status: 400, message: "Realtime document state is required." })
+    const room = await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
+    if (action === "refresh") return await enqueue(room, async () => room.dirty ? { digest: room.digest, reseeded: false } : refreshRoom(room))
+    return await enqueue(room, async () => {
+      if (!containsRealtimeState(room.document, state!)) {
+        throw new HTTPError({
+          status: 409,
+          message: "The realtime document is still syncing.",
+          data: { code: realtimeSyncPendingCode },
+        })
+      }
+      return action === "save"
+        ? (await saveRoom(room, "request", true))!
+        : await checkpointRoom(room, request.user)
+    })
   })
 
   const websocketHandler = defineWebSocketHandler(async (event) => {
-    const { definitionName, documentId, workspaceEvents } = parseRoomPath(event.req.url)
-    const definition = await getDefinition(definitionName)
-    const identity = await authorize(event.req, definition.auth, event)
-    const room = await getRoom(definitionName, documentId, definition, resolveRealtimeRoomSql(event), workspaceEvents)
+    const request = await requestContext(event)
+    if (!(await request.access("read"))) throw new HTTPError({ status: 403 })
+    const writable = !request.workspaceEvents && await request.access("write")
+    const identity: RealtimeIdentity | undefined = request.user ? createRealtimeIdentity({ ...request.user }) : undefined
+    const room: Room = request.workspaceEvents
+      ? await getEventsRoom(request.definitionName)
+      : await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
+    const clientEpoch = request.searchParams.get("epoch")
 
     function leave(peer: WebSocketPeer) {
+      if (terminalPeers.has(peer)) clearHeldUpdates(peer)
+      else applyHeldUpdates(peer)
       if (!room.peers.delete(peer)) return
       const pendingAwareness = peerPendingAwareness.get(peer)
       if (pendingAwareness) clearTimeout(pendingAwareness.timer)
@@ -837,7 +1209,72 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         room.awareness = compactRealtimeAwareness(room.awareness)
       }
       peer.unsubscribe(room.channel)
-      evictRoom(room)
+      if (room.kind === "document" && room.writers.delete(peer) && room.held) {
+        // The last writer leaving saves and releases; otherwise the hold names who is left.
+        if (room.writers.size === 0) releaseHold(room)
+        else holdRoom(room)
+        return
+      }
+      if (room.kind === "document" && room.peers.size === 0 && room.dirty && room.resolved.persistence) {
+        enqueue(room, () => saveRoom(room, "leave", false)).catch(() => {})
+        return
+      }
+      releaseRoom(room)
+    }
+
+    function applyDocumentMessage(peer: WebSocketPeer, data: Uint8Array) {
+      if (room.kind !== "document") return
+      try {
+        const readOnly = room.guard.readOnly ? readOnlyDocumentRejection : !writable
+        const response = applyRealtimeSyncMessage(data, room.document, peer, { readOnly })
+        if (response) peer.send(response)
+      }
+      catch (error) {
+        if (error instanceof RealtimeWriteRejected) peer.close(realtimeForbiddenWriteCloseCode, error.message)
+        else peer.close(4400, "Realtime document exceeds its 8 MiB room quota.")
+      }
+    }
+
+    function refillUpdates(peer: WebSocketPeer) {
+      const now = Date.now()
+      const bucket = peerSyncUpdates.get(peer) ?? { at: now, tokens: syncUpdateBurst }
+      bucket.tokens = Math.min(syncUpdateBurst, bucket.tokens + (now - bucket.at) * syncUpdatesPerSecond / 1_000)
+      bucket.at = now
+      peerSyncUpdates.set(peer, bucket)
+      return bucket
+    }
+
+    function holdUpdate(peer: WebSocketPeer, update: Uint8Array, bucket: { tokens: number }) {
+      const held = peerHeldUpdates.get(peer)
+      const bytes = (held?.bytes ?? 0) + update.byteLength
+      if (bytes > maxMessageBytes) {
+        terminalPeers.add(peer)
+        clearHeldUpdates(peer)
+        peer.close(1013, "Realtime updates are arriving too quickly.")
+        return
+      }
+      if (held) {
+        held.updates.push(update)
+        held.bytes = bytes
+        return
+      }
+      const wait = Math.ceil((1 - bucket.tokens) * 1_000 / syncUpdatesPerSecond)
+      peerHeldUpdates.set(peer, { bytes, timer: setTimeout(() => applyHeldUpdates(peer), wait), updates: [update] })
+    }
+
+    /** Applies the updates a peer sent past its budget as one merged update, for one token. */
+    function applyHeldUpdates(peer: WebSocketPeer) {
+      if (terminalPeers.has(peer)) {
+        clearHeldUpdates(peer)
+        return
+      }
+      const held = peerHeldUpdates.get(peer)
+      if (!held) return
+      peerHeldUpdates.delete(peer)
+      clearTimeout(held.timer)
+      const bucket = refillUpdates(peer)
+      bucket.tokens = Math.max(0, bucket.tokens - 1)
+      applyDocumentMessage(peer, encodeSyncUpdate(held.updates.length === 1 ? held.updates[0]! : Y.mergeUpdates(held.updates)))
     }
 
     function applyAwareness(peer: WebSocketPeer, input: Uint8Array) {
@@ -849,18 +1286,39 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         peer.close(error instanceof AwarenessOwnershipConflict ? 4500 : 4400, "Invalid awareness update.")
         return
       }
-      peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
+      if (clients.length) peer.publish(room.channel, encodeAwarenessState(room.awareness, clients))
     }
 
     return {
       open(peer) {
+        if (room.kind === "document") {
+          if (clientEpoch && clientEpoch !== room.epoch) {
+            // The client holds Yjs state from an earlier seed. Merging it would duplicate content.
+            peer.send(encodeRealtimeControl({ type: "reset", epoch: room.epoch, reason: "stale" }))
+            peer.close(realtimeResetCloseCode, "The realtime document was re-seeded.")
+            releaseRoom(room)
+            return
+          }
+          if (request.user) room.peerUsers.set(peer, request.user)
+        }
         room.peers.add(peer)
         peer.subscribe(room.channel)
+        if (room.kind === "document") {
+          const reason: RealtimeReadOnlyReason | undefined = room.guard.readOnly ? "document" : writable ? undefined : "access"
+          peer.send(encodeRealtimeControl(reason
+            ? { type: "session", access: "read", epoch: room.epoch, reason }
+            : { type: "session", access: "write", epoch: room.epoch }))
+          if (!reason) {
+            room.writers.add(peer)
+            holdRoom(room)
+          }
+        }
         peer.send(encodeSyncStep1(room.document))
         const clients = [...room.awareness.getStates().keys()]
         if (clients.length) peer.send(encodeAwarenessState(room.awareness, clients))
       },
       message(peer, message: WebSocketMessage) {
+        if (!room.peers.has(peer)) return
         const data = message.uint8Array()
         if (data.byteLength > maxMessageBytes) {
           peer.close(4400, "Realtime message exceeds 1 MiB.")
@@ -876,7 +1334,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           return
         }
         if (messageType === messageWorkspaceChange) {
-          if (!workspaceEvents) {
+          if (room.kind !== "events") {
             peer.close(4400, "Workspace changes require the workspace room.")
             return
           }
@@ -934,7 +1392,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
                 timer: setTimeout(() => {
                   peerPendingAwareness.delete(peer)
                   peerAwarenessUpdateAt.set(peer, Date.now())
-                  applyAwareness(peer, next.update)
+                  if (room.peers.has(peer)) applyAwareness(peer, next.update)
                 }, awarenessUpdateIntervalMs - (now - previous)),
                 update,
               }
@@ -949,7 +1407,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         if (messageType !== messageSync) return
         try {
           const syncType = decoding.readVarUint(decoder)
-          if (workspaceEvents) {
+          if (room.kind === "events") {
             if (syncType === syncProtocol.messageYjsSyncStep1) {
               const response = applyRealtimeSyncMessage(data, room.document, peer)
               if (response) peer.send(response)
@@ -962,19 +1420,18 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           const initialSyncStep2 = syncType === syncProtocol.messageYjsSyncStep2 && !peerInitialSyncStep2.has(peer)
           if (initialSyncStep2) peerInitialSyncStep2.add(peer)
           else if (syncType === syncProtocol.messageYjsSyncStep2 || syncType === syncProtocol.messageYjsUpdate) {
-            const now = Date.now()
-            const previous = peerSyncUpdateAt.get(peer)
-            if (previous !== undefined && now - previous < syncUpdateIntervalMs) {
-              peer.close(1013, "Realtime updates are arriving too quickly.")
+            const bucket = refillUpdates(peer)
+            // Keep the order: once one update waits, the ones after it wait too.
+            if (peerHeldUpdates.has(peer) || bucket.tokens < 1) {
+              holdUpdate(peer, decoding.readVarUint8Array(decoder), bucket)
               return
             }
-            peerSyncUpdateAt.set(peer, now)
+            bucket.tokens--
           }
-          const response = applyRealtimeSyncMessage(data, room.document, peer)
-          if (response) peer.send(response)
+          applyDocumentMessage(peer, data)
         }
         catch {
-          peer.close(4400, "Realtime document exceeds its 8 MiB room quota.")
+          peer.close(4400, "Invalid realtime message.")
         }
       },
       close(peer) {
@@ -989,9 +1446,18 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   const handler = defineEventHandler(async (event) => {
     const forwarded = await forwardToCloudflareDurableObject(event)
     if (forwarded) return forwarded
-    return event.req.headers.get("upgrade")?.toLowerCase() === "websocket"
-      ? websocketHandler(event)
-      : httpHandler(event)
+    // Inside the Durable Object, a refresh from refreshRealtimeDocument(). The Worker strips the header from client requests.
+    if (event.req.headers.has(internalRefreshHeader) && resolveRealtimeRoomSql(event)) {
+      const { definitionName, documentId } = parseRoomPath(event.req.url)
+      return { reseeded: await refreshOpenRoom(definitionName, documentId) }
+    }
+    if (event.req.headers.get("upgrade")?.toLowerCase() !== "websocket") return httpHandler(event)
+    try {
+      return await websocketHandler(event)
+    }
+    catch (error) {
+      return refuseUpgrade(event.req, error instanceof HTTPError ? error.status : 500)
+    }
   })
   // SAFETY: H3 attaches a Fetch-compatible method to every defined event handler.
   return handler as RealtimeHandler
