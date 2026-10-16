@@ -319,6 +319,7 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 }
 
 let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+let undiciReadableStreamPromise: Promise<typeof ReadableStream | undefined> | undefined
 
 async function getUndiciResponse(): Promise<typeof Response | undefined> {
   if (undiciResponsePromise) return undiciResponsePromise
@@ -326,6 +327,14 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
     .then(module => module.Response as typeof Response)
     .catch(() => undefined)
   return undiciResponsePromise
+}
+
+async function getUndiciReadableStream(): Promise<typeof ReadableStream | undefined> {
+  if (undiciReadableStreamPromise) return undiciReadableStreamPromise
+  undiciReadableStreamPromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.ReadableStream as typeof ReadableStream)
+    .catch(() => undefined)
+  return undiciReadableStreamPromise
 }
 
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
@@ -450,7 +459,9 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
         // Only the captured Web Streams constructor is trusted. A foreign
         // constructor can reproduce every observable probe result while
         // retaining caller-controlled reader methods.
-        if (constructor !== ReadableStream) return
+        const UndiciReadableStream = await getUndiciReadableStream()
+        const trustedConstructor = constructor === ReadableStream || constructor === UndiciReadableStream
+        if (!trustedConstructor) return
         if (typeof descriptor.value === "function"
           && constructor?.name === "ReadableStream") {
           // Probe the source runtime's reader prototype before acquiring the
