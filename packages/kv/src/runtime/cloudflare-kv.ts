@@ -38,25 +38,18 @@ function isCloudflareKVListPage(value: unknown): value is CloudflareKVListPage {
   return page.list_complete || (isCloudflareKVString(page.cursor) && page.cursor.length > 0)
 }
 
-const cloudflareBindingIds = new WeakMap<object, string>()
-let nextCloudflareBindingId = 0
-function cloudflareBindingNamespace(bindingName: unknown): string {
-  const binding = typeof bindingName === "string"
-    ? getActiveCloudflareBinding<CloudflareKVNamespace>(bindingName)
-    : undefined
-  if (binding && (typeof binding === "object" || typeof binding === "function")) {
-    let id = cloudflareBindingIds.get(binding)
-    if (!id) {
-      id = `object-${++nextCloudflareBindingId}`
-      cloudflareBindingIds.set(binding, id)
-    }
-    return `cloudflare-kv:${id}`
-  }
-  return `cloudflare-kv:${typeof bindingName === "string" ? bindingName : "default"}`
+function cloudflareBindingNamespace(bindingName: unknown, namespaceId: unknown): string {
+  // Cloudflare recreates request bindings for each request. Use the configured
+  // namespace ID when available, then the binding name as the stable fallback.
+  const identity = typeof namespaceId === "string" && namespaceId.length > 0
+    ? `id:${namespaceId}`
+    : typeof bindingName === "string" ? `binding:${bindingName}` : "default"
+  return `cloudflare-kv:${identity}`
 }
 
 function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriver {
   const bindingName = options.binding
+  const namespaceId = options.namespaceId
   // unstorage reads `binding` on every operation and finds a binding name only on globals.
   // Resolve it from the active Cloudflare env first, because ViteHub workers scope env per request without the global `__env__`.
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The resolved store config crosses an untyped driver boundary.
@@ -67,7 +60,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
   // Continuation state is keyed by the cursor that carries it. Consuming the
   // state before awaiting the provider keeps concurrent traversals independent.
-  const cursorNamespace = `cloudflare-kv:${typeof bindingName === "string" ? bindingName : "default"}`
+  const cursorNamespace = cloudflareBindingNamespace(bindingName, namespaceId)
   const cursorHistories = createCursorHistory(cursorNamespace)
   let disposed = false
   const dispose = driver.dispose
@@ -88,7 +81,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
-    const requestNamespace = cloudflareBindingNamespace(bindingName)
+    const requestNamespace = cloudflareBindingNamespace(bindingName, namespaceId)
     const continuation = cursor ? cursorHistories.take(cursor, requestNamespace) : { providerCursor: undefined, history: new Set<string>(), namespace: requestNamespace }
     try {
       if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor

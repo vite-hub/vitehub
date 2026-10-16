@@ -34,6 +34,25 @@ describe("Cloudflare KV binding", () => {
     await expect(runWithActiveCloudflareEnv({ KV: first }, () => storage.listKeys({ limit: 10 }))).resolves.toEqual({ keys: ["smoke"] })
   })
 
+  it("keeps continuation namespaces stable when request bindings are recreated", async () => {
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const cursors: Array<string | undefined> = []
+    const createPagedNamespace = () => {
+      const namespace = createNamespace()
+      namespace.list = async ({ cursor }: { cursor?: string }) => {
+        cursors.push(cursor)
+        return { cursor: cursor ? undefined : "next", keys: [], list_complete: cursor !== undefined }
+      }
+      return namespace
+    }
+    const first = createPagedNamespace()
+    const second = createPagedNamespace()
+
+    const page = await runWithActiveCloudflareEnv({ KV: first }, () => storage.listKeys({ limit: 1 }))
+    await expect(runWithActiveCloudflareEnv({ KV: second }, () => storage.listKeys({ cursor: page.cursor, limit: 1 }))).resolves.toEqual({ keys: [] })
+    expect(cursors).toEqual([undefined, "next"])
+  })
+
   it("reports a missing binding outside a Cloudflare request", async () => {
     // SAFETY: The Cloudflare storage factory supplies the RuntimeStorage read, write, and list methods.
     const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
