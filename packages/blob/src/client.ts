@@ -206,7 +206,6 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
           body: JSON.stringify({ contentType: file.type || undefined }),
           headers: { "content-type": "application/json" },
           method: "POST",
-          signal: controller.signal,
         }), parseMultipartCreate)
       }
       finally {
