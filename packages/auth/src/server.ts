@@ -311,30 +311,10 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 function hasResponseBrand(value: object): boolean {
   try {
     // The current realm intrinsic performs an unforgeable internal-slot check.
-    if (value instanceof Response) return true
-
-    // A supported independent Fetch implementation exposes the same native
-    // accessors through its own constructor. Validate those accessors against
-    // a fresh instance before reading the candidate, so an object that merely
-    // inherits a Response-shaped prototype is rejected.
-    const prototype = Object.getPrototypeOf(value)
-    if (prototype === null) return false
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    if (typeof constructor !== "function") return false
-    const descriptors = authorizationResponseProperties.map(key =>
-      Object.getOwnPropertyDescriptor(prototype, key))
-    if (descriptors.some(descriptor => typeof descriptor?.get !== "function")) return false
-    const probe = new (constructor as new (body?: unknown) => object)(null)
-    for (const [index, descriptor] of descriptors.entries()) {
-      const getter = descriptor!.get!
-      if (getter.call(probe) === undefined || getter.call(value) === undefined) return false
-      if (index === 2) {
-        const headers = getter.call(probe)
-        if (headers === null || Object(headers) !== headers) return false
-        if (typeof responsePropertyDescriptor(headers, "forEach")?.value !== "function") return false
-      }
-    }
-    return true
+    // Objects from unsupported fetch implementations must fail closed: their
+    // constructor and accessors are caller-controlled and cannot establish a
+    // native Response brand.
+    return value instanceof Response
   }
   catch {
     return false
