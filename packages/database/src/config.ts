@@ -52,7 +52,19 @@ function readDefinitionObjectBody(file: string, exact = false) {
 }
 
 function objectLiteralBody(value: string | undefined) {
-  const trimmed = value?.trim()
+  let trimmed = value?.trim()
+  for (;;) {
+    if (trimmed?.startsWith("(") && findMatching(trimmed, 0, "(", ")") === trimmed.length - 1) {
+      trimmed = trimmed.slice(1, -1).trim()
+      continue
+    }
+    const assertion = trimmed?.match(/^(.*)\s+as\s+(?:const|[A-Za-z_$][\w$]*(?:\s*<[^>]*>)?(?:\[\])?)$/s)
+    if (assertion) {
+      trimmed = assertion[1]!.trim()
+      continue
+    }
+    break
+  }
   if (!trimmed?.startsWith("{")) return
   const closeIndex = findMatching(trimmed, 0, "{", "}")
   return closeIndex === undefined ? undefined : trimmed.slice(1, closeIndex)
@@ -288,7 +300,7 @@ function readDefinitionCloudflareResource(expression: string | undefined): Defin
 
 function readOpaqueDeclarationExpression(identifier: string, source: string): string | undefined {
   const masked = maskCommentsAndStrings(source)
-  const declarations = [...masked.matchAll(/(?:^|[;\n\r])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*/g)]
+  const declarations = [...masked.matchAll(/(?:^|[;\n\r])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?:\s*:\s*[^=;\n]+)?\s*=\s*/g)]
   for (let declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
     const declaration = declarations[declarationIndex]!
     let depth = 0
