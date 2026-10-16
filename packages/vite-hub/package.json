@@ -63,6 +63,12 @@
       "require": "./dist/_internal/agent/eve.js",
       "default": "./dist/_internal/agent/eve.js"
     },
+    "./_internal/agent/invocations": {
+      "types": "./dist/_internal/agent/invocations.d.ts",
+      "import": "./dist/_internal/agent/invocations.js",
+      "require": "./dist/_internal/agent/invocations.js",
+      "default": "./dist/_internal/agent/invocations.js"
+    },
     "./_internal/agent/runtime/invocations-dev": {
       "types": "./dist/_internal/agent/runtime/invocations-dev.d.ts",
       "import": "./dist/_internal/agent/runtime/invocations-dev.js",
