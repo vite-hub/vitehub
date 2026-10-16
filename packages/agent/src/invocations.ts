@@ -626,6 +626,7 @@ function isErrorValue(value: unknown): value is Error {
               if (prepareDescriptor) Object.defineProperty(constructor, "prepareStackTrace", prepareDescriptor)
               else delete constructor.prepareStackTrace
               if (stackDescriptor) Object.defineProperty(value, "stack", stackDescriptor)
+              else delete (value as object & { stack?: unknown }).stack
             }
             catch {
               // Ignore restoration failures; classification remains bounded.
