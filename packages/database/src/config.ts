@@ -86,8 +86,21 @@ function readObjectKeys(body: string | undefined) {
   return [...new Set(splitTopLevel(body).map(readEntryKey).filter((key): key is string => Boolean(key)))]
 }
 
-function readDatabaseTableNames(file: string) {
-  return readObjectKeys(objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema")))
+export interface StaticDatabaseSchema {
+  /** False when the schema has entries the source cannot show, such as an imported schema or a spread. */
+  complete: boolean
+  tableNames: string[]
+}
+
+/** Reads the keys of a literal `schema: { ... }` without loading the Definition. */
+export function readStaticDatabaseSchema(file: string): StaticDatabaseSchema {
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "schema"))
+  if (body === undefined) return { complete: false, tableNames: [] }
+  const entries = splitTopLevel(body).map(stripLeadingEntryComments).filter(entry => entry.trim())
+  return {
+    complete: entries.every(entry => !entry.trimStart().startsWith("...") && readEntryKey(entry)),
+    tableNames: readObjectKeys(body),
+  }
 }
 
 function readConfigValue(body: string | undefined, property: string): DatabaseConfigValue | undefined {
@@ -296,7 +309,7 @@ function createDatabaseDefinition(source: string, file: string, name: string, mo
     mode,
     name,
     source,
-    tableNames: readDatabaseTableNames(file),
+    tableNames: readStaticDatabaseSchema(file).tableNames,
   }
 }
 
@@ -420,7 +433,7 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   const appTables = new Set(app?.tableNames)
   const tableOwners = new Map<string, FoundDatabaseDefinition>()
   for (const definition of layers) {
-    for (const tableName of definition.tableNames) {
+    for (const tableName of definition.tableNames ?? []) {
       const owner = tableOwners.get(tableName)
       if (owner && !appTables.has(tableName)) {
         throw databaseErrorDiagnostics.DATABASE_C0009({ message: [
@@ -435,11 +448,11 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
 
   const owner = (appConfigures ? app : configuringLayers[0]) ?? app ?? layers[0]!
   // Later sources take precedence, so the application comes last.
-  const schemaSources = [...ordered].reverse().map(({ definition }) => ({ handler: definition.handler, tableNames: definition.tableNames }))
+  const schemaSources = [...ordered].reverse().map(({ definition }) => ({ handler: definition.handler, tableNames: (definition.tableNames ?? []) }))
   return {
     ...owner,
     schemaSources,
-    tableNames: [...new Set(ordered.flatMap(({ definition }) => definition.tableNames))],
+    tableNames: [...new Set(ordered.flatMap(({ definition }) => (definition.tableNames ?? [])))],
   }
 }
 

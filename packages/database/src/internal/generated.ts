@@ -4,35 +4,50 @@ import { createImportPath } from "@vite-hub/internal/build/paths"
 import { dirname, join, relative } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
-
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import type { DatabaseTableNameOptions, LoadedDatabaseSchema } from "./schema-tables.ts"
 import type { DiscoveredDatabaseDefinition, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
-/** Exports each table key from the source that wins it, so Drizzle Kit sees every table once. */
-function createTableExports(definition: DiscoveredDatabaseDefinition, sourceVariables: string[]) {
-  const winners = new Map<string, string>()
-  definition.schemaSources.forEach((source, index) => {
-    for (const tableName of source.tableNames) winners.set(tableName, sourceVariables[index]!)
-  })
-  return definition.tableNames.map(tableName => `export const ${tableName} = ${winners.get(tableName)}.schema[${JSON.stringify(tableName)}]`)
+const reservedSchemaExports = new Set(["default", "schema"])
+
+function renderExportName(name: string) {
+  return /^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name)
 }
 
+/** Variables of the schema sources of a Definition. One source keeps the `single` name. */
 function schemaSourceVariables(definition: DiscoveredDatabaseDefinition, single: string, prefix: string) {
   return definition.schemaSources.length === 1 ? [single] : definition.schemaSources.map((_, index) => `${prefix}${index}`)
 }
 
-function renderSchemaExpression(sourceVariables: string[]) {
-  return sourceVariables.length === 1
-    ? `${sourceVariables[0]}.schema`
-    : `{ ${sourceVariables.map(variable => `...${variable}.schema`).join(", ")} }`
+// drizzle-kit finds tables through named exports, so each table gets one.
+function createTableExports(definition: DiscoveredDatabaseDefinition, tableNames: string[], tableSources: Map<string, string>) {
+  return tableNames.flatMap((tableName, index) => {
+    if (reservedSchemaExports.has(tableName)) {
+      throw databaseErrorDiagnostics.DATABASE_B0009({ message: `[vitehub] Database Definition "${definition.handler}" uses the reserved schema key ${JSON.stringify(tableName)}. Rename that table key.` })
+    }
+    return [
+      `const table_${index} = ${tableSources.get(tableName)}[${JSON.stringify(tableName)}]`,
+      `export { table_${index} as ${renderExportName(tableName)} }`,
+    ]
+  })
 }
 
-function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition) {
+/** Renders the schema of a Definition. With Nuxt layers, it imports each schema source and merges them. */
+function renderGeneratedDrizzleSchema(file: string, definition: DiscoveredDatabaseDefinition, sources: LoadedDatabaseSchema[], mergeLoadedSchemas: (schemas: readonly LoadedDatabaseSchema[]) => LoadedDatabaseSchema) {
   const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
+  const layered = sourceVariables.length > 1
+  // Each table comes from the source that wins its key, so drizzle-kit sees every table once.
+  const tableSources = new Map<string, string>()
+  sources.forEach((source, index) => {
+    for (const key of source.keys) tableSources.set(key, `${sourceVariables[index]}.schema`)
+  })
   return [
     ...definition.schemaSources.map((source, index) => `import ${sourceVariables[index]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
     "",
-    ...createTableExports(definition, sourceVariables),
-    `export const schema = ${renderSchemaExpression(sourceVariables)}`,
+    // Nuxt layers merge in order, so the application wins a key.
+    ...layered ? [`const definitionSchema = { ${sourceVariables.map(variable => `...${variable}.schema`).join(", ")} }`] : [],
+    ...createTableExports(definition, mergeLoadedSchemas(sources).tableNames, tableSources),
+    `export const schema = ${layered ? "definitionSchema" : "databaseDefinition.schema"}`,
     "export default schema",
     "",
   ].join("\n")
@@ -88,6 +103,7 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
   ].join("\n")
 }
 
+// A later layer source replaces a key, as in the merged runtime schema.
 function renderSchemaType(variables: string[]) {
   const [first, ...rest] = variables.map(variable => `typeof ${variable}.schema`)
   return rest.reduce((merged, next) => `Omit<${merged}, keyof ${next}> & ${next}`, first!)
@@ -134,13 +150,20 @@ export async function removeGeneratedDatabaseTypes(rootDir: string) {
   await writeFile(generatedTypesFile, "export {}\n", "utf8")
 }
 
-export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig) {
+/** Writes generated schemas, Drizzle configs, and types. Each schema source of a Definition is loaded to list its tables. */
+export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConfig, options: DatabaseTableNameOptions = {}) {
   const generatedTypesFile = join(config.rootDir, ".vitehub/types/database.d.ts")
-  await Promise.all(config.definitions.map(async (definition) => {
-    const file = config.generatedSchemaFilesByDatabase[definition.name]!
-    await mkdir(dirname(file), { recursive: true })
-    await writeFile(file, renderGeneratedDrizzleSchema(file, definition), "utf8")
-  }))
+  if (config.definitions.length) {
+    // Keep Drizzle out of config resolution when no Definitions need evaluation. The loader is only needed while
+    // writing generated schemas, and importing it eagerly would load request-time dependencies for every Vite config.
+    const { loadDatabaseSchema, mergeLoadedSchemas } = await import("./schema-tables.ts")
+    await Promise.all(config.definitions.map(async (definition) => {
+      const file = config.generatedSchemaFilesByDatabase[definition.name]!
+      const sources = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options)))
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, renderGeneratedDrizzleSchema(file, definition, sources, mergeLoadedSchemas), "utf8")
+    }))
+  }
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
   await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config), "utf8")
