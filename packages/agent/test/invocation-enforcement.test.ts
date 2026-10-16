@@ -8,6 +8,7 @@ import { bindAgentInvocations, pendingAgentInvocationAnnotation } from "../src/i
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations, replayChannel } from "../src/server.ts"
 import type { AgentInvocationStore } from "../src/server.ts"
+import type { AgentRunContext } from "../src/types.ts"
 
 const runtime = (runId: string, waitUntil: (promise: Promise<unknown>) => void = () => {}) => ({ memo: vi.fn(), run: { runId }, runtime: "unknown" as const, waitUntil })
 
@@ -173,7 +174,7 @@ describe("Agent Invocation enforcement", () => {
     }
     vi.spyOn(console, "warn").mockImplementation(() => {})
     const invocations = defineAgentInvocations({ store })
-    const run = vi.fn(async ({ input }: { input: { abortSignal?: AbortSignal } }) => {
+    const run = vi.fn(async ({ input }: AgentRunContext) => {
       const abortSignal = input.abortSignal
       await new Promise<void>((resolve, reject) => {
         abortSignal?.addEventListener("abort", () => reject(abortSignal.reason), { once: true })

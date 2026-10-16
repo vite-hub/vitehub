@@ -7035,6 +7035,12 @@ async function executeAgentInvocationWithCapacityLease<
     if (options.kind === "run" && !options.renderOutput) adapterContext.nativeStructuredOutput = false
     await invocationJournal?.watchCancellation(invocationCancellationDriver(definition))
     invocation.input.abortSignal?.throwIfAborted()
+    // Recheck ownership at the dispatch boundary. The activity update,
+    // adapter preparation, and cancellation setup above may yield while a
+    // renewal confirms a claim loss; do not start a Driver after that loss.
+    if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.dispatchAllowed()) {
+      throw new Error("Could not persist the Invocation running state.")
+    }
     invocationJournal?.driverStarted()
     if (customRun) {
       result = await agent.run(invocation)
