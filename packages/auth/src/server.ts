@@ -348,7 +348,6 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- The carrier must retain its native response methods across realms.
 async function copyAuthorizationBody(body: unknown): Promise<ReadableStream<Uint8Array> | null | undefined> {
   if (body === null) return null
   if (Object(body) !== body) return
@@ -356,13 +355,48 @@ async function copyAuthorizationBody(body: unknown): Promise<ReadableStream<Uint
   // structured cloning can transfer and hide the forged implementation.
   if (Object.prototype.hasOwnProperty.call(body, "getReader")) return
   try {
-    // Structured cloning with transfer performs a non-forgeable ReadableStream
-    // brand check and works across fetch realms without trusting an inherited
-    // (or proxy-wrapped) arrayBuffer method.
-    const clone = (globalThis.structuredClone as unknown as (value: unknown, options: { transfer: object[] }) => unknown)(body, { transfer: [body as object] })
-    const getReader = Reflect.get(clone as object, "getReader")
-    if (typeof getReader !== "function") return
-    return clone as ReadableStream<Uint8Array>
+    let prototype: object | null = Object.getPrototypeOf(body)
+    let getReader: ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined
+    while (prototype) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "getReader")
+      if (typeof descriptor?.value === "function") {
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (constructor?.name === "ReadableStream") {
+          getReader = descriptor.value as typeof getReader
+          break
+        }
+      }
+      prototype = Object.getPrototypeOf(prototype) as object | null
+    }
+    if (!getReader) return
+    let activeReader: ReadableStreamDefaultReader<Uint8Array> | undefined
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        activeReader = Reflect.apply(getReader!, body, [])
+        try {
+          const result = await activeReader.read()
+          if (result.done) controller.close()
+          else controller.enqueue(result.value)
+        }
+        catch (error) {
+          controller.error(error)
+        }
+        finally {
+          activeReader.releaseLock()
+          activeReader = undefined
+        }
+      },
+      async cancel(reason) {
+        const reader = activeReader ?? Reflect.apply(getReader!, body, [])
+        try {
+          await reader.cancel(reason)
+        }
+        finally {
+          reader.releaseLock()
+          if (activeReader === reader) activeReader = undefined
+        }
+      },
+    }, { highWaterMark: 0 })
   }
   catch {
     return
@@ -410,6 +444,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    if (body !== null && Reflect.get(candidate, "bodyUsed") === true) return
+    if (body !== null && Reflect.get(body, "locked") === true) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
