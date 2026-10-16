@@ -360,10 +360,11 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // Reject those declarations before their body can be invoked. This also
     // excludes the common forged `function namedLikeAnIntrinsic() {}` shape.
     if (!allowPrototype && Object.getOwnPropertyDescriptor(value, "prototype")) return false
-    // Function source text is implementation-defined and differs across
-    // runtimes. The surrounding verified prototype/descriptor checks establish
-    // the operation's carrier realm; use only its stable intrinsic name here.
-    return !expectedName || value.name === expectedName
+    if (expectedName && value.name !== expectedName) return false
+    // Cross-realm Web API operations are still native functions. Requiring the
+    // native source marker rejects caller-defined arrows and ordinary methods
+    // that merely spoof an intrinsic name before they can be invoked.
+    return Function.prototype.toString.call(value).includes("[native code]")
   }
   catch {
     return false
