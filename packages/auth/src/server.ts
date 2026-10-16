@@ -439,10 +439,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       normalizedHeaders.append(key, value)
     }])
     // Preserve one cookie when the fallback exposes only a combined value. A comma
-    // followed by another cookie assignment proves that multiple values were merged;
-    // those cannot be split safely because Expires itself can contain commas.
+    // followed by another cookie assignment at the cookie-pair boundary proves that
+    // multiple values were merged. Assignment-like text after an extension attribute
+    // can still be part of that attribute's value, so do not reject it as a merge.
     if (combinedCookies !== undefined) {
-      if (/,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
