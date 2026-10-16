@@ -91,6 +91,14 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     if (typeof status !== "number" || typeof statusText !== "string" || !headers || typeof headers !== "object") return
     const bodyUsed = Reflect.get(value, "bodyUsed")
     if (typeof bodyUsed !== "boolean") return
+    // A user-defined inherited `status` getter can mimic the metadata above.
+    // A genuine foreign Response must also be cloneable by its own native
+    // implementation, and the clone must pass that realm's brand check.
+    const foreignClone = prototypeMethod(value, "clone")
+    if (typeof foreignClone !== "function") return
+    const cloned = Reflect.apply(foreignClone, value, [])
+    if ((typeof cloned !== "object" && typeof cloned !== "function") || cloned === null || cloned === value) return
+    Reflect.apply(foreignStatus, cloned, [])
     const init = { headers: new Headers(headers as Headers), status, statusText }
     if (bodyUsed) return
     const body = Reflect.get(value, "body")
