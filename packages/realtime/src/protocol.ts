@@ -20,6 +20,7 @@ function validPath(value: unknown): value is string {
   if (/^[A-Za-z]:/.test(value)) return false
   if (value.startsWith("/") || value.endsWith("/") || value.includes("\\") || value.split("/").some(part => part.length === 0)) return false
   return value.split("/").every((part, index) => {
+    const original = part
     const name = part.toLowerCase()
     const withoutStream = name.split(":", 1)[0]!
     const normalized = withoutStream.replace(/[ .]+$/, "")
@@ -29,7 +30,7 @@ function validPath(value: unknown): value is string {
       || (index === 0 && normalized === ".vitehub")
       || (index === 0 && /^vitehu~\d+$/.test(normalized))
     const canonical = (normalized === ".git" || (index === 0 && normalized === ".vitehub"))
-      && name === normalized
+      && original === normalized
     return !traversal && (!reserved || canonical)
   })
 }
