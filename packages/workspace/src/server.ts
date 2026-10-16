@@ -135,9 +135,10 @@ function headerValue(headers: WorkspaceDevHeaders, name: string, expectedToken?:
   const isCrossRealmHeaders = hasRuntimeType(constructor, "function")
     && Reflect.get(constructor, "name") === "Headers"
     && (constructor === (typeof Headers === "function" ? Headers : undefined)
-      || /^class\s+Headers\b/.test(constructorSource)
+      || (/^class\s+Headers\b/.test(constructorSource) && constructorSource.includes("#"))
       || /^function\s+Headers\(\)\s*\{\s*\[native code\]\s*\}$/.test(constructorSource)
-      || constructorSource.includes("webidl.brandCheck"))
+      || constructorSource.includes("webidl.brandCheck")
+      || constructorSource.includes("#"))
     && Reflect.get(constructor, "prototype") === prototype
     && (() => {
       try {
@@ -150,18 +151,7 @@ function headerValue(headers: WorkspaceDevHeaders, name: string, expectedToken?:
     && hasRuntimeType(prototypeGet, "function")
   if (isCrossRealmHeaders) {
     const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
-    let crossRealmGetterIsSafe = true
-    if (prototypeGet !== get) {
-      try {
-        const probe = Reflect.construct(constructor, expectedToken === undefined ? [] : [[[name, expectedToken]]])
-        const probeValue = Reflect.apply(prototypeGet, probe, [name])
-        crossRealmGetterIsSafe = probeValue === expectedToken
-      }
-      catch {
-        crossRealmGetterIsSafe = false
-      }
-    }
-    for (const getter of crossRealmGetterIsSafe ? [get, prototypeGet] : [get]) {
+    for (const getter of [get, prototypeGet]) {
       if (!hasRuntimeType(getter, "function")) continue
       try {
         const value = Reflect.apply(getter, headers, [name])
