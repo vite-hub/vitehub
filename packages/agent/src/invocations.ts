@@ -614,9 +614,37 @@ function isErrorValue(value: unknown): value is Error {
     while (prototype && prototype !== Object.prototype) {
       const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
       const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
-      if (typeof name === "string" && typeof message === "string" && Object.hasOwn(value, "stack")) {
+      if (typeof name === "string" && typeof message === "string") {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (isNativeConstructor(constructor, nativeErrorConstructorSource) && constructor.prototype === prototype) return true
+        if (isNativeConstructor(constructor, nativeErrorConstructorSource) && constructor.prototype === prototype) {
+          // A foreign Error may use a formatter that returns undefined. Force a
+          // sentinel result so the intrinsic accessor still proves its brand;
+          // objects that merely inherit Error.prototype continue to return undefined.
+          if (errorStackGetter) {
+            const prepareDescriptor = Object.getOwnPropertyDescriptor(constructor, "prepareStackTrace")
+            const sentinel = {}
+            try {
+              Object.defineProperty(constructor, "prepareStackTrace", {
+                configurable: true,
+                value: () => sentinel,
+                writable: true,
+              })
+              if (errorStackGetter.call(value) === sentinel) return true
+            }
+            catch {
+              // Continue to the next prototype when the foreign realm is locked down.
+            }
+            finally {
+              try {
+                if (prepareDescriptor) Object.defineProperty(constructor, "prepareStackTrace", prepareDescriptor)
+                else delete constructor.prepareStackTrace
+              }
+              catch {
+                // Ignore restoration failures; classification remains bounded.
+              }
+            }
+          }
+        }
       }
       prototype = Object.getPrototypeOf(prototype)
     }
