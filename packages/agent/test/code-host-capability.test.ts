@@ -29,7 +29,7 @@ async function mockHost(host: CodeHostKind, options: ForgeOptionsBase & { auth?:
   const real = actual[host](options).create()
   let store = stores.get(host)
   const factory = fake({
-    kind: host,
+    forge: host,
     instance: real.instance,
     readOnly: options.readOnly,
     capabilities: real.capabilities,

@@ -1,9 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createServer } from "node:http"
+import { runInNewContext } from "node:vm"
 
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { Request as ForeignRequest } from "undici"
 
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
@@ -730,6 +732,66 @@ describe("cloudflare queue runtime", () => {
 })
 
 describe("vercel provider", () => {
+  it.each(["unused", "consumed", "locked"])("preserves hosted callback Requests from an independent Fetch implementation with a %s body", async (state) => {
+    const request = runInNewContext(`
+      new Request("https://queue.example.test/callback", { method: "POST", body: "payload" })
+    `, { Request: ForeignRequest }) as Request
+    expect(request.constructor).not.toBe(Request)
+    expect(Object.getPrototypeOf(request) === Request.prototype).toBe(false)
+    expect(request).not.toBeInstanceOf(Request)
+    if (state === "consumed") await request.text()
+    const reader = state === "locked" ? request.body?.getReader() : undefined
+    let captured: unknown
+    vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
+      captured = values[0]
+      return "handled"
+    })
+    const definition = { handler: async () => undefined }
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    await expect(handleHostedVercelQueueCallback({ request }, "welcome", definition)).resolves.toBe("handled")
+    expect(captured).toBe(request)
+    expect(request.bodyUsed).toBe(state === "consumed")
+    reader?.releaseLock()
+    if (state !== "consumed") expect(await request.text()).toBe("payload")
+  })
+
+  it("converts spoofed Request-shaped objects through H3", async () => {
+    const request = runInNewContext(`
+      const headers = { get() { return null } }
+      const request = { headers, method: "POST", url: "https://queue.example.test/callback" }
+      Object.defineProperty(request, Symbol.toStringTag, { value: "Request" })
+      request
+    `, { Symbol })
+    let captured: unknown
+    vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
+      captured = values[0]
+      return "handled"
+    })
+    const definition = { handler: async () => undefined }
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    const h3Request = new Request("https://queue.example.test/callback", {
+      headers: { "content-type": "text/plain" },
+      method: "POST",
+      body: "payload",
+    })
+    await expect(handleHostedVercelQueueCallback({
+      method: "POST",
+      req: h3Request,
+      request,
+    } as never, "welcome", definition)).resolves.toBe("handled")
+    expect(captured).not.toBe(request)
+    expect(captured).toBeInstanceOf(Request)
+    const normalized = captured as Request
+    expect(normalized.url).toBe(h3Request.url)
+    expect(normalized.method).toBe("POST")
+    expect(normalized.headers.get("content-type")).toBe("text/plain")
+    expect(await normalized.text()).toBe("payload")
+  })
+
   it("requires a selected client factory for default manual servers", () => {
     expect(() => createQueueVercelServer({} as never)).toThrow("requires its generated client factory")
     expect(() => createQueueVercelServer({ queue: false })).not.toThrow()

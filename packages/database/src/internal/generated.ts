@@ -237,7 +237,14 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   const loadedContributions = new Map<string, readonly ResolvedDatabaseContribution[]>()
   const activeDefinitions = await Promise.all(config.definitions.map(async (definition) => {
     const sources = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options)))
-    const active = { ...definition, schemaSources: definition.schemaSources.filter((_, index) => sources[index]!.loaded) }
+    const definitionLoaded = sources.some((source, index) =>
+      definition.schemaSources[index]?.handler === definition.handler && source.loaded)
+    const active = {
+      ...definition,
+      schemaSources: definitionLoaded
+        ? definition.schemaSources.filter((_, index) => sources[index]!.loaded)
+        : [],
+    }
     const contributions = config.tableContributionsByDatabase[definition.name] ?? []
     const loaded = await Promise.all(contributions.map(async contribution =>
       ({ contribution, schema: await loadContributedDatabaseSchema(contribution, config.generatedSchemaFilesByDatabase[definition.name]!, options) })))

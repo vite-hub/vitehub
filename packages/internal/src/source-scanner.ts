@@ -977,11 +977,50 @@ function isNamedAssertionComparison(source: string, index: number, genericEnd: n
   return !/^(?:as|satisfies)\s+\S/u.test(suffix) && /^[\p{ID_Start}_$\d"'`]/u.test(suffix)
 }
 
+// One token of an assertion type. A sticky match takes each token once and
+// never splits it again, so a long prefix that is not an assertion type is
+// rejected in linear time.
+const assertionTypeToken = /[\p{ID_Start}_$][\p{ID_Continue}$]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:-\s*)?(?:0[xX][\da-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|\d[\d_]*n|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)|[.\s()[\]{}&|?:]/uy
+
 function hasAssertionTypePrefix(source: string) {
   // Mask completed type regions, including import arguments and comments,
   // before recognizing the continuation of a union or intersection.
   const prefix = decodeIdentifier(maskAssertionTypeArguments(source))
-  return /(?:^|[^\p{ID_Continue}$.])(?:as|satisfies)\s+(?:[\p{ID_Start}_$][\p{ID_Continue}$]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:-\s*)?(?:0[xX][\da-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|\d[\d_]*n|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)|[.\s()[\]{}&|?:])+$/u.test(prefix)
+  // The prefix continues an assertion when the text after an `as` or
+  // `satisfies` keyword is only type tokens up to the end.
+  // Cache each token boundary so candidates that overlap do not rescan their
+  // shared suffix. A failed token is cached as `undefined`.
+  const tokenEnds = new Map<number, number | undefined>()
+  const reachesEnd = new Map<number, boolean>()
+  const tokenEndAt = (index: number) => {
+    if (tokenEnds.has(index)) return tokenEnds.get(index)
+    assertionTypeToken.lastIndex = index
+    const end = assertionTypeToken.test(prefix) ? assertionTypeToken.lastIndex : undefined
+    tokenEnds.set(index, end)
+    return end
+  }
+  const tokenizableToEnd = (start: number) => {
+    const pending: number[] = []
+    let index = start
+    while (index < prefix.length && !reachesEnd.has(index)) {
+      pending.push(index)
+      const end = tokenEndAt(index)
+      if (end === undefined) {
+        for (const position of pending) reachesEnd.set(position, false)
+        return false
+      }
+      index = end
+    }
+    const result = index === prefix.length || reachesEnd.get(index) === true
+    for (const position of pending) reachesEnd.set(position, result)
+    return result
+  }
+  for (const keyword of prefix.matchAll(/(?<![\p{ID_Continue}$.])(?:as|satisfies)\s/gu)) {
+    let index = keyword.index + keyword[0].length
+    if (index === prefix.length) continue
+    if (tokenizableToEnd(index)) return true
+  }
+  return false
 }
 
 function maskAssertionTypeArguments(source: string) {

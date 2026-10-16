@@ -173,15 +173,25 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           }
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
           // Nuxt's builder ignores node_modules, so watch each resolved dependency directly.
-          for (const watchedFile of contributionFiles) {
-            if (contributionWatchers.has(watchedFile)) continue
+          const installContributionWatcher = (watchedFile: string) => {
+            if (contributionWatchers.has(watchedFile)) return
             try {
-              contributionWatchers.set(watchedFile, watchFs(watchedFile, () => { void refreshLocalRuntime() }))
+              const watcher = watchFs(watchedFile, (eventType) => {
+                if (eventType === "rename") {
+                  watcher.close()
+                  contributionWatchers.delete(watchedFile)
+                  // Editors commonly replace files by rename; follow the new inode.
+                  setTimeout(() => installContributionWatcher(watchedFile), 0)
+                }
+                void refreshLocalRuntime()
+              })
+              contributionWatchers.set(watchedFile, watcher)
             }
             catch {
               // The Nuxt watch list remains the fallback when native watching is unavailable.
             }
           }
+          for (const watchedFile of contributionFiles) installContributionWatcher(watchedFile)
         }
         const queued = localRuntimeRefresh.then(refresh, refresh)
         localRuntimeRefresh = queued
@@ -334,7 +344,11 @@ async function installNitroLocalDatabaseRuntime(
   for (const definition of runtime.definitions) {
     const sourceSchemas = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, tableNameOptions)))
     const parts = [{ schema: mergeLoadedSchemas(sourceSchemas), owner: `Database Definition ${definition.handler}` }]
-    loadedDefinitionSources.set(definition.name, new Set(definition.schemaSources.filter((_, index) => sourceSchemas[index]!.loaded).map(source => source.handler)))
+    const definitionLoaded = sourceSchemas.some((schema, index) =>
+      definition.schemaSources[index]?.handler === definition.handler && schema.loaded)
+    loadedDefinitionSources.set(definition.name, definitionLoaded
+      ? new Set(definition.schemaSources.filter((_, index) => sourceSchemas[index]!.loaded).map(source => source.handler))
+      : new Set())
     const loadedContributions = new Set<CollectedDatabaseContribution>()
     for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
       const schema = await loadContributedDatabaseSchema(contribution, file, tableNameOptions)
