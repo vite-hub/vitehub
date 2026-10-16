@@ -131,6 +131,7 @@ export function createAgentUIMessageStreamResponse(options: {
       controller.enqueue(encoder.encode(`data: ${JSON.stringify(part)}\n\n`))
     },
   }))
+  // SAFETY: Constructing a Response with a ReadableStream always creates a non-null body.
   return new Response(stream, {
     headers,
     status: options.status,
