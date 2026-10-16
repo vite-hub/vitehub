@@ -329,13 +329,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }))
       contributionDirectories = new Set()
       for (const file of contributionFiles) {
-        let directory = dirname(file)
-        for (let depth = 0; depth < 4; depth++) {
-          contributionDirectories.add(directory)
-          const parent = dirname(directory)
-          if (parent === directory) break
-          directory = parent
-        }
+        // Keep the fallback directory check local to the contribution entry.
+        // Transitive imports are covered by the module-graph traversal below;
+        // walking broad ancestors (such as the project root) causes unrelated
+        // edits to regenerate the database during development.
+        contributionDirectories.add(dirname(file))
       }
       await refreshRuntimeConfig()
       mergeNitroCloudflareD1Bindings()
