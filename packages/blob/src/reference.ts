@@ -104,8 +104,11 @@ function resolveAccept(kind: BlobReferenceKind, accept: BlobReferenceOptions["ac
   return patterns.length && !patterns.includes("*/*") ? patterns : undefined
 }
 
+const mimeValuePattern = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i
+
 function accepts(patterns: string[], contentType: string): boolean {
   const type = contentType.split(";")[0]!.trim().toLowerCase()
+  if (!mimeValuePattern.test(type)) return false
   const major = type.split("/")[0]
   return patterns.some(pattern => pattern === type || (pattern.endsWith("/*") && pattern.slice(0, -2) === major))
 }
@@ -128,7 +131,7 @@ function contentTypeSchema(accept: string[] | undefined): Record<string, unknown
   }
   if (!accept) return schema
   const patterns = accept.map(pattern => {
-    if (pattern.endsWith("/*")) return `^\\s*${caseInsensitivePattern(pattern.slice(0, -2))}/[^;]*(?:;[\\s\\S]*)?$`
+    if (pattern.endsWith("/*")) return `^\\s*${caseInsensitivePattern(pattern.slice(0, -2))}/[a-zA-Z0-9!#$&^_.+-]+(?:\\s*;[\\s\\S]*)?\\s*$`
     return `^\\s*${caseInsensitivePattern(pattern)}(?:\\s*;[\\s\\S]*)?\\s*$`
   })
   if (patterns.length === 1) schema.pattern = patterns[0]
