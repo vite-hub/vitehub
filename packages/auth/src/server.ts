@@ -513,7 +513,10 @@ function readerCapabilityOwners(reader: object): boolean {
     const parent = Object.getPrototypeOf(prototype)
     // Reject a caller-installed reader prototype above the genuine reader
     // prototype. Native reader capabilities stop at the immediate prototype.
-    return !parent || (["read", "cancel", "releaseLock", "closed"].every(key =>
+    // Native reader prototypes inherit from Object.prototype. A caller can
+    // otherwise install a self-constructing prototype with a null parent;
+    // the brand remains valid while every bridged operation is attacker-owned.
+    return parent !== null && (["read", "cancel", "releaseLock", "closed"].every(key =>
       Object.getOwnPropertyDescriptor(parent, key) === undefined))
   }
   catch {
