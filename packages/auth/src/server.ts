@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -329,17 +328,23 @@ function hasResponsePrototype(value: unknown): boolean {
   return false
 }
 
-function prototypeMethod(value: unknown, key: PropertyKey): unknown {
+function prototypeMethod(value: unknown, key: PropertyKey, preferredConstructors?: readonly string[]): unknown {
   try {
     let current: object | null = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
+    let fallback: unknown
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(current)) return
       seen.add(current)
       const method = Object.getOwnPropertyDescriptor(current, key)?.value
-      if (method !== undefined) return method
+      if (method !== undefined) {
+        fallback ??= method
+        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+        if (!preferredConstructors || preferredConstructors.includes(constructor?.name)) return method
+      }
       current = Object.getPrototypeOf(current)
     }
+    return fallback
   }
   catch {
     return
@@ -353,15 +358,15 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const stream = Object(body)
     const locked = responsePropertyDescriptor(stream, "locked")?.get
     const getReader = responsePropertyDescriptor(stream, "getReader")?.value
-    const nativeGetReader = prototypeMethod(stream, "getReader")
+    const nativeGetReader = prototypeMethod(stream, "getReader", ["ReadableStream"])
     if (typeof locked !== "function" || Reflect.apply(locked, stream, [])) return false
-    return typeof getReader === "function" && getReader === nativeGetReader
+    return typeof getReader === "function" && typeof nativeGetReader === "function"
   }
   catch { return false }
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  const getReader = prototypeMethod(body, "getReader")
+  const getReader = prototypeMethod(body, "getReader", ["ReadableStream"])
   if (typeof getReader !== "function") throw new TypeError("Invalid authorization body")
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   let released = false
@@ -375,14 +380,14 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const release = () => {
     if (released || !reader) return
     released = true
-    const releaseLock = Object.getPrototypeOf(reader)?.releaseLock
+    const releaseLock = prototypeMethod(reader, "releaseLock", ["ReadableStreamDefaultReader", "ReadableStreamBYOBReader"])
     if (typeof releaseLock === "function") Reflect.apply(releaseLock, reader, [])
   }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const sourceReader = await acquire()
-        const read = Object.getPrototypeOf(sourceReader)?.read
+        const read = prototypeMethod(sourceReader, "read", ["ReadableStreamDefaultReader", "ReadableStreamBYOBReader"])
         if (typeof read !== "function") throw new TypeError("Invalid authorization reader")
         const result = await Reflect.apply(read, sourceReader, [])
         if (result.done) { release(); controller.close() }
@@ -393,10 +398,10 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
       try {
         const sourceReader = reader ?? (initializing && await initializing)
         if (sourceReader) {
-          const cancel = Object.getPrototypeOf(sourceReader)?.cancel
+          const cancel = prototypeMethod(sourceReader, "cancel", ["ReadableStreamDefaultReader", "ReadableStreamBYOBReader"])
           if (typeof cancel === "function") await Reflect.apply(cancel, sourceReader, [reason])
         } else {
-          const cancel = Object.getPrototypeOf(body)?.cancel
+          const cancel = prototypeMethod(body, "cancel")
           if (typeof cancel === "function") await Reflect.apply(cancel, body, [reason])
         }
       } finally { release() }
@@ -469,7 +474,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     }
   }
   catch {
-    return
+    return undefined
   }
 }
 
