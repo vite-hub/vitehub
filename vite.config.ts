@@ -128,7 +128,7 @@ export default defineConfig({
       verify: {
         cache: false,
         command:
-          "vp run preflight && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
+          "vp run preflight && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run package:metadata && vp run test && vp run test:consumer",
       },
       "workflow:e2e": {
         cache: false,
