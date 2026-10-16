@@ -341,6 +341,23 @@ Built-in coding Agent Drivers use Workspace Sessions to materialize the selected
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
+Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`. `module` is an absolute path, a `file:` URL, or a package specifier. `export` defaults to `default`:
+
+```ts
+const plugin = {
+  name: "my-package/vite",
+  vitehub: {
+    workspaces: () => [{
+      name: "content",
+      definition: { module: "my-package/workspace", export: "contentWorkspace" },
+      reason: "Stores CMS documents.",
+    }],
+  },
+}
+```
+
+Contributed Workspaces appear in the generated registry, `WorkspaceName` types, `vitehub inspect`, and the Console, like discovered files. A name used by both a discovered file and a contribution fails the build with `WORKSPACE_B0003`.
+
 ## Publishing current state
 
 `workspace.snapshot()` creates a durable Store snapshot, then runs every configured Workspace publisher. Use `workspace.publish()` when the current Store contents should be published without advancing the Store's snapshot history:

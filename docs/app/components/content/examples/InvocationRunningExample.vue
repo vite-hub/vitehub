@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import type { AgentInvocationView } from "@vite-hub/ui";
-import { onMounted } from "vue";
 
 const now = useState("ui-running-clock", () => Date.now());
-// Reset synthetic timestamps in the browser after prerendered state hydrates.
 onMounted(() => {
   now.value = Date.now();
 });

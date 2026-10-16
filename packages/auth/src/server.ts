@@ -285,151 +285,193 @@ async function runAccessAuthorize(
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
+
+const authorizationResponsePrototypeLimit = 32
+
+function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
   try {
-    if (value instanceof Response) {
-      if (value.status < 200 || value.status > 599) return
-      const nativeHeaders = value.headers
-      if (typeof nativeHeaders?.forEach !== "function") return
-      const nativeHeadersPrototype = Object.getPrototypeOf(nativeHeaders)
-      if (nativeHeadersPrototype && nativeHeaders.forEach !== nativeHeadersPrototype.forEach) return
-      // Access and validate the optional cookie accessor while still inside
-      // the guarded normalization path. A foreign/overridden getter may
-      // throw, and the HTTP adapter reads it again when sending the response.
-      const nativeGetSetCookie = (nativeHeaders as Headers & { getSetCookie?: () => unknown }).getSetCookie
-      const prototypeGetSetCookie = (nativeHeadersPrototype as (Headers & { getSetCookie?: () => unknown }) | null)?.getSetCookie
-      if (nativeGetSetCookie !== undefined && nativeGetSetCookie !== prototypeGetSetCookie) return
-      if (typeof nativeGetSetCookie === "function") {
-        const values = nativeGetSetCookie.call(nativeHeaders)
-        if (!Array.isArray(values) || !values.every(cookie => typeof cookie === "string")) return
-      }
-      if (value.body !== null) {
-        const body = value.body
-        if (body.locked) return
-        const bodyPrototype = Object.getPrototypeOf(body)
-        const nativeGetReader = bodyPrototype?.getReader
-        if (typeof nativeGetReader !== "function" || body.getReader !== nativeGetReader) return
-        const reader = nativeGetReader.call(body)
-        let validReader = false
-        try {
-          const readerPrototype = Object.getPrototypeOf(reader)
-          validReader = (
-            typeof readerPrototype?.read !== "function"
-            || typeof readerPrototype?.releaseLock !== "function"
-            || reader.read !== readerPrototype.read
-            || reader.releaseLock !== readerPrototype.releaseLock
-          ) === false
-        }
-        catch {}
-        if (!validReader) {
-          try {
-            if (typeof reader?.cancel === "function") await reader.cancel()
-          }
-          catch {}
-          try {
-            if (typeof reader?.releaseLock === "function") reader.releaseLock()
-          }
-          catch {}
-          try {
-            if (typeof body.cancel === "function") await body.cancel()
-          }
-          catch {}
-          return
-        }
-        try {
-          reader.releaseLock()
-        }
-        catch {
-          try {
-            if (typeof body.cancel === "function") await body.cancel()
-            else return
-          }
-          catch { return }
-        }
-      }
-      return value
+    let current: object | null = Object(value)
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) throw new Error("Cyclic authorization response prototype")
+      seen.add(current)
+      const descriptor = Object.getOwnPropertyDescriptor(current, key)
+      if (descriptor) return descriptor
+      current = Object.getPrototypeOf(current)
+    }
+    if (current) throw new Error("Authorization response prototype chain is too deep")
+  }
+  catch {
+    // Fail the whole snapshot rather than treating malformed reflection as a missing method.
+    throw new Error("Malformed authorization response prototype")
+  }
+}
+
+let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+
+async function getUndiciResponse(): Promise<typeof Response | undefined> {
+  if (undiciResponsePromise) return undiciResponsePromise
+  undiciResponsePromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.Response as typeof Response)
+    .catch(() => undefined)
+  return undiciResponsePromise
+}
+
+async function hasResponsePrototype(value: unknown): Promise<boolean> {
+  const targets = new Set<object>([Response.prototype])
+  const UndiciResponse = await getUndiciResponse()
+  if (UndiciResponse) targets.add(UndiciResponse.prototype)
+  try {
+    let current = Object.getPrototypeOf(Object(value))
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (targets.has(current)) return true
+      if (seen.has(current)) return false
+      seen.add(current)
+      current = Object.getPrototypeOf(current)
     }
   }
-  catch { return undefined }
-  try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return
-    // SAFETY: Foreign responses are untrusted. Copy their data into a local
-    // Response so adapters only receive native Headers and body operations.
-    const response = value as Response
-    if (typeof response.headers?.get !== "function" || typeof response.headers.forEach !== "function") return
-    if (typeof response.status !== "number" || !Number.isInteger(response.status) || response.status < 100 || response.status > 599) return
-    if (typeof response.statusText !== "string") return
-    const headers = new Headers()
-    const getSetCookie = (response.headers as Headers & { getSetCookie?: () => unknown }).getSetCookie
-    const rawSetCookieValues = typeof getSetCookie === "function" ? getSetCookie.call(response.headers) : []
-    if (!Array.isArray(rawSetCookieValues) || !rawSetCookieValues.every(value => typeof value === "string")) return
-    const setCookieValues = rawSetCookieValues
-    response.headers.forEach((value, key) => headers.append(key, value))
-    if (setCookieValues.length > 0) {
-      headers.delete("set-cookie")
-      for (const value of setCookieValues) headers.append("set-cookie", value)
-    }
-    if (response.body === null) return new Response(null, { headers, status: response.status, statusText: response.statusText })
-    if (typeof response.body.getReader !== "function") return
-    const foreignBody = response.body
-    const reader = response.body.getReader()
-    let cleaned = false
-    const cleanupReader = async (reason?: unknown, cancel = false) => {
-      if (cleaned) return
-      const operations: Array<{ kind: "release" | "reader-cancel" | "body-cancel", run: () => unknown }> = []
-      if (cancel) {
-        if (typeof reader.cancel === "function") operations.push({ kind: "reader-cancel", run: () => reader.cancel(reason) })
-        if (typeof foreignBody.cancel === "function") operations.push({ kind: "body-cancel", run: () => foreignBody.cancel(reason) })
-        if (typeof reader.releaseLock === "function") operations.push({ kind: "release", run: () => reader.releaseLock() })
-      }
-      else {
-        if (typeof reader.releaseLock === "function") operations.push({ kind: "release", run: () => reader.releaseLock() })
-        if (typeof reader.cancel === "function") operations.push({ kind: "reader-cancel", run: () => reader.cancel(reason) })
-        if (typeof foreignBody.cancel === "function") operations.push({ kind: "body-cancel", run: () => foreignBody.cancel(reason) })
-      }
-      let released = false
-      let bodyCancelled = false
-      for (const operation of operations) {
-        try {
-          await operation.run()
-          if (operation.kind === "release") released = true
-          if (operation.kind === "body-cancel") bodyCancelled = true
-        }
-        catch {}
-      }
-      if (released || (!operations.some(operation => operation.kind === "release") && bodyCancelled)) cleaned = true
-    }
-    const releaseReader = () => cleanupReader()
-    const cancelReader = (reason: unknown) => cleanupReader(reason, true)
-    if (typeof reader.read !== "function") {
-      await cancelReader(new TypeError("Authorization response body reader is unusable."))
-      return
-    }
-    if (typeof reader.cancel !== "function" && typeof reader.releaseLock !== "function") {
+  catch {
+    return false
+  }
+  return false
+}
+
+function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
+  if (body === null) return true
+  if (Object(body) !== body) return false
+  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+  if (!locked || Reflect.apply(locked, body, [])) return false
+  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+}
+
+function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
+  // Use native operations on native stream state, never caller-supplied reader methods.
+  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
+  const reader = Reflect.apply(getReader, body, [])
+  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
+  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    Reflect.apply(releaseLock, reader, [])
+  }
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
       try {
-        if (typeof response.body.cancel === "function") await response.body.cancel()
+        const result = await Reflect.apply(read, reader, [])
+        if (result.done) {
+          release()
+          controller.close()
+        }
+        else controller.enqueue(result.value)
       }
-      catch {}
-      return
+      catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await Reflect.apply(cancel, reader, [reason])
+      }
+      finally {
+        release()
+      }
+    },
+  }, { highWaterMark: 0 })
+  return { stream, release }
+}
+
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
+  if (value === null || Object(value) !== value) return
+  try {
+    const candidate = Object(value)
+    if (!await hasResponsePrototype(candidate)) return
+    // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
+    const status: unknown = Reflect.get(candidate, "status")
+    const statusText: unknown = Reflect.get(candidate, "statusText")
+    const headers: unknown = Reflect.get(candidate, "headers")
+    const body: unknown = Reflect.get(candidate, "body")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
+    if (typeof statusText !== "string") return
+    if (headers === null || Object(headers) !== headers) return
+
+    const headerCarrier = Object(headers)
+    const snapshot = { status, statusText, headers, body }
+    const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
+      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+    let nativeProperties = false
+    try {
+      nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
+        const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+        return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
+      })
     }
-    const body = new ReadableStream<Uint8Array>({
-      cancel: reason => cancelReader(reason),
-      pull: async controller => {
-        try {
-          const chunk = await reader.read()
-          if (chunk.done) {
-            await releaseReader()
-            controller.close()
-          }
-          else controller.enqueue(chunk.value)
-        }
-        catch (error) {
-          await cancelReader(error)
-          controller.error(error)
-        }
-      },
-    })
-    return new Response(body, { headers, status: response.status, statusText: response.statusText })
+    catch {
+      // A proxy can expose native descriptors without owning native response state.
+    }
+    const nativeHeaderMethods = ["get", "forEach"].every(key =>
+      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
+    const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
+      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+    const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+    let nativeBodyState = false
+    try {
+      const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyState = bodyUsed !== undefined
+        && !Reflect.apply(bodyUsed, candidate, [])
+        && (body === null || (locked !== undefined && !Reflect.apply(locked, body, [])))
+    }
+    catch {
+      // A proxy can expose native descriptors without owning native response state.
+    }
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
+    if (!isSerializableAuthorizationBody(body)) return
+    const forEach = Reflect.get(headerCarrier, "forEach")
+    const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
+    const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
+    if (!Array.isArray(cookies)) return
+    const normalizedHeaders = new Headers()
+    let combinedCookies: string | undefined
+    Reflect.apply(forEach, headers, [(value: string, key: string) => {
+      if (key.toLowerCase() === "set-cookie") {
+        if (cookies.length === 0) combinedCookies = value
+        return
+      }
+      normalizedHeaders.append(key, value)
+    }])
+    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // followed by another cookie assignment at the cookie-pair boundary proves that
+    // multiple values were merged. Assignment-like text after an extension attribute
+    // can still be part of that attribute's value, so do not reject it as a merge.
+    if (combinedCookies !== undefined) {
+      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      normalizedHeaders.append("set-cookie", combinedCookies)
+    }
+    for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
+
+    // Validate status and native body state before acquiring reader ownership.
+    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
+      ? Response.error()
+      : new Response(body, { status, statusText, headers: normalizedHeaders })
+    if (body === null) return normalizedResponse
+    const bridgedBody = bridgeAuthorizationBody(body)
+    try {
+      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+    }
+    catch (error) {
+      bridgedBody.release()
+      throw error
+    }
   }
   catch {
     return undefined
@@ -509,7 +551,7 @@ export function withAuth<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (typeof handler !== "function") {
+  if (!(handler instanceof Function)) {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuth() requires a handler function." })
   }
   return async (input) => {
@@ -529,10 +571,10 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && typeof authorize !== "function") {
+  if (authorize !== true && !(authorize instanceof Function)) {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
-  if (typeof handler !== "function") {
+  if (!(handler instanceof Function)) {
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAuthorization() requires a handler function." })
   }
   return async (input) => {

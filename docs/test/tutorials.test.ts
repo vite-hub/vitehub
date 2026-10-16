@@ -77,8 +77,6 @@ describe("documentation tutorials", () => {
       expect(source, page).toContain(
         page.endsWith("agents/box-tutorial.md")
           ? "navigation.title: Box tutorial"
-          : page.endsWith("reference/markdown-template-tutorial.md")
-            ? "navigation.title: Tutorial"
           : "navigation.title: Get started",
       );
       expect(source, page).toContain("::tutorial-step");

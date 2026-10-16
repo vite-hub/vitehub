@@ -80,6 +80,32 @@ describe("Definition inspection parity", () => {
     }
   }, 60_000)
 
+  it("lists contributed Workspaces in `vitehub inspect` and the Console", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-inspect-contributed-"))
+    directories.push(root)
+    await writeProjectFile(root, "package.json", "{}\n")
+    await writeProjectFile(root, "server/workspaces/docs.ts", "export default defineWorkspace({ store: { provider: 'memory' } })\n")
+    const contentOwner = {
+      name: "content-owner/vite",
+      vitehub: { workspaces: () => [{ definition: { export: "contentWorkspace", module: "content-owner/workspace" }, name: "content" }] },
+    }
+
+    const config = await resolveConfig({
+      logLevel: "silent",
+      plugins: [vitehub({ blob: false, console: false, env: false, preset: "node", workspace: true }), contentOwner],
+      root,
+    }, "build")
+    const inspector = (await collectViteHubDefinitionInspectors(config.plugins)).find(candidate => candidate.kind === "workspace")
+    const listed = await inspector!.list()
+    const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, plugins: config.plugins, projectRoot: root, sections: ["workspaces"] })
+
+    expect(listed.map(definition => [definition.name, definition.source])).toEqual([
+      ["content", "vite-plugin-contribution"],
+      ["docs", "server-workspaces"],
+    ])
+    expect(catalog.content.workspaces).toEqual({ definitions: listed, kind: "definition-catalog" })
+  }, 60_000)
+
   it("lists contributed Schedules in `vitehub inspect` and the Console", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-inspect-contributed-schedule-"))
     directories.push(root)
