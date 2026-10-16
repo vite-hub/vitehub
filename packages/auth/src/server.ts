@@ -61,8 +61,19 @@ interface RequestInitWithDuplex extends RequestInit {
 function isRequestLike(value: AuthRequest): value is Request {
   try {
     const isBrandCheckError = (error: unknown): boolean => {
-      return error instanceof TypeError
-        && /illegal invocation|invalid (this|receiver)|brand/i.test(error.message)
+      if ((typeof error !== "object" && typeof error !== "function") || error === null) return false
+      let name: unknown
+      let message: unknown
+      try {
+        name = Reflect.get(error, "name")
+        message = Reflect.get(error, "message")
+      }
+      catch {
+        return false
+      }
+      return name === "TypeError"
+        && typeof message === "string"
+        && /illegal invocation|invalid (this|receiver)|brand/i.test(message)
     }
     // Independent Fetch implementations do not share native brands or prototype
     // layouts. This checks the API used by Better Auth, not the object's origin:
