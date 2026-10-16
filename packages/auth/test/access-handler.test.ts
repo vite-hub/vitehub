@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { runInNewContext } from "node:vm"
+import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -165,7 +166,7 @@ describe("Auth access handlers", () => {
   })
 
   it("normalizes native responses constructed by another realm", async () => {
-    const response = runInNewContext(`new (class extends Response {})("Policy rejected", { status: 409 })`, { Response })
+    const response = runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => response }] },
     }))
@@ -173,6 +174,17 @@ describe("Auth access handlers", () => {
     expect(normalized).not.toBe(response)
     expect(normalized?.status).toBe(409)
     expect(await normalized?.text()).toBe("Policy rejected")
+  })
+
+  it("preserves foreign Response.error results", async () => {
+    const response = ForeignResponse.error()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+    const normalized = await handler(new Request("https://app.example/"))
+    expect(normalized?.status).toBe(0)
+    expect(normalized?.type).toBe("error")
+    expect(await normalized?.text()).toBe("")
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

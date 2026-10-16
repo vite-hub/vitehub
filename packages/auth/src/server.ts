@@ -355,10 +355,17 @@ function isResponseLike(value: unknown): Response | false {
       const status = statusGetter.call(value)
       const statusText = statusTextGetter.call(value)
       const headers = headersGetter.call(value)
-      if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return false
+      if (typeof status !== "number" || !Number.isInteger(status)) return false
       if (typeof statusText !== "string") return false
       if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
       const body = bodyGetter.call(value)
+      // Response.error() is the only valid status-zero response. Preserve its
+      // representation when normalizing a foreign response.
+      if (status === 0) {
+        if (statusText !== "" || body !== null) return false
+        return Response.error()
+      }
+      if (status < 200 || status > 599) return false
       // Normalize foreign responses before crossing the host boundary. This
       // gives serialization the local Response, Headers, and stream brands.
       return new Response(body as BodyInit | null, { status, statusText, headers: new Headers(headers as HeadersInit) })
