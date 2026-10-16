@@ -119,6 +119,19 @@ describe("Auth access handlers", () => {
     expect(foreignResponse.body?.locked).toBe(false)
   })
 
+  it("rejects a consumed foreign-runtime response body", async () => {
+    const foreignResponse = new ForeignResponse("Consumed body", { status: 409 })
+    const reader = foreignResponse.body!.getReader()
+    await reader.read()
+    reader.releaseLock()
+    expect(foreignResponse.body?.locked).toBe(false)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("rejects incomplete spoofed authorization responses", async () => {
     const foreignResponse = runInNewContext(`new (class {
       get status() { return 409 }

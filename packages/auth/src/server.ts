@@ -331,6 +331,11 @@ function hasResponsePrototype(value: unknown): boolean {
 function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | false | undefined {
   if (body === null || typeof body !== "object") return
   try {
+    // A disturbed stream can be unlocked after its reader is released. The
+    // intrinsic Response bodyUsed state rejects that stream before acquiring a
+    // new reader, which would otherwise silently bridge an empty body.
+    const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+    if (typeof bodyUsed !== "function" || bodyUsed.call(new Response(body))) return false
     // Calling the intrinsic method performs the ReadableStream brand check,
     // including for streams created in another realm. Constructing a Response
     // is insufficient because arbitrary objects are coerced to text bodies.
