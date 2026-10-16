@@ -67,13 +67,13 @@ const emit = defineEmits<{
       <UEmpty
         v-if="props.error"
         class="h-[calc(100%-3.25rem)] min-h-0"
-        icon="i-ph-cloud-slash-light"
+        icon="i-lucide-cloud-off"
         title="Could not load session details"
         :description="props.error"
         :actions="[
           {
             label: 'Try again',
-            icon: 'i-ph-arrows-clockwise-light',
+            icon: 'i-lucide-refresh-cw',
             onClick: () => emit('retry'),
           },
         ]"

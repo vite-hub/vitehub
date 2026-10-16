@@ -735,7 +735,7 @@ describe("framework package contract", () => {
     const [consoleClientFile] = consoleClientFiles;
     if (!consoleClientFile) throw new TypeError("Expected one hashed Console client asset.");
     const consoleClient = readFileSync(`${packageRoot}/${consoleClientFile}`, "utf8");
-    expect(consoleClient).toContain('"robot-light":{"width":256');
+    expect(consoleClient).toContain('"bot":{"width":24');
     expect(consoleClient).toContain('"folder-tree":{"width":24');
     expect(consoleClient).toContain("prefers-color-scheme: dark");
     expect(consoleClient).toMatch(/classList\.toggle\(["`]dark["`]/);

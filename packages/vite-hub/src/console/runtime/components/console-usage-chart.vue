@@ -83,7 +83,7 @@ function hover(event: PointerEvent): void {
 <template>
   <div>
     <div v-if="state === 'data'" class="relative h-40 pb-6 pl-14">
-      <div class="absolute top-0 bottom-6 left-0 w-12 text-right text-[10px] tabular-nums text-muted" aria-hidden="true">
+      <div class="absolute top-0 bottom-6 left-0 w-12 text-right text-xs tabular-nums text-muted" aria-hidden="true">
         <span
           v-for="tick in ticks"
           :key="tick"
@@ -164,8 +164,8 @@ function hover(event: PointerEvent): void {
             <span class="block font-medium tabular-nums text-highlighted">{{ hovered.display }}</span>
           </div>
         </div>
-        <span class="absolute top-full left-0 mt-2 text-[10px] text-muted" aria-hidden="true">{{ from }}</span>
-        <span class="absolute top-full right-0 mt-2 text-[10px] text-muted" aria-hidden="true">{{ to }} UTC</span>
+        <span class="absolute top-full left-0 mt-2 text-xs text-muted" aria-hidden="true">{{ from }}</span>
+        <span class="absolute top-full right-0 mt-2 text-xs text-muted" aria-hidden="true">{{ to }} UTC</span>
       </div>
     </div>
     <div

@@ -162,7 +162,7 @@ onBeforeUnmount(() => request?.abort());
           <template #right>
             <UButton
               color="neutral"
-              icon="i-ph-heartbeat-light"
+              icon="i-lucide-heart-pulse"
               label="Check status"
               size="xs"
               variant="ghost"
@@ -173,7 +173,7 @@ onBeforeUnmount(() => request?.abort());
               ><UButton
                 aria-label="Refresh declarations"
                 color="neutral"
-                icon="i-ph-arrows-clockwise-light"
+                icon="i-lucide-refresh-cw"
                 size="xs"
                 variant="ghost"
                 :disabled="loading"
@@ -186,7 +186,7 @@ onBeforeUnmount(() => request?.abort());
             v-model="search"
             aria-label="Search variables"
             placeholder="Search variables…"
-            icon="i-ph-magnifying-glass-light"
+            icon="i-lucide-search"
             variant="none"
             class="min-w-40 flex-1"
           />

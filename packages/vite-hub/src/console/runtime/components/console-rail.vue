@@ -246,7 +246,7 @@ onBeforeUnmount(() => {
       </template>
       <UTooltip v-if="navigationFailed && !navigation" text="Retry loading primitives" :content="{ side: 'right' }" :disabled="expanded">
         <PrimitiveRailItem label="Retry loading primitives" @click="loadNavigation">
-          <UIcon name="i-ph-arrows-clockwise-light" class="size-[1.125rem]" />
+          <UIcon name="i-lucide-refresh-cw" class="size-[1.125rem]" />
         </PrimitiveRailItem>
       </UTooltip>
       <PrimitiveRailGroup v-for="(group, index) in groups" :key="index">

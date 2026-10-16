@@ -472,7 +472,7 @@
 .session-inspector__section li {
   align-items: center;
   display: flex;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   gap: 0.45rem;
   min-height: 1.75rem;
@@ -713,7 +713,7 @@
 }
 .session-inspector__snapshot strong {
   color: var(--ui-text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
 }
 .session-inspector__snapshot :is(strong, small) {
@@ -743,7 +743,7 @@
 .session-code-preview .shiki,
 .session-code-preview__plain {
   background: transparent !important;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   line-height: 1rem;
   margin: 0;
@@ -886,7 +886,7 @@
 
 .session-trace__axis span {
   color: var(--ui-text-muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   position: absolute;
   top: 50%;
@@ -950,7 +950,7 @@
 }
 
 .session-trace__name strong {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   font-weight: 500;
   overflow: hidden;
@@ -960,7 +960,7 @@
 
 .session-trace__name small {
   color: var(--ui-text-dimmed);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.625rem;
   margin-top: 0.15rem;
   overflow: hidden;
@@ -1009,7 +1009,7 @@
 
 .session-trace__bar > span {
   color: var(--ui-text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   left: calc(100% + 0.35rem);
   line-height: 1rem;
@@ -1192,7 +1192,7 @@
 }
 
 .session-trace__fields pre {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   line-height: 1.45;
   margin: 0;
