@@ -343,7 +343,54 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
   return undefined
 }
 
-function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource?: boolean, value?: CloudflareD1BindingConfig } {
+function readOpaqueHttpOnly(expression: string | undefined, source: string, seen = new Set<string>()): boolean | undefined {
+  const trimmed = expression?.trim()
+  if (!trimmed) return undefined
+  const body = objectLiteralBody(trimmed)
+  if (body !== undefined) {
+    const http = readObjectPropertyValue(body, "http")?.trim()
+    if (http === "true") return true
+    for (const property of splitTopLevel(body)) {
+      const normalized = stripLeadingEntryComments(property).trim()
+      if (normalized.startsWith("...")) {
+        if (readOpaqueHttpOnly(normalized.slice(3), source, seen) === true) return true
+      }
+    }
+    return false
+  }
+  const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
+  if (!identifier || seen.has(identifier)) return undefined
+  seen.add(identifier)
+  const masked = maskCommentsAndStrings(source)
+  const declarationPattern = /(?:^|[;\n\r])\s*(?:export\s+)?(?:const|let|var)\s+([^;]+)/g
+  for (const match of masked.matchAll(declarationPattern)) {
+    let depth = 0
+    for (const char of masked.slice(0, match.index)) {
+      if (char === "{") depth++
+      else if (char === "}") depth--
+    }
+    if (depth !== 0) continue
+    for (const declaration of splitTopLevel(match[1]!)) {
+      const name = /^\s*([A-Za-z_$][\w$]*)\s*=/.exec(declaration)?.[1]
+      if (name !== identifier) continue
+      const relativeOffset = match[0].indexOf(match[1]!) + declaration.indexOf("=") + 1
+      const sourceOffset = match.index + relativeOffset
+      const remainder = masked.slice(sourceOffset)
+      let nested = 0
+      let end = remainder.length
+      for (let index = 0; index < remainder.length; index++) {
+        const char = remainder[index]!
+        if (char === "{" || char === "[" || char === "(") nested++
+        else if (char === "}" || char === "]" || char === ")") nested = Math.max(0, nested - 1)
+        else if (char === ";" && nested === 0) { end = index; break }
+      }
+      return readOpaqueHttpOnly(source.slice(sourceOffset, sourceOffset + end), source, seen)
+    }
+  }
+  return undefined
+}
+
+function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, configured: boolean, ownsOpaqueResource?: boolean, opaqueHttpOnly?: boolean, value?: CloudflareD1BindingConfig } {
   const source = readFileSync(file, "utf8")
   const definitionBody = readDefinitionObjectBody(file)
   const definitionEntries = definitionBody === undefined
@@ -368,8 +415,9 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
   const body = objectLiteralBody(expression)
   if (resource === "opaque") {
     const ownsOpaqueResource = readOpaqueResourceOwnership(expression, source)
-    if (cloudflareEntries.length && expression?.trim() !== "undefined") return { resource, configured: true, ownsOpaqueResource, value: {} }
-    return { resource, configured: false, ownsOpaqueResource }
+    const opaqueHttpOnly = readOpaqueHttpOnly(expression, source)
+    if (cloudflareEntries.length && expression?.trim() !== "undefined") return { resource, configured: true, ownsOpaqueResource, opaqueHttpOnly, value: {} }
+    return { resource, configured: false, ownsOpaqueResource, opaqueHttpOnly }
   }
   if (body === undefined) return { resource, configured: cloudflareEntries.length > 0 && expression?.trim() !== "undefined", ownsOpaqueResource: false }
   const httpExpression = readObjectPropertyValue(body, "http")?.trim()
@@ -740,7 +788,7 @@ export function resolveDBViteConfig(
     // An opaque expression can only participate in native binding checks when
     // we can prove it does not own a resource. Unknown ownership may describe
     // an HTTP-only or remote resource, which does not emit a native D1 binding.
-    if (definitionCloudflare.resource === "opaque" && definitionCloudflare.ownsOpaqueResource !== false) continue
+    if (definitionCloudflare.resource === "opaque" && (definitionCloudflare.ownsOpaqueResource !== false || definitionCloudflare.opaqueHttpOnly === true)) continue
     const effectiveCloudflare = databases[definition.name]?.cloudflare
     if (effectiveCloudflare?.http) continue
     const binding = effectiveCloudflare?.binding
