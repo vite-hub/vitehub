@@ -83,7 +83,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
       <UAlert
         v-if="error"
         color="error"
-        icon="i-ph-warning-circle-light"
+        icon="i-lucide-circle-alert"
         title="Could not start Agent"
         :description="errorMessage(error)"
         variant="subtle"
@@ -114,7 +114,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
           <template #footer-leading>
             <div class="console-invocation-composer__context flex min-w-0 items-center gap-0.5 text-xs text-muted">
               <span class="flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2">
-                <UIcon class="size-4 shrink-0 opacity-70" name="i-ph-robot-light" />
+                <UIcon class="size-4 shrink-0 opacity-70" name="i-lucide-bot" />
                 <span class="truncate">{{ agent }}</span>
               </span>
               <template v-if="profiles.length > 1">
@@ -139,7 +139,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
               aria-label="Start Agent"
               class="console-invocation-composer__submit size-8 rounded-full transition-transform hover:scale-105 disabled:opacity-30 active:scale-[0.97]"
               color="primary"
-              icon="i-ph-arrow-up-bold"
+              icon="i-lucide-arrow-up"
               :disabled="!canSubmit"
               :loading="loading"
               square
@@ -150,7 +150,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
           </template>
         </AgentChatPrompt>
       </div>
-      <p class="px-3 text-center text-[11px] text-dimmed">
+      <p class="px-3 text-center text-xs text-dimmed">
         Enter sends · Shift+Enter adds a line · Images up to 10 MiB
       </p>
     </div>

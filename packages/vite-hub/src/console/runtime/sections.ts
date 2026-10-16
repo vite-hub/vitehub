@@ -17,22 +17,22 @@ export interface ConsoleSectionDetails {
 
 /** Details of built-in sections. Contributed sections get their details from the navigation response. */
 export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, ConsoleSectionDetails>> = {
-  env: { description: "Inspect Server Env declarations and their providers.", icon: "i-ph-key-light", label: "Env", routeName: "vitehub-console-env" },
+  env: { description: "Inspect Server Env declarations and their providers.", icon: "i-lucide-key-round", label: "Env", routeName: "vitehub-console-env" },
   connections: {
     description: "Inspect and manage app-owned OAuth Connections.",
-    icon: "i-ph-plugs-connected-light",
+    icon: "i-lucide-plug-zap",
     label: "Connections",
     routeName: "vitehub-console-connections",
   },
   agents: {
     description: "Inspect Agent sessions and invocation details.",
-    icon: "i-ph-robot-light",
+    icon: "i-lucide-bot",
     label: "Agents",
     routeName: "vitehub-console-agents",
   },
   usage: {
     description: "Review token use and cost evidence over time.",
-    icon: "i-ph-chart-bar-light",
+    icon: "i-lucide-chart-column",
     label: "Usage",
     routeName: "vitehub-console-usage",
   },
@@ -150,8 +150,8 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("rate-limits", "Rate Limits", "i-lucide-gauge", "rate-limit", "Require request budgets through an H3 guard and atomic drivers."),
   primitive("sandboxes", "Sandboxes", "i-lucide-container", "sandbox", "Run named package projects in an isolated Cloudflare or Vercel Sandbox."),
   primitive("workspaces", "Workspaces", "i-lucide-folder-kanban", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
-  primitive("workflows", "Workflows", "i-ph-git-branch-light", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
-  primitive("queues", "Queues", "i-ph-tray-light", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
+  primitive("workflows", "Workflows", "i-lucide-git-branch", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
+  primitive("queues", "Queues", "i-lucide-inbox", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
   primitive("schedules", "Schedules", "i-lucide-calendar-clock", "schedule", "Declare static cron schedules and manage recurring Runtime Schedules."),
 ]
 

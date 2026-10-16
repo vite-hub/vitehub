@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 
+import { consoleFieldValueIssue } from "../client/documents";
+
 import type { ConsoleSchemaField } from "../client/documents";
 
 defineOptions({ name: "ConsoleSchemaField" });
@@ -12,6 +14,10 @@ const props = defineProps<{
   field: ConsoleSchemaField;
   /** Dotted path of the parent object field, or empty at the top level. */
   parent?: string;
+  /** Label of the parent object field, so a nested issue reads `Author name is required.` */
+  parentLabel?: string;
+  /** Whether the parent object field is optional. Its required children may stay empty while the whole object is. */
+  parentOptional?: boolean;
 }>();
 
 const model = defineModel<unknown>();
@@ -25,7 +31,24 @@ const error = computed(() => {
     .filter(([key]) => key.startsWith(`${path.value}.`))
     .flatMap(([, messages]) => messages);
   const messages = [...own, ...nested];
-  return messages.length ? messages.join(" ") : undefined;
+  return messages.length ? messages.join(" ") : blurIssue.value;
+});
+
+// Text-like fields validate when focus leaves them, then clear the message as soon as the value is valid again.
+// Choices and dates leave validation to the save, since their menus move focus while someone is still choosing.
+const blurValidated = computed(() => ["integer", "number", "string", "string-list", "text"].includes(props.field.kind));
+const blurIssue = ref<string>();
+const labelled = computed(() => (props.parentLabel ? { ...props.field, label: `${props.parentLabel} ${props.field.label.toLowerCase()}` } : props.field));
+
+function validate(): void {
+  if (!blurValidated.value) return;
+  // An optional object such as Author may stay empty; the save reports a half-filled one.
+  const field = props.parentOptional ? { ...labelled.value, required: false } : labelled.value;
+  blurIssue.value = consoleFieldValueIssue(field, model.value);
+}
+
+watch(model, (value) => {
+  if (blurIssue.value && !consoleFieldValueIssue(labelled.value, value)) blurIssue.value = undefined;
 });
 
 function record(value: unknown): Record<string, unknown> {
@@ -171,6 +194,8 @@ function updateChild(name: string, value: unknown): void {
       :field="nested"
       :model-value="child(nested.name)"
       :parent="path"
+      :parent-label="field.label"
+      :parent-optional="!field.required"
       @update:model-value="updateChild(nested.name, $event)"
     />
     <p v-if="errors[path]?.length" class="text-xs text-error">{{ errors[path]!.join(" ") }}</p>
@@ -184,6 +209,7 @@ function updateChild(name: string, value: unknown): void {
     :required="field.required"
     :error="error ?? jsonError"
     :ui="{ label: 'text-xs', description: 'text-xs' }"
+    @focusout="validate"
   >
     <UInput v-if="field.kind === 'string'" :id="inputId" v-model="text" class="w-full" :disabled="disabled" :maxlength="field.maxLength" />
     <UTextarea v-else-if="field.kind === 'text'" :id="inputId" v-model="text" class="w-full" autoresize :rows="3" :disabled="disabled" :maxlength="field.maxLength" />
@@ -196,6 +222,8 @@ function updateChild(name: string, value: unknown): void {
       :min="field.minimum"
       :max="field.maximum"
       :step="field.kind === 'integer' ? 1 : 0.01"
+      :increment="{ color: 'neutral' }"
+      :decrement="{ color: 'neutral' }"
     />
     <USwitch v-else-if="field.kind === 'boolean'" :id="inputId" v-model="boolean" :disabled="disabled" />
     <USelect
@@ -218,7 +246,7 @@ function updateChild(name: string, value: unknown): void {
       <UIcon :name="blob.kind === 'Image' ? 'i-lucide-image' : 'i-lucide-paperclip'" class="size-4 shrink-0 text-muted" />
       <div class="min-w-0 flex-1">
         <p class="truncate font-mono text-xs text-highlighted">{{ blob.pathname || `No ${blob.kind.toLowerCase()}` }}</p>
-        <p :id="`${inputId}-blob`" class="truncate text-[11px] text-muted">
+        <p :id="`${inputId}-blob`" class="truncate text-xs text-muted">
           <template v-if="blob.pathname">{{ [blob.contentType, blob.size === undefined ? '' : formatBytes(blob.size), `Blob store ${blob.store}`].filter(Boolean).join(" · ") }}</template>
           <template v-else>Blob store {{ blob.store }}. Choosing media from the Console is not available yet.</template>
         </p>
