@@ -26,8 +26,6 @@ export function getDocsRailCatalog(sections: DocsSection[]) {
   return getDocsCatalog(sections).filter(group => group.category !== "Platform");
 }
 
-const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
-
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
 
@@ -55,10 +53,6 @@ export function getDocsSectionKind(section: DocsSection) {
   if (section.category === "Start") return "Getting started";
   if (section.category === "Platform") return "Platform";
   return section.category || "Documentation";
-}
-
-export function getDocsRailCatalog(sections: DocsSection[]) {
-  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
 }
 
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
