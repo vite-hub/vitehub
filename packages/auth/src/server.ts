@@ -297,10 +297,6 @@ const nativeReaderMethodSources = Object.fromEntries(Object.entries(nativeReader
   key,
   typeof value === "function" ? functionToString.call(value) : undefined,
 ])) as Record<string, string | undefined>
-const nativeStreamGetReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
-const nativeStreamGetReaderSource = typeof nativeStreamGetReader === "function"
-  ? functionToString.call(nativeStreamGetReader)
-  : undefined
 function isNativeReaderMethod(value: unknown, key: string): value is (...args: unknown[]) => unknown {
   if (value === nativeReaderMethods[key]) return true
   if (typeof value !== "function") return false
@@ -447,12 +443,7 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
           parent = Object.getPrototypeOf(parent)
         }
         if (typeof descriptor.value === "function"
-          && constructor?.name === "ReadableStream"
-          // Cross-realm native methods share the platform's native source
-          // representation. Reject lookalike functions before probing them,
-          // since probing invokes the candidate operation.
-          && nativeStreamGetReaderSource !== undefined
-          && functionToString.call(descriptor.value) === nativeStreamGetReaderSource) {
+          && constructor?.name === "ReadableStream") {
           // Probe the source runtime's reader prototype before acquiring the
           // caller's body lock. This lets malformed foreign readers fail
           // closed without relying on a host-realm releaseLock operation.
