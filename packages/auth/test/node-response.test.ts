@@ -68,3 +68,14 @@ it("preserves commas in quoted cookie extension values", async () => {
 
   expect(target.getHeader("set-cookie")).toBe('first=1; Foo="x, second=2"')
 })
+
+it("preserves commas in unquoted extension values", async () => {
+  const response = new Response(null, { status: 204 })
+  Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
+  response.headers.set("set-cookie", "first=1; Foo=x, second=2")
+  const target = new ServerResponse(new IncomingMessage(new Socket()))
+
+  await sendWebResponse(response, target)
+
+  expect(target.getHeader("set-cookie")).toBe("first=1; Foo=x, second=2")
+})

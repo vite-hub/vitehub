@@ -141,7 +141,18 @@ function headerValue(headers: WorkspaceDevHeaders, name: string): string | undef
     && hasRuntimeType(prototypeGet, "function")
   if (isCrossRealmHeaders) {
     const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
-    for (const getter of [get, prototypeGet]) {
+    let crossRealmGetterIsSafe = true
+    if (prototypeGet !== get) {
+      try {
+        const probe = Reflect.construct(constructor, [])
+        const probeValue = Reflect.apply(prototypeGet, probe, [name])
+        crossRealmGetterIsSafe = probeValue == null
+      }
+      catch {
+        crossRealmGetterIsSafe = false
+      }
+    }
+    for (const getter of crossRealmGetterIsSafe ? [get, prototypeGet] : [get]) {
       if (!hasRuntimeType(getter, "function")) continue
       try {
         const value = Reflect.apply(getter, headers, [name])

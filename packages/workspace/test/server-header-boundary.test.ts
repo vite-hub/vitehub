@@ -58,6 +58,19 @@ describe("workspace dev token headers", () => {
     await expect(validateWorkspaceDevToken(root, headers, options)).resolves.toBe(false)
   })
 
+  it("rejects a caller-defined Headers prototype getter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
+    roots.push(root)
+    const options = { serverId: "forged-constructor-test" }
+    const token = await refreshWorkspaceDevToken(root, options)
+    class Headers {
+      get() { return token }
+    }
+    const headers = Object.create(Headers.prototype) as Record<string, string | string[] | undefined>
+
+    await expect(validateWorkspaceDevToken(root, headers, options)).resolves.toBe(false)
+  })
+
   it("accepts own record tokens and case-insensitive Headers tokens", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-header-"))
     roots.push(root)

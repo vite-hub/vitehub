@@ -64,7 +64,8 @@ function splitCombinedSetCookie(value: string | null): string[] {
     // A cookie boundary is a comma followed by a cookie name and equals sign.
     // Check this before the Expires state so dates without a trailing semicolon
     // still allow the next cookie to be forwarded separately.
-    if (/^\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+=/.test(value.slice(index + 1))) {
+    if (/^\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+=/.test(value.slice(index + 1))
+      && isKnownCookieAttribute(value.slice(start, index))) {
       result.push(value.slice(start, index).trim())
       start = index + 1
       inExpires = false
@@ -74,4 +75,11 @@ function splitCombinedSetCookie(value: string | null): string[] {
   }
   result.push(value.slice(start).trim())
   return result
+}
+
+function isKnownCookieAttribute(cookie: string): boolean {
+  const attributes = cookie.match(/;\s*([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:=|\s|$)/g)
+  if (!attributes?.length) return true
+  const known = new Set(["expires", "max-age", "domain", "path", "samesite", "secure", "httponly", "partitioned", "priority"])
+  return attributes.every(attribute => known.has(attribute.slice(1).trim().split(/[=\s]/, 1)[0]!.toLowerCase()))
 }
