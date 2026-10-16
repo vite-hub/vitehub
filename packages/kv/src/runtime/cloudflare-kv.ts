@@ -38,13 +38,20 @@ function isCloudflareKVListPage(value: unknown): value is CloudflareKVListPage {
   return page.list_complete || (isCloudflareKVString(page.cursor) && page.cursor.length > 0)
 }
 
-function cloudflareBindingNamespace(bindingName: unknown, namespaceId: unknown): string {
-  // Cloudflare recreates request bindings for each request. Use the configured
-  // namespace ID when available, then the binding name as the stable fallback.
-  const identity = typeof namespaceId === "string" && namespaceId.length > 0
-    ? `id:${namespaceId}`
-    : typeof bindingName === "string" ? `binding:${bindingName}` : "default"
-  return `cloudflare-kv:${identity}`
+const cloudflareBindingIdentities = new WeakMap<object, number>()
+let nextCloudflareBindingIdentity = 0
+
+function cloudflareBindingNamespace(bindingName: unknown, namespaceId: unknown, binding?: unknown): string {
+  if (typeof namespaceId === "string" && namespaceId.length > 0) return `cloudflare-kv:id:${namespaceId}`
+  if (binding && typeof binding === "object") {
+    let identity = cloudflareBindingIdentities.get(binding)
+    if (identity === undefined) {
+      identity = ++nextCloudflareBindingIdentity
+      cloudflareBindingIdentities.set(binding, identity)
+    }
+    return `cloudflare-kv:object:${identity}`
+  }
+  return typeof bindingName === "string" ? `cloudflare-kv:binding:${bindingName}` : "cloudflare-kv:default"
 }
 
 function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriver {
@@ -81,7 +88,8 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
-    const requestNamespace = cloudflareBindingNamespace(bindingName, namespaceId)
+    const activeBinding = typeof bindingName === "string" ? getActiveCloudflareBinding<CloudflareKVNamespace>(bindingName) : undefined
+    const requestNamespace = cloudflareBindingNamespace(bindingName, namespaceId, activeBinding)
     const continuation = cursor ? cursorHistories.take(cursor, requestNamespace) : { providerCursor: undefined, history: new Set<string>(), namespace: requestNamespace }
     try {
       if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor

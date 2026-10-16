@@ -35,7 +35,7 @@ describe("Cloudflare KV binding", () => {
   })
 
   it("keeps continuation namespaces stable when request bindings are recreated", async () => {
-    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const storage = createCloudflareKVStorage({ binding: "KV", namespaceId: "stable-id", driver: "cloudflare-kv-binding" }) as RuntimeStorage
     const cursors: Array<string | undefined> = []
     const createPagedNamespace = () => {
       const namespace = createNamespace()
@@ -58,6 +58,19 @@ describe("Cloudflare KV binding", () => {
     const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
 
     await expect(storage.getItem("smoke")).rejects.toThrow("Invalid binding `KV`")
+  })
+
+  it("rejects a continuation resumed against a different request binding", async () => {
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare-kv-binding" }) as RuntimeStorage
+    const first = createNamespace()
+    first.list = async () => ({ cursor: "next", keys: [], list_complete: false })
+    const second = createNamespace()
+    second.list = async () => ({ cursor: "done", keys: [], list_complete: true })
+
+    const page = await runWithActiveCloudflareEnv({ KV: first }, () => storage.listKeys({ limit: 1 }))
+    await expect(runWithActiveCloudflareEnv({ KV: second }, () => storage.listKeys({ cursor: page.cursor, limit: 1 }))).rejects.toThrow(
+      "belongs to a different storage backend",
+    )
   })
 
   it("rejects an incomplete page without a cursor", async () => {
