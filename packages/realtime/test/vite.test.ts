@@ -34,6 +34,16 @@ describe("hubRealtime", () => {
     })
   })
 
+  it("ships one y-tiptap copy, so carets find the sync plugin that Collaboration installs", async () => {
+    const { readdir, readFile } = await import("node:fs/promises")
+    const dist = fileURLToPath(new URL("../dist/", import.meta.url))
+    const files = (await readdir(dist)).filter(file => file.endsWith(".js"))
+    const sources = await Promise.all(files.map(file => readFile(join(dist, file), "utf8")))
+
+    expect(sources.join("\n").match(/new PluginKey\("y-sync"\)/g)).toHaveLength(1)
+    expect(sources.some(source => /from ["']@tiptap\/(?:y-tiptap|extension-collaboration)/.test(source))).toBe(false)
+  })
+
   it("uses Nitro's Durable Object transport for standalone Cloudflare realtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
@@ -60,6 +70,18 @@ describe("hubRealtime", () => {
     expect(config).toMatchObject({
       define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/wiki/") },
     })
+  })
+
+  it("loads the Yjs packages as one module graph in the Nitro environment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
+    const { hubRealtime } = await import("../src/vite.ts")
+    const config = { root, environments: { nitro: { resolve: { noExternal: [/^nitro/] } } } } as Record<string, unknown>
+    const hook = hubRealtime({ authority: "memory" }).config as unknown as (config: Record<string, unknown>) => Promise<void>
+    await hook(config)
+    expect(config).toMatchObject({ environments: { nitro: { resolve: { noExternal: expect.arrayContaining([/^nitro/, "yjs", "y-protocols", "lib0", "@tiptap/y-tiptap"]) } } } })
   })
 
   it("requires an explicit authority for non-Cloudflare production", async () => {
@@ -139,5 +161,61 @@ describe("hubRealtime", () => {
     const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
 
     await expect(hook(config)).rejects.toThrow("cannot use the deno deployment preset")
+  })
+  it.each([
+    { name: "Cloudflare", nitro: { preset: "cloudflare" }, command: "build", options: {}, authority: "cloudflare" },
+    { name: "development", nitro: {}, command: "serve", options: {}, authority: "memory" },
+    { name: "an explicit memory authority", nitro: { preset: "node" }, command: "build", options: { authority: "memory" as const }, authority: "memory" },
+  ])("adds contributed definitions and plugins on $name", async ({ nitro, command, options, authority }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    const contexts: unknown[] = []
+    const { hubRealtime } = await import("../src/vite.ts")
+    const plugin = hubRealtime({
+      ...options,
+      contribute: (context) => {
+        contexts.push(context)
+        return { definitions: [{ handler: join(context.directory, "content.mjs"), name: "content" }], plugins: [join(context.directory, "content-live.mjs")] }
+      },
+    })
+    const config = { root, nitro } as Record<string, unknown>
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
+    await hook(config, { command })
+
+    expect(contexts).toEqual([{ authority, directory: join(root, ".vitehub/nitro/realtime"), projectRoot: root, serverDirs: undefined }])
+    const registry = await import("node:fs/promises").then(fs => fs.readFile(join(root, ".vitehub/nitro/realtime/registry.mjs"), "utf8"))
+    expect(registry).toContain("content.mjs")
+    expect(config.nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/realtime/content-live.mjs")] })
+  })
+
+  it.each(["vercel", "netlify", "deno-deploy"])("leaves contributions out without an error on %s", async (preset) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    let called = false
+    const { hubRealtime } = await import("../src/vite.ts")
+    const plugin = hubRealtime({ contribute: () => {
+      called = true
+      return { definitions: [{ handler: join(root, "content.mjs"), name: "content" }] }
+    } })
+    const config = { root, nitro: { preset } } as Record<string, unknown>
+    const hook = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
+
+    await expect(hook(config, { command: "build" })).resolves.toBeUndefined()
+    expect(called).toBe(false)
+    expect(config.nitro).toEqual({ preset })
+  })
+
+  it("keeps an application definition over a contributed one with the same name", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/content.ts"), "export default {}\n")
+    const { hubRealtime } = await import("../src/vite.ts")
+    const plugin = hubRealtime({ authority: "memory", contribute: () => ({ definitions: [{ handler: join(root, "generated.mjs"), name: "content" }] }) })
+    const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
+    await hook({ root })
+    const registry = await import("node:fs/promises").then(fs => fs.readFile(join(root, ".vitehub/nitro/realtime/registry.mjs"), "utf8"))
+    expect(registry).toContain("server/realtime/content.ts")
+    expect(registry).not.toContain("generated.mjs")
   })
 })

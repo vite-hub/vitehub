@@ -65,6 +65,8 @@ describe("docs product navigation", () => {
       expect(templateTitles, sectionId).toContain("Server API");
       // Product-specific concepts can sit between the shared template pages.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
+      const lastTemplateIndex = Math.max(...templateTitles.map(title => titles.indexOf(title)));
+      expect(titles.slice(lastTemplateIndex + 1).some(title => template.includes(title)), sectionId).toBe(false);
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -155,6 +157,8 @@ describe("docs product navigation", () => {
 
   it("redirects each removed page, its trailing-slash form, and its raw Markdown copy to a published page", () => {
     const routeRules = createDocsRedirectRouteRules();
+
+    expect(docsPageRedirects["/docs/ui/built-for-vue"]).toBe("/docs/getting-started/built-for-vue");
 
     expect(docsPageRedirects["/docs/server-primitives/kv"]).toBe("/docs/kv");
     expect(docsPageRedirects["/docs/capabilities/db"]).toBe("/docs/database/agent-capability");

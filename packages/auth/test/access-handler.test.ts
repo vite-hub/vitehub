@@ -1,6 +1,5 @@
 import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { runInNewContext } from "node:vm"
 import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"

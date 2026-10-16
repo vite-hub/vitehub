@@ -31,9 +31,15 @@ Each route checks access itself before it reads or changes a Connection. With th
 
 `console.authorize` runs after each of these checks. When it returns `{ sections }`, the routes also need the `connections` section.
 
-A rejected request returns `403` with `CONNECTION_FORBIDDEN`. With `createConnectionsHandler()`, pass `actor`: a function that returns `user:<id>` for an authorized manager, or `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTION_AUTH_REQUIRED` elsewhere.
+A rejected request returns `403` with `CONNECTION_FORBIDDEN`. With the Console, the route returns the Console access rejection instead. For example, a Console Auth session without a user id returns `403` with `CONSOLE_MANAGER_REQUIRED`. See [Console error codes](/docs/development/console#console-error-codes). With `createConnectionsHandler()`, pass `actor`: a function that returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTION_FORBIDDEN`, or a `Response` to reject it with that response. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTION_AUTH_REQUIRED` elsewhere.
 
 The OAuth callback is reached by a redirect from the provider. It completes the flow only for the browser that started it (the `state` cookie) and for the same manager. The `state` works one time only and expires after 10 minutes. A `state` from another manager returns `403`.
+
+### Origin checks
+
+The `POST` action route accepts only `application/json` requests from the app origin. It compares the browser `Origin` header with the origin of the request URL that the server sees. A different origin returns `403` with `CONNECTION_ORIGIN_REJECTED`, and `details` has `expectedOrigin` and `receivedOrigin`. A request without a JSON content type returns `403` with `CONNECTION_CONTENT_TYPE_REJECTED`.
+
+Behind a TLS-terminating proxy, the server can see `http://` while the browser sends an `https://` origin. Make the server see the public origin: trust `X-Forwarded-Proto` and `X-Forwarded-Host`, or configure the public URL. The connect route builds the OAuth `redirectUri` from the same request URL, so this also fixes an `http://` callback URL.
 
 ## Calls
 
