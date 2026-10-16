@@ -1,18 +1,13 @@
 <script setup lang="ts">
 import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { getDocsSectionForPath, isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
 const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
-// The catalog and every product Overview are landing pages: no sidebar, one centered column.
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
-
-// On docs pages the sidebar sits on the left edge of the viewport. The page content centers in the remaining space.
-const docsShellUi = {
-  root: "lg:!flex lg:!flex-row lg:!items-start lg:!gap-0",
-  left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
-  center: "lg:!flex-1 lg:!min-w-0",
-};
+const hasPanel = computed(
+  () => !isSupportMatrix.value && Boolean(getDocsSectionForPath(docsManifest.sections, route.path)),
+);
 </script>
 
 <template>
@@ -50,10 +45,7 @@ const docsShellUi = {
   flex-direction: column;
 }
 
-.vh-docs-page {
-  flex: 1 1 auto;
-}
-
+.vh-docs-page,
 .vh-docs-content {
   flex: 1 1 auto;
 }
@@ -64,12 +56,12 @@ const docsShellUi = {
   padding: 0 1rem;
 }
 
-.vh-docs-main {
-  max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
-}
-
 .vh-docs-landing {
   max-width: 84rem;
+}
+
+.vh-docs-footer {
+  margin-top: auto;
 }
 
 @media (min-width: 40rem) {
@@ -79,27 +71,31 @@ const docsShellUi = {
   }
 }
 
-/* Keep the desktop rail sticky while clipping only horizontal overflow. */
 @media (min-width: 64rem) {
   .vh-docs-shell {
+    align-items: flex-start;
     overflow-x: clip;
   }
 
   .vh-docs-aside {
     position: sticky;
+    z-index: 10;
     top: var(--ui-header-height);
     display: flex;
+    flex: none;
     height: calc(100dvh - var(--ui-header-height));
-    max-height: calc(100dvh - var(--ui-header-height));
-    min-height: calc(100dvh - var(--ui-header-height));
-    flex: 0 0 auto;
-    flex-direction: column;
-    overflow: hidden;
-    border-right: 1px solid var(--ui-border);
   }
 
   :deep(.vh-docs-sidebars) {
+    height: 100%;
+    min-height: 0;
+    flex-direction: row;
     overflow: visible;
+    border-right: 1px solid var(--ui-border);
+  }
+
+  :deep(.vh-docs-panel) {
+    max-height: calc(100dvh - var(--ui-header-height));
   }
 }
 </style>
