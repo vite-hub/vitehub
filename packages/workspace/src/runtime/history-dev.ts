@@ -82,7 +82,7 @@ async function listHistory(workspace: string, history: WorkspaceHistoryReader, r
   const limit = request.limit ?? defaultHistoryLimit
   if (request.ref !== undefined) {
     const page = await history.list({ cursor: request.cursor, limit, ref: request.ref })
-    const result: WorkspaceHistoryDevRefHistory = {
+    const result: WorkspaceHistoryDevList = {
       workspace,
       ref: request.ref,
       revisions: page.revisions.map(describeRevision),

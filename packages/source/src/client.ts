@@ -167,6 +167,7 @@ export function useCollection<TName extends CollectionName>(
       let cursor = reset ? undefined : nextCursor.value || undefined
       let loadedItems = reset ? [] : [...items.value]
       let loadedTotal = reset ? undefined : total.value
+      let loadedFacets = reset ? undefined : facets.value
       let response: TPage
       const seenCursors = new Set(cursors)
       if (cursor) seenCursors.add(cursor)
@@ -185,6 +186,7 @@ export function useCollection<TName extends CollectionName>(
         response = { ...parsed, items: parsed.items as TItem[] }
         if (active !== controller) return
         if (response.total !== undefined) loadedTotal = response.total
+        if (response.facets !== undefined) loadedFacets = response.facets
         loadedItems = [...loadedItems, ...response.items]
         cursor = response.nextCursor || undefined
         if (cursor && seenCursors.has(cursor)) {
@@ -197,8 +199,9 @@ export function useCollection<TName extends CollectionName>(
       cursors = seenCursors
       nextCursor.value = response.nextCursor
       if (loadedTotal !== undefined) response = { ...response, total: loadedTotal }
+      if (loadedFacets !== undefined) response = { ...response, facets: loadedFacets }
       total.value = loadedTotal
-      facets.value = response.facets
+      facets.value = loadedFacets
       loaded = true
       return { ...response, items: loadedItems }
     } catch (cause) {

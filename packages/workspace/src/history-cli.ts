@@ -359,7 +359,7 @@ export async function runWorkspaceHistoryCli(
       method: "POST",
     }
     if (signal) requestOptions.signal = signal
-    response = await fetchViteHubDevEndpoint(fetchImpl, server.url, workspaceHistoryDevEndpoint, requestOptions)
+    response = await fetchViteHubDevEndpoint(fetchImpl, server.url, workspaceHistoryDevEndpoint, requestOptions as Omit<RequestInit, "headers"> & { headers?: Record<string, string> })
   }
   catch (error) {
     return writeFailure(parsed.json, context, { message: `Workspace history request failed: ${error instanceof Error ? error.message : String(error)}` })
