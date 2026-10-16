@@ -69,6 +69,8 @@ function rejection(status: number, message: string): Response {
 }
 
 const responseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+const responseClone = Response.prototype.clone
+const responseArrayBuffer = Response.prototype.arrayBuffer
 
 async function authorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value instanceof Response) return value
@@ -79,25 +81,27 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     const status = Reflect.get(value, "status")
     const statusText = Reflect.get(value, "statusText")
     if (typeof status !== "number" || typeof statusText !== "string" || !headers || typeof headers !== "object") return
-    const clone = Reflect.get(value, "clone")
-    if (typeof clone !== "function") return
     const bodyUsed = Reflect.get(value, "bodyUsed")
     if (typeof bodyUsed !== "boolean") return
     const init = { headers: new Headers(headers as Headers), status, statusText }
     let cloned: unknown
     try {
-      cloned = Reflect.apply(clone, value, [])
+      cloned = Reflect.apply(responseClone, value, [])
     }
     catch {
       if (bodyUsed) return
       return
     }
     if (!cloned || typeof cloned !== "object" || cloned === value) return
-    const arrayBuffer = Reflect.get(cloned, "arrayBuffer")
-    if (typeof arrayBuffer !== "function") return
+    try {
+      Reflect.apply(responseStatus, cloned, [])
+    }
+    catch {
+      return
+    }
     const body = Reflect.get(value, "body")
     if (body === null) return new Response(null, init)
-    return new Response(await Reflect.apply(arrayBuffer, cloned, []), init)
+    return new Response(await Reflect.apply(responseArrayBuffer, cloned, []), init)
   }
   catch {
     return
