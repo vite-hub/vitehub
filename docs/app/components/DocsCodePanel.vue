@@ -77,7 +77,12 @@ function releaseSources() {
 }
 function markSources(list: Block[]) {
   list.forEach((block, index) => {
-    const bar = block.wrapper.querySelector<HTMLElement>("[data-filename], [data-code-filename]") ?? block.wrapper.firstElementChild;
+    // Filename metadata lives on the `<pre>` for collection, but that node is
+    // hidden on wide screens. Bind the selection handler to the visible header
+    // sibling instead of the hidden code element.
+    const bar = [...block.wrapper.children].find(
+      (child) => child !== block.pre && !child.matches("button"),
+    ) as HTMLElement | undefined;
     const onClick = () => selectBlock(index);
     block.wrapper.classList.add("vh-code-panel-source");
     bar?.addEventListener("click", onClick);

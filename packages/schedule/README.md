@@ -97,7 +97,7 @@ export default defineSchedule({
 });
 ```
 
-Static Schedule Definitions use five-field UTC cron expressions. They cannot set `timeZone`. The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, and Nitro's Cloudflare schedule hook. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
+Static Schedule Definitions use five-field cron expressions in UTC, or in the IANA `timeZone` that the definition sets. The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, and Nitro's Cloudflare schedule hook. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
 
 Applications that use the framework distribution register Schedule through `vitehub({ preset, schedule: true })` and import the definition helper from `vite-hub/schedule`. The Deno framework preset currently rejects Schedule because standalone Deno cron output sits outside its generated Nitro entrypoint. Use the direct Schedule integration for that output.
 
@@ -122,7 +122,74 @@ The module must be an absolute file path or `file:` URL, and the export must be 
 
 ## Run Static Schedules in one Node process
 
-Hosts without a native cron, such as a self-hosted Node server or Docker, use the generated Process Runtime. It scans inside the Node.js process once per minute and runs each discovered Static Schedule Definition when its cron is due. It records Schedule Runs in the default KV store configured by `hubKv()`. Configure it only for one long-lived replica:
+Define a cronless target for work that runs only through Runtime Schedules.
+
+```ts
+// server/schedules/report.ts
+import { defineScheduleTarget } from "@vite-hub/schedule";
+
+export default defineScheduleTarget<{ prompt: string }>({
+  async handler({ input }) {
+    if (input) await generateReport(input.prompt);
+  },
+});
+```
+
+Before creating the recurring record, install the Schedule runtime so it can load the discovered target registry and reconcile stored schedules. A custom host calls `installScheduleRuntime()` from `@vite-hub/schedule/runtime/driver` with its wake driver. A generated Process Runtime does this during application startup.
+
+After runtime installation completes, create the recurring record from server code.
+
+```ts
+import { schedules } from "@vite-hub/schedule/runtime";
+
+const report = await schedules.create({
+  cron: "30 8 * * 1-5",
+  id: "weekday-report",
+  input: { prompt: "Summarize yesterday" },
+  target: "report",
+  timeZone: "Europe/Copenhagen",
+});
+
+console.log(report.id);
+```
+
+The installed runtime can supply a native wake driver, or one long-lived process can install `createProcessScheduleWakeDriver()` from `@vite-hub/schedule/runtime/process`.
+
+Static provider cron output does not automatically wake Runtime Schedules. Provider-backed Runtime Schedules need a host-owned wake driver. Request-scoped and serverless hosts must not use the Process Runtime because the process may stop between requests.
+
+## Understand time zones
+
+Static Schedule Definitions and Runtime Schedules use UTC when `timeZone` is absent and accept IANA time-zone names when the cron must follow local clock time.
+
+```ts
+export default defineSchedule({
+  cron: "0 8 * * *",
+  timeZone: "Europe/Madrid",
+  handler: sendMorningBrief,
+});
+```
+
+Only the process driver evaluates the `timeZone` of a Static Schedule Definition. Write it as a string literal, because the build and the Console read it from the source file. Provider cron output for Cloudflare, Vercel, Netlify, and Deno supports only UTC, so a build that generates provider output fails when a Static Schedule Definition sets a `timeZone` other than `UTC`.
+
+Omitting `timeZone` during an update preserves the stored zone. Set it to `UTC` to return to UTC evaluation. Numeric offsets such as `+01:00` are rejected. During a daylight-saving gap, ViteHub skips a local time that does not exist. During an overlap, a cron with a fixed minute and hour runs once, at the first instant of the repeated local time. A cron with `*` in the minute or hour field runs on elapsed time, so both instants are due.
+
+## Choose storage and wake ownership
+
+Memory stores are the default for direct calls. They are process-local and lose Runtime Schedules and Schedule Run history on restart. Use `createKVRuntimeScheduleStore({ kvStore })` and `createKVScheduleRunStore({ kvStore })` when those records must survive a restart. Both factories require an explicit `ScheduleKVStorage`. Static schedules, memory stores, and custom storage do not require `@vite-hub/kv`.
+
+To use ViteHub KV, install `@vite-hub/kv` and import the adapter explicitly:
+
+```ts
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from "@vite-hub/schedule/runtime"
+import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"
+
+const runtimeScheduleStore = createKVRuntimeScheduleStore({ kvStore: scheduleKVStorage })
+const scheduleRunStore = createKVScheduleRunStore({ kvStore: scheduleKVStorage })
+```
+
+Migration: replace factory calls without `kvStore` with the explicit adapter shown above. Generated Process Runtime wiring selects this adapter automatically. Applications using the framework can import it from `vite-hub/schedule/runtime/kv`.
+
+The generated Process Runtime creates both stores through the default KV store configured by `hubKv()`. It scans inside the Node.js process and runs discovered Static Schedule Definitions with stored Runtime Schedules. Configure it only for one long-lived replica:
 
 ```ts
 import { hubKv } from "@vite-hub/kv/vite";
