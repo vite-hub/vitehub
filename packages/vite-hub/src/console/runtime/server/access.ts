@@ -101,6 +101,7 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
         const value = source.get(name)
         if (typeof value === "string") setHeader(name, value)
       }
+      return
     }
     if (!(source instanceof Object)) return
     for (const [name, value] of Object.entries(source)) {
