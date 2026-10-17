@@ -179,6 +179,8 @@ describe("UI documentation", () => {
     expect(layout).toContain("overflow: hidden;");
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
+    expect(layout).toContain("position: sticky;");
+    expect(layout).not.toContain("overflow: hidden;");
     expect(layout).toContain("flex: 1;");
   });
 

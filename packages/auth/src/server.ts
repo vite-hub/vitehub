@@ -593,6 +593,30 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   }
 }
 
+function isNativeResponseShape(value: unknown): value is {
+  headers: Headers
+  body: unknown
+  arrayBuffer: () => Promise<ArrayBuffer>
+  status: number
+  statusText: string
+} {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return false
+  const findDescriptor = (name: string) => {
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
+      if (descriptor) return descriptor
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  const status = findDescriptor("status")
+  const statusText = findDescriptor("statusText")
+  const headers = findDescriptor("headers")
+  const body = findDescriptor("body")
+  if (typeof status?.get !== "function" || typeof statusText?.get !== "function" || typeof headers?.get !== "function" || typeof body?.get !== "function") return false
+  return typeof (value as { arrayBuffer?: unknown }).arrayBuffer === "function"
+}
+
 async function checkAuthRequest(
   input: AuthRequestInput,
   definition: AuthDefinition,
