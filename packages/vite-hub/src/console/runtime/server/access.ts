@@ -77,48 +77,9 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     return new Response(body as BodyInit, init)
   }
   catch {
-    // A foreign realm's native accessors reject the current realm's brand
-    // check. Retry with the accessors belonging to the value's Response.
-  }
-  try {
-    const isNative = (candidate: unknown): candidate is (...args: never[]) => unknown =>
-      typeof candidate === "function" && Function.prototype.toString.call(candidate).includes("[native code]")
-    // Fetch accessors perform the native internal-slot brand check. For a
-    // foreign realm, use that realm's native accessors instead of applying
-    // this realm's brand checks to the value.
-    let prototype: object | null = value
-    while (prototype) {
-      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-      const statusGetter = Object.getOwnPropertyDescriptor(prototype, "status")?.get
-      const statusTextGetter = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get
-      const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
-      const bodyUsedGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
-      const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
-      const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
-      const arrayBuffer = Object.getOwnPropertyDescriptor(prototype, "arrayBuffer")?.value
-      if (isNative(constructor) && constructor.prototype === prototype
-        && constructor !== Response
-        && constructor.name === "Response"
-        && isNative(statusGetter) && isNative(statusTextGetter)
-        && isNative(headersGetter) && isNative(bodyUsedGetter)
-        && isNative(bodyGetter) && isNative(clone) && isNative(arrayBuffer)) {
-        const status = Reflect.apply(statusGetter, value, [])
-        const statusText = Reflect.apply(statusTextGetter, value, [])
-        const headers = Reflect.apply(headersGetter, value, [])
-        const bodyUsed = Reflect.apply(bodyUsedGetter, value, [])
-        const cloned = Reflect.apply(clone, value, [])
-        if (typeof status !== "number" || typeof statusText !== "string" || headers === null || (typeof headers !== "object" && typeof headers !== "function") || typeof bodyUsed !== "boolean") return
-        if (bodyUsed) return
-        const init = { headers: new Headers(headers as Headers), status, statusText }
-        if (Reflect.apply(bodyGetter, value, []) === null) return new Response(null, init)
-        const bytes = await Reflect.apply(arrayBuffer, cloned, []) as ArrayBuffer
-        return new Response(bytes, init)
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    return
-  }
-  catch {
+    // A foreign realm's native accessors may reject the current realm's
+    // internal-slot brand check. Do not fall back to proxyable structural
+    // checks; malformed authorization results must fail closed.
     return
   }
 }
