@@ -82,12 +82,6 @@
       "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
-    "./publish": {
-      "types": "./dist/publish.d.ts",
-      "import": "./dist/publish.js",
-      "require": "./dist/publish.js",
-      "default": "./dist/publish.js"
-    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",

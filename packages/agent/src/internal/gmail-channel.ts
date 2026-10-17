@@ -19,7 +19,7 @@ const syncLockTtlMs = 10 * 60_000
 const watchRenewalMarginMs = 24 * 60 * 60_000
 const messageFetchConcurrency = 5
 export const gmailDefaultBodyLimit = 10_000
-export const gmailWatchLabelIds: readonly string[] = ["INBOX"]
+const gmailWatchLabelIds: readonly string[] = ["INBOX"]
 
 // Gmail API: https://developers.google.com/workspace/gmail/api/reference/rest
 
@@ -195,7 +195,7 @@ export const gmailMessageSchema: v.GenericSchema<GmailMessage> = v.object({
   to: v.array(v.string()),
 })
 
-export function gmailErrorStatus(error: unknown): number | undefined {
+function gmailErrorStatus(error: unknown): number | undefined {
   return isRuntimeRecord(error) && hasRuntimeType(error.status, "number") ? error.status : undefined
 }
 
@@ -537,7 +537,7 @@ async function getGmailInboxMessage(client: GmailClient, id: string, bodyLimit: 
 }
 
 /** Reads messages in order with bounded concurrency. Deleted messages are skipped. */
-export async function getGmailMessages(client: GmailClient, ids: readonly string[], bodyLimit: number): Promise<GmailMessage[]> {
+async function getGmailMessages(client: GmailClient, ids: readonly string[], bodyLimit: number): Promise<GmailMessage[]> {
   const messages: (GmailMessage | undefined)[] = []
   for (let start = 0; start < ids.length; start += messageFetchConcurrency) {
     messages.push(...await Promise.all(ids.slice(start, start + messageFetchConcurrency).map(id => getGmailMessage(client, id, bodyLimit))))
@@ -611,7 +611,7 @@ async function createLabel(client: GmailClient, name: string, settings: GmailLab
  * Maps label names to IDs. System labels such as `INBOX` and `STARRED` and existing label IDs pass through.
  * A missing label is created only when `labels` declares it.
  */
-export async function gmailLabelIds(client: GmailClient, names: readonly string[], declared: Record<string, GmailLabelSettings>): Promise<string[]> {
+async function gmailLabelIds(client: GmailClient, names: readonly string[], declared: Record<string, GmailLabelSettings>): Promise<string[]> {
   const ids: string[] = []
   for (const name of names) {
     const find = (labels: GmailApiLabel[]) => labels.find(label => label.name === name) ?? labels.find(label => label.id === name)
@@ -790,7 +790,7 @@ function log(event: string, details: Record<string, unknown>): void {
   console.info(JSON.stringify({ event, scope: "vitehub.channel.gmail", ...details }))
 }
 
-export async function listGmailMessageIds(
+async function listGmailMessageIds(
   client: GmailClient,
   options: { includeSpamTrash?: boolean, labelIds?: readonly string[], limit: number, pageToken?: string, query?: string },
 ): Promise<{ ids: string[], nextPageToken?: string }> {
@@ -1026,7 +1026,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
   if (sync.topic) await renewGmailWatchWhenDue(sync.client, sync.state, sync.topic)
 }
 
-export async function startGmailWatch(client: GmailClient, topic: string): Promise<{ expiration: string, historyId: string }> {
+async function startGmailWatch(client: GmailClient, topic: string): Promise<{ expiration: string, historyId: string }> {
   const watch = await gmailRequest(client, watchSchema, {
     body: { labelFilterBehavior: "include", labelIds: gmailWatchLabelIds, topicName: topic },
     method: "POST",
@@ -1036,7 +1036,7 @@ export async function startGmailWatch(client: GmailClient, topic: string): Promi
 }
 
 /** Renews the Gmail watch when the stored expiration is less than a day away. */
-export async function renewGmailWatchWhenDue(client: GmailClient, binding: AgentChannelStateBinding, topic: string): Promise<boolean> {
+async function renewGmailWatchWhenDue(client: GmailClient, binding: AgentChannelStateBinding, topic: string): Promise<boolean> {
   const key = `${binding.keyPrefix}watch-expires-at`
   const expiresAt = await binding.state.get<string>(key)
   if (expiresAt && Date.parse(expiresAt) - Date.now() > watchRenewalMarginMs) return false

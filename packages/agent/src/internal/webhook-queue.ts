@@ -123,12 +123,12 @@ export interface AgentWebhookQueueRegistration<Options> {
   state: AgentWebhookQueueStateAdapter
 }
 
-export interface AgentWebhookQueueExecution<Options> extends AgentWebhookQueueRegistration<Options> {
+interface AgentWebhookQueueExecution<Options> extends AgentWebhookQueueRegistration<Options> {
   delivery: AgentWebhookQueueLease
   lifecycleSignal: AbortSignal
 }
 
-export interface AgentWebhookQueueRegistrar<Options> {
+interface AgentWebhookQueueRegistrar<Options> {
   register: (registration: AgentWebhookQueueRegistration<Options>) => Promise<boolean>
   track: (state: StateAdapter, options: Options, scopePrefix?: string) => void
 }

@@ -68,8 +68,6 @@
     "semver": "^7.8.5"
   },
   "devDependencies": {
-    "@asciidev/box-sdk": "^0.0.37",
-    "@cloudflare/computer": "catalog:sandbox",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",
     "@vercel/sandbox": "catalog:sandbox",
@@ -82,19 +80,11 @@
     "@types/semver": "^7.8.0"
   },
   "peerDependencies": {
-    "@asciidev/box-sdk": "^0.0.37",
-    "@cloudflare/computer": "catalog:sandbox",
     "@cloudflare/sandbox": "catalog:sandbox",
     "ssh2": "^1.17.0",
     "@vercel/sandbox": "catalog:sandbox"
   },
   "peerDependenciesMeta": {
-    "@asciidev/box-sdk": {
-      "optional": true
-    },
-    "@cloudflare/computer": {
-      "optional": true
-    },
     "@cloudflare/sandbox": {
       "optional": true
     },

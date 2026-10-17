@@ -12,7 +12,6 @@ export class RealtimeDocumentConflict extends Diagnostic {
 
 export function isRealtimeDocumentConflict(error: unknown): boolean {
   if (error instanceof RealtimeDocumentConflict) return true
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Conflicts thrown by another bundle copy are matched by their diagnostic code.
   if (!error || typeof error !== "object" || !("code" in error)) return false
   return error.code === conflictCode
 }

@@ -298,7 +298,7 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
   })]) as ReadableStream<unknown>
 }
 
-export function createAgentUIMessageStream(options: {
+function createAgentUIMessageStream(options: {
   execute: (context: { writer: AgentUIMessageStreamWriter }) => MaybePromise<void>
 }): ReadableStream<unknown> {
   return new ReadableStream<unknown>({

@@ -210,7 +210,7 @@ export interface AgentChannelWebhookRouteHandler {
   resume(options?: AgentChannelWebhookResumeOptions): () => Promise<void>
 }
 
-export interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptions {
+interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptions {
   /**
    * Before the queue resumes, fail this Agent's pending or running invocations that started before this time.
    * Invocations that a persisted queued delivery will run again stay active.
@@ -744,7 +744,6 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored custom verifier objects require verification independently of shared secrets.
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
   if (registration.secretToken !== undefined) return (await resolveWebhookSecret(registration.secretToken, context)) !== false
   return requireConfiguredSecret && registration.secretHeader !== undefined

@@ -258,7 +258,6 @@ function getWorkspaceSessionStarter(input: Workspace | WorkspaceAssets): Workspa
 }
 
 function hasOwnMethod(value: Workspace | WorkspaceAssets, key: PropertyKey): boolean {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability detection validates own callable methods at the custom Workspace boundary.
   return Object.hasOwn(value, key) && typeof Reflect.get(value, key) === "function"
 }
 
@@ -461,7 +460,6 @@ async function materializeWorkspaceSourcesTool(
   input: Workspace | WorkspaceAssets,
   options: { path?: string, sources?: string[] },
 ): Promise<WorkspaceMaterializeSourcesResult> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the optional materializer after validating ownership at the custom Workspace boundary.
   if (hasOwnMethod(input, "materializeSources") && typeof input.materializeSources === "function") {
     return await input.materializeSources(options)
   }
