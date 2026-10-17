@@ -37,10 +37,11 @@ const docsShellUi = {
       <div class="vh-docs-main">
         <AnnouncementBanner />
         <slot />
+        <AppFooter class="vh-docs-footer" />
       </div>
     </UPage>
 
-    <AppFooter class="vh-docs-footer" />
+    <AppFooter v-if="isSupportMatrix || isLanding" class="vh-docs-footer" />
   </UMain>
 </template>
 
