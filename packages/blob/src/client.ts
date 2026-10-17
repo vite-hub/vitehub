@@ -76,6 +76,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
+function isResponseLike(value: unknown): value is Response {
+  return isRecord(value)
+    // Cross-realm Response instances do not pass an instanceof check, but
+    // expose the same fetch response contract.
+    && typeof value.ok === "boolean"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response methods cross an untrusted transport boundary.
+    && typeof value.json === "function"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response methods cross an untrusted transport boundary.
+    && typeof value.text === "function"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response properties cross an untrusted transport boundary.
+    && typeof value.status === "number"
+}
+
 function isString(value: unknown): value is string {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upload responses cross an untrusted HTTP boundary.
   return typeof value === "string"
@@ -193,16 +206,49 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
   return (file, pathname = file.name) => {
     const controller = new AbortController()
     let upload: { pathname: string, uploadId: string } | undefined
+    let remoteAbort: Promise<void> | undefined
     let aborted = false
+    let resolveAbortedCompletion!: () => void
+    const abortedCompletion = new Promise<void>(resolve => { resolveAbortedCompletion = resolve })
 
-    const completed = (async () => {
-      upload = await readJson(await send("create", pathname, {
+    const run = (async () => {
+      // Capture the identity inside the response parser before the create
+      // promise settles. This keeps cleanup possible even when a later
+      // response-processing step rejects after the server created the upload.
+      const createRequest = send("create", pathname, {
         body: JSON.stringify({ contentType: file.type || undefined }),
         headers: { "content-type": "application/json" },
         method: "POST",
-        signal: controller.signal,
-      }), parseMultipartCreate)
+      })
+      try {
+        upload = await readJson(await createRequest, value => {
+          const created = parseMultipartCreate(value)
+          upload = created
+          return created
+        })
+      }
+      catch (error) {
+        // Some transports reject after receiving a response (for example when
+        // response processing fails). Recover the create identity when the
+        // rejection exposes that response so an aborted task can still clean up.
+        const response = isResponseLike(error)
+          ? error
+          : isRecord(error) && isResponseLike(error.response) ? error.response : undefined
+        if (response) {
+          try {
+            upload = parseMultipartCreate(await response.json())
+          }
+          catch {
+            // Preserve the original transport or parse error.
+          }
+        }
+        throw error
+      }
       const { pathname: uploadPathname, uploadId } = upload
+      if (aborted) {
+        await abortRemoteUpload().catch(() => {})
+        return undefined
+      }
       // Drivers accept at most 10,000 parts. Increase the requested size for very large files.
       const effectivePartSize = Math.max(partSize, Math.ceil(file.size / 10_000))
       const partCount = Math.max(1, Math.ceil(file.size / effectivePartSize))
@@ -236,25 +282,38 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
       }, { uploadId }), parseMultipartComplete)
       return result.object
     })().catch(async (error: unknown) => {
-      if (aborted) return undefined
+      if (aborted) {
+        await abortRemoteUpload().catch(() => {})
+        return undefined
+      }
       aborted = true
       controller.abort()
-      if (upload) {
-        try {
-          await readJson(await send("abort", upload.pathname, { method: "DELETE" }, { uploadId: upload.uploadId }), value => value)
-        }
-        catch {
-          // Preserve the original upload error. Cleanup is best effort here.
-        }
+      try {
+        await abortRemoteUpload()
+      }
+      catch {
+        // Preserve the original upload error. Cleanup is best effort here.
       }
       throw error
     })
+    const completed = Promise.race([run, abortedCompletion.then(() => undefined)])
+
+    async function abortRemoteUpload() {
+      if (!upload) return
+      remoteAbort ??= send("abort", upload.pathname, { method: "DELETE" }, { uploadId: upload.uploadId })
+        .then(response => readJson(response, value => value))
+        .then(() => undefined)
+      return remoteAbort
+    }
 
     async function abort() {
       if (aborted) return
       aborted = true
-      controller.abort()
-      if (upload) await readJson(await send("abort", upload.pathname, { method: "DELETE" }, { uploadId: upload.uploadId }), value => value)
+      resolveAbortedCompletion()
+      // Keep the create request alive until its response gives us the upload ID.
+      // Once the upload exists, cancel any in-flight part or completion request.
+      if (upload) controller.abort()
+      await abortRemoteUpload()
     }
 
     return { abort, completed }

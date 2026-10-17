@@ -10,7 +10,6 @@ import {
   getDocsSectionForPath,
   getDocsSidebarGroups,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
-import { sidebarPageIcon, sidebarSectionIcon } from "~/utils/docs-sidebar-icons";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
@@ -18,19 +17,23 @@ const section = computed(() => getDocsSectionForPath(docsManifest.sections, rout
 const pageGroups = computed(() => {
   if (!section.value) return [];
   const groups = getDocsSidebarGroups(section.value);
-  const perspective = getDocsPageByPath("/docs/getting-started/built-for-vue");
+  const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
   if (section.value.id !== "ui" || !perspective) return groups;
-  return groups.map((group) =>
-    group.label === "Start" && !group.pages.some((page) => page.path === perspective.path)
-      ? { ...group, pages: [...group.pages, perspective] }
-      : group,
-  );
+  return groups.map((group) => {
+    const pages = group.pages.filter(page => page.path !== perspective.path);
+    if (group.label !== "Start") return { ...group, pages };
+    return {
+      ...group,
+      pages: [...pages, perspective],
+    };
+  }).filter(group => group.pages.length > 0);
 });
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
+const platformSections = computed(() => docsManifest.sections.filter(section => section.category === "Platform"));
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
@@ -39,7 +42,7 @@ function isActive(path: string) {
 
 <template>
   <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
-    <template v-for="(pageGroup, index) in pageGroups" :key="pageGroup.label || `pages-${index}`">
+    <template v-for="pageGroup in pageGroups" :key="pageGroup.label || 'pages'">
       <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
         <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink
