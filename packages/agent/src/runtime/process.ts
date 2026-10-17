@@ -172,7 +172,11 @@ function assertPressurePolicy(value: PressurePolicy, name: "cpu" | "memory"): vo
 
 async function readProcessResources(signal: AbortSignal): Promise<ProcessResourceSample> {
   const [cgroup, meminfo, cpu, memory] = await Promise.all([
-    readCgroupResources(signal),
+    readCgroupResources(signal).catch((error) => {
+      if (signal.aborted) throw error
+      if (error instanceof Error && error.message.startsWith("Invalid cgroup ")) return undefined
+      throw error
+    }),
     readOptionalCgroupFile("/proc/meminfo", signal),
     readOptionalCgroupFile("/proc/pressure/cpu", signal),
     readOptionalCgroupFile("/proc/pressure/memory", signal),
@@ -219,10 +223,10 @@ async function readCgroupResources(signal: AbortSignal): Promise<(Omit<ProcessRe
     ])
     return {
       cpuPressure: parsePressure(cpuPressure ?? ""),
-      memoryCurrent: current === undefined ? 0 : Number(current.trim()),
-      memoryHigh: high === undefined ? Infinity : parseLimit(high),
+      memoryCurrent: current === undefined ? 0 : parseCgroupNumber(current, "memory.current"),
+      memoryHigh: high === undefined ? Infinity : parseLimit(high, "memory.high"),
       memoryHighEvents: parseEvent(events ?? "", "high"),
-      memoryMax: max === undefined ? Infinity : parseLimit(max),
+      memoryMax: max === undefined ? Infinity : parseLimit(max, "memory.max"),
       memoryPressure: parsePressure(memoryPressure ?? ""),
       memoryReclaimable: parseEvent(stat ?? "", "inactive_file") || 0,
     }
@@ -266,12 +270,20 @@ async function readOptionalCgroupFile(path: string, signal: AbortSignal): Promis
 
 function parseEvent(value: string, name: string): number {
   const line = value.split(/\r?\n/).find((entry) => entry.startsWith(`${name} `))
-  return line ? Number(line.slice(name.length + 1)) : 0
+  return line ? parseCgroupNumber(line.slice(name.length + 1), `memory.events.${name}`) : 0
 }
 
-function parseLimit(value: string): number {
+function parseLimit(value: string, name: string): number {
   const parsed = value.trim()
-  return parsed === "max" ? Number.POSITIVE_INFINITY : Number(parsed)
+  return parsed === "max" ? Number.POSITIVE_INFINITY : parseCgroupNumber(parsed, name)
+}
+
+function parseCgroupNumber(value: string, name: string): number {
+  const parsed = value.trim()
+  if (!/^\d+$/.test(parsed)) throw new Error(`Invalid cgroup ${name} value.`)
+  const number = Number(parsed)
+  if (!Number.isFinite(number)) throw new Error(`Invalid cgroup ${name} value.`)
+  return number
 }
 
 function parsePressure(value: string): number {

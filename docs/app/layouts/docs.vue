@@ -10,136 +10,97 @@ const docsShellUi = {
   left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
   center: "lg:!flex-1 lg:!min-w-0",
 };
+const hasPanel = computed(
+  () => !isSupportMatrix.value && Boolean(getDocsSectionForPath(docsManifest.sections, route.path)),
+);
 </script>
 
 <template>
-  <UMain>
-    <UPage v-if="isSupportMatrix" :ui="docsShellUi">
-      <template #left>
-        <UPageAside class="vh-docs-aside hidden lg:block">
-          <DocsSidebars :panel="false" />
-        </UPageAside>
-      </template>
-      <div class="vh-docs-main vh-docs-support-matrix">
-        <AnnouncementBanner />
-        <slot />
-        <AppFooter class="vh-docs-footer" />
-      </div>
-    </UPage>
-
-    <div v-else-if="isLanding" class="vh-docs-landing">
+  <UMain class="vh-docs-shell">
+    <UContainer v-if="isSupportMatrix" class="vh-docs-content">
+      <AnnouncementBanner />
       <slot />
-      <AppFooter class="vh-docs-footer" />
+    </UContainer>
+
+    <div v-else-if="isLanding" class="vh-docs-content vh-docs-landing">
+      <slot />
     </div>
 
-    <UPage v-else :ui="docsShellUi">
+    <UPage v-else :ui="docsShellUi" class="vh-docs-page">
       <template #left>
-        <UPageAside class="vh-docs-aside hidden lg:block">
+        <UPageAside class="vh-docs-aside hidden lg:flex">
           <DocsSidebars panel />
         </UPageAside>
       </template>
+
       <div class="vh-docs-main">
         <AnnouncementBanner />
         <slot />
-        <AppFooter class="vh-docs-footer" />
       </div>
     </UPage>
+
+    <AppFooter class="vh-docs-footer" />
   </UMain>
 </template>
 
 <style scoped>
-/* The header menu holds the navigation on narrow screens. The child selector outranks the DocsSidebars root rule. */
-.vh-docs-shell > .vh-docs-desktop-nav {
-  display: none;
-}
-
-/* The content fills the space next to the sidebars. The page header, the page body, and the table of contents set their own insets.
-   The site footer sits in this column, so the sidebars run the full height beside it. On short pages it rests at the bottom of the viewport. */
-.vh-docs-content {
+.vh-docs-shell {
   display: flex;
-  flex: 1;
-  min-width: 0;
-  max-width: none;
   min-height: calc(100dvh - var(--ui-header-height));
   flex-direction: column;
 }
 
-.vh-docs-support-matrix {
-  max-width: none;
-  width: 100%;
+.vh-docs-page,
+.vh-docs-content {
+  flex: 1 1 auto;
+}
+
+.vh-docs-main,
+.vh-docs-landing {
+  margin: 0 auto;
+  padding: 0 1rem;
 }
 
 .vh-docs-landing {
-  max-width: var(--vh-landing-width);
+  max-width: 84rem;
 }
 
-/* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */
+.vh-docs-footer {
+  margin-top: auto;
+}
+
+@media (min-width: 40rem) {
+  .vh-docs-main,
+  .vh-docs-landing {
+    padding: 0 2rem;
+  }
+}
+
 @media (min-width: 64rem) {
   .vh-docs-shell {
-    display: flex;
     align-items: flex-start;
     overflow-x: clip;
   }
 
-  .vh-docs-shell > .vh-docs-desktop-nav {
-    display: flex;
+  .vh-docs-aside {
     position: sticky;
-    top: var(--ui-header-height);
-    height: calc(100dvh - var(--ui-header-height));
-    max-height: calc(100dvh - var(--ui-header-height));
-    min-height: calc(100dvh - var(--ui-header-height));
-    flex: 0 0 auto;
-  }
-
-  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-sidebars) {
-    width: max-content;
-    height: 100%;
-  }
-
-  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-aside) {
-    position: sticky;
+    z-index: 10;
     top: var(--ui-header-height);
     display: flex;
+    flex: none;
     height: calc(100dvh - var(--ui-header-height));
-    max-height: calc(100dvh - var(--ui-header-height));
-    min-height: calc(100dvh - var(--ui-header-height));
-    flex-direction: column;
-    overflow: hidden;
-    border-right: 1px solid var(--ui-border);
-  }
-
-  .vh-docs-content {
-    flex: 1;
   }
 
   :deep(.vh-docs-sidebars) {
     height: 100%;
     min-height: 0;
-  }
-
-  :deep(.vh-docs-panel) {
-    max-height: calc(100dvh - var(--ui-header-height));
-  }
-
-  /* Keep the actual sidebar element's columns and border constrained to the viewport. */
-  :deep(.vh-docs-sidebars) {
     flex-direction: row;
     overflow: visible;
     border-right: 1px solid var(--ui-border);
   }
-}
 
-@media (min-width: 64rem) {
-  .vh-docs-aside {
-    position: sticky;
-    top: var(--ui-header-height);
-    display: flex;
-    height: calc(100dvh - var(--ui-header-height));
+  :deep(.vh-docs-panel) {
     max-height: calc(100dvh - var(--ui-header-height));
-    min-height: calc(100dvh - var(--ui-header-height));
-    flex-direction: column;
-    overflow: hidden;
-    border-right: 1px solid var(--ui-border);
   }
 }
 </style>
