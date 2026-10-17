@@ -19,6 +19,7 @@ import { getConsoleDefinitions, installConsoleDefinitions } from "./runtime/serv
 import { getConsoleDatabase, installConsoleDatabase } from "./runtime/server/database.ts"
 
 import type { ConsoleInvocationsDatabase } from "./runtime/server/invocations.ts"
+import type { AgentInvocations } from "@vite-hub/agent"
 import { consoleInvocationUrl, resolvePublicUrl, type RuntimeHostContext } from "@vite-hub/runtime"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -28,14 +29,23 @@ export interface ConsoleInvocationLink {
 }
 
 export interface ConsoleRuntime {
-  invocations: ConsoleInvocationsDatabase
+  /** The database-backed journal, or the Worker-safe in-memory journal. */
+  invocations: ConsoleInvocationsDatabase | AgentInvocations
   invocationUrl: (invocation: ConsoleInvocationLink | Record<string, unknown>) => string
 }
 
 export const console = {
   resolve(context: RuntimeHostContext<unknown>): ConsoleRuntime {
     return {
-      invocations: getConsoleInvocationsDatabase(),
+      invocations: (() => {
+        try {
+          return getConsoleInvocationsDatabase()
+        }
+        catch (error) {
+          if (error instanceof Error && error.message.includes("R0064")) return getConsoleInvocations()
+          throw error
+        }
+      })(),
       invocationUrl(invocation) {
         if (typeof invocation.agentName !== "string" || typeof invocation.id !== "string") {
           throw viteHubErrorDiagnostics.VITE_HUB_R0074({ message: "[vitehub] Console invocation URLs require an invocation with agentName and id." })

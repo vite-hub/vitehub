@@ -80,7 +80,9 @@ const history = inputCommands({
   commands: {
     history: {
       async call({ context }) {
-        const { db, schema } = context.console.invocations
+        const invocations = context.console.invocations
+        if (!("db" in invocations)) return await context.reply('Invocation history is not available on this Worker journal.')
+        const { db, schema } = invocations
         const [latest] = await db
           .select({
             agentName: schema.invocations.agentName,
