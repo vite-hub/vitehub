@@ -209,6 +209,7 @@ export interface AgentChannelOptions<
   capabilities?: AgentChannelDefinition<TRuntimeConfig>["capabilities"]
   identity?: AgentChannelDefinition<TRuntimeConfig>["identity"]
   history?: AgentChannelHistory<THistoryItem>
+  instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   message?: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: boolean | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
@@ -3159,6 +3160,9 @@ export function defineChannel<
   if (!hasRuntimeType(kind, "string") || !kind.trim()) {
     throw agentDiagnostics.AGENT_R0371({ message: "[vitehub] defineChannel() requires a non-empty Channel kind." })
   }
+  if (options.instructions !== undefined && (!hasRuntimeType(options.instructions, "string") || !options.instructions.trim())) {
+    throw agentDiagnostics.AGENT_R0557({ message: `[vitehub] Channel "${kind}" instructions must be a non-empty string.` })
+  }
   validateChannelMessageDefinition(kind, options.message)
   validateChannelHistoryDefinition(kind, options.history, options.triggers)
   const messages: false | AgentMessageChannelSettings<TRuntimeConfig> =
@@ -3428,6 +3432,8 @@ export interface GmailChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   dryRun?: boolean
   /** `fetch` for Google OAuth, certificates, and the Gmail API. Defaults to the global `fetch`. */
   fetch?: typeof fetch
+  /** Instructions added to Invocations started by this Channel. */
+  instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   /**
    * Labels that the Channel manages. `vitehub channels sync` creates and colors them,
    * and message methods create a missing one on first use.
@@ -3499,6 +3505,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
     await modifyGmailMessage(await resolveClient(context), id, input, labels)
   const channel = defineChannel("gmail", {
     ...(options.capabilities ? { capabilities: options.capabilities } : {}),
+    ...(options.instructions !== undefined ? { instructions: options.instructions } : {}),
     history: {
       collection: gmailHistoryCollection(() => resolveClient(), bodyLimit),
       key: message => message.id,

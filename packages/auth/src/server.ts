@@ -488,14 +488,18 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   if (!isNativeFunction(streamConstructor, ReadableStream, "ReadableStream", true) || streamConstructor.name !== "ReadableStream"
     || streamConstructor.prototype !== streamPrototype) throw new Error("Non-native response stream")
   const getReader = getReaderIntrinsic.value as (this: ReadableStream<Uint8Array>) => ReadableStreamDefaultReader<Uint8Array>
-  const reader = Reflect.apply(getReader, body, [])
-  // Acquiring the reader locks the source stream. Keep a best-effort release
-  // operation available while validating the reader so every failure unlocks it.
-  const acquiredReleaseLock = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(reader) ?? {}, "releaseLock")?.value
-  const releaseAcquiredReader = () => {
-    if (typeof acquiredReleaseLock === "function") Reflect.apply(acquiredReleaseLock, reader, [])
-  }
-  try {
+  let readerPromise: Promise<{
+    reader: ReadableStreamDefaultReader<Uint8Array>
+    read: (this: ReadableStreamDefaultReader<Uint8Array>) => Promise<{ done: true, value?: undefined } | { done: false, value: Uint8Array }>
+    cancel: (this: ReadableStreamDefaultReader<Uint8Array>, reason?: unknown) => Promise<void>
+    release: (this: ReadableStreamDefaultReader<Uint8Array>) => void
+  }> | undefined
+  const acquireReader = async () => {
+    if (readerPromise) return readerPromise
+    readerPromise = (async () => {
+      const reader = Reflect.apply(getReader, body, [])
+      const acquiredReleaseLock = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(reader) ?? {}, "releaseLock")?.value
+      try {
     const readerPrototype = Object.getPrototypeOf(reader)
     if (!readerPrototype || Object.prototype.hasOwnProperty.call(reader, "read")
       || Object.prototype.hasOwnProperty.call(reader, "cancel")
@@ -517,42 +521,50 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     if (!isNativeFunction(read, nativeReaderRead, "read", false, false) || read.name !== "read"
     || !isNativeFunction(cancel, nativeReaderCancel, "cancel", false, false) || cancel.name !== "cancel"
     || !isNativeFunction(releaseLock, nativeReaderReleaseLock, "releaseLock", false, false) || releaseLock.name !== "releaseLock") throw new Error("Non-native response reader")
-    let released = false
-    const release = () => {
-      if (released) return
-      released = true
-      Reflect.apply(releaseLock, reader, [])
-    }
-    const stream = new ReadableStream<Uint8Array>({
+        return { reader, read, cancel, release: releaseLock }
+      }
+      catch (error) {
+        try { if (typeof acquiredReleaseLock === "function") Reflect.apply(acquiredReleaseLock, reader, []) } catch { /* best effort */ }
+        throw error
+      }
+    })()
+    return readerPromise
+  }
+  let released = false
+  const release = async () => {
+    if (released) return
+    released = true
+    if (!readerPromise) return
+    const acquired = await readerPromise
+    Reflect.apply(acquired.release, acquired.reader, [])
+  }
+  const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
+        const { reader, read } = await acquireReader()
         const result = await Reflect.apply(read, reader, [])
         if (result.done) {
-          release()
+          await release()
           controller.close()
         }
         else controller.enqueue(result.value)
       }
       catch (error) {
-        release()
+        try { await release() } catch { /* best effort */ }
         controller.error(error)
       }
     },
     async cancel(reason) {
       try {
+        const { reader, cancel } = await acquireReader()
         await Reflect.apply(cancel, reader, [reason])
       }
       finally {
-        release()
+        try { await release() } catch { /* best effort */ }
       }
     },
   }, { highWaterMark: 0 })
-    return { stream, release }
-  }
-  catch (error) {
-    try { releaseAcquiredReader() } catch { /* best-effort unlock after validation failure */ }
-    throw error
-  }
+  return { stream, release }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
@@ -566,8 +578,15 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
     const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
+    const type: unknown = Reflect.get(candidate, "type")
+    // Response.error() is the one valid status-zero response. Preserve it before
+    // applying ordinary HTTP status validation; reconstructing it with Response
+    // would reject status 0 and lose its error type.
+    if (status === 0 && statusText === "" && body === null && type === "error") {
+      return value instanceof Response ? value as Response : Response.error()
+    }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
-    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (bodyUsed !== undefined && typeof bodyUsed !== "boolean") return

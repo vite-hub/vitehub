@@ -56,9 +56,7 @@
     },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
-      "import": "./dist/cloudflare.js",
-      "require": "./dist/cloudflare.js",
-      "default": "./dist/cloudflare.js"
+      "import": "./dist/cloudflare.js"
     },
     "./loader": {
       "types": "./dist/loader.d.ts",
