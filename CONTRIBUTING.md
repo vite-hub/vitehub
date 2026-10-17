@@ -117,6 +117,16 @@ Keep changes small. Use existing code or a suitable library before building infr
 
 ViteHub is in active development. Breaking changes and removal of unused compatibility are welcome when they clarify the final contract. Use Better Auth as a composition reference and UnJS for host-independent behavior. Document public behavior in `docs/content/docs/` and the affected package README.
 
+### Errors
+
+Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result`, `ResultError`, and `defineErrors()`.
+
+1. A runtime operation returns `[error, data]`. Errors before a stream starts are in the tuple; errors after it starts go into the stream.
+2. Definition and config errors throw, at build time, at define time, or when an operation starts.
+3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Do not pass a free `message` as the `why`.
+4. Type each method with the union of the codes it can return, and check the union in a `*.test-d.ts` file.
+5. Give each code a heading on `docs/content/docs/<primitive>/limits-and-errors.md`, so `error.docs` opens it.
+
 ### Documentation structure
 
 `docs/content/docs/` has one folder per product. Each Server Primitive folder is one docs section with its own page panel and uses the same task lanes when the product has real content for them: `index.md` (the Overview, rendered as a landing page with a hero and page cards beside the shared navigation), `get-started.md` (the Tutorial), `configure.md` (Guides), `server-api.md` (Reference), `agent-capability.md` when the primitive has an Agent Capability, `hosts.md` (Deploy), and `limits-and-errors.md` (Operate). Create a page only when the product has real content for it. Product-specific pages such as `env/bridge.md` come after the template pages. Sidebar groups combine related tasks under Learn, Build, and Deploy and operate. Each page still follows the Diátaxis model: a Tutorial teaches a first result, a Guide completes one task, Reference describes the contract, and Concepts explain choices. Set `navigation.kind` when a page needs a lane other than the standard page id mapping. `.navigation.yml` declares the section `title`, `icon`, `order`, catalog `category`, and `related` section ids. Every docs page shows the primitive rail; give a new section its rail icon in `docs/app/utils/docs-sidebar-icons.ts`, from the `@vite-hub/ui/primitive-rail` icon family. Agent-only Capabilities live under `agents/capabilities/`. Get started, the shared architecture overview, and AI resources live under `getting-started/`. Detailed concepts live with their owner package. Framework, development, and shared reference sections are reached from Get started and the catalog. When a page moves, add its old path to `docs/modules/vitehub-docs/redirects.ts` and update inbound links; `corepack pnpm exec vp run --filter vitehub-docs test:links` checks every internal link and anchor.

@@ -79,12 +79,14 @@ import { defineEventHandler } from 'h3'
 import { email } from 'vite-hub/email/server'
 
 export default defineEventHandler(async () => {
-  return await email.send({
+  const [error, sent] = await email.send({
     from: 'verified-sender@example.com',
     to: 'you@example.com',
     subject: 'Welcome',
     text: 'Welcome to ViteHub.',
   })
+  if (error) throw error
+  return sent
 })
 ```
 

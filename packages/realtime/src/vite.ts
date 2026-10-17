@@ -2,10 +2,9 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
 import { summarizeRealtimeDefinitions } from "./inspect.ts"
@@ -142,9 +141,8 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const discovered = discoverRealtimeDefinitions(root, serverDirs)
       // SAFETY: Vite's config contract exposes Nitro options through this optional property.
       const nitro = { ...(config as { nitro?: NitroConfig }).nitro }
-      const configuredPreset = nitro.preset || process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-      const deploymentPreset = deploymentPresetFromNitro(configuredPreset)
-      const provider = getHostingProvider(configuredPreset)
+      const deploymentPreset = resolveHost({ nitro })
+      const provider = getHostingProvider(deploymentPreset)
       const authority = options.authority || "auto"
       const directory = resolve(root, ".vitehub/nitro/realtime")
       // The authority a contribution may rely on. Configurations that fail below have none.

@@ -8,7 +8,7 @@ import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, r
 import { renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject } from "@vite-hub/internal/object"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { createViteHubDevToken } from "@vite-hub/internal/dev-token"
 import { findExportNames, hasCJSSyntax } from "mlly"
 import { transform } from "esbuild"
@@ -85,12 +85,6 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
   return value
 }
 
-function getNitroHostingProvider(value: unknown): ReturnType<typeof getHostingProvider> {
-  const nitro = cloneNitroConfig(value)
-  const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  return typeof preset === "string" ? getHostingProvider(preset) : undefined
-}
-
 type BlobRuntimeContribution = Parameters<typeof contributeProviderRuntime>[1]
 
 function hasFsStore(blob: ResolvedBlobModuleOptions): boolean {
@@ -110,7 +104,7 @@ function createSiblingRuntimeContribution(root: string, blob: BlobViteRuntimeCon
 }
 
 function isNitroCloudflareHost(value: unknown): boolean {
-  return getNitroHostingProvider(value) === "cloudflare"
+  return resolveHost({ nitro: value }) === "cloudflare"
 }
 
 function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, unknown>, blob: BlobModuleOptions | undefined, cloudflareHost: boolean): Record<string, unknown> {
@@ -441,7 +435,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       )
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
       runtimeConfig = blobConfig
-      const hosting = getNitroHostingProvider(configuredNitro)
+      const hosting = getHostingProvider(resolveHost({ nitro: configuredNitro }))
         ?? blobConfig.hosting
         ?? (resolveNitroVercelFunctionName(config, "blob") ? "vercel" : undefined)
       if (config.command === "build") assertDriverSdksInstalled(blobConfig.blob, cloudflare)
