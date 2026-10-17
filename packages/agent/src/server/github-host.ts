@@ -268,7 +268,7 @@ function isRestRead(args: string[]): boolean {
       hasWriteArguments = true
     }
   }
-  return method === "GET" ? !hasInput : !hasWriteArguments
+  return method === "GET" ? !hasInput : !hasInput && !hasWriteArguments
 }
 
 const TRANSIENT_RETRY_DELAYS_MS = [1_000, 3_000]
