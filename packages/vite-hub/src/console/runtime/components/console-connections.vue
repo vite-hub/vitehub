@@ -13,6 +13,7 @@ import { rememberConsoleSection } from "../sections";
 import ConsoleConnectionsDetails from "./console-connections-details.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{
   agentsBase: string;
@@ -27,7 +28,7 @@ const pending = ref(new Map<string, number>());
 const search = ref("");
 const selectedName = ref<string>();
 const loading = ref(true);
-const error = ref("");
+const error = ref<unknown>();
 let request: AbortController | undefined;
 const selected = computed(() =>
   connections.value.find((connection) => connection.name === selectedName.value),
@@ -61,7 +62,7 @@ async function refresh() {
   const current = new AbortController();
   request = current;
   loading.value = true;
-  error.value = "";
+  error.value = undefined;
   try {
     const [list, counts] = await Promise.all([
       requestConnectionsManagement(props.managementBase, "list", connectionListSchema),
@@ -71,9 +72,7 @@ async function refresh() {
     connections.value = list.connections;
     pending.value = new Map(Object.entries(counts.counts));
   } catch (cause) {
-    if (!current.signal.aborted) {
-      error.value = cause instanceof Error ? cause.message : "Could not load Connections.";
-    }
+    if (!current.signal.aborted) error.value = cause;
   } finally {
     if (!current.signal.aborted) loading.value = false;
   }
@@ -123,19 +122,23 @@ onBeforeUnmount(() => request?.abort());
       </template>
       <template #body>
         <main class="min-h-0 flex-1 overflow-auto">
-          <div v-if="error" role="alert" class="flex items-center gap-3 p-4 text-sm">
-            <span>{{ error }}</span
-            ><UButton label="Try again" color="neutral" variant="ghost" @click="refresh" />
-          </div>
+          <ConsoleState v-if="error" :error="error" title="Could not load Connections" :retry="refresh" />
           <p v-else-if="loading" role="status" class="p-4 text-sm text-muted">
             Loading Connections…
           </p>
+          <ConsoleState
+            v-else-if="!connections.length"
+            section="connections"
+            icon="i-ph-plugs-connected-light"
+            title="No Connections yet"
+            description="Add a Connection Definition to server/connections/ to connect a provider account."
+          />
           <UTable
             v-else
             :data="rows"
             :columns="columns"
             :on-select="selectRow"
-            :empty="connections.length ? 'No matching Connections.' : 'No Connections defined.'"
+            empty="No matching Connections."
             :ui="{
               tr: 'outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
             }"

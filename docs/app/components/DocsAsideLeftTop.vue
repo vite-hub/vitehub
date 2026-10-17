@@ -8,7 +8,9 @@ const sectionPath = computed(() => currentSection.value?.path || "/docs");
 const sectionTitle = computed(() => currentSection.value?.title || "All products");
 const sectionCategory = computed(() => {
   const category = currentSection.value?.category;
-  return category && category !== currentSection.value?.title ? category : "Getting started";
+  if (!category) return "Getting started";
+  return category === currentSection.value?.title ? "" : category;
+
 });
 const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
 </script>

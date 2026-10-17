@@ -21,9 +21,19 @@ export type DocsCatalogGroup = {
 
 const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
 
-/** Groups used by the docs rail; platform topics stay in the catalog only. */
-export function getDocsRailCatalog(sections: DocsSection[]) {
+/** Groups shown in the docs rail, excluding platform sections reached from Start. */
+export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
   return getDocsCatalog(sections).filter(group => group.category !== "Platform");
+}
+
+/** Short label shown beside a product in the catalog. */
+export function getDocsSectionKind(section: DocsSection) {
+  if (section.id === "agents") return "Agent runtime";
+  if (section.id === "ui") return "UI components";
+  if (primitiveCategories.has(section.category || "")) return "Server Primitive";
+  if (section.category === "Start") return "Getting started";
+  if (section.category === "Platform") return "Platform";
+  return section.category || "Documentation";
 }
 
 /** The section whose pages fill the Start row of the catalog. */
@@ -45,15 +55,6 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
     .filter(group => group.sections.length > 0);
 }
 
-/** Short label shown beside a product in the catalog. */
-export function getDocsSectionKind(section: DocsSection) {
-  if (section.id === "agents") return "Agent runtime";
-  if (section.id === "ui") return "UI components";
-  if (primitiveCategories.has(section.category || "")) return "Server Primitive";
-  if (section.category === "Start") return "Getting started";
-  if (section.category === "Platform") return "Platform";
-  return section.category || "Documentation";
-}
 
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
   return sections.filter(section => !isDocsCategory(section.category));
@@ -83,7 +84,10 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     groups.set(label, [...(groups.get(label) || []), page]);
   }
 
-  return [...groups].map(([label, pages]) => ({ label, pages }));
+  return [...groups].map(([label, pages]) => ({
+    label: pages.length > 1 ? label : null,
+    pages,
+  }))
 }
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */

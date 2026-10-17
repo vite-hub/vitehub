@@ -8,6 +8,7 @@ import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 interface KVListResponse {
@@ -127,14 +128,6 @@ function parseValue(value: unknown): KVValueResponse {
   if (typeof source.value === "string") parsed.value = source.value;
   if (source.truncated === true) parsed.truncated = true;
   return parsed;
-}
-
-function errorMessage(error: unknown): string | undefined {
-  return error instanceof Error
-    ? error.message
-    : error
-      ? "The Console could not load this KV data."
-      : undefined;
 }
 
 async function loadValue(key = selectedKey.value): Promise<void> {
@@ -380,23 +373,13 @@ onBeforeUnmount(() => {
 
       <template #body>
         <main class="min-h-0 flex-1 overflow-y-auto">
-          <UAlert
-            v-if="errorMessage(listError)"
-            class="m-3"
-            color="error"
-            variant="subtle"
-            icon="i-ph-cloud-slash-light"
-            title="Could not load keys"
-            :description="errorMessage(listError)"
-            :actions="[
-              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
-            ]"
-          />
+          <div v-if="listError" class="m-3">
+            <ConsoleState compact :error="listError" title="Could not load keys" :retry="refresh" />
+          </div>
           <template v-else>
             <UTable
               :columns="columns"
               :data="tableRows"
-              empty="No keys in this store."
               :loading="listLoading"
               :meta="tableMeta"
               sticky="header"
@@ -414,6 +397,15 @@ onBeforeUnmount(() => {
               </template>
               <template #store-cell="{ row }">
                 <span class="font-mono text-[11px] text-muted">{{ row.original.store }}</span>
+              </template>
+              <template #empty>
+                <ConsoleState
+                  v-if="!listLoading"
+                  section="kv"
+                  icon="i-lucide-book-key"
+                  title="No keys yet"
+                  description="Keys appear here after the application writes a value to this store."
+                />
               </template>
             </UTable>
             <div v-if="nextCursor" class="border-b border-default px-3 py-2">
@@ -434,22 +426,9 @@ onBeforeUnmount(() => {
               class="size-4 animate-spin text-muted opacity-70"
             />
           </div>
-          <UAlert
-            v-else-if="errorMessage(valueError)"
-            class="m-3"
-            color="error"
-            variant="subtle"
-            icon="i-ph-cloud-slash-light"
-            title="Could not load this value"
-            :description="errorMessage(valueError)"
-            :actions="[
-              {
-                label: 'Try again',
-                icon: 'i-ph-arrows-clockwise-light',
-                onClick: () => loadValue(),
-              },
-            ]"
-          />
+          <div v-else-if="valueError" class="m-3">
+            <ConsoleState compact :error="valueError" title="Could not load this value" :retry="() => loadValue()" />
+          </div>
           <UAlert
             v-else-if="selectedValue && !selectedValue.found"
             class="m-3"
