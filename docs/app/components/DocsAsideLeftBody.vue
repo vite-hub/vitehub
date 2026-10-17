@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
+
 import {
   docsManifest,
   getDocsPageByPath,
@@ -14,29 +16,21 @@ import {
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
 const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
+const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
 const pageGroups = computed(() => {
   if (!section.value) return [];
   const groups = getDocsSidebarGroups(section.value);
-  const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
+  const perspective = getDocsPageByPath("/docs/getting-started/built-for-vue");
   if (section.value.id !== "ui" || !perspective) return groups;
-
-  const perspectivePath = normalizeDocsPath(perspective.path);
-  const hasPerspective = groups.some(group => group.pages.some(page => normalizeDocsPath(page.path) === perspectivePath));
-  if (hasPerspective) return groups;
-  const perspectiveGroup = groups.find(group => group.label === "Perspective");
-  if (perspectiveGroup) {
-    return groups.map(group => group === perspectiveGroup
-      ? { ...group, pages: [...group.pages, perspective] }
-      : group);
-  }
-  return [...groups, { label: "Perspective", pages: [perspective] }];
+  return groups.map((group) =>
+    group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
+  );
 });
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
-const platformSections = computed(() => docsManifest.sections.filter(section => section.category === "Platform"));
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
@@ -45,14 +39,14 @@ function isActive(path: string) {
 
 <template>
   <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
-    <template v-for="pageGroup in pageGroups" :key="pageGroup.label || 'pages'">
+    <template v-for="(pageGroup, groupIndex) in pageGroups" :key="groupIndex">
       <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
         <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
-          :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
+          :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
           <UIcon :name="sidebarPageIcon(page)" class="size-4 shrink-0" />
@@ -75,14 +69,14 @@ function isActive(path: string) {
     </template>
 
     <section v-if="related.length" class="vh-docs-sidebar-related" aria-label="Related products">
-      <h2 class="vh-docs-sidebar-heading">Related</h2>
+      <h2 v-if="related.length > 1" class="vh-docs-sidebar-heading">Related</h2>
       <NuxtLink
         v-for="relatedSection in related"
         :key="relatedSection.id"
         :to="relatedSection.path"
         class="vh-docs-sidebar-link"
       >
-        <UIcon :name="sidebarSectionIcon(relatedSection)" class="size-4 shrink-0" />
+        <PrimitiveIcon :name="railSectionIcon(relatedSection)" class="vh-docs-sidebar-icon" />
         <span class="min-w-0 truncate">{{ relatedSection.title }}</span>
       </NuxtLink>
     </section>
@@ -100,6 +94,11 @@ function isActive(path: string) {
       </NuxtLink>
     </section>
 
+    <NuxtLink v-if="section.id !== 'getting-started'" to="/docs/getting-started" class="vh-docs-sidebar-link vh-docs-sidebar-catalog-link">
+      <UIcon name="i-lucide-book-open" class="size-4 shrink-0" />
+      <span class="min-w-0 truncate">Get started</span>
+    </NuxtLink>
+
     <NuxtLink to="/docs" class="vh-docs-sidebar-link vh-docs-sidebar-catalog-link">
       <UIcon name="i-ph-squares-four-light" class="size-4 shrink-0" />
       <span class="min-w-0 truncate">Browse all docs</span>
@@ -108,14 +107,14 @@ function isActive(path: string) {
 
   <nav v-else class="vh-docs-sidebar-nav" aria-label="All products">
     <section v-for="group in catalog" :key="group.category" class="vh-docs-sidebar-category">
-      <h2 class="vh-docs-sidebar-heading">{{ group.category }}</h2>
+      <h2 class="vh-docs-sidebar-heading">{{ group.category === "Start" ? "Get started" : group.category }}</h2>
       <NuxtLink
         v-for="catalogSection in group.sections"
         :key="catalogSection.id"
         :to="catalogSection.path"
         class="vh-docs-sidebar-link"
       >
-        <UIcon :name="sidebarSectionIcon(catalogSection)" class="size-4 shrink-0" />
+        <PrimitiveIcon :name="railSectionIcon(catalogSection)" class="vh-docs-sidebar-icon" />
         <span class="min-w-0 truncate">{{ catalogSection.title }}</span>
       </NuxtLink>
     </section>
@@ -123,50 +122,42 @@ function isActive(path: string) {
 </template>
 
 <style scoped>
+/* Rows match the Console context panel and the rail: inset tiles 0.125rem apart, no rules between groups. */
 .vh-docs-sidebar-nav {
   display: flex;
-  flex-direction: column;
   flex: 1 1 0;
+  flex-direction: column;
+  gap: 0.125rem;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 0.5rem 0 1rem;
+  padding: 0 0.5rem 1rem;
 }
 
 .vh-docs-sidebar-page-group,
-.vh-docs-sidebar-category {
-  border-top: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent);
-}
-
-.vh-docs-sidebar-page-group:first-child,
-.vh-docs-sidebar-category:first-child {
-  border-top: 0;
-}
-
-.vh-docs-sidebar-category {
-  padding-bottom: 0.25rem;
+.vh-docs-sidebar-category,
+.vh-docs-sidebar-related {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
 }
 
 .vh-docs-sidebar-page-group-heading,
 .vh-docs-sidebar-heading {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
   margin: 0;
-  padding: 0.5rem 1.25rem 0.375rem;
+  padding: 0.75rem 0.5rem 0.25rem;
   color: var(--ui-text-dimmed);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .vh-docs-sidebar-link {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
-  border-left: 2px solid transparent;
-  padding: 0.25rem 1.25rem;
+  gap: 0.5rem;
+  min-height: 2rem;
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.5rem;
   color: var(--ui-text-muted);
   font-size: 0.875rem;
   transition:
@@ -175,30 +166,36 @@ function isActive(path: string) {
     color 150ms ease;
 }
 
-.vh-docs-sidebar-link.is-grouped {
-  padding-left: 2rem;
+.vh-docs-sidebar-link:focus-visible {
+  outline: 2px solid var(--ui-text-highlighted);
+  outline-offset: -2px;
+  color: var(--ui-text-highlighted);
 }
 
-.vh-docs-sidebar-link:hover,
-.vh-docs-sidebar-link:focus-visible,
 .vh-docs-sidebar-link.is-active {
-  border-left-color: var(--ui-text-highlighted);
-  background: color-mix(in srgb, var(--ui-text-highlighted) 6%, transparent);
-  color: var(--ui-text);
+  background: var(--ui-bg-accented);
+  color: var(--ui-text-highlighted);
 }
 
-.vh-docs-sidebar-related {
-  margin-top: 0.75rem;
-  border-top: 1px solid var(--ui-border);
-  padding-bottom: 0.25rem;
+@media (hover: hover) {
+  .vh-docs-sidebar-link:hover {
+    background: var(--ui-bg-elevated);
+    color: var(--ui-text-highlighted);
+  }
+
+  .vh-docs-sidebar-link.is-active:hover {
+    background: var(--ui-bg-accented);
+  }
 }
 
-.vh-docs-sidebar-catalog-link {
-  margin-top: 0.5rem;
-  border-top: 1px solid var(--ui-border);
-  padding-top: 0.625rem;
-  padding-bottom: 0.625rem;
-  color: var(--ui-text-dimmed);
-  font-size: 0.8125rem;
+.vh-docs-sidebar-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+@media (pointer: coarse) {
+  .vh-docs-sidebar-link {
+    min-height: 2.5rem;
+  }
 }
 </style>
