@@ -300,7 +300,7 @@
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
     "effect": "catalog:effect",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",

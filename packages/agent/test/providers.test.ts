@@ -3247,7 +3247,7 @@ export default defineAgent({
     if (!isTestRecord(pkg) || !isTestRecord(pkg.dependencies)) throw new Error("Expected package dependencies metadata.")
 
     expect(config).toContain('"esbuild"')
-    expect(pkg.dependencies?.esbuild).toBe("catalog:esbuild-v27")
+    expect(pkg.dependencies?.esbuild).toBe("catalog:tooling")
   })
 
   it("publishes Schedule as an optional Agent integration peer", async () => {
