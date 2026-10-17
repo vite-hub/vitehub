@@ -1,1 +1,1 @@
-export * from "@vite-hub/ui/code-view"
+export * from "@vite-hub/ui/agent-code-view"

@@ -1,1 +1,1 @@
-export * from "@vite-hub/ui/trace-run"
+export * from "@vite-hub/ui/agent-trace"

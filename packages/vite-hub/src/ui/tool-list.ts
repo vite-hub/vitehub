@@ -1,1 +1,1 @@
-export * from "@vite-hub/ui/tool-list"
+export * from "@vite-hub/ui/agent-tool-list"

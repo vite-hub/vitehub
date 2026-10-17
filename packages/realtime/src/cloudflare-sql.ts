@@ -37,10 +37,8 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // Workerd may place the constructor and accessors on different levels of
     // its internal prototype chain. Their descriptors are inspected above; the
     // native getter brand probe below provides the receiver validation.
-    // Accessor callbacks supplied by JavaScript have an own `prototype`;
-    // workerd's native getter does not. Reject these before the brand probe so
-    // discovery never invokes a fabricated getter.
-    if (Object.hasOwn(databaseSize, "prototype")) return false
+    const prototypeProperty = Object.getOwnPropertyDescriptor(databaseSize, "prototype")
+    if (prototypeProperty && prototypeProperty.value !== undefined) return false
     // The platform getter is a native accessor. This prevents ordinary
     // JavaScript accessors from forging the receiver-sensitive brand probe.
     // Native accessors have a stable engine-generated source form. A broad
