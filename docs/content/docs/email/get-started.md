@@ -33,7 +33,6 @@ Add Email to your existing ViteHub configuration. `env.source('RESEND_API_KEY')`
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 
 export default defineConfig({
   plugins: [vitehub({
@@ -44,7 +43,7 @@ export default defineConfig({
         apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
       },
     },
-  }), nitro() as never],
+  })],
 })
 ```
 

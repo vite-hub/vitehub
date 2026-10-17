@@ -43,7 +43,6 @@ It also becomes the Worker name unless `nitro.cloudflare.wrangler.name` is set.
 Select the `cloudflare` preset and enable the features the application uses.
 
 ```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -54,8 +53,6 @@ export default defineConfig({
       database: true,
       queue: true,
     }),
-    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
-    nitro() as never,
   ],
 })
 ```

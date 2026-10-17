@@ -177,7 +177,7 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
       throw new RealtimeWriteRejected("Realtime document status is written by the server.")
     }
     if (Y.encodeStateAsUpdate(candidate).byteLength > (options.maxStateBytes ?? maxRoomStateBytes)) {
-      throw realtimeErrorDiagnostics.REALTIME_R0005({ message: "Realtime document exceeds its 8 MiB room quota." })
+      throw realtimeErrorDiagnostics.REALTIME_DOCUMENT_TOO_LARGE()
     }
   }
   finally {
@@ -215,10 +215,10 @@ function isDocumentAdapter(document: RealtimeDefinition["document"]): document i
   return "load" in document && "save" in document
 }
 
-function duration(value: unknown, fallback: number, name: string): number {
+function duration(value: unknown, fallback: number, name: "debounce" | "maxWait"): number {
   if (value === undefined) return fallback
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw realtimeErrorDiagnostics.REALTIME_R0015({ message: `Realtime persistence.${name} must be a non-negative number of milliseconds.` })
+    throw realtimeErrorDiagnostics.REALTIME_INVALID_PERSISTENCE({ name, reason: "not-milliseconds" })
   }
   return value
 }
@@ -236,7 +236,7 @@ export function resolveRealtimeDefinition(definition: RealtimeDefinition): Resol
         maxWait: duration(definition.persistence?.maxWait, realtimePersistenceDefaults.maxWait, "maxWait"),
       }
   if (persistence && persistence.maxWait < persistence.debounce) {
-    throw realtimeErrorDiagnostics.REALTIME_R0015({ message: "Realtime persistence.maxWait must be at least persistence.debounce." })
+    throw realtimeErrorDiagnostics.REALTIME_INVALID_PERSISTENCE({ name: "maxWait", reason: "below-debounce" })
   }
   const configured = definition.editor ?? realtimeMarkdownEditor
   const editor = configured instanceof Function ? configured : () => configured
@@ -414,10 +414,12 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
     throw new HTTPError({ status: 400, message: "Realtime definition and document path are required." })
   }
   const documentId = documentParts.join("/")
+  let safePath: string | undefined
   try {
-    if (normalizeSafeWorkspacePath(documentId) !== documentId) throw realtimeErrorDiagnostics.REALTIME_R0007()
+    safePath = normalizeSafeWorkspacePath(documentId)
   }
-  catch {
+  catch {}
+  if (safePath !== documentId) {
     throw new HTTPError({ status: 400, message: "Realtime document paths must be safe Workspace paths." })
   }
   return {
@@ -1167,7 +1169,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const { adapter, definition } = room.resolved
     const configured = definition.history?.checkpoint
     const saved = (await saveRoom(room, "request", true))!
-    if (!saved.digest) throw realtimeErrorDiagnostics.REALTIME_R0008({ message: "Realtime checkpoints require a stored document digest." })
+    if (!saved.digest) throw realtimeErrorDiagnostics.REALTIME_MISSING_DIGEST({ operation: "checkpoint" })
     let snapshot
     try {
       snapshot = await adapter.checkpoint!(room.context, {

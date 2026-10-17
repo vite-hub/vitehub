@@ -1686,6 +1686,52 @@ importers:
         specifier: catalog:tooling
         version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5(vitest@5.0.5))(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(happy-dom@21.0.3)
 
+  packages/presets:
+    dependencies:
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@vite-hub/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../workspace
+      valibot:
+        specifier: catalog:runtime
+        version: 1.5.0(typescript@6.0.3)
+    devDependencies:
+      '@libsql/client':
+        specifier: catalog:database
+        version: 0.18.0
+      '@modelcontextprotocol/sdk':
+        specifier: catalog:ai
+        version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
+      '@t3tools/provider-runtime':
+        specifier: 'catalog:'
+        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.19.2
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
+      publint:
+        specifier: catalog:tooling
+        version: 0.3.25
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite-plus:
+        specifier: catalog:tooling
+        version: 1.3.0(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/ui@5.0.5(vitest@5.0.5))(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)
+      vitest:
+        specifier: catalog:tooling
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5(vitest@5.0.5))(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(happy-dom@21.0.3)
+
   packages/queue:
     dependencies:
       '@types/ws':
@@ -2407,6 +2453,9 @@ importers:
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
+      '@vite-hub/presets':
+        specifier: workspace:*
+        version: link:../presets
       '@vite-hub/queue':
         specifier: workspace:*
         version: link:../queue
