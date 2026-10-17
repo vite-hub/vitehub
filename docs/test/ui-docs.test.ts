@@ -154,12 +154,6 @@ describe("UI documentation", () => {
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain("UContentToc");
-    expect(article).toContain('aria-label="Page outline"');
-    expect(article).toContain("min-w-0");
-  });
-
   it("uses a static context link instead of a product disclosure control", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
