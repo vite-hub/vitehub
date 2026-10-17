@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer, mergeConfig, resolveConfig } from "vite"
 
+
 import * as authServer from "../src/server.ts"
 import { defineAuth } from "../src/index.ts"
 
