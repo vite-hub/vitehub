@@ -8,6 +8,12 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./abort": {
+      "types": "./dist/abort.d.ts",
+      "import": "./dist/abort.js",
+      "require": "./dist/abort.js",
+      "default": "./dist/abort.js"
+    },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
@@ -31,12 +37,6 @@
       "import": "./dist/env.js",
       "require": "./dist/env.js",
       "default": "./dist/env.js"
-    },
-    "./effect": {
-      "types": "./dist/effect.d.ts",
-      "import": "./dist/effect.js",
-      "require": "./dist/effect.js",
-      "default": "./dist/effect.js"
     },
     "./arrays": {
       "types": "./dist/arrays.d.ts",
@@ -305,7 +305,6 @@
   "dependencies": {
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
-    "effect": "catalog:effect",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",

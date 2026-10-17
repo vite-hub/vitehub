@@ -22,7 +22,7 @@ import {
 import { runObservedAgentHook } from "./hooks.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
-import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
+import { AgentCapabilityScope } from "./internal/capability-scope.ts"
 import { agentInvocationTraceIdContextKey } from "./trace.ts"
 import { setAgentCapabilityInspection } from "./internal/agent-telemetry.ts"
 import { inspectMcpToolProvenance } from "./tool-inspection.ts"
@@ -1491,7 +1491,7 @@ export async function resolveAgentCapabilities<
   const inputDataChanged = () => currentInput.data !== initialInputDataReference || !capabilityDataEqual(currentInput.data, initialInputData)
   let tools: AgentToolSet | undefined
   const driverContributions: AgentDriverContribution[] = []
-  let capabilityScope: Awaited<ReturnType<typeof openAgentCapabilityScope>> | undefined
+  let capabilityScope: AgentCapabilityScope | undefined
   const toolTransforms: AgentToolTransform[] = []
   const initialDeliveryEffectIntents = invocationContext.get(channelDeliveryEffectsContextKey) || []
   const initialFinishDeliveryEffectProviders = invocationContext.get(channelDeliveryFinishEffectsContextKey) || []
@@ -1843,7 +1843,7 @@ export async function resolveAgentCapabilities<
         }
 
         if (capability.close || options?.hooks?.["capability:close"] || options?.hooks?.["capability:close:after"]) {
-          capabilityScope ??= await openAgentCapabilityScope()
+          capabilityScope ??= new AgentCapabilityScope()
           await capabilityScope.add(async () => {
             await callHooks("capability:close", capabilityContext, options?.hooks)
             if (capability.close) await runCapabilityCallback(capability.id, "close", () => capability.close!(capabilityContext))

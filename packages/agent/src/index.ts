@@ -7114,7 +7114,7 @@ async function executeAgentInvocationWithCapacityLease<
     ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal, options.tools)
   invocation.activity = activity
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
-  const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
+  const lifecycle = openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
       try {
         await finishAgentInvocation(invocation, outcome)

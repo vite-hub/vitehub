@@ -309,7 +309,6 @@
     "ai": "catalog:ai",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
-    "effect": "catalog:effect",
     "esbuild": "catalog:tooling",
     "forges": "catalog:",
     "nostics": "catalog:runtime",

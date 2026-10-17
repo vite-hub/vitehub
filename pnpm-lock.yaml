@@ -788,9 +788,6 @@ importers:
       comark:
         specifier: catalog:markdown
         version: 0.7.0(katex@0.17.0)(shiki@4.5.0)
-      effect:
-        specifier: catalog:effect
-        version: 4.0.5
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
@@ -1595,9 +1592,6 @@ importers:
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.11.0(rollup@4.64.8)
-      effect:
-        specifier: catalog:effect
-        version: 4.0.5
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
@@ -2229,9 +2223,6 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.4(@cloudflare/workers-types@5.20261016.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
-      effect:
-        specifier: catalog:effect
-        version: 4.0.5
       mrmime:
         specifier: catalog:workspace
         version: 2.0.1
