@@ -744,6 +744,7 @@ function withWorkspaceFallbackFullStream(
         const budgetReason = context.executionBudget?.signal.reason
         const budgetTimedOut = budgetReason instanceof DOMException && budgetReason.name === "TimeoutError"
         if (streamError instanceof ExecutionBudgetExceededError || budgetReason instanceof ExecutionBudgetExceededError || budgetTimedOut) return
+        if (!hasRuntimeType(event, "object") || (event as { recoverable?: unknown }).recoverable !== true) return
       }
     }
 
