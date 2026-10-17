@@ -189,6 +189,19 @@ const frameworkProviderImportAliases = Object.fromEntries(
     })
     .sort(([left], [right]) => right.length - left.length),
 )
+// Exports that are not JavaScript, such as `vite-hub/ui/styles.css`. A Vite alias also matches the subpaths of its
+// specifier, so without its own entry `vite-hub/ui/styles.css` would resolve inside `dist/ui.js`.
+const frameworkAssetImportAliases = Object.fromEntries(
+  Object.entries(frameworkPackageManifest.exports)
+    .filter(([subpath, target]) => {
+      const importTarget = packageExportImportTarget(target)
+      return subpath.startsWith("./") && importTarget !== undefined && !importTarget.endsWith(".js")
+    })
+    .map(([subpath]): [string, string] => {
+      const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
+      return [specifier, fileURLToPath(import.meta.resolve(specifier))]
+    }),
+)
 
 function isGeneratedImporter(importer: string | undefined) {
   const normalized = importer?.replace(/\\/g, "/")
@@ -228,7 +241,11 @@ function frameworkDependencyResolver(
     },
     enforce: "pre",
     config() {
-      const aliases = { ...frameworkProviderImportAliases }
+      // Longest specifiers first: Vite uses the first alias that matches.
+      const aliases = Object.fromEntries(
+        Object.entries({ ...frameworkProviderImportAliases, ...frameworkAssetImportAliases })
+          .sort(([left], [right]) => right.length - left.length),
+      )
       if (!blobEnabled) delete aliases["vite-hub/blob"]
       return {
         resolve: {
@@ -573,7 +590,9 @@ function deploymentPlugins(
             ...cloneRecord(options.rateLimit === true ? undefined : options.rateLimit),
             ...cloneRecord((config as { rateLimit?: unknown }).rateLimit),
             namespace: name,
-            provider: plan.services.rateLimit.adapter,
+            // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
+            // default for `serve`: one in-memory limiter.
+            provider: building ? plan.services.rateLimit.adapter : "memory",
           }
         }
         if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {

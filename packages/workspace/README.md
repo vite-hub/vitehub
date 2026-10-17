@@ -189,62 +189,24 @@ vitehub workspace show content draft posts/hello.md
 Add `--json` for machine-readable output. A Store without retained history
 fails with `WORKSPACE_R0069`.
 
-## JSON collections
+## JSON data
 
-Query a generated JSON-object array without sending the complete index to the browser. The handler keeps filter, search, projection, sort, facet, and item lookup fields under server control, and every list response is capped by `maxLimit`.
+To serve a read-only JSON array from a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array), read the file in an `array()` loader from `@vite-hub/source`:
 
 ```ts
-// server/api/articles.get.ts
-import { defineWorkspaceCollectionHandler } from "@vite-hub/workspace/server"
+// server/collections/articles.ts
+import { array, defineCollection } from "@vite-hub/source"
+import { useWorkspace } from "@vite-hub/workspace"
 
-export default defineWorkspaceCollectionHandler({
-  facets: ["category"],
-  filters: ["category", "authors.name"],
-  item: { key: "slug" },
-  maxLimit: 100,
-  path: "data/articles.json",
-  searchFields: ["title", "summary"],
-  select: ["slug", "title", "category"],
-  sort: { field: "title", direction: "asc" },
-  workspace: "content",
+export const articles = defineCollection({
+  source: array(async () => JSON.parse(await useWorkspace("content").fs.readFile("data/articles.json")), {
+    filters: ["category"],
+    search: ["title"],
+  }),
 })
 ```
 
-Nuxt auto-imports the Vue composables when this module is installed. Plain Vue apps can import them directly from `@vite-hub/workspace/collections/client`.
-Default immediate requests start during browser setup so relative endpoints do not escape Nuxt's server request context. Inject `request` and call `refresh()` when an application needs SSR loading.
-
-```ts
-const articles = useWorkspaceCollection("/api/articles", {
-  limit: 25,
-  query: computed(() => ({
-    "filter.category": selectedCategory.value || undefined,
-    search: search.value || undefined,
-  })),
-})
-
-const article = useWorkspaceCollectionItem("/api/articles", selectedSlug)
-```
-
-Use `empty.<field>=true` to filter for records without scalar values at an allowed field.
-
-Collection queries parse the JSON array in the server runtime. Use this for deliberately small generated indexes; use a database when the server cannot reasonably hold and query the full source array in memory.
-
-```ts
-// nitro.config.ts
-import { createWorkspaceNitroConfig } from "@vite-hub/workspace/nitro"
-
-export default createWorkspaceNitroConfig()
-```
-
-```ts
-// vite.config.ts
-import { hubWorkspace } from "@vite-hub/workspace/vite"
-import { defineConfig } from "vite"
-
-export default defineConfig({
-  plugins: [hubWorkspace()],
-})
-```
+To let people or Agents edit JSON data, store it as [Content](https://vitehub.dev/docs/content/configure) documents.
 
 ## Reuse a Source definition
 
@@ -340,6 +302,23 @@ Built-in coding Agent Drivers use Workspace Sessions to materialize the selected
 ## Vite Integration
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
+
+Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`. `module` is an absolute path, a `file:` URL, or a package specifier. `export` defaults to `default`:
+
+```ts
+const plugin = {
+  name: "my-package/vite",
+  vitehub: {
+    workspaces: () => [{
+      name: "content",
+      definition: { module: "my-package/workspace", export: "contentWorkspace" },
+      reason: "Stores CMS documents.",
+    }],
+  },
+}
+```
+
+Contributed Workspaces appear in the generated registry, `WorkspaceName` types, `vitehub inspect`, and the Console, like discovered files. A name used by both a discovered file and a contribution fails the build with `WORKSPACE_B0003`.
 
 ## Publishing current state
 

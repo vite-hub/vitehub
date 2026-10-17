@@ -83,7 +83,8 @@
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth",
     "bun-types": "^1.4.2",
-    "nostics": "catalog:runtime"
+    "nostics": "catalog:runtime",
+    "undici": "7.30.0"
   },
   "devDependencies": {
     "@types/json-schema": "catalog:ai",
@@ -93,12 +94,10 @@
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
-    "undici": "^7.30.0",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui",
-    "undici": "^7.30.0"
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
     "@types/json-schema": "catalog:ai",
