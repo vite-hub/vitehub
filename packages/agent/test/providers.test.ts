@@ -13449,9 +13449,7 @@ describe("server helpers", () => {
     expect(adapter.stream).toHaveBeenCalledOnce()
   })
 
-  it.each([
-    ...[false, true].flatMap(native => ["text", "array", "resolver"].flatMap(form => (native ? ["fallback"] : ["loading", "fallback"]).map(option => ({ native, form, option })))),
-  ])("formats citation-bearing loading text, native=$native form=$form option=$option", async ({ native, form, option }) => {
+  it.each([false, true].flatMap(native => ["text", "array", "resolver"].flatMap(form => (native ? ["fallback"] : ["loading", "fallback"]).map(option => ({ native, form, option })))))("formats citation-bearing loading text, native=$native form=$form option=$option", async ({ native, form, option }) => {
     const adapter = createTestChatAdapter()
     if (native) adapter.stream = vi.fn(async (threadId: string, chunks: AsyncIterable<string | StreamChunk>) => {
       for await (const _chunk of chunks) { /* consume the final reply */ }
@@ -21567,6 +21565,7 @@ describe("server helpers", () => {
       return {
         stream: (async function* () {
           await new Promise(() => undefined)
+          yield* []
         })(),
       }
     })
@@ -21644,6 +21643,7 @@ describe("server helpers", () => {
           return {
             stream: (async function* () {
               await new Promise(() => undefined)
+              yield* []
             })(),
           }
         },
@@ -21691,6 +21691,7 @@ describe("server helpers", () => {
     const run = vi.fn(async () => ({
       stream: (async function* () {
         await new Promise(() => undefined)
+        yield* []
       })(),
     }))
     const agent = defineAgent({
