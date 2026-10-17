@@ -683,7 +683,7 @@ export interface DiscordChannelOptions<TRuntimeConfig extends AgentRuntimeConfig
  */
 export interface TeamsAdapterOptions {
   apiUrl?: string
-  appId?: string
+  appId?: MaybeResolvable<string, AgentCallbackContext<AgentRuntimeConfig>>
   appPassword?: string | { unseal: () => string }
   appTenantId?: string
   appType?: "MultiTenant" | "SingleTenant"
@@ -2702,6 +2702,9 @@ function teamsAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
     }
     const env = await channelEnv("teams", context)
     const adapterConfig: Record<string, unknown> = { ...options }
+    if (hasRuntimeType(options.appId, "function")) {
+      adapterConfig.appId = await options.appId(context)
+    }
     for (const field of ["apiUrl", "appId", "appPassword", "appTenantId"] as const) {
       const value = cleanSecret(options[field] ?? env[field])
       if (value) adapterConfig[field] = value
