@@ -204,6 +204,7 @@ function advanceDeliveryStatus(
     retrySignaled = false
   }
   if (event.type === "invocation.started") return { retrySignaled, status: "running" }
+  if (event.type === "superseded") return { retrySignaled, status: "completed" }
   if (event.type === "received") return { retrySignaled, status: "received" }
   if (
     event.type === "accepted" ||

@@ -461,7 +461,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
               delivery.concurrencyLimit,
               delivery.leaseTtlMs,
               delivery.enqueuedAt,
-              delivery.enqueuedAt,
+              delivery.availableAt ?? delivery.enqueuedAt,
             ],
           ),
       )

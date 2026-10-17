@@ -4,10 +4,14 @@ import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, i
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface AgentWebhookQueueDelivery {
+  /** Earliest time the delivery may run. Defaults to `enqueuedAt`. */
+  availableAt?: number
   concurrencyGroup: string
   concurrencyKey?: string
   concurrencyLimit: number
   channelDeliveryId?: string
+  /** A later queued delivery with the same key in the same scope supersedes this one. */
+  debounceKey?: string
   deliveryId: string
   enqueuedAt: number
   invocation?: {
@@ -67,6 +71,8 @@ export function parseAgentWebhookQueueDelivery(serialized: string): AgentWebhook
     !isRuntimeString(value.deliveryId) ||
     !("enqueuedAt" in value) ||
     !isRuntimeNumber(value.enqueuedAt) ||
+    ("availableAt" in value && !isRuntimeUndefined(value.availableAt) && !isRuntimeNumber(value.availableAt)) ||
+    ("debounceKey" in value && !isRuntimeUndefined(value.debounceKey) && !isRuntimeString(value.debounceKey)) ||
     !("leaseTtlMs" in value) ||
     !isRuntimeNumber(value.leaseTtlMs) ||
     !("scope" in value) ||
