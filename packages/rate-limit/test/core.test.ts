@@ -39,6 +39,12 @@ describe("Rate Limit core", () => {
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
   })
 
+  it.each([undefined, "not callable"]) ("rejects a driver without callable consume: %j", consume => {
+    const driver = Object.assign(memoryRateLimitDriver(), { consume })
+
+    expect(() => createRateLimiter({ driver, limit: 1, window: "1m" } as never)).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0029" }))
+  })
+
   it("classifies diagnostics from another JavaScript realm as uninspectable", () => {
     const foreign: unknown = runInNewContext(`(() => {
       class Diagnostic extends Error {
@@ -288,6 +294,38 @@ describe("Rate Limit core", () => {
     })
 
     expect(() => createRateLimiter({ driver, limit: 1, window: "1m" })).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0029" }))
+  })
+
+  it("does not read rate limit policy fields from prototypes", () => {
+    const requiredFields = Object.assign(Object.create({ limit: 1, window: "1m" }), {
+      driver: memoryRateLimitDriver(),
+    })
+    expect(() => createRateLimiter(requiredFields as never)).toThrow("positive integer")
+
+    const policy = Object.assign(Object.create({ enforcement: "strict", failure: "allow" }), {
+      driver: memoryRateLimitDriver(),
+      limit: 1,
+      window: "1m",
+    })
+    expect(createRateLimiter(policy).policy).toMatchObject({
+      enforcement: "best-effort",
+      failure: "deny",
+    })
+
+    const bestEffortDriver = {
+      ...memoryRateLimitDriver(),
+      capabilities: {
+        enforcement: "best-effort",
+        rejectedAttempts: "not-counted",
+        scope: "process",
+      },
+    } satisfies RateLimitDriver
+    const inheritedEnforcement = Object.assign(Object.create({ enforcement: "strict" }), {
+      driver: bestEffortDriver,
+      limit: 1,
+      window: "1m",
+    })
+    expect(createRateLimiter(inheritedEnforcement as never).policy.enforcement).toBe("best-effort")
   })
 
   it.each(["s", "m", "d"])("rejects %s windows that overflow during conversion", (unit) => {

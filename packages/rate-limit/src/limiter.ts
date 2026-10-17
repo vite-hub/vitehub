@@ -164,6 +164,9 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
 } {
   const driver = Reflect.get(options, "driver") as CreateRateLimiterOptions["driver"]
   const consume = Reflect.get(driver, "consume") as CreateRateLimiterOptions["driver"]["consume"]
+  if (!v.is(v.function(), consume)) {
+    throw new TypeError("Rate Limit driver consume() must be callable")
+  }
   const peek = Reflect.get(driver, "peek") as CreateRateLimiterOptions["driver"]["peek"]
   const reset = Reflect.get(driver, "reset") as CreateRateLimiterOptions["driver"]["reset"]
   const capabilities = Reflect.get(driver, "capabilities") as RateLimitDriverCapabilities

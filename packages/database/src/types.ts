@@ -1,5 +1,6 @@
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core/db"
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
+import type { ResolvedDatabaseContribution } from "./contributions.ts"
 
 export type DrizzleCasing = "snake_case" | "camelCase"
 export type DatabaseDialect = "sqlite"
@@ -93,7 +94,7 @@ export interface DatabaseSchemaSource {
   /** Database Definition file. ViteHub reads tables from its default export's `schema`. */
   handler: string
   /** Table keys that ViteHub can read without running the module. */
-  tableNames: string[]
+  tableNames?: string[]
 }
 
 export interface DiscoveredDatabaseDefinition {
@@ -105,7 +106,7 @@ export interface DiscoveredDatabaseDefinition {
   schemaSources: DatabaseSchemaSource[]
   source: string
   /** Table keys of all schema sources. */
-  tableNames: string[]
+  tableNames?: string[]
 }
 
 export interface ResolvedCloudflareD1BindingConfig {
@@ -153,6 +154,8 @@ export interface ResolvedDBViteConfig {
   generatedDrizzleConfigFilesByDatabase: Record<string, string>
   generatedSchemaFilesByDatabase: Record<string, string>
   rootDir: string
+  /** Tables that Vite plugins contribute, by target Database name. */
+  tableContributionsByDatabase: Record<string, ResolvedDatabaseContribution[]>
 }
 
 export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
