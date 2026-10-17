@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
-import { resolveDBViteConfig } from "@vite-hub/database/config"
+import { resolveDBViteConfig, resolveDefaultDatabase } from "@vite-hub/database/config"
 import type { BlobStoreConfig } from "@vite-hub/blob"
 import type { KVStoreConfig } from "@vite-hub/kv"
 import type { ViteHubOptions } from "./index.ts"
@@ -26,10 +26,6 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   const blob = options.blob === true ? { driver: "fs" as const } : options.blob
   const agent = options.agent === true ? {} : options.agent
   const state = agent && agent.providers?.state
-  const console = options.console && { ...options.console, databaseUrl: options.console.databaseUrl ?? file("console.sqlite") }
-  if (console?.auth instanceof Object && "provider" in console.auth && console.auth.provider === "github") {
-    console.auth = { ...console.auth, databasePath: console.auth.databasePath ?? join(root, "console-auth.sqlite") }
-  }
   return {
     ...options,
     // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional storage defaults.
@@ -47,9 +43,14 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
       agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
     } : {}),
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional console defaults.
-    ...(console ? { console } : {}),
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional workspace defaults.
+    ...(options.console ? { console: {
+      ...options.console,
+      databaseUrl: options.console.databaseUrl ?? file("console.sqlite"),
+      ...(options.console.auth instanceof Object && "provider" in options.console.auth && options.console.auth.provider === "github" ? { auth: {
+        ...options.console.auth,
+        databasePath: options.console.auth.databasePath ?? join(root, "console-auth.sqlite"),
+      } } : undefined),
+    } } : undefined),
     ...(options.workspace ? { workspace: {
       ...(options.workspace === true ? {} : options.workspace),
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
@@ -75,9 +76,9 @@ export function consoleD1Binding(
   const root = resolve(definitions.root, options?.projectRoot ?? ".")
   const serverDirs = options?.projectRoot !== undefined ? [resolve(root, "server")] : definitions.serverDirs
   const config = resolveDBViteConfig(options, root, { serverDirs })
-  const name = config?.databases.default ? "default" : config?.databaseNames.length === 1 ? config.databaseNames[0] : undefined
-  if (!name) return
-  return config?.databases[name]?.cloudflare?.binding
+  const target = resolveDefaultDatabase(config?.databaseNames ?? [])
+  if (target.status !== "resolved") return
+  return config?.databases[target.name]?.cloudflare?.binding
     ?? (options?.driver === "d1" ? options.binding?.trim() || "DB" : undefined)
 }
 

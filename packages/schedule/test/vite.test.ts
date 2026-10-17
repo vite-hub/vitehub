@@ -96,6 +96,35 @@ describe("Vite schedule integration", () => {
     expect(invalidateModule).toHaveBeenCalledWith(targets)
   })
 
+  it("invalidates the registry in the Nitro environment graph", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-hmr-env-"))
+    const plugin = hubSchedule()
+    await (plugin.config as (config: Record<PropertyKey, unknown>, env: { command: "serve", mode: string }) => unknown)({ root }, { command: "serve", mode: "development" })
+    await resolvePluginConfig(plugin, root)
+    const nitroRegistry = {}
+    const invalidateNitroModule = vi.fn()
+    const send = vi.fn()
+
+    await (plugin.handleHotUpdate as (context: Record<string, unknown>) => Promise<unknown>)({
+      file: join(root, "server", "schedules", "daily.ts"),
+      server: {
+        config: { root },
+        environments: {
+          client: { config: { consumer: "client" }, hot: { send: vi.fn() }, moduleGraph: { getModuleById: () => undefined, invalidateModule: vi.fn() } },
+          nitro: {
+            config: { consumer: "server" },
+            hot: { send },
+            moduleGraph: { getModuleById: (id: string) => id === "\0#vitehub/schedule/registry" ? nitroRegistry : undefined, invalidateModule: invalidateNitroModule },
+          },
+        },
+        moduleGraph: { getModuleById: () => undefined, invalidateModule: vi.fn() },
+      },
+    })
+
+    expect(invalidateNitroModule).toHaveBeenCalledWith(nitroRegistry)
+    expect(send).toHaveBeenCalledWith({ type: "full-reload" })
+  })
+
   it("registers runtime-only targets without emitting static provider output", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-runtime-target-"))
     const netlifyRoot = createDefaultNetlifyOutputRoot(root)
@@ -647,6 +676,7 @@ describe("Vite schedule integration", () => {
     expect(handler).toMatch(/\.vitehub[\\/]nitro[\\/]schedule[\\/]dev-handlers[\\/][^/\\]+\.ts$/)
     const source = await readFile(handler!, "utf8")
     expect(source).toContain("import { handleScheduleDevRequest as handleViteHubDevRequest } from \"@vite-hub/schedule/runtime/dev\"")
+    expect(source).toContain("import viteHubDevContext0 from \"#vitehub/schedule/registry\"")
 
     const buildConfig: Record<string, unknown> = { root }
     await (hubSchedule({ projectRoot: root }).config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
@@ -779,8 +809,8 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(appRoot, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).rejects.toThrow()
     expect(registry).toContain("[\"cleanup\"]: async () => import(")
     expect(registry).toContain("[\"sync\"]: async () => import(")
-    expect(registry).toContain("../../app/src/cleanup.schedule.ts")
-    expect(registry).toContain("../../server/schedules/sync.ts")
+    expect(registry).toContain(`import(${JSON.stringify(join(root, "app", "src", "cleanup.schedule.ts"))})`)
+    expect(registry).toContain(`import(${JSON.stringify(join(root, "server", "schedules", "sync.ts"))})`)
   })
 
   it("does not install Nitro plugin output for suffix-only standalone schedules by default", async () => {
@@ -1074,7 +1104,7 @@ describe("Vite schedule integration", () => {
     expect(resolveScheduleRegistry(plugin)).toBe("\0#vitehub/schedule/registry")
     expect(registry).toContain("[\"cleanup\"]: async () => import(")
     expect(registry).toContain("[\"reports\"]: async () => import(")
-    expect(registry).toContain("../../src/cleanup.schedule.ts")
+    expect(registry).toContain(`import(${JSON.stringify(join(root, "src", "cleanup.schedule.ts"))})`)
   })
 
   it("serves server schedules from the stable lazy registry", async () => {
@@ -1086,8 +1116,7 @@ describe("Vite schedule integration", () => {
     await resolvePluginConfig(plugin, root)
     const registry = await loadScheduleRegistry(plugin)
 
-    expect(registry).toContain("[\"sync\"]: async () => import(")
-    expect(registry).toContain("../../server/schedules/sync.ts")
+    expect(registry).toContain(`["sync"]: async () => import(${JSON.stringify(join(root, "server", "schedules", "sync.ts"))})`)
   })
 
   it("serves generated runtime schedule target names behind a stable import", async () => {

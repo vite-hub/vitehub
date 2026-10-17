@@ -4,6 +4,7 @@ import { createTraceEventLog, deriveTraceRuns, traceEventsToOpenTelemetrySpans }
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
 import { agentInvocationId, defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
@@ -2211,6 +2212,167 @@ describe("Agent Invocations", () => {
         },
         pattern: { flags: "gi", lastIndex: 3, source: "vitehub" },
       },
+      visibility: "public",
+    })
+  })
+
+  it("serializes foreign-realm Error details when bounding invocation observations", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-error-details",
+      observations: [],
+      status: "running",
+      traceId: "foreign-error-details-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('Object.assign(new AggregateError([new Error("first")], "outer", { cause: "inner" }), { code: "E_OUTER" })')
+
+    await store.update("foreign-error-details", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-error-details"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          cause: "inner",
+          code: "E_OUTER",
+          errors: [{ message: "first", name: "Error" }],
+          message: "outer",
+          name: "AggregateError",
+        },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("recognizes foreign errors when stack formatting returns a non-string", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-error-custom-stack",
+      observations: [],
+      status: "running",
+      traceId: "foreign-error-custom-stack-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('Error.prepareStackTrace = () => undefined; Object.assign(new Error("message"), { code: "E_CUSTOM_STACK" })')
+
+    await store.update("foreign-error-custom-stack", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-error-custom-stack"))?.observations[0]?.payload).toEqual({
+      value: { error: { code: "E_CUSTOM_STACK", message: "message", name: "Error" } },
+      visibility: "public",
+    })
+  })
+
+  it("recognizes foreign errors when stack formatting throws", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-error-throwing-stack",
+      observations: [],
+      status: "running",
+      traceId: "foreign-error-throwing-stack-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('Error.prepareStackTrace = () => { throw new Error("stack failure") }; Object.assign(new Error("message"), { code: "E_THROWING_STACK" })')
+
+    await store.update("foreign-error-throwing-stack", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-error-throwing-stack"))?.observations[0]?.payload).toEqual({
+      value: { error: { code: "E_THROWING_STACK", message: "message", name: "Error" } },
+      visibility: "public",
+    })
+  })
+
+  it("does not treat an Error subclass named AggregateError as aggregate", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "spoofed-aggregate-error",
+      observations: [],
+      status: "running",
+      traceId: "spoofed-aggregate-error-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    class SpoofedAggregateError extends Error {}
+    Object.defineProperty(SpoofedAggregateError.prototype, "name", { value: "AggregateError" })
+    const error = new SpoofedAggregateError("message")
+
+    await store.update("spoofed-aggregate-error", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("spoofed-aggregate-error"))?.observations[0]?.payload).toEqual({
+      value: { error: { message: "message", name: "AggregateError" } },
+      visibility: "public",
+    })
+  })
+
+  it("does not treat a prototype-shaped object as an Error", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "spoofed-error",
+      observations: [],
+      status: "running",
+      traceId: "spoofed-error-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const prototype = { name: "Error", message: "spoofed" } as { name: string; message: string; constructor?: Function }
+    function constructor() {}
+    Object.defineProperty(constructor, "name", { value: "Error" })
+    Object.defineProperty(constructor, "prototype", { value: prototype })
+    prototype.constructor = constructor
+    const error = Object.create(prototype)
+    error.detail = "value"
+
+    await store.update("spoofed-error", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("spoofed-error"))?.observations[0]?.payload).toEqual({
+      value: { error: "[unsupported Object]" },
       visibility: "public",
     })
   })

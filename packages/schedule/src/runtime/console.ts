@@ -5,14 +5,14 @@ import { ViteHubError } from "@vite-hub/runtime"
 import { isScheduleDevOperation, scheduleDevHeader, scheduleDevHeaderValue } from "../dev.ts"
 import { schedules } from "./client.ts"
 import { nextRuntimeScheduleRunAt } from "./due.ts"
-import { executeRuntimeSchedule } from "./execute.ts"
+import { executeRuntimeSchedule, runSchedule } from "./execute.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, getScheduleRuntimeRegistry, isScheduleWakeDriverActive } from "./state.ts"
 import { ScheduleHistoryIncompleteError } from "./store.ts"
 
 import type { ViteHubConsoleRecord } from "@vite-hub/internal/console"
 import type { ViteHubDefinitionField } from "@vite-hub/internal/inspect"
 import type { ScheduleDevRequestBody } from "../dev.ts"
-import type { RuntimeScheduleRecord, ScheduleRunAttemptRecord, ScheduleRunAttemptStatus, ScheduleRunError, ScheduleRunRecord, ScheduleRunStatus } from "../types.ts"
+import type { RuntimeScheduleRecord, ScheduleDefinitionRegistry, ScheduleRunAttemptRecord, ScheduleRunAttemptStatus, ScheduleRunError, ScheduleRunRecord, ScheduleRunStatus } from "../types.ts"
 
 /** Error of a run or attempt. The stack is not included. */
 export interface ScheduleRunErrorSummary {
@@ -127,6 +127,30 @@ export function summarizeScheduleRun(run: ScheduleRunRecord): ScheduleRunSummary
   }
   if (startedAt) summary.startedAt = startedAt
   return summary
+}
+
+/** Serializable view of one manual Static Schedule run, as `vitehub schedule run` prints it. */
+interface ManualScheduleRunSummary {
+  completedAt?: string
+  error?: ScheduleRunErrorSummary
+  id: string
+  scheduleId: string
+  startedAt?: string
+  status: ScheduleRunStatus
+}
+
+function summarizeManualScheduleRun(run: ScheduleRunRecord): ManualScheduleRunSummary {
+  const error = summarizeError(run.error)
+  const completedAt = isoDate(run.completedAt)
+  const startedAt = isoDate(run.startedAt)
+  return {
+    ...(completedAt ? { completedAt } : {}),
+    ...(error ? { error } : {}),
+    id: run.id,
+    scheduleId: run.scheduleId,
+    ...(startedAt ? { startedAt } : {}),
+    status: run.status,
+  }
 }
 
 export function summarizeScheduleRunAttempt(attempt: ScheduleRunAttemptRecord): ScheduleRunAttemptSummary {
@@ -333,7 +357,9 @@ function failure(message: string, status: number, code?: string): Response {
 }
 
 const errorStatus: Readonly<Record<string, number>> = {
+  SCHEDULE_DEFINITION_NOT_FOUND: 404,
   SCHEDULE_DISABLED: 409,
+  SCHEDULE_MANUAL_RUN_DISABLED: 403,
   SCHEDULE_NOT_FOUND: 404,
   SCHEDULE_RUN_NOT_FOUND: 404,
   SCHEDULE_TARGET_NOT_ELIGIBLE: 409,
@@ -373,7 +399,13 @@ async function readBody(request: Request): Promise<ScheduleDevRequestBody | unde
   }
 }
 
-async function runOperation(body: ScheduleDevRequestBody): Promise<Response> {
+interface ScheduleDevRequestOptions {
+  authorize?: (request: Request) => Promise<boolean>
+  /** Static Schedule registry of the Nitro runtime. `run-static` loads definitions from it. */
+  registry?: ScheduleDefinitionRegistry
+}
+
+async function runOperation(body: ScheduleDevRequestBody, options: ScheduleDevRequestOptions): Promise<Response> {
   if (body.operation === "list") {
     return json(await inspectRuntimeSchedules())
   }
@@ -402,6 +434,14 @@ async function runOperation(body: ScheduleDevRequestBody): Promise<Response> {
         return scheduleFailure(error)
       }
     }
+    case "run-static":
+      if (!options.registry) return failure("No Static Schedule registry is installed in this runtime. Restart the Vite Development Server.", 409)
+      try {
+        return json({ run: summarizeManualScheduleRun(await runSchedule(id, { registry: options.registry })) })
+      }
+      catch (error) {
+        return scheduleFailure(error)
+      }
     case "enable":
     case "disable":
       try {
@@ -433,8 +473,9 @@ async function runOperation(body: ScheduleDevRequestBody): Promise<Response> {
  *
  * The request must carry the Schedule dev header, must not come from another origin, and must use JSON.
  * The owner authorization callback is required. The Node dev entry supplies private project-token verification.
+ * `run-static` runs a Static Schedule Definition from `options.registry`. The definition must set `manual: true`.
  */
-export async function handleScheduleDevRequest(request: Request, options: { authorize?: (request: Request) => Promise<boolean> } = {}): Promise<Response> {
+export async function handleScheduleDevRequest(request: Request, options: ScheduleDevRequestOptions = {}): Promise<Response> {
   const { rejection } = await validateViteHubNitroDevRequest(request, {
     authorize: async request => await options.authorize?.(request) ? undefined : new Response("Forbidden Schedule Dev token.", { status: 403 }),
     header: scheduleDevHeader,
@@ -445,7 +486,7 @@ export async function handleScheduleDevRequest(request: Request, options: { auth
   const body = await readBody(request)
   if (!body) return failure("The Schedule Dev request body is invalid.", 400)
   try {
-    return await runOperation(body)
+    return await runOperation(body, options)
   }
   catch (error) {
     return scheduleFailure(error)

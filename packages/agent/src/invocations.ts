@@ -74,6 +74,21 @@ const CANCELLATION_VERIFICATION_TIMEOUT_MS = 5_000
 const CANCELLATION_VERIFICATION_INTERVAL_MS = 100
 const STORE_OPERATION_TIMEOUT_MS = 1_000
 const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
+const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
+const brandedErrorValues = new WeakSet<object>()
+const intrinsicFunctionToString = Function.prototype.toString
+const nativeErrorConstructorSource = intrinsicFunctionToString.call(Error)
+const nativeAggregateErrorConstructorSource = intrinsicFunctionToString.call(AggregateError)
+
+function isNativeConstructor(value: unknown, source: string): value is Function {
+  if (!hasRuntimeType(value, "function")) return false
+  try {
+    return intrinsicFunctionToString.call(value) === source
+  }
+  catch {
+    return false
+  }
+}
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -616,6 +631,133 @@ function isArrayBufferView(value: unknown): value is ArrayBufferView {
   }
 }
 
+function isErrorValue(value: unknown): value is Error {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  if (brandedErrorValues.has(value)) return true
+  try {
+    // Probe the intrinsic Error slot before reading `stack`. A foreign realm
+    // can cache a non-string formatter result (including `undefined`) on the
+    // first read, which would otherwise make the later brand probe fail.
+    if (errorStackGetter) {
+      let prototype = Object.getPrototypeOf(value)
+      while (prototype && prototype !== Object.prototype) {
+        const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
+        const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (
+          typeof name === "string"
+          && typeof message === "string"
+          && isNativeConstructor(constructor, nativeErrorConstructorSource)
+          && constructor.prototype === prototype
+        ) {
+          const prepareDescriptor = Object.getOwnPropertyDescriptor(constructor, "prepareStackTrace")
+          const stackDescriptor = Object.getOwnPropertyDescriptor(value, "stack")
+          const sentinel = {}
+          try {
+            // A prior intrinsic read can cache a custom formatter result on the
+            // Error's own lazy stack accessor. Remove that cache before probing.
+            if (stackDescriptor?.configurable) delete (value as object & { stack?: unknown }).stack
+            Object.defineProperty(constructor, "prepareStackTrace", {
+              configurable: true,
+              value: () => sentinel,
+              writable: true,
+            })
+            if (errorStackGetter.call(value) === sentinel) {
+              brandedErrorValues.add(value)
+              return true
+            }
+          }
+          catch {
+            // Continue to the remaining checks when the realm is locked down.
+          }
+          finally {
+            try {
+              if (prepareDescriptor) Object.defineProperty(constructor, "prepareStackTrace", prepareDescriptor)
+              else delete constructor.prepareStackTrace
+              if (stackDescriptor) Object.defineProperty(value, "stack", stackDescriptor)
+              else delete (value as object & { stack?: unknown }).stack
+            }
+            catch {
+              // Ignore restoration failures; classification remains bounded.
+            }
+          }
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+    }
+    // V8's intrinsic stack accessor performs the Error internal-slot check and
+    // works for Error instances created in another realm. Keep the structural
+    // fallback below for runtimes without that accessor.
+    if (errorStackGetter) {
+      try {
+        // Calling the intrinsic accessor performs the non-spoofable Error
+        // internal-slot check. The stack value may be non-string when a
+        // foreign realm customizes prepareStackTrace.
+        const stack = errorStackGetter.call(value)
+        // The intrinsic accessor returns `undefined` for objects without the
+        // Error internal slot. Only accept the intrinsic brand when it yields
+        // an actual stack value; structural checks below cover custom formatters
+        // that intentionally return `undefined`.
+        if (typeof stack === "string") {
+          // Preserve the non-spoofable intrinsic-brand evidence for the
+          // subsequent AggregateError classification pass.  Fallback
+          // classifications are intentionally never cached because proxies
+          // and other mutable values may change between observations.
+          brandedErrorValues.add(value)
+          return true
+        }
+      }
+      catch {
+        // A custom stack formatter can make the intrinsic getter throw. Keep
+        // checking the other Error brands so genuine values are still found.
+      }
+    }
+    if (isInstance(value, Error)) {
+      return true
+    }
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype && prototype !== Object.prototype) {
+      const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
+      const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
+      if (typeof name === "string" && typeof message === "string") {
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (isNativeConstructor(constructor, nativeErrorConstructorSource) && constructor.prototype === prototype) {
+          // The intrinsic sentinel probe above is the non-spoofable brand check.
+        }
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
+  }
+  catch {
+    return false
+  }
+}
+
+function isAggregateErrorValue(value: unknown): value is AggregateError {
+  if (!isErrorValue(value)) return false
+  try {
+    if (isInstance(value, AggregateError)) return true
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype && prototype !== Object.prototype) {
+      const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (
+        name === "AggregateError"
+        && isNativeConstructor(constructor, nativeAggregateErrorConstructorSource)
+        && constructor.prototype === prototype
+        && Object.hasOwn(value, "errors")
+        && isArray((value as unknown as Record<string, unknown>).errors)
+      ) return true
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
+  }
+  catch {
+    return false
+  }
+}
+
 function isRegExpValue(value: unknown): value is RegExp {
   try {
     Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
@@ -781,17 +923,20 @@ async function collectBoundedObservationBuiltIns(
       }
       return
     }
-    if (isInstance(value, Error)) {
-      if (isInstance(value, AggregateError)) {
+    if (isErrorValue(value)) {
+      if (isAggregateErrorValue(value)) {
         await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
       }
       if (Object.hasOwn(value, "cause")) {
         await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
       }
-      for (const [key, child] of Object.entries(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
-        if (key !== "cause" && key !== "errors") {
-          await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
-        }
+      let count = 0
+      let steps = 0
+      for (const key of Object.keys(value)) {
+        if (steps++ >= MAX_OBSERVATION_COLLECTION_ITEMS || count >= MAX_OBSERVATION_COLLECTION_ITEMS) break
+        if (key === "cause" || key === "errors") continue
+        count++
+        await collectBoundedObservationBuiltIns((value as unknown as Record<string, unknown>)[key], builtIns, budget, seen, depth + 1)
       }
       return
     }
@@ -940,16 +1085,28 @@ function boundedObservationValue(
       source: boundedObservationValue(source, budget, depth + 1, maxStringLength, builtIns),
     }
   }
-  if (isInstance(value, Error)) {
+  if (isErrorValue(value)) {
     budget.truncated = true
+    const read = (key: string): unknown => {
+      try { return (value as unknown as Record<string, unknown>)[key] }
+      catch { budget.truncated = true; return undefined }
+    }
     const details: Array<[string, unknown]> = [
-      ["name", value.name],
-      ["message", value.message],
+      ["name", read("name")],
+      ["message", read("message")],
     ]
-    if (isInstance(value, AggregateError)) details.push(["errors", value.errors])
-    if (Object.hasOwn(value, "cause")) details.push(["cause", value.cause])
-    for (const [key, child] of Object.entries(value)) {
-      if (key !== "cause" && key !== "errors") details.push([key, child])
+    if (isAggregateErrorValue(value)) details.push(["errors", read("errors")])
+    if (Object.hasOwn(value, "cause")) details.push(["cause", read("cause")])
+    try {
+      let steps = 0
+      for (const key of Object.keys(value)) {
+        if (steps++ >= collectionItems || details.length >= collectionItems) break
+        if (key === "cause" || key === "errors") continue
+        details.push([key, read(key)])
+      }
+    }
+    catch {
+      budget.truncated = true
     }
     const length = Math.min(details.length, collectionItems)
     if (length < details.length) budget.truncated = true

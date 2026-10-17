@@ -1,6 +1,6 @@
 import { consoleDiagnostic, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 
-export interface ConsoleHeaders {
+interface ConsoleHeaders {
   get(name: string): string | null
 }
 
@@ -136,23 +136,13 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
   const value = event.req?.url ?? event.node?.req?.url ?? "/"
-  // Match consoleRequest(): request headers take precedence per header, with
-  // event-level and Node headers supplying values missing from that container.
   const header = (name: string) => {
-    const sources: Array<ConsoleHeaders | Record<string, string | string[] | undefined> | undefined> = [
-      event.req?.headers,
-      event.headers,
-      event.node?.req?.headers,
-    ]
-    for (const source of sources) {
-      const raw = source instanceof Object && "get" in source && source.get instanceof Function
-        ? source.get(name)
-        : source?.[name]
-      // An empty header is still a selected value. This must match
-      // `consoleRequest()`, which preserves empty strings in the Request.
-      if (raw === undefined || raw === null) continue
-      const value = (Array.isArray(raw) ? raw[0] ?? "" : raw).split(",")[0]?.trim() ?? ""
-      return value
+    for (const source of [event.req?.headers, event.headers, event.node?.req?.headers]) {
+      if (!source) continue
+      let raw: string | string[] | undefined | null
+      if ("get" in source && typeof source.get === "function") raw = source.get(name)
+      else if (typeof source === "object") raw = (source as Record<string, string | string[] | undefined>)[name]
+      if (raw !== undefined && raw !== null) return (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
     }
   }
   const url = value instanceof URL ? new URL(value) : new URL(value, "http://localhost")
