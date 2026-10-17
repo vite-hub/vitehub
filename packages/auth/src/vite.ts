@@ -39,6 +39,36 @@ const generatedAuthAccessMiddlewareHandler = ".vitehub/auth/access-middleware.ts
 const generatedAuthRouteHandler = ".vitehub/auth/route.ts"
 const mergeNoExternal = createNoExternalAddition(authPackageName)
 
+function splitSetCookieHeader(value: string): string[] {
+  const cookies: string[] = []
+  let start = 0
+  let quoted = false
+  let escaped = false
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (quoted && character === "\\") {
+      escaped = true
+      continue
+    }
+    if (character === '"') {
+      quoted = !quoted
+      continue
+    }
+    if (quoted || character !== ",") continue
+    const remainder = value.slice(index + 1)
+    if (/^\s*[^;,\s=]+\s*=/.test(remainder)) {
+      cookies.push(value.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+  cookies.push(value.slice(start).trim())
+  return cookies.filter(Boolean)
+}
+
 type NitroConfig = Record<string, unknown>
 type NitroHandler = { handler: string; method?: string; middleware?: boolean; route: string }
 
@@ -261,14 +291,22 @@ function createWebRequest(request: IncomingMessage): Request {
 async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
   target.statusCode = response.status
   target.statusMessage = response.statusText
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; preserve forEach serialization when absent.
-  const setCookieHeaders = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : []
-
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Older Headers implementations can omit getSetCookie; only forward an unambiguous single fallback value.
+  const setCookieHeaders = typeof response.headers.getSetCookie === "function"
+    ? Reflect.apply(response.headers.getSetCookie, response.headers, [])
+    : undefined
   response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
-    target.appendHeader(key, value)
+    if (key.toLowerCase() !== "set-cookie") {
+      target.appendHeader(key, value)
+      return
+    }
+    if (setCookieHeaders) return
+    // Headers.forEach may combine multiple Set-Cookie values with commas.
+    // Split only at cookie boundaries outside quoted values; Expires dates keep theirs.
+    const cookies = splitSetCookieHeader(value)
+    for (const cookie of cookies) target.appendHeader(key, cookie)
   })
-  for (const value of setCookieHeaders) {
+  for (const value of setCookieHeaders ?? []) {
     target.appendHeader("set-cookie", value)
   }
 

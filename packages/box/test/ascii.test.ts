@@ -315,9 +315,9 @@ class FakeAsciiMachine {
       this.files.delete(path);
       this.directories.delete(path);
       if (recursive) {
-        for (const value of [...this.files.keys()])
+        for (const value of this.files.keys())
           if (value.startsWith(`${path}/`)) this.files.delete(value);
-        for (const value of [...this.directories])
+        for (const value of this.directories)
           if (value.startsWith(`${path}/`)) this.directories.delete(value);
       }
     },

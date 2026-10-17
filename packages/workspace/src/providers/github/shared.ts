@@ -58,10 +58,6 @@ interface GitHubCommitResponse {
   tree: { sha: string }
 }
 
-interface GitHubBlobResponse {
-  sha: string
-}
-
 const githubReadAttempts = 3
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,10 +72,6 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isGitHubRefResponse(value: unknown): value is GitHubRefResponse {
   return isRecord(value) && isRecord(value.object) && isNonEmptyString(value.object.sha)
-}
-
-function isGitHubBlobResponse(value: unknown): value is GitHubBlobResponse {
-  return isRecord(value) && isNonEmptyString(value.sha)
 }
 
 function isGitHubRepositoryResponse(value: unknown): value is GitHubRepositoryResponse {
@@ -393,33 +385,19 @@ export async function requestGitHubJson<T>(
   repository: string,
   token: string,
   path: string,
-  init: RequestInit | undefined,
-  parse: (value: unknown) => T,
-): Promise<T>
-export async function requestGitHubJson(
-  repository: string,
-  token: string,
-  path: string,
   init?: RequestInit,
-): Promise<unknown>
-export async function requestGitHubJson<T>(
-  repository: string,
-  token: string,
-  path: string,
-  init?: RequestInit,
-  parse?: (value: unknown) => T,
-): Promise<T | unknown> {
-  const value = (await requestGitHubJsonResponse(repository, token, path, init)).value
-  return parse ? parse(value) : value
+): Promise<T> {
+  return (await requestGitHubJsonResponse<T>(repository, token, path, init)).value
 }
 
 /** Read a JSON response and retain headers for APIs that expose pagination in Link. */
-export async function requestGitHubJsonResponse(
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Callers provide the response contract for this GitHub endpoint.
+export async function requestGitHubJsonResponse<T>(
   repository: string,
   token: string,
   path: string,
   init?: RequestInit,
-): Promise<{ value: unknown, headers: Headers }> {
+): Promise<{ value: T, headers: Headers }> {
   const response = await requestGitHub(`https://api.github.com${path}`, {
     ...init,
     headers: {
@@ -439,7 +417,7 @@ export async function requestGitHubJsonResponse(
     );
     throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
-  return { value: await response.json(), headers: response.headers };
+  return { value: (await response.json()) as T, headers: response.headers };
 }
 
 export async function readGitHubRawFile(input: {
@@ -528,7 +506,7 @@ export async function readGitHubBranchState(input: {
   let branchExists = true;
   let ref: GitHubRefResponse;
   try {
-    ref = requireGitHubResponse(await requestGitHubJson(
+    ref = requireGitHubResponse(await requestGitHubJson<unknown>(
       input.repository,
       input.token,
       `/repos/${owner}/${repo}/git/ref/heads/${encodeGitHubRef(input.branch)}`,
@@ -536,19 +514,19 @@ export async function readGitHubBranchState(input: {
   }
   catch (error) {
     if (githubRequestStatus(error) !== 404) throw error;
-    const repository = requireGitHubResponse(await requestGitHubJson(
+    const repository = requireGitHubResponse(await requestGitHubJson<unknown>(
       input.repository,
       input.token,
       `/repos/${owner}/${repo}`,
     ), isGitHubRepositoryResponse, "repository");
-    ref = requireGitHubResponse(await requestGitHubJson(
+    ref = requireGitHubResponse(await requestGitHubJson<unknown>(
       input.repository,
       input.token,
       `/repos/${owner}/${repo}/git/ref/heads/${encodeGitHubRef(repository.default_branch)}`,
     ), isGitHubRefResponse, "default branch reference");
     branchExists = false;
   }
-  const current = requireGitHubResponse(await requestGitHubJson(
+  const current = requireGitHubResponse(await requestGitHubJson<unknown>(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/commits/${ref.object.sha}`,
@@ -558,7 +536,7 @@ export async function readGitHubBranchState(input: {
       const fullPath = joinGitPath(input.root, path);
       const encodedPath = fullPath.split("/").map(encodeURIComponent).join("/");
       try {
-        const entry = await requestGitHubJson(
+        const entry = await requestGitHubJson<unknown>(
           input.repository,
           input.token,
           `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref.object.sha)}`,
@@ -581,7 +559,7 @@ export async function readGitHubBranchState(input: {
       treeSha: current.tree.sha,
     };
   }
-  const tree = requireGitHubResponse(await requestGitHubJson(
+  const tree = requireGitHubResponse(await requestGitHubJson<unknown>(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/trees/${current.tree.sha}?recursive=1`,
@@ -620,8 +598,7 @@ export async function commitGitHubChanges(input: {
         : { sha: file.gitSha },
     ),
   );
-  const tree = await requestGitHubJson(
-
+  const tree = await requestGitHubJson<{ sha: string }>(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/trees`,
@@ -640,8 +617,8 @@ export async function commitGitHubChanges(input: {
       }),
       method: "POST",
     },
-  ) as { sha: string };
-  const commit = await requestGitHubJson(
+  );
+  const commit = await requestGitHubJson<{ sha: string }>(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/commits`,
@@ -653,7 +630,7 @@ export async function commitGitHubChanges(input: {
       }),
       method: "POST",
     },
-  ) as { sha: string };
+  );
   if (input.branchExists) {
     try {
       await requestGitHubJson(
@@ -701,7 +678,7 @@ export async function createGitHubBlob(input: {
 }): Promise<{ sha: string }> {
   const kind = input.kind || "store";
   const { owner, repo } = splitGitHubRepository(input.repository, kind);
-  const response = await requestGitHubJson(
+  return await requestGitHubJson<{ sha: string }>(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/blobs`,
@@ -709,8 +686,7 @@ export async function createGitHubBlob(input: {
       body: JSON.stringify({ content: toBase64(input.bytes), encoding: "base64" }),
       method: "POST",
     },
-  )
-  return requireGitHubResponse(response, isGitHubBlobResponse, "blob")
+  );
 }
 
 export async function createGitHubFileUpdate(
