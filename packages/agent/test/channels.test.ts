@@ -109,7 +109,7 @@ describe("agent channels", () => {
       stored = { body, id: 7 }
       return new Response(JSON.stringify(stored), { headers: { "content-type": "application/json" }, status: method === "POST" ? 201 : 200 })
     })
-    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "test-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
@@ -268,7 +268,7 @@ describe("agent channels", () => {
     })
     const timeout = AbortSignal.timeout.bind(AbortSignal)
     vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => timeout(ms === 30_000 ? 50 : ms))
-    vi.stubEnv("GITHUB_TOKEN", "target-queue-deadline-test-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "target-queue-deadline-test-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
@@ -505,7 +505,7 @@ describe("agent channels", () => {
       storedBody = payload.body
       return Response.json({ id: 7 }, { status: method === "POST" ? 201 : 200 })
     })
-    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "test-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
@@ -651,7 +651,7 @@ describe("agent channels", () => {
       }
       return Response.json({ id: 8 }, { status: 201 })
     })
-    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "test-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
@@ -700,10 +700,10 @@ describe("agent channels", () => {
     try {
       const channelA = github({ activity: true })
       const channelB = github({ activity: true })
-      vi.stubEnv("GITHUB_TOKEN", "token-a")
+      vi.stubEnv("VITEHUB_GITHUB_TOKEN", "token-a")
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await channelA.activity?.update(context(channelA) as never)
-      vi.stubEnv("GITHUB_TOKEN", "token-b")
+      vi.stubEnv("VITEHUB_GITHUB_TOKEN", "token-b")
       // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
       await channelB.activity?.update(context(channelB) as never)
 
@@ -749,7 +749,7 @@ describe("agent channels", () => {
       target: { issue: 42, repository: "acme/app" },
       waitUntil: vi.fn(),
     })
-    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "test-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
@@ -793,6 +793,7 @@ describe("agent channels", () => {
     })
     vi.stubEnv("GITHUB_ACTIONS", "true")
     vi.stubEnv("GITHUB_TOKEN", "actions-installation-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "actions-installation-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({
@@ -818,7 +819,7 @@ describe("agent channels", () => {
     }
   })
 
-  it("does not treat an unresolved GH_TOKEN as the GitHub Actions bot", async () => {
+  it("does not treat a user token as the GitHub Actions bot", async () => {
     const { github } = await import("../src/channels.ts")
     const fetcher = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
@@ -826,7 +827,8 @@ describe("agent channels", () => {
       throw new Error(`Unexpected GitHub API call: ${url}`)
     })
     vi.stubEnv("GITHUB_ACTIONS", "true")
-    vi.stubEnv("GH_TOKEN", "user-token")
+    vi.stubEnv("GITHUB_TOKEN", "actions-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "user-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
@@ -874,7 +876,7 @@ describe("agent channels", () => {
       if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
       throw new Error(`Unexpected GitHub API call: ${url}`)
     })
-    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "test-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
@@ -912,7 +914,7 @@ describe("agent channels", () => {
       storedBody = payload.body
       return Response.json({ id: 7 }, { status: 201 })
     })
-    vi.stubEnv("GITHUB_TOKEN", "test-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "test-token")
     vi.stubGlobal("fetch", fetcher)
     try {
       const channel = github({ activity: true })
@@ -1936,7 +1938,7 @@ describe("agent channels", () => {
 
   it("fetches public pull request head metadata without a token", async () => {
     const { github } = await import("../src/channels.ts")
-    const tokenKeys = ["VITEHUB_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const
+    const tokenKeys = ["VITEHUB_GITHUB_TOKEN", "FORGES_GITHUB_TOKEN"] as const
     const previousTokens = Object.fromEntries(tokenKeys.map(key => [key, process.env[key]]))
     tokenKeys.forEach(key => delete process.env[key])
     try {

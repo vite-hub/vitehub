@@ -1,7 +1,8 @@
-import { ConnectionError, isConnectionError } from "./errors.ts";
+import { isConnectionError } from "./errors.ts";
 import { checkConnectionsAccess } from "./internal/http-access.ts";
-import { connectionsRoutes, errorResponse, errorStatus, json, page } from "./internal/http-routes.ts";
+import { connectionsRoutes, errorResponse, errorStatus, json } from "./internal/http-routes.ts";
 import { managementErrorBody } from "./internal/http-diagnostics.ts";
+import { page, requestReturnPath } from "./internal/http-page.ts";
 import { CONNECTIONS_ROUTE } from "./route.ts";
 import { getConnectionsRuntime } from "./runtime/state.ts";
 
@@ -22,38 +23,21 @@ export interface ConnectionsHandlerOptions {
   runtime?: () => ConnectionsRuntime;
 }
 
-function normalizeConnectionsBasePath(value: string | undefined): string {
-  if (value !== undefined && typeof value !== "string") {
-    throw new ConnectionError("invalid", "Connections basePath must be a string.");
-  }
-  const path = value === undefined ? CONNECTIONS_ROUTE : value.trim();
-  if (!path.startsWith("/")) {
-    throw new ConnectionError("invalid", "Connections basePath must start with `/`.");
-  }
-  if (path.includes("?") || path.includes("#")) {
-    throw new ConnectionError("invalid", "Connections basePath must be a pathname without a query or fragment.");
-  }
-  const normalized = path.length > 1 ? path.replace(/\/+$/g, "") : path;
-  if (!normalized || normalized === "/") {
-    throw new ConnectionError("invalid", "Connections basePath must include a route segment.");
-  }
-  return normalized;
-}
-
 /**
  * Management API for Connections. Every route runs the `actor` policy first. A route body reads
  * the Connections runtime only through the access that the policy grants for this request.
  *
  * - `POST /_vitehub/connections` runs one JSON action.
- * - `GET /_vitehub/connections/connect/:name` starts the web authorization flow.
+ * - `GET /_vitehub/connections/connect/:name` starts the web authorization flow. An optional
+ *   `?return=/path` names a same-origin page, such as the Console, to return to.
  * - `GET /_vitehub/connections/callback` completes it. The OAuth `state` is single-use and bound to
- *   the browser and the manager that started the flow.
+ *   the browser and the manager that started the flow. The result page returns to the `return` page.
  */
 export function createConnectionsHandler(
   options: ConnectionsHandlerOptions,
 ): (request: Request, event?: unknown) => Promise<Response> {
   const runtime = () => (options.runtime ?? getConnectionsRuntime)();
-  const base = normalizeConnectionsBasePath(options.basePath);
+  const base = options.basePath?.replace(/\/+$/, "") || CONNECTIONS_ROUTE;
   return async (request, event) => {
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     try {
@@ -69,11 +53,14 @@ export function createConnectionsHandler(
       return await route.handle(check.access, base);
     } catch (error) {
       if (request.method === "GET") {
-        return page(
-          "Connection failed",
-          isConnectionError(error) ? error.message : "The connection could not be completed.",
-          errorStatus(error),
-        );
+        return page({
+          code: isConnectionError(error) ? error.code : "CONNECTION_FAILED",
+          message: isConnectionError(error) ? error.message : "The connection could not be completed.",
+          outcome: "error",
+          returnTo: requestReturnPath(request),
+          status: errorStatus(error),
+          title: "Connection failed",
+        });
       }
       return errorResponse(error);
     }

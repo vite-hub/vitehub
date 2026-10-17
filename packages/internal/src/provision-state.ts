@@ -68,7 +68,8 @@ export function mergeProvisionState(base: ProvisionState, next: ProvisionState):
     if (!categories) continue
     const target = (merged[provider] ??= {})
     for (const [category, ids] of Object.entries(categories)) {
-      setOwn(target, category, { ...(Object.hasOwn(target, category) ? target[category] : {}), ...ids })
+      const existing = Object.hasOwn(target, category) ? target[category] : undefined
+      setOwn(target, category, { ...(existing ?? undefined), ...ids })
     }
   }
   return merged

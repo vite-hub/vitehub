@@ -182,9 +182,25 @@ function authRoutePattern(route: string): string {
   return `${route}/**`
 }
 
+const authApplicationBaseURLName = "__VITEHUB_AUTH_APP_BASE_URL__"
+
+/** Return Nitro `baseURL` when the host serves the app below a path, such as Nuxt `app.baseURL`. */
+function nitroApplicationBaseURL(value: unknown): string | undefined {
+  const nitro = cloneNitroConfig(value)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro config comes from user and host objects.
+  const baseURL = typeof nitro.baseURL === "string" ? nitro.baseURL : "/"
+  return baseURL.split("/").some(Boolean) ? baseURL : undefined
+}
+
 function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | undefined): NitroConfig {
   const nitro = cloneNitroConfig(value)
   if (!config) return nitro
+
+  // Nitro serves Auth routes below its baseURL, so Auth server code needs the same path for Better Auth routes and callbacks.
+  const applicationBaseURL = nitroApplicationBaseURL(nitro)
+  if (applicationBaseURL) {
+    nitro.replace = { ...cloneNitroConfig(nitro.replace), [authApplicationBaseURLName]: JSON.stringify(applicationBaseURL) }
+  }
 
   const kit = createNitroServerKit(nitro)
   const authHandlers: NitroHandler[] = [
@@ -330,11 +346,12 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
         ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
       const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig)
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
-      if (hasNitroHandlers) {
+      const applicationBaseURL = authConfig ? nitroApplicationBaseURL(nitro) : undefined
+      if (hasNitroHandlers || applicationBaseURL) {
         // Replace Nitro in place because Vite concatenates arrays from returned config hooks.
         Object.assign(config, { nitro })
       }
-      return {
+      const contribution: UserConfig = {
         ssr: {
           noExternal: mergeNoExternal(config.ssr?.noExternal),
         },
@@ -344,6 +361,9 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           },
         },
       }
+      // The default Vue Auth client sends requests below the same Nitro baseURL.
+      if (applicationBaseURL) contribution.define = { [authApplicationBaseURLName]: JSON.stringify(applicationBaseURL) }
+      return contribution
     },
     async configResolved(config) {
       resolved = config

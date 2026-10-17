@@ -560,6 +560,26 @@ export interface RealtimeDurableObjectNamespace {
   idFromName(name: string): unknown
 }
 
+function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false
+  const constructor = (globalThis as Record<string, unknown>).DurableObjectNamespace
+  const callable = (method: unknown) => {
+    if (typeof method !== "function") return false
+    try { return Function.prototype.toString.call(method) !== "function () { [native code] }" } catch { return false }
+  }
+  try {
+    if (typeof constructor === "function") {
+      if (!(value instanceof constructor)) return false
+      const get = Object.getOwnPropertyDescriptor(value, "get")
+      const id = Object.getOwnPropertyDescriptor(value, "idFromName")
+      return get?.get === undefined && id?.get === undefined && callable(get?.value) && callable(id?.value)
+    }
+    const get = Object.getOwnPropertyDescriptor(value, "get")
+    const id = Object.getOwnPropertyDescriptor(value, "idFromName")
+    return get?.get === undefined && id?.get === undefined && callable(get?.value) && callable(id?.value)
+  } catch { return false }
+}
+
 export interface RealtimeRefreshOptions {
   /** On Cloudflare, the `$DurableObject` binding. Without it, only rooms of this process refresh. */
   durableObjects?: RealtimeDurableObjectNamespace
@@ -656,7 +676,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       get(id: unknown): { fetch(request: Request): Promise<Response> }
       idFromName(name: string): unknown
     } | undefined
-    if (!binding || (typeof context === "object" && context !== null && "storage" in context)) return
+    if (!binding || !isRealtimeDurableObjectNamespace(binding) || (typeof context === "object" && context !== null && "storage" in context)) return
     let request = event.req
     if (request.headers.has(internalRefreshHeader)) {
       // Only refreshRealtimeDocument() may send it, straight to the Durable Object.
@@ -684,6 +704,19 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       // accessors and runtime-specific whitespace.
       if (!/^function(?:\s+get(?:\s+\w+)?|\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
       try {
+        // Workerd's lazy accessor is receiver-branded. Probe a structurally
+        // identical receiver first; ordinary getters and copied/proxied
+        // carriers that return a SQL-shaped object must not be accepted.
+        const prototype = Object.getPrototypeOf(storage)
+        if (prototype) {
+          try {
+            Reflect.apply(getter, Object.create(prototype), [])
+            return undefined
+          }
+          catch {
+            // Expected for the genuine Workerd accessor.
+          }
+        }
         const sql = Reflect.get(storage, "sql")
         return hasCloudflareSqlExec(sql) ? sql : undefined
       }
