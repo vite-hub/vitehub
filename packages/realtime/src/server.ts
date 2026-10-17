@@ -624,7 +624,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       const getter = descriptor.get
       if (typeof getter !== "function") return undefined
       const source = Function.prototype.toString.call(getter)
-      if (!/^function\s+get\s+sql\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
+      if (!/^function\s+(?:get\s+sql\s*\(\s*\)|\(\s*\))\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
       try {
         const sql = Reflect.get(storage, "sql")
         return hasNativeCloudflareSql(sql) ? sql : undefined
@@ -641,7 +641,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         const getter = sqlDescriptor.get
         if (typeof getter !== "function") return undefined
         const source = Function.prototype.toString.call(getter)
-        if (!/^function\s+get\s+sql\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
+        if (!/^function\s+(?:get\s+sql\s*\(\s*\)|\(\s*\))\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
         try {
           const sql = Reflect.get(storage, "sql")
           return hasNativeCloudflareSql(sql) ? sql : undefined
