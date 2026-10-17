@@ -731,6 +731,15 @@ describe("contentSource", () => {
     await expect(source.getItem("index.md")).resolves.toBe("# Native")
   })
 
+  it("decodes content bytes created in another realm", async () => {
+    const foreignBytes = runInNewContext("new Uint8Array([35, 32, 70, 111, 114, 101, 105, 103, 110])")
+    const source = contentSource({
+      items: async () => [{ key: "index.md", content: foreignBytes }],
+    } as never)
+
+    await expect(source.getItem("index.md")).resolves.toBe("# Foreign")
+  })
+
   it("does not treat a reader with inherited Comark methods as a native source", async () => {
     const source = Object.assign(Object.create({
       keys: async () => ["inherited.md"],

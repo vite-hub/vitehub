@@ -413,6 +413,18 @@ describe("Netlify Blobs driver", () => {
     expect(result?.customMetadata).toEqual({ owner: "external-client" })
   })
 
+  it("preserves prototype-named custom metadata from Netlify", async () => {
+    store.getMetadata.mockResolvedValue({
+      etag: "etag",
+      metadata: { customMetadata: JSON.parse('{"__proto__":"kept"}') },
+    })
+
+    const result = await createDriver(options).head("prototype.txt")
+
+    expect(result?.customMetadata).toEqual(JSON.parse('{"__proto__":"kept"}'))
+    expect(Object.hasOwn(result?.customMetadata ?? {}, "__proto__")).toBe(true)
+  })
+
   it("preserves valid reserved-looking fields in direct custom metadata", async () => {
     const metadata = {
       contentType: "draft",

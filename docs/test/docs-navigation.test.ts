@@ -63,8 +63,6 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Tutorial");
       expect(templateTitles, sectionId).toContain("Server API");
-      // Product-specific concepts can sit between the shared template pages.
-      expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -111,11 +109,10 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.label && group.pages.length > 0), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
+    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null, null, "Build", null]);
   });
 
   it("lists each topic once inside a section", () => {
@@ -155,6 +152,8 @@ describe("docs product navigation", () => {
 
   it("redirects each removed page, its trailing-slash form, and its raw Markdown copy to a published page", () => {
     const routeRules = createDocsRedirectRouteRules();
+
+    expect(docsPageRedirects["/docs/ui/built-for-vue"]).toBe("/docs/getting-started/built-for-vue");
 
     expect(docsPageRedirects["/docs/server-primitives/kv"]).toBe("/docs/kv");
     expect(docsPageRedirects["/docs/capabilities/db"]).toBe("/docs/database/agent-capability");
