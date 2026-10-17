@@ -38,10 +38,10 @@ it("removes the complete legacy checkout pool, including metadata sidecars", asy
 it("normalizes escaped PEM newlines from host environment secrets", async () => {
   const { privateKey } = await import("node:crypto").then(({ generateKeyPairSync }) => generateKeyPairSync("rsa", { modulusLength: 2048 }));
   const pem = privateKey.export({ format: "pem", type: "pkcs1" }).toString();
-  vi.stubEnv("GITHUB_APP_ID", "123");
-  vi.stubEnv("GITHUB_APP_INSTALLATION_ID", "456");
-  vi.stubEnv("GITHUB_APP_OWNER", "acme");
-  vi.stubEnv("GITHUB_APP_PRIVATE_KEY", pem.replaceAll("\n", "\\n"));
+  vi.stubEnv("VITEHUB_GITHUB_APP_ID", "123");
+  vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", "456");
+  vi.stubEnv("VITEHUB_GITHUB_APP_OWNER", "acme");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", pem.replaceAll("\n", "\\n"));
 
   await expect(readGitHubAppEnvironment()).resolves.toMatchObject({ appId: 123, installationId: 456, privateKey: pem });
 });
@@ -67,9 +67,9 @@ it("cleans only the owning process host pool before reading credentials", async 
   await mkdir(sibling, { recursive: true });
   await writeFile(join(pool, "pr.meta.json"), "{}");
   await writeFile(join(sibling, "state.db"), "keep");
-  vi.stubEnv("GITHUB_APP_ID", "");
-  vi.stubEnv("GITHUB_APP_PRIVATE_KEY", "");
-  vi.stubEnv("GITHUB_APP_PRIVATE_KEY_PATH", "");
+  vi.stubEnv("VITEHUB_GITHUB_APP_ID", "");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", "");
+  vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY_PATH", "");
   // Cleanup runs before credentials and before process state is accessed.
   await expect(createBabysitterProcessHost({
     agent: { options: { filter: { repository: { allow: ["acme/repo"] } }, concurrency: 1 } },

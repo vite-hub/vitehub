@@ -79,7 +79,9 @@ export function createSourceContext(input: {
       tag: async () => {
         const tag = envValue(input.env, ["GIT_TAG"])
         if (tag) return tag
-        if (input.env.GITHUB_REF_TYPE === "tag") return envValue(input.env, ["GITHUB_REF_NAME"])
+        if (Object.hasOwn(input.env, "GITHUB_REF_TYPE") && input.env.GITHUB_REF_TYPE === "tag") {
+          return envValue(input.env, ["GITHUB_REF_NAME"])
+        }
         return await gitOutput(input.rootDir, ["describe", "--tags", "--exact-match", "HEAD"]).catch(() => undefined)
       },
     },
@@ -91,7 +93,7 @@ export function createSourceContext(input: {
 
 function envValue(env: Record<string, string | undefined>, names: string[]): string | undefined {
   for (const name of names) {
-    const value = env[name]
+    const value = Object.hasOwn(env, name) ? env[name] : undefined
     if (value) return value
   }
 }
@@ -379,13 +381,13 @@ function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: strin
 }
 
 /** The default prefix of canonical variable names. */
-export const defaultEnvPrefix = "VITEHUB_"
+const defaultEnvPrefix = "VITEHUB_"
 
 /**
  * The canonical variable name of a declaration path: the prefix plus the path in upper snake case.
  * `env.server.cliproxy.apiKey` becomes `VITEHUB_CLIPROXY_API_KEY`. `false` disables canonical names.
  */
-export function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
+function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
   return prefix === false ? undefined : `${prefix}${pathToEnvName(path)}`
 }
 
@@ -427,7 +429,7 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
       return { label: source.label, value: await source.resolver(context) }
     case "env":
       for (const name of source.names || [source.name]) {
-        const value = context.env[name]
+        const value = Object.hasOwn(context.env, name) ? context.env[name] : undefined
         if (typeof value !== "undefined" && !(source.skipEmpty && value === "")) {
           return { label: `env:${name}`, value }
         }

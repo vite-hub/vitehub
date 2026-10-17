@@ -1,4 +1,5 @@
 import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
+import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
 
 import type { ViteHubErrorDetails, ViteHubErrorOptions, ViteHubErrorShape } from "@vite-hub/runtime"
 import type { QueueProvider } from "./types.ts"
@@ -25,7 +26,7 @@ export type QueueErrorCode =
 
 type QueueErrorDetailMap = {
   CLOUDFLARE_BINDING_INVALID: { readonly provider: "cloudflare" }
-  CLOUDFLARE_BINDING_RESOLUTION_REQUIRED: { readonly provider: "cloudflare" }
+  CLOUDFLARE_BINDING_RESOLUTION_REQUIRED: { readonly provider: "cloudflare", readonly binding?: string }
   CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS: { readonly provider: "cloudflare", readonly unsupported: readonly (typeof cloudflareUnsupportedEnqueueOptions)[number][] }
   QUEUE_DEFINITION_LOAD_FAILED: { readonly queue?: string }
   QUEUE_DEFINITION_NOT_FOUND: { readonly queue?: string }
@@ -72,7 +73,9 @@ export function createQueueError<TCode extends QueueErrorCode>(
   const details = options.details
   const message = code === "QUEUE_PROVIDER_OPERATION_FAILED" && details && "provider" in details && "operation" in details
     ? `[vitehub] ${details.provider} queue provider failed during ${details.operation}.`
-    : queueErrorMessages[code]
+    : code === "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED" && details && "binding" in details && details.binding
+      ? `[vitehub] Cloudflare queue binding "${details.binding}" is not in the Worker env. In dev, the server has no local Queue delivery: run the built Worker with \`wrangler dev\`, or deploy it. In a deployed Worker, add the binding to the Worker configuration.`
+      : queueErrorMessages[code]
   const error = new ViteHubError(code, message, options)
   queueOwnedErrors.add(error)
   return error
@@ -96,8 +99,22 @@ export function normalizePublicQueueIdentifier(value: unknown): string | undefin
 
 export function isQueueBoundaryIdentity(error: unknown): boolean {
   if (getViteHubErrorShape(error)) return true
+  if (!isRuntimeObject(error)) return false
   try {
-    return error instanceof Error && error.name === "AbortError"
+    const name = Reflect.get(error, "name")
+    if (!hasRuntimeType(name, "string") || name !== "AbortError") return false
+    const nativeIsError: unknown = Reflect.get(Error, "isError")
+    let branded = hasRuntimeType(nativeIsError, "function")
+      ? nativeIsError(error) === true
+      : error instanceof Error || (!(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]")
+    if (!branded && hasRuntimeType(globalThis.DOMException, "function")) {
+      const nameGetter = Object.getOwnPropertyDescriptor(globalThis.DOMException.prototype, "name")?.get
+      try {
+        branded = Boolean(nameGetter && hasRuntimeType(nameGetter.call(error), "string"))
+      }
+      catch {}
+    }
+    return branded
   }
   catch {
     return false

@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-database-zap
 ---
 
+::agent-only{skill="kv"}
+Use KV for small values addressed by a key, such as flags, cursors, short-lived state, or counters that do not require relational queries.
+
+Read [Get started](/docs/kv/get-started), [Configure](/docs/kv/configure), [Server API](/docs/kv/server-api), or [Hosts](/docs/kv/hosts).
+
+Choose the driver in Vite config. Keep key names and serialization in application code. KV operations are not a substitute for atomic Rate Limit enforcement or relational transactions.
+
+Prove put, get, list with a prefix, and delete. Restart local storage or query the hosted provider to confirm the durability you need.
+::
+
 ::product-hero{tagline="One key-value import for settings, flags, cursors, and cache records, on every supported host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-group
   ```ts [server/api/settings.get.ts]

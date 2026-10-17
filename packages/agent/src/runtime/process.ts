@@ -29,6 +29,8 @@ export interface ProcessAgentCapacityOptions {
   }
   queue?: AgentDriverCapacityQueueOptions
   rampUp?: number
+  /** Active invocations that run on other hosts. They count toward concurrency but reserve no local memory. */
+  remoteActive?: () => number
   sampleTimeoutMs?: number
   sample?: (context: AgentDriverCapacitySampleContext) => AgentDriverCapacitySample | Promise<AgentDriverCapacitySample>
 }
@@ -47,6 +49,8 @@ interface ProcessResourceSample {
   memoryHighEvents: number
   memoryMax: number
   memoryPressure: number
+  /** Inactive page cache in the limiting cgroup. The kernel reclaims it before stalling workers. */
+  memoryReclaimable: number
 }
 
 export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions): AgentDriverCapacityOptions {
@@ -102,7 +106,12 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
     options.sample ??
     (async (context: AgentDriverCapacitySampleContext): Promise<AgentDriverCapacitySample> => {
       const resources = await readProcessResources(context.signal)
-      const memoryHighIncreased = lastMemoryHighEvents !== undefined && resources.memoryHighEvents > lastMemoryHighEvents
+      // memory.high also fires while the kernel trims page cache from checkouts and installs.
+      // Treat it as pressure only once the cgroup has no worker's worth of cache left to reclaim.
+      const memoryHighIncreased =
+        lastMemoryHighEvents !== undefined &&
+        resources.memoryHighEvents > lastMemoryHighEvents &&
+        resources.memoryReclaimable < memory.perInvocationBytes
       lastMemoryHighEvents = resources.memoryHighEvents
 
       if (pressurePaused) {
@@ -122,13 +131,22 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
       }
 
       const limit = Math.min(resources.memoryHigh, resources.memoryMax)
-      const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : Number.POSITIVE_INFINITY
+      const workingSet = Math.max(0, resources.memoryCurrent - resources.memoryReclaimable)
+      const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - workingSet) : Number.POSITIVE_INFINITY
       const availableMemory = Math.min(resources.hostAvailableMemory, resources.availableMemory, cgroupAvailableMemory)
       const admissionMemory = Math.min(
         resources.hostAvailableMemory - memory.reserveBytes,
         Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes,
       )
-      const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes))
+      const remoteActive = options.remoteActive?.()
+      // Runtime configuration is untyped at this boundary. Invalid remote
+      // counts must not poison admission arithmetic or trigger adaptive
+      // fallback; treat them as no remote work.
+      const validRemoteActive = typeof remoteActive === "number" && Number.isFinite(remoteActive) && remoteActive >= 0
+        ? remoteActive
+        : 0
+      const localActive = Math.max(0, context.active - validRemoteActive)
+      const additional = Math.max(0, Math.floor((admissionMemory - localActive * memory.perInvocationBytes) / memory.perInvocationBytes))
       const memoryConcurrency = context.active + additional
       const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency))
       return concurrency > context.active
@@ -160,7 +178,8 @@ async function readProcessResources(signal: AbortSignal): Promise<ProcessResourc
     readOptionalCgroupFile("/proc/pressure/memory", signal),
   ])
   const hostAvailable = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo ?? "")
-  const nodeAvailable = process.availableMemory()
+  // libuv subtracts the process cgroup's memory.current, page cache included.
+  const nodeAvailable = process.availableMemory() + (cgroup?.ownReclaimable ?? 0)
   return {
     availableMemory: nodeAvailable,
     hostAvailableMemory: hostAvailable ? Number(hostAvailable[1]) * 1024 : nodeAvailable,
@@ -170,10 +189,11 @@ async function readProcessResources(signal: AbortSignal): Promise<ProcessResourc
     memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
     memoryMax: cgroup?.memoryMax ?? Number.POSITIVE_INFINITY,
     memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? "")),
+    memoryReclaimable: cgroup?.memoryReclaimable ?? 0,
   }
 }
 
-async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessResourceSample, "availableMemory" | "hostAvailableMemory"> | undefined> {
+async function readCgroupResources(signal: AbortSignal): Promise<(Omit<ProcessResourceSample, "availableMemory" | "hostAvailableMemory"> & { ownReclaimable: number }) | undefined> {
   const membership = await readOptionalCgroupFile("/proc/self/cgroup", signal)
   const relative = membership?.split(/\r?\n/).find((line) => line.startsWith("0::"))?.slice(3)
   if (relative === undefined) return
@@ -188,11 +208,12 @@ async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessRes
     if (member === "/") break
   }
   const groups = await Promise.all(roots.map(async ({ path: root, rootCandidate }) => {
-    const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
+    const [current, high, max, events, stat, cpuPressure, memoryPressure] = await Promise.all([
       readCgroupMemoryFile(`${root}/memory.current`, signal, rootCandidate),
       readCgroupMemoryFile(`${root}/memory.high`, signal, rootCandidate),
       readCgroupMemoryFile(`${root}/memory.max`, signal, rootCandidate),
       readCgroupMemoryFile(`${root}/memory.events`, signal, rootCandidate),
+      readOptionalCgroupFile(`${root}/memory.stat`, signal),
       readOptionalCgroupFile(`${root}/cpu.pressure`, signal),
       readOptionalCgroupFile(`${root}/memory.pressure`, signal),
     ])
@@ -203,14 +224,18 @@ async function readCgroupResources(signal: AbortSignal): Promise<Omit<ProcessRes
       memoryHighEvents: parseEvent(events ?? "", "high"),
       memoryMax: max === undefined ? Infinity : parseLimit(max),
       memoryPressure: parsePressure(memoryPressure ?? ""),
+      memoryReclaimable: parseEvent(stat ?? "", "inactive_file") || 0,
     }
   }))
   let limiting = groups[0]
   if (!limiting) return
-  const headroom = (group: typeof limiting) => Math.min(group.memoryHigh, group.memoryMax) - group.memoryCurrent
+  const ownReclaimable = limiting.memoryReclaimable
+  // Same working set as the kubelet: memory.current minus inactive page cache.
+  const headroom = (group: typeof limiting) => Math.min(group.memoryHigh, group.memoryMax) - (group.memoryCurrent - group.memoryReclaimable)
   for (const group of groups) if (headroom(group) < headroom(limiting)) limiting = group
   return {
     ...limiting,
+    ownReclaimable,
     cpuPressure: Math.max(...groups.map(group => group.cpuPressure)),
     memoryHighEvents: groups.reduce((sum, group) => sum + group.memoryHighEvents, 0),
     memoryPressure: Math.max(...groups.map(group => group.memoryPressure)),

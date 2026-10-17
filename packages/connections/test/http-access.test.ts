@@ -76,6 +76,28 @@ describe("Connections route guard contract", () => {
     expect(runtime).not.toHaveBeenCalled();
   });
 
+  it("adds the fix and docs of the code to a rejection", async () => {
+    const runtime = vi.fn(() => createTestRuntime().runtime);
+    const response = await createConnectionsHandler({ actor: () => undefined, runtime })(routeRequests.action());
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "CONNECTION_FORBIDDEN",
+        docs: "https://vitehub.dev/docs/connections/server-api#management-routes",
+        fix: "Sign in again. A custom actor function must return user:<id> for an allowed manager.",
+        message: "The management route found no signed-in manager for this request.",
+      },
+    });
+  });
+
+  it.each(connectionsRoutes.map((route) => [route.id] as const))("returns a Response from the actor unchanged in the %s route", async (id) => {
+    const runtime = vi.fn(() => createTestRuntime().runtime);
+    const rejection = Response.json({ code: "HOST_SIGN_IN", message: "Sign in at the host." }, { status: 401 });
+    const response = await createConnectionsHandler({ actor: () => rejection, runtime })(routeRequests[id]());
+    expect(response).toBe(rejection);
+    expect(runtime).not.toHaveBeenCalled();
+  });
+
   it("fails closed when a JavaScript caller omits the access policy", async () => {
     const runtime = vi.fn(() => createTestRuntime().runtime);
     // @ts-expect-error JavaScript callers can omit the required policy.

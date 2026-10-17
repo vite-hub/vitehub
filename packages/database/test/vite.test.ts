@@ -1,12 +1,21 @@
 import { createServer as createHttpServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
+import { pathToFileURL } from "node:url"
+import { promisify } from "node:util"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { createClient } from "@libsql/client"
+import { drizzle } from "drizzle-orm/libsql"
+
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer as createViteServer, type ViteDevServer } from "vite"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
+
+import { supportsHostedDatabaseRuntime } from "../src/internal/vite-build.ts"
 
 import {
   DB_VIRTUAL_DATABASES_ID,
@@ -14,6 +23,7 @@ import {
   hubDb,
 } from "../src/vite.ts"
 
+const execFileAsync = promisify(execFile)
 const tempDirs: string[] = []
 
 async function createTempProject() {
@@ -93,30 +103,11 @@ afterEach(async () => {
 })
 
 describe("hubDb", () => {
-  it("inspects Database provider artifacts under the writer's nested Vite root", async () => {
-    const root = await createTempProject()
-    const appRoot = join(root, "app")
-    await writeFile(join(root, "package.json"), '{"type":"module"}')
-    await writeDefinition(appRoot, "src/report.database.ts", "report", { connection: "url: 'libsql://database.example'," })
-    await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
-    const plugin = hubDb()
-    await resolveConfigResolved(plugin)({ root: appRoot, command: "build", build: { outDir: "dist" }, resolve: { alias: [] }, plugins: [] })
-    for (const hook of [plugin.buildStart, plugin.buildEnd, plugin.closeBundle]) {
-      if (hook instanceof Function) await Reflect.apply(hook, {}, [])
-      else if (hook && hook.handler instanceof Function) await Reflect.apply(hook.handler, {}, [])
-    }
-    const entries = plugin.vitehub?.inspect?.()?.providerOutput ?? []
-    expect(entries.map(entry => entry.path)).toEqual([
-      join(appRoot, "dist/app/index.js"), join(appRoot, ".vercel/output/functions/__server.func/index.mjs"),
-    ])
-    for (const entry of entries) await expect(readFile(entry.path, "utf8")).resolves.toBeTruthy()
-  })
-
   it("does not inspect provider output without enabled Database Definitions", async () => {
     const rootDir = await createTempProject()
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
-    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
+    expect(plugin.vitehub?.inspect?.()).not.toHaveProperty("providerOutput")
 
     await writeDefinition(rootDir, "server/databases/config.ts")
     await resolveConfigResolved(plugin)({ database: false, root: rootDir })
@@ -129,34 +120,36 @@ describe("hubDb", () => {
     { name: "D1 binding", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name',", providers: ["cloudflare"] },
     { name: "D1 HTTP", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name', http: true,", providers: ["cloudflare", "vercel"] },
     { name: "D1 HTTP without a database name", connection: undefined, cloudflare: "databaseId: 'database-id', http: true,", providers: ["vercel"] },
-  ])("inspects supported provider output for $name", async ({ connection, cloudflare, providers }) => {
+  ])("supports the hosted runtime on the expected hosts for $name", async ({ connection, cloudflare, providers }) => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { connection, cloudflare })
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
-    expect(plugin.vitehub?.inspect?.()?.providerOutput?.map(output => output.description)).toEqual(
-      providers.map(provider => provider === "cloudflare" ? "Generated Cloudflare Database worker" : "Generated Vercel Database function"),
-    )
+    const runtime = plugin.api.getConfig()!
+    expect((["cloudflare", "vercel"] as const).filter(provider => supportsHostedDatabaseRuntime(provider, runtime, {}))).toEqual(providers)
   })
 
-  it("requires every Database Definition to support a provider", async () => {
+  it("requires every Database Definition to support a host", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/remote/config.ts", "notes", { connection: "url: 'libsql://database.example'," })
     await writeDefinition(rootDir, "server/databases/local/config.ts", "tasks", { connection: "url: 'file:local.db'," })
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
-    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
+    const runtime = plugin.api.getConfig()!
+    expect(supportsHostedDatabaseRuntime("cloudflare", runtime, {})).toBe(false)
+    expect(supportsHostedDatabaseRuntime("vercel", runtime, {})).toBe(false)
   })
 
-  it("reads provisioned D1 IDs when inspecting provider output", async () => {
+  it("reads provisioned D1 IDs for the Cloudflare hosted runtime", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "databaseName: 'database-name'," })
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
-    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
+    const runtime = plugin.api.getConfig()!
+    expect(supportsHostedDatabaseRuntime("cloudflare", runtime, readProvisionStateSync(rootDir))).toBe(false)
 
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "provisioned-database-id" } } }))
-    expect(plugin.vitehub?.inspect?.()?.providerOutput?.map(output => output.description)).toEqual(["Generated Cloudflare Database worker"])
+    expect(supportsHostedDatabaseRuntime("cloudflare", runtime, readProvisionStateSync(rootDir))).toBe(true)
   })
 
   it("merges discovered D1 bindings and migrations into Cloudflare Nitro output", async () => {
@@ -197,8 +190,47 @@ describe("hubDb", () => {
     expect(vercelNitro.options.cloudflare).toBeUndefined()
   })
 
-  it("serializes shared Provider Output finalization", () => {
-    expect(hubDb().closeBundle).toMatchObject({ order: "post", sequential: true })
+  it("merges Postgres Hyperdrive bindings into Cloudflare Nitro output", async () => {
+    const rootDir = await createTempProject()
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    await writeFile(join(rootDir, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { pgTable, text } from 'drizzle-orm/pg-core'",
+      "export default defineDatabase({",
+      "  dialect: 'postgresql',",
+      "  cloudflare: { binding: 'APP_HYPERDRIVE', hyperdriveId: 'hyperdrive-id' },",
+      "  schema: { notes: pgTable('notes', { title: text('title') }) },",
+      "})",
+      "",
+    ].join("\n"))
+    const options: { cloudflare?: { wrangler?: { d1_databases?: unknown, hyperdrive?: unknown } }, handlers?: Array<{ handler: string, middleware?: boolean, route?: string }>, output: { serverDir: string }, preset: string } = {
+      cloudflare: { wrangler: { hyperdrive: [{ binding: "APP_HYPERDRIVE", id: "stale-id" }] } },
+      output: { serverDir: join(rootDir, ".output", "server") },
+      preset: "cloudflare-module",
+    }
+    const plugin = hubDb()
+    plugin.nitro.setup({ hooks: { hook: () => {} }, options })
+
+    await resolveConfigResolved(plugin)({ root: rootDir })
+
+    expect(options.cloudflare?.wrangler?.hyperdrive).toEqual([{ binding: "APP_HYPERDRIVE", id: "hyperdrive-id" }])
+    expect(options.cloudflare?.wrangler?.d1_databases).toBeUndefined()
+    const handler = join(rootDir, ".vitehub/nitro/database/request-scope.mjs")
+    expect(options.handlers).toEqual([{ handler, middleware: true }])
+    const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next?: () => unknown) => unknown
+    const { getActiveCloudflareEnv, getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }
+    const scopes = [
+      middleware({ req: { runtime: { cloudflare: { env } } } }, () => getActiveCloudflareRequestScope()),
+      middleware({ req: { runtime: { cloudflare: { env } } } }, () => getActiveCloudflareRequestScope()),
+    ]
+    expect(scopes[0]).toBeDefined()
+    expect(scopes[0]).not.toBe(scopes[1])
+
+    const nitro2Env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/nitro2" } }
+    middleware({ req: { runtime: { cloudflare: { env: nitro2Env } } } }, undefined)
+    expect(getActiveCloudflareEnv()).toBe(nitro2Env)
+    expect(getActiveCloudflareRequestScope()).toBeDefined()
   })
 
   it("routes Vite development queries through configured Cloudflare D1 HTTP", async () => {
@@ -336,6 +368,66 @@ describe("hubDb", () => {
     }
   }, 30_000)
 
+
+  it("refreshes imported schema resources during Vite development hot updates", async () => {
+    const rootDir = await createTempProject()
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(rootDir, "node_modules"), "dir")
+    const schemaFile = join(rootDir, "server/databases/schema.ts")
+    const definition = join(rootDir, "server/databases/config.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(schemaFile, [
+      "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "export const notes = sqliteTable('notes', { title: text('title') })",
+      "",
+    ].join("\n"))
+    await writeFile(definition, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import * as tables from './schema.ts'",
+      "export default defineDatabase({ schema: { ...tables } })",
+      "",
+    ].join("\n"))
+    // The generated schema exports one binding per table for drizzle-kit. Only a refresh adds a new table there.
+    const queryFile = join(rootDir, "server/query.ts")
+    await writeFile(queryFile, [
+      `import * as generated from ${JSON.stringify(DB_VIRTUAL_SCHEMA_ID)}`,
+      "export const tables = () => Object.keys(generated).filter(key => key !== 'default' && key !== 'schema').toSorted()",
+      "",
+    ].join("\n"))
+
+    const plugin = hubDb()
+    const server = await createViteServer({
+      configFile: false,
+      plugins: [plugin],
+      root: rootDir,
+      server: { host: "127.0.0.1", port: 0, watch: null },
+    })
+    try {
+      await server.listen()
+      async function query() {
+        const module = await server.ssrLoadModule(queryFile) as { tables: () => string[] }
+        return module.tables()
+      }
+
+      await expect(query()).resolves.toEqual(["notes"])
+
+      await writeFile(schemaFile, [
+        "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+        "export const notes = sqliteTable('notes', { title: text('title') })",
+        "export const tasks = sqliteTable('tasks', { title: text('title') })",
+        "",
+      ].join("\n"))
+      const changedModule = server.moduleGraph.getModuleById(schemaFile)
+      if (!changedModule) throw new Error("Expected Vite to track the imported schema.")
+      server.moduleGraph.invalidateModule(changedModule)
+      await resolveHotUpdate(plugin)({ file: schemaFile, server })
+
+      await expect(query()).resolves.toEqual(["notes", "tasks"])
+    }
+    finally {
+      await server.close()
+    }
+  }, 30_000)
+
   it("exposes integration connection defaults to direct definitions", async () => {
     const plugin = hubDb({
       connection: {
@@ -373,10 +465,50 @@ describe("hubDb", () => {
         },
       },
     })
-    await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export const notes")
+    await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export { table_0 as notes }")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("server/databases/migrations")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("dbCredentials")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.vitehub/data/database/sqlite.db")
+  })
+
+  it("warns during config resolution but fails db generate when a Definition cannot load", async () => {
+    const rootDir = await createTempProject()
+    const definition = await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeFile(definition, `import "./missing.ts"\n${await readFile(definition, "utf8")}`)
+    const warn = vi.fn()
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ logger: { warn }, resolve: { alias: [] }, root: rootDir })
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not load to list its tables"))
+    await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export { table_0 as notes }")
+    const generate = (await resolveCliContributor(plugin))!.namespaces[0]!.features.find(feature => feature.name === "generate")!
+    await expect(generate.run([], {
+      rootDir,
+      spawn,
+      stderr: { write: vi.fn() },
+      stdout: { write: vi.fn() },
+    } as never)).rejects.toMatchObject({ code: "DATABASE_B0007" })
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it("emits prototype-named databases as own virtual registry entries", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "src/__proto__.database.ts")
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ database: undefined, root: rootDir })
+
+    // SAFETY: These are Vite hook handlers returned by hubDb.
+    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    // SAFETY: These are Vite hook handlers returned by hubDb.
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+    const code = await load((await resolveId(DB_VIRTUAL_DATABASES_ID))!)
+    const evaluable = code!.replace(/^import .+$/gm, "").replace("export const databases", "const databases").replace("export default databases", "return databases")
+    const registry = new Function("definition_0", "schema_0", "resolveRuntimeCloudflareConfig", evaluable)({ name: "__proto__", drizzle: {}, schema: {} }, { notes: "schema-marker" }, (value: unknown) => value) as Record<string, { schema: unknown }>
+
+    expect(Object.hasOwn(registry, "__proto__")).toBe(true)
+    expect(registry["__proto__"]?.schema).toEqual({ notes: "schema-marker" })
   })
 
   it("resolves discovery and generated artifacts from projectRoot", async () => {
@@ -393,7 +525,7 @@ describe("hubDb", () => {
 
     expect(plugin.api.getConfig()?.rootDir).toBe(projectRoot)
     await expect(readFile(join(projectRoot, ".vitehub/database/schema/default.ts"), "utf8"))
-      .resolves.toContain("export const notes")
+      .resolves.toContain("export { table_0 as notes }")
   })
 
   it("reads provision state from the Vite root when projectRoot is nested", async () => {
@@ -409,7 +541,6 @@ describe("hubDb", () => {
     const configResolved = resolveConfigResolved(plugin)
     await configResolved({ database: undefined, root: rootDir })
 
-    expect(plugin.vitehub?.inspect?.()?.providerOutput?.map(output => output.description)).toEqual(["Generated Cloudflare Database worker"])
     expect(plugin.api.getConfig()?.databases.default?.cloudflare?.databaseId).toBe("provisioned-database-id")
     expect(plugin.api.getConfig()?.definitionDefaults.cloudflareProjections.default).toEqual({
       binding: "DB",
@@ -425,7 +556,6 @@ describe("hubDb", () => {
     expect(unprovisioned?.databases.default?.cloudflare?.databaseId).toBeUndefined()
     expect(unprovisioned?.definitionDefaults.cloudflareProjections.default?.provisionedId).toBeUndefined()
     expect(unprovisioned?.definitionDefaults.cloudflareProjections.default?.binding).toBeUndefined()
-    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
   })
 
   it("writes one Drizzle config per named database migrations directory", async () => {
@@ -440,8 +570,10 @@ describe("hubDb", () => {
     const analyticsConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/analytics.config.ts"), "utf8")
     const primaryConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/primary.config.ts"), "utf8")
 
+    expect(analyticsConfig).toContain("import databaseDefinition from \"../../../server/databases/analytics/config.ts\"")
     expect(analyticsConfig).toContain("server/databases/analytics/migrations")
     expect(analyticsConfig).toContain("file:.vitehub/data/database/analytics.sqlite.db")
+    expect(primaryConfig).toContain("import databaseDefinition from \"../../../server/databases/primary/config.ts\"")
     expect(primaryConfig).toContain("server/databases/primary/migrations")
     expect(primaryConfig).toContain("file:.vitehub/data/database/primary.sqlite.db")
   })
@@ -527,6 +659,118 @@ describe("hubDb", () => {
     expect(drizzleConfig).toContain("url: \"libsql://database.example.turso.io\"")
     expect(drizzleConfig).toContain("authToken: \"libsql-token\"")
     expect(drizzleConfig).not.toContain("driver: \"d1-http\"")
+  })
+
+  it("applies Definition Drizzle casing to generated migrations", async () => {
+    await mkdir(join(import.meta.dirname, "../../../.vitest-tmp"), { recursive: true })
+    const rootDir = await mkdtemp(join(import.meta.dirname, "../../../.vitest-tmp/drizzle-casing-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server/databases"), { recursive: true })
+    await writeFile(join(rootDir, "server/databases/schema.ts"), [
+      "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "export const userProfiles = sqliteTable('user_profiles', {",
+      "  id: integer().primaryKey(),",
+      "  displayName: text().notNull(),",
+      "})",
+      "",
+    ].join("\n"))
+    await writeFile(join(rootDir, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { userProfiles } from './schema.ts'",
+      "export default defineDatabase({",
+      "  drizzle: { casing: 'snake_case' },",
+      "  schema: { userProfiles },",
+      "})",
+      "",
+    ].join("\n"))
+
+    await resolveConfigResolved(hubDb())({ root: rootDir })
+    await mkdir(join(rootDir, ".vitehub/data/database"), { recursive: true })
+    for (const command of ["generate", "migrate"]) {
+      await execFileAsync(process.execPath, [
+        join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+        command,
+        "--config",
+        ".vitehub/database/drizzle.config.ts",
+      ], { cwd: rootDir })
+    }
+
+    const migrationsDir = join(rootDir, "server/databases/migrations")
+    const migrationFile = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))
+    const migration = await readFile(join(migrationsDir, migrationFile!), "utf8")
+    expect(migration).toContain("`display_name` text NOT NULL")
+    expect(migration).not.toContain("displayName")
+
+    const { userProfiles } = await import(join(rootDir, "server/databases/schema.ts"))
+    const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      const db = drizzle({ casing: "snake_case", client })
+      await db.insert(userProfiles).values({ displayName: "Ada", id: 1 })
+      await expect(db.select().from(userProfiles)).resolves.toEqual([{ displayName: "Ada", id: 1 }])
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it("routes several databases to their own Drizzle configs", async () => {
+    await mkdir(join(import.meta.dirname, "../../../.vitest-tmp"), { recursive: true })
+    const rootDir = await mkdtemp(join(import.meta.dirname, "../../../.vitest-tmp/drizzle-several-databases-"))
+    tempDirs.push(rootDir)
+    // Both Databases share one casing, so only the per-Database credentials and migrations tell them apart.
+    for (const [name, casing] of [["accounts", "snake_case"], ["billing", "snake_case"]] as const) {
+      await mkdir(join(rootDir, "server/databases", name), { recursive: true })
+      await writeFile(join(rootDir, "server/databases", name, "config.ts"), [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+        `const ${name} = sqliteTable('${name}', { id: integer().primaryKey(), displayName: text().notNull() })`,
+        "export default defineDatabase({",
+        `  name: '${name}',`,
+        `  name: '${name}',`,
+        `  drizzle: { casing: '${casing}' },`,
+        `  schema: { ${name} },`,
+        "})",
+        "",
+      ].join("\n"))
+    }
+
+    await resolveConfigResolved(hubDb())({ root: rootDir })
+    const generate = (config: string) => execFileAsync(process.execPath, [
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      "generate",
+      "--config",
+      config,
+    ], { cwd: rootDir })
+
+    await expect(generate(".vitehub/database/drizzle.config.ts")).rejects.toMatchObject({
+      stderr: expect.stringContaining("more than one Database"),
+    })
+    for (const name of ["accounts", "billing"]) {
+      await generate(`.vitehub/database/drizzle/${name}.config.ts`)
+      const migrationsDir = join(rootDir, "server/databases", name, "migrations")
+      const migrationFile = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))
+      const migration = await readFile(join(migrationsDir, migrationFile!), "utf8")
+      expect(migration).toContain(`CREATE TABLE \`${name}\``)
+      expect(migration).toContain("`display_name` text NOT NULL")
+      expect(migration).not.toContain(name === "accounts" ? "`billing`" : "`accounts`")
+    }
+  })
+
+  it("uses and inspects the implicit default Database when the app has no Database Definition", async () => {
+    const rootDir = await createTempProject()
+
+    const plugin = hubDb({ connection: { url: "file:/data/database/sqlite.db" } })
+    await resolveConfigResolved(plugin)({ root: rootDir })
+
+    expect(plugin.api.getConfig()?.databases.default).toMatchObject({
+      connection: { url: "file:/data/database/sqlite.db" },
+      migrationsDir: "server/databases/migrations",
+    })
+    const inspect = plugin.vitehub?.inspect
+    const inspection = typeof inspect === "function" ? await inspect() : undefined
+    const [definition] = await inspection!.definitions![0]!.list()
+    expect(definition).toMatchObject({ name: "default", source: "implicit-default" })
+    expect(definition?.fields).toContainEqual(expect.objectContaining({ label: "Definition", value: expect.stringContaining("Implicit") }))
   })
 
   it("lets top-level config disable the database plugin", async () => {
@@ -681,7 +925,7 @@ describe("hubDb", () => {
     })
 
     expect(invalidated).toEqual([`\0${DB_VIRTUAL_SCHEMA_ID}`, `\0${DB_VIRTUAL_DATABASES_ID}`])
-    await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export const tasks")
+    await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export { table_0 as tasks }")
   })
 
   it("normalizes definition paths before matching hot updates", async () => {

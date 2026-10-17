@@ -34,8 +34,15 @@ export type ContentSourceInput =
   | ComarkContentSource
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
+const typedArrayTag = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  Symbol.toStringTag,
+)!.get!
 
-function normalizeContentSourcePath(path = ""): string {
+function normalizeContentSourcePath(path: unknown = ""): string {
+  if (typeof path !== "string") {
+    throw contentErrorDiagnostics.CONTENT_R0001({ message: "[vitehub] Content Source paths must be strings." })
+  }
   const raw = path.replace(/\\/g, "/")
   const normalized = raw.replace(/^\/+/, "").replace(/\/+$/, "")
   const parts = normalized.split("/").filter(Boolean)
@@ -53,11 +60,14 @@ function normalizeContentSourcePath(path = ""): string {
 }
 
 function contentPath(item: ContentSourceItem): string {
-  return normalizeContentSourcePath(item.path || item.key)
+  const path = "path" in item && item.path !== undefined ? item.path : item.key
+  return normalizeContentSourcePath(path)
 }
 
 function textContent(item: ContentSourceItem): string {
-  if (item.content instanceof Uint8Array) return new TextDecoder().decode(item.content)
+  // `instanceof` rejects bytes supplied by a Source running in another realm.
+  // The intrinsic tag check keeps the conversion limited to Uint8Array values.
+  if (isUint8Array(item.content)) return new TextDecoder().decode(item.content)
   if (item.content !== undefined) return item.content
   if (item.data !== undefined) {
     const serialized = JSON.stringify(item.data)
@@ -78,6 +88,10 @@ function isRuntimeFunction(value: unknown): value is Function {
 
 function isRuntimeObject(value: unknown): value is RuntimeObject {
   return value !== null && Object(value) === value && !isRuntimeFunction(value)
+}
+
+function isUint8Array(value: unknown): value is Uint8Array {
+  return typedArrayTag.call(value) === "Uint8Array"
 }
 
 function isConstructorPrototype(prototype: RuntimeObject): boolean {

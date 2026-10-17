@@ -33,9 +33,28 @@ Use Better Auth as a reference for composability and UnJS as a reference for hos
 
 ## Before and after a change
 
-Read `CONTRIBUTING.md` and the nearest package README. Trace contract changes from configuration through generated output, runtime behavior, and consumers. Check every affected host, provider, and configuration form.
+Read the nearest package README. Trace contract changes from configuration through generated output, runtime behavior, and consumers. Check every affected host, provider, and configuration form.
+
+From a clean checkout, install the Node version required by `package.json` and the Deno version in [`.deno-version`](.deno-version). Use the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation/) for Deno. Then install the workspace dependencies and check the contributor tools:
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm exec vp run preflight
+```
+
+`preflight` checks the pinned Deno version. Run it before the full verification gate so a missing or different Deno installation is clear as a setup issue.
 
 Run focused checks for the files you changed. Build the affected package and its dependencies when the change affects runtime or generated output. Do not run repository wide suites unless the task needs them.
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm exec vp run -t vite-hub#build
+corepack pnpm --dir packages/vite-hub run test
+corepack pnpm --dir packages/vite-hub exec vp test test/<file>.test.ts
+corepack pnpm exec vp run verify
+```
+
+Use the affected package name in vp targets and its directory in pnpm --dir commands. For example, use @vite-hub/agent#build as the vp target and packages/agent as the --dir path. The verify command is the full local gate and needs the Deno version in .deno-version.
 
 Report what changed, why, what you verified, and any remaining uncertainty. Keep the response in normal prose. Return JSON, HTML, or other machine formats only when the user explicitly asks for that format.
 
