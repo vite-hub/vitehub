@@ -117,7 +117,6 @@ function parseCloudflareBuckets(value: unknown): { buckets?: CloudflareR2Bucket[
   if (!Array.isArray(buckets)
     || Array.from(buckets).some((bucket, index) => !(index in buckets)
       || bucket === null
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Bucket entries come from untrusted Cloudflare JSON and must be object-checked before field access.
       || typeof bucket !== "object"
       || Array.isArray(bucket))) {
     throw blobErrorDiagnostics.BLOB_R0018({ message: "Cloudflare R2 provisioning returned an invalid bucket list." })

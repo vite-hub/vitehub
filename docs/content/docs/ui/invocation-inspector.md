@@ -44,7 +44,7 @@ The error appears in the outcome section with the Invocation status.
 
 ### Compact panel
 
-Set `:show-timeline="false"` to hide the timeline. Set `show-capabilities` to include the grouped Capability summary. Use the `actions` slot for a close button and `metadata` for your own section.
+Set `:show-timeline="false"` to hide the timeline. Set `:show-sources="false"` when a separate Workspace view already displays Sources. Set `show-capabilities` to include the grouped Capability summary. Use the `actions` slot for a close button and `metadata` for your own section.
 
 ::component-preview{name="InvocationInspectorCompactExample" reset}
 ::

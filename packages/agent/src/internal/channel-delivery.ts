@@ -25,8 +25,8 @@ interface StoredAgentChannelDelivery extends AgentChannelDelivery {
   journalStatus?: AgentChannelDeliveryStatus
 }
 
-export const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
-export const agentChannelDeliveryOwnershipVerifierKey: symbol = Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")
+const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
+const agentChannelDeliveryOwnershipVerifierKey: symbol = Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")
 export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
 
 export function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
@@ -204,6 +204,7 @@ function advanceDeliveryStatus(
     retrySignaled = false
   }
   if (event.type === "invocation.started") return { retrySignaled, status: "running" }
+  if (event.type === "superseded") return { retrySignaled, status: "completed" }
   if (event.type === "received") return { retrySignaled, status: "received" }
   if (
     event.type === "accepted" ||

@@ -102,7 +102,6 @@ function resolveCloudflareAccessConsoleAuth(root: string, config: CloudflareAcce
     teamDomain: config.teamDomain ?? env({ source: env.source("CF_ACCESS_TEAM_DOMAIN") }),
   }
   for (const [key, value] of Object.entries(values)) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A setting is either a literal string or an Env declaration.
     if (typeof value === "string") {
       if (key === "teamDomain" ? !cloudflareAccessIssuer(value) : !value.trim()) {
         throw new TypeError(`[vitehub] Cloudflare Access Console Auth ${key} must be ${key === "teamDomain" ? "an HTTPS team domain such as acme.cloudflareaccess.com" : "a non-empty Application Audience (AUD) tag"}.`)
@@ -239,14 +238,19 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "",
     ].join("\n")),
     writeFileIfChanged(middleware, [
-      'import { requireAuthAccessRoutes, toAuthRequest, withAuthorization } from "#vitehub/auth/server"',
-      'import { consoleAuthPageResponse } from "vite-hub/console/auth"',
+      'import { createAuthForRequest, requireAuthAccessRoutes, toAuthRequest, withAuthorization } from "#vitehub/auth/server"',
+      'import { consoleAuthPageResponse, readConsoleSessionUser } from "vite-hub/console/auth"',
       'import { definition, input, prepare } from "./auth-definition.mjs"',
       "const authorizeConsoleAccess = withAuthorization(input.authorize, () => undefined, definition)",
       "// Each Console data route calls this check, whatever its path. It never redirects to sign-in.",
       "export async function checkConsoleAccess(event) {",
       "  await prepare(event)",
       "  return authorizeConsoleAccess(event)",
+      "}",
+      "// The signed-in Console Auth user, for console.authorize and Connections activity.",
+      "export function readConsoleUser(event) {",
+      "  const request = toAuthRequest(event)",
+      "  return readConsoleSessionUser(createAuthForRequest(definition, request, undefined, event), request)",
       "}",
       "export default async function viteHubConsoleAuthMiddleware(event) {",
       `  const mountBase = ${JSON.stringify(mountBase)}`,
@@ -277,41 +281,16 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
 /** Module id that the generated Connections management handler imports to identify the actor. */
 export const consoleConnectionsActorId = "#vitehub/console/connections-actor"
 
-/**
- * Where the Connections manager id comes from. The installed Console access policy checks every request first.
- * `console-auth` reads the Console Auth session, `app-auth` reads the app Auth session, and `none` uses
- * `user:<mode>` for `console: true`, `host-managed`, and Cloudflare Access.
- */
-export type ConsoleConnectionsActorSource = "app-auth" | "console-auth" | "none"
-
 /** Write the Connections access policy module. It checks each management request with the Console access policy. */
-export async function writeConsoleConnectionsActor(root: string, source: ConsoleConnectionsActorSource): Promise<string> {
+export async function writeConsoleConnectionsActor(root: string, sessionActorModule?: string): Promise<string> {
   const file = resolve(root, ".vitehub/nitro/console/connections-actor.mjs")
-  const session = {
-    "app-auth": [
-      'import { getAuthForRequest } from "#vitehub/auth/server"',
-      'import { consoleSessionActor } from "vite-hub/console/auth"',
-      'import { consoleConnectionsActor } from "vite-hub/console/sections"',
-      "export default function viteHubConsoleConnectionsActor(request, event) {",
-      "  return consoleConnectionsActor(event, () => consoleSessionActor(getAuthForRequest(request, undefined, event), request))",
-      "}",
-    ],
-    "console-auth": [
-      'import { createAuthForRequest } from "#vitehub/auth/server"',
-      'import { consoleSessionActor } from "vite-hub/console/auth"',
-      'import { consoleConnectionsActor } from "vite-hub/console/sections"',
-      'import { definition } from "./auth-definition.mjs"',
-      "export default function viteHubConsoleConnectionsActor(request, event) {",
-      "  return consoleConnectionsActor(event, () => consoleSessionActor(createAuthForRequest(definition, request, undefined, event), request))",
-      "}",
-    ],
-    "none": [
-      'import { consoleConnectionsActor } from "vite-hub/console/sections"',
-      "export default function viteHubConsoleConnectionsActor(request, event) {",
-      "  return consoleConnectionsActor(event)",
-      "}",
-    ],
-  }[source]
-  await writeFileIfChanged(file, [...session, ""].join("\n"))
+  await writeFileIfChanged(file, [
+    'import { consoleConnectionsActor } from "vite-hub/console/sections"',
+    ...(sessionActorModule ? [`import { readConsoleUser } from ${JSON.stringify(pathToFileURL(sessionActorModule).href)}`] : []),
+    "export default function viteHubConsoleConnectionsActor(_request, event) {",
+    `  return consoleConnectionsActor(event${sessionActorModule ? ', async () => { const user = await readConsoleUser(event); return user ? "user:" + user.id : undefined }' : ''})`,
+    "}",
+    "",
+  ].join("\n"))
   return file
 }

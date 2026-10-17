@@ -17,7 +17,7 @@ import { createConnectionsRuntime } from "@vite-hub/connections/server"
 import { bindConsoleAccess, consoleConnectionsActor, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import { assertConsoleProductionAccess, consoleVitePlugin } from "../src/console/vite.ts"
+import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleOptions } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
@@ -41,10 +41,11 @@ async function run(policy: ConsoleAccessPolicy | undefined, request = event()) {
   return { handler, result }
 }
 
-async function rejection(result: unknown): Promise<{ message: string, status: number }> {
+async function rejection(result: unknown): Promise<{ code: string, docs: string, fix: string, message: string, status: number }> {
   if (!(result instanceof Response)) throw new TypeError("Expected a rejection Response.")
   const body: unknown = await result.json()
-  return { message: body instanceof Object && "message" in body ? String(body.message) : "", status: result.status }
+  const field = (name: string) => body instanceof Object && name in body ? String(Reflect.get(body, name)) : ""
+  return { code: field("code"), docs: field("docs"), fix: field("fix"), message: field("message"), status: result.status }
 }
 
 afterEach(() => {
@@ -69,7 +70,7 @@ describe("Console data route contract", () => {
       if (!(route instanceof Function)) throw new TypeError(`${file} must default-export a route handler.`)
       const result: unknown = await route(event())
       expect(result, `${file} must call withConsoleAccess() before it reads data`).toBeInstanceOf(Response)
-      await expect(rejection(result), file).resolves.toMatchObject({ message: expect.stringContaining("Console access is not configured"), status: 500 })
+      await expect(rejection(result), file).resolves.toMatchObject({ code: "CONSOLE_ACCESS_NOT_CONFIGURED", message: expect.stringContaining("Console access is not configured"), status: 500 })
     }
   })
 
@@ -80,6 +81,18 @@ describe("Console data route contract", () => {
 })
 
 describe("Console access policies", () => {
+  it("rejects unknown legacy access and exposure values", () => {
+    expect(() => resolveConsoleOptions({ access: "authz" })).toThrow(/console\.access/)
+    expect(() => resolveConsoleOptions({ exposure: "prod" })).toThrow(/console\.exposure/)
+  })
+
+  it("keeps legacy host-managed exposure out of app-auth validation", () => {
+    expect(resolveConsoleOptions({ exposure: "host-managed", authorize: "authorize.ts" })).toMatchObject({
+      auth: false,
+      exposure: "host-managed",
+    })
+  })
+
   it("fails closed when no policy is installed", async () => {
     const { handler, result } = await run(undefined)
     expect(handler).not.toHaveBeenCalled()
@@ -94,18 +107,18 @@ describe("Console access policies", () => {
     vi.stubEnv("NODE_ENV", "production")
     const denied = await run({ mode: "local" })
     expect(denied.handler).not.toHaveBeenCalled()
-    await expect(rejection(denied.result)).resolves.toMatchObject({ message: expect.stringContaining("development-only"), status: 403 })
+    await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", fix: expect.stringContaining("host-managed"), message: expect.stringContaining("development-only"), status: 403 })
   })
 
   it("requires the host authorize function for host-managed exposure", async () => {
     const missing = await run({ mode: "host-managed" })
     expect(missing.handler).not.toHaveBeenCalled()
-    await expect(rejection(missing.result)).resolves.toMatchObject({ message: expect.stringContaining("requires console.authorize"), status: 500 })
+    await expect(rejection(missing.result)).resolves.toMatchObject({ code: "CONSOLE_AUTHORIZE_REQUIRED", fix: expect.stringContaining("defineConsoleAuthorize()"), message: expect.stringContaining("requires console.authorize"), status: 500 })
 
     const authorize = vi.fn(({ request }: { request: Request }) => request.headers.get("x-role") === "admin")
     const denied = await run({ mode: "host-managed", authorize })
     expect(denied.handler).not.toHaveBeenCalled()
-    await expect(rejection(denied.result)).resolves.toMatchObject({ status: 403 })
+    await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", status: 403 })
 
     const allowed = await run({ mode: "host-managed", authorize }, event({ "x-role": "admin" }))
     expect(allowed.result).toEqual({ mode: "host-managed" })
@@ -123,7 +136,7 @@ describe("Console access policies", () => {
   it("checks the Auth Session and fails closed without an Auth Definition", async () => {
     const missing = await run({ mode: "auth" })
     expect(missing.handler).not.toHaveBeenCalled()
-    await expect(rejection(missing.result)).resolves.toMatchObject({ message: expect.stringContaining("Auth Definition"), status: 500 })
+    await expect(rejection(missing.result)).resolves.toMatchObject({ code: "CONSOLE_AUTH_NOT_CONFIGURED", message: expect.stringContaining("Auth Definition"), status: 500 })
 
     const unauthorized = await run({ mode: "auth", check: async () => Response.json({ error: "Unauthorized." }, { status: 401 }) })
     expect(unauthorized.handler).not.toHaveBeenCalled()
@@ -192,9 +205,19 @@ describe("Console access policies", () => {
 })
 
 describe("Console access grants", () => {
+  it("rejects a dynamic route when its section cannot be resolved", async () => {
+    installConsoleAccess({ mode: "open" })
+    const handler = vi.fn(() => "secret")
+    const route = withConsoleAccess(handler, { section: () => undefined })
+    const result = await route(event())
+    expect(result).toBeInstanceOf(Response)
+    await expect(rejection(result)).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", status: 403 })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it("rejects a forged access for an internal Console event", () => {
     const forged: ConsoleAccess = Object.freeze({ mode: "local" })
-    expect(() => bindConsoleAccess(forged, event())).toThrow("Forbidden")
+    expect(() => bindConsoleAccess(forged, event())).toThrow("not created by the access check")
   })
 
   it("does not run RPC operations with a forged access", async () => {
@@ -231,25 +254,56 @@ describe("Connections manager from Console access", () => {
 
   it.each([
     { name: "host-managed allows", policy: { mode: "host-managed", authorize: () => true }, actor: "user:host-managed" },
-    { name: "host-managed denies", policy: { mode: "host-managed", authorize: () => false }, actor: undefined },
-    { name: "host-managed without authorize", policy: { mode: "host-managed" }, actor: undefined },
-    { name: "auth with a session", policy: { mode: "auth", check: async () => undefined }, session: "user:ada", actor: "user:ada" },
-    { name: "auth without a session", policy: { mode: "auth", check: async () => undefined }, actor: undefined },
-    { name: "auth rejected by the policy", policy: { mode: "auth", check: async () => new Response(null, { status: 403 }) }, session: "user:ada", actor: undefined },
     { name: "cloudflare-access", policy: { mode: "cloudflare-access", check: async () => undefined }, actor: "user:cloudflare-access" },
     { name: "local", policy: { mode: "local" }, actor: "user:local" },
-  ] satisfies Array<{ name: string, policy: ConsoleAccessPolicy, session?: string, actor: string | undefined }>)("uses the Console policy: $name", async ({ policy, session, actor }) => {
+    { name: "auth with a session", policy: { mode: "auth", check: async () => undefined }, session: "user:ada", actor: "user:ada" },
+  ] satisfies Array<{ name: string, policy: ConsoleAccessPolicy, session?: string, actor: string }>)("names the manager from the Console policy: $name", async ({ policy, session, actor }) => {
     installConsoleAccess(policy)
     await expect(consoleConnectionsActor(connectionsEvent(), session ? async () => session : undefined)).resolves.toBe(actor)
+  })
+
+  it.each([
+    { name: "host-managed denies", policy: { mode: "host-managed", authorize: () => false }, status: 403, code: "CONSOLE_ACCESS_DENIED" },
+    { name: "host-managed without authorize", policy: { mode: "host-managed" }, status: 500, code: "CONSOLE_AUTHORIZE_REQUIRED" },
+    { name: "auth without a session user id", policy: { mode: "auth", check: async () => undefined }, status: 403, code: "CONSOLE_MANAGER_REQUIRED" },
+  ] satisfies Array<{ name: string, policy: ConsoleAccessPolicy, status: number, code: string }>)("returns the Console diagnostic when it denies the manager: $name", async ({ policy, status, code }) => {
+    installConsoleAccess(policy)
+    const result = await consoleConnectionsActor(connectionsEvent())
+    await expect(rejection(result)).resolves.toMatchObject({ code, docs: expect.stringMatching(/^https:\/\/vitehub\.dev\/docs\//), fix: expect.any(String), status })
+  })
+
+  it("passes a policy rejection through unchanged", async () => {
+    const denied = new Response("Sign in first.", { status: 401 })
+    installConsoleAccess({ mode: "auth", check: async () => denied })
+    await expect(consoleConnectionsActor(connectionsEvent(), async () => "user:ada")).resolves.toBe(denied)
+  })
+
+  it("reports section-scoped access denial separately from missing manager identity", async () => {
+    installConsoleAccess({ mode: "host-managed", authorize: () => ({ sections: ["agents"] }) })
+    await expect(rejection(await consoleConnectionsActor(connectionsEvent()))).resolves.toMatchObject({
+      code: "CONSOLE_ACCESS_DENIED",
+      status: 403,
+    })
   })
 
   it("denies the local Console policy in production and without an installed policy", async () => {
     vi.stubEnv("NODE_ENV", "production")
     installConsoleAccess({ mode: "local" })
-    await expect(consoleConnectionsActor(connectionsEvent())).resolves.toBeUndefined()
+    await expect(rejection(await consoleConnectionsActor(connectionsEvent()))).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", status: 403 })
     Reflect.deleteProperty(globalThis, policyKey)
     vi.unstubAllEnvs()
-    await expect(consoleConnectionsActor(connectionsEvent())).resolves.toBeUndefined()
+    await expect(rejection(await consoleConnectionsActor(connectionsEvent()))).resolves.toMatchObject({ code: "CONSOLE_ACCESS_NOT_CONFIGURED", status: 500 })
+  })
+
+  it("returns the Console diagnostic from the Connections route when the session has no user id", async () => {
+    installConsoleAccess({ mode: "auth", check: async () => undefined })
+    const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
+    const request = new Request("http://vitehub.local/_vitehub/connections", { body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json", origin: "http://vitehub.local" }, method: "POST" })
+    const requestEvent: ConsoleRequestEvent = { method: "POST", req: request }
+    const response = await createConnectionsHandler({ actor: () => consoleConnectionsActor(requestEvent, async () => undefined), runtime })(request, requestEvent)
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_MANAGER_REQUIRED", fix: expect.stringContaining("sign in again"), ok: false })
+    expect(runtime).not.toHaveBeenCalled()
   })
 
   it("runs Connections routes only after the host-managed authorize function", async () => {

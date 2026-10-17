@@ -41,7 +41,11 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
 /** Compatibility helpers for the legacy rail and catalog components. */
 export const getDocsRailCatalog = getDocsCatalog;
 export function getDocsSectionKind(section: DocsSection) {
-  return section.category === "Start" ? "Getting started" : "Server Primitive";
+  if (section.id === docsRootSectionId) return "Get started";
+  if (section.id === "ui") return "UI components";
+  if (section.category === "Agents") return "Agents";
+  if (section.category === "Platform") return "Platform";
+  return "Server Primitive";
 }
 
 export function getUncategorizedDocsSections(sections: DocsSection[]) {

@@ -7,7 +7,8 @@ import type {
   AgentToolExecutionContext,
   AgentToolSet,
 } from "../types.ts"
-import type { WorkspaceSession } from "@vite-hub/workspace"
+import type { WorkspaceSession, WorkspaceSessionOptions } from "@vite-hub/workspace"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface WorkspaceCommandInput {
@@ -19,7 +20,7 @@ interface WorkspaceCommandInput {
 }
 
 type WorkspaceCommandWorkspace = {
-  startSession: () => Promise<WorkspaceSession>
+  startSession: (options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>
 }
 
 export interface WorkspaceCommandEntry {
@@ -34,6 +35,7 @@ interface WorkspaceCommandToolOptions {
   missingWorkspaceMessage?: string
   toolName?: string
   context?: AgentInvocationContextStore
+  executionBudget?: ExecutionBudget
 }
 
 interface BoxCommandOptions {
@@ -43,6 +45,7 @@ interface BoxCommandOptions {
   cwd?: string
   env?: Record<string, string>
   timeout?: number
+  executionBudget?: ExecutionBudget
 }
 
 const unsafeCommand = /[\s\x00-\x1F\x7F]/
@@ -53,7 +56,7 @@ const blockedEnvKeys = new Set([
 ])
 const defaultWorkspaceCommandTimeout = 60_000
 
-export function normalizeWorkspaceCommandEntries(commands: unknown, label = "workspaceShell({ commands })"): WorkspaceCommandEntry[] {
+function normalizeWorkspaceCommandEntries(commands: unknown, label = "workspaceShell({ commands })"): WorkspaceCommandEntry[] {
   if (!Array.isArray(commands) || !commands.length) {
     throw agentDiagnostics.AGENT_R0277({ message: `[vitehub] ${label} requires at least one command.` })
   }
@@ -156,32 +159,40 @@ export async function executeWorkspaceCommand(
   context?: AgentInvocationContextStore,
 ): Promise<Awaited<ReturnType<WorkspaceSession["exec"]>>> {
   const activeExecute = context && activeAgentWorkspaceCommands(context)
+  const signal = options.executionBudget && options.abortSignal
+    ? AbortSignal.any([options.abortSignal, options.executionBudget.signal])
+    : options.executionBudget?.signal ?? options.abortSignal
+  const inputBytes = new TextEncoder().encode([command, ...args].join(" ")).byteLength
   if (activeExecute) {
+    options.executionBudget?.recordToolCall(inputBytes)
     const result = await activeExecute(command, args, {
-      abortSignal: options.abortSignal,
+      abortSignal: signal,
       cwd: options.cwd,
       env: options.env,
       timeout: options.timeout,
     })
+    options.executionBudget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
     if (options.check && result.exitCode !== 0) {
       throw Object.assign(agentDiagnostics.AGENT_R0292({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), result, { name: "BoxCommandError" })
     }
     return result
   }
   assertWorkspace(workspace, "[vitehub] Capability command execution requires an execution-capable Workspace Session.")
-  const session = await workspace.startSession()
+  const session = await workspace.startSession({ abortSignal: signal })
   if (session.executionAuthority?.processes === "none") {
     await session.close()
     throw agentDiagnostics.AGENT_R0293({ message: "[vitehub] Capability command execution requires a Workspace Session host that permits processes." })
   }
   let result
   try {
+    options.executionBudget?.recordToolCall(inputBytes)
     result = await session.exec(command, args, {
-      abortSignal: options.abortSignal,
+      abortSignal: signal,
       cwd: options.cwd ?? "/workspace",
       env: options.env,
       timeout: options.timeout,
     })
+    options.executionBudget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
     if (options.check && result.exitCode !== 0) {
       throw Object.assign(agentDiagnostics.AGENT_R0294({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), {
         command,
@@ -242,7 +253,6 @@ export function workspaceCommandTools(
       name: toolName,
       async execute(input: unknown, execution?: AgentToolExecutionContext) {
         const value = input as WorkspaceCommandInput
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input must contain a string command before command policy validation.
         if (!value || typeof value.command !== "string") throw agentDiagnostics.AGENT_R0295({ message: `[vitehub] ${toolName} requires a command.` })
         if (unrestricted) normalizeWorkspaceCommandEntries([value.command], `${toolName} command`)
         else if (!commandNames.includes(value.command)) throw agentDiagnostics.AGENT_R0296({ message: `[vitehub] Workspace command "${value.command}" is not allowed.` })
@@ -257,6 +267,7 @@ export function workspaceCommandTools(
           cwd,
           env,
           timeout: commandTimeout,
+          executionBudget: options.executionBudget,
         }, options.context)
       },
     }),

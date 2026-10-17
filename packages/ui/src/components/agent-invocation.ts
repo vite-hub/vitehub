@@ -1,6 +1,6 @@
 import { channelIcon } from "../internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "../internal/invocation-brand.ts";
-import { useMounted, useNow } from "@vueuse/core";
+import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
@@ -31,13 +31,14 @@ import { AgentMarkdown } from "./agent-markdown.ts";
 import { AgentToolList } from "./agent-tool-list.ts";
 
 function statusLabel(status: AgentInvocationView["status"]): string {
-  return {
+  const labels = {
     cancelled: "Cancelled",
     completed: "Completed",
     failed: "Failed",
     pending: "Queued",
     running: "Working",
-  }[status];
+  };
+  return Object.hasOwn(labels, status) ? labels[status] : "Unknown";
 }
 
 function compactCommand(command: string): string {
@@ -1082,10 +1083,11 @@ function statusIcon(status: AgentInvocationView["status"]) {
     pending: ["M12 8v4l3 2", "M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20"],
     running: ["M21 12a9 9 0 1 1-6.219-8.56"],
   };
+  const iconPaths = Object.hasOwn(paths, status) ? paths[status] : ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"];
   return h(
     "svg",
     { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" },
-    paths[status].map((path) =>
+    iconPaths.map((path) =>
       h("path", {
         d: path,
         "stroke-linecap": "round",
@@ -1212,7 +1214,6 @@ function renderConfiguration(
   selectTool: (name: string) => void,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
   const channelsCatalogMalformed = configuration.channels !== undefined && !Array.isArray(configuration.channels);
   const recordedChannels = Array.isArray(configuration.channels) ? configuration.channels : [];
@@ -1464,7 +1465,7 @@ export const AgentInvocation = defineComponent({
     const conversation = computed(() => buildInvocationConversation(activities.value));
     const expandedMessages = ref<ReadonlySet<string>>(new Set());
     const mounted = useMounted();
-    const now = useNow({ interval: 60_000 });
+    const now = useNow({ scheduler: (tick) => useIntervalFn(tick, 60_000) });
     const liveNow = ref<Date>();
     let liveClock: ReturnType<typeof setInterval> | undefined;
     const workOpen = ref(false);
@@ -1626,9 +1627,9 @@ export const AgentInvocationInspector = defineComponent({
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
     showCapabilities: { default: false, type: Boolean },
-    showSources: { default: true, type: Boolean },
     showTimeline: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
+    showSources: { default: true, type: Boolean },
   },
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
@@ -1805,6 +1806,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
+
             ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, props.showSources, selectTool) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(

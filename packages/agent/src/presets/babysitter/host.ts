@@ -67,16 +67,16 @@ export async function cleanupLegacyBabysitterCheckouts(dataDir: string): Promise
   return entries.length;
 }
 
-/** GitHub App settings from `env.server.github` or the GITHUB_APP_* variables. */
+/** GitHub App settings from `env.server.github` or the VITEHUB_GITHUB_* variables. */
 export async function readGitHubAppEnvironment(context: Pick<AgentCallbackContext, "cloudflare"> = {}) {
   // SAFETY: channelEnv reads only the Cloudflare bindings from its context; Node hosts have none.
   const env = await channelEnv("github", context as AgentCallbackContext);
   const appId = Number(envString(env.appId));
-  const keyPath = envString(env.appPrivateKeyPath);
-  const privateKey = normalizePrivateKey(envString(env.appPrivateKey) ?? (keyPath ? (await readFile(keyPath, "utf8")).trim() : undefined));
-  const installation = envString(env.appInstallationId);
+  const keyPath = envString(env.privateKeyPath);
+  const privateKey = normalizePrivateKey(envString(env.privateKey) ?? (keyPath ? (await readFile(keyPath, "utf8")).trim() : undefined));
+  const installation = envString(env.installationId);
   if (!Number.isSafeInteger(appId) || appId <= 0 || !privateKey) {
-    throw new Error("[vitehub] The Babysitter needs a GitHub App: set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY (or GITHUB_APP_PRIVATE_KEY_PATH).");
+    throw new Error("[vitehub] The Babysitter needs a GitHub App: set VITEHUB_GITHUB_APP_ID and VITEHUB_GITHUB_PRIVATE_KEY (or VITEHUB_GITHUB_PRIVATE_KEY_PATH).");
   }
   const app: GitHubAppEnvironment = { appId, privateKey };
   if (installation) app.installationId = Number(installation);
@@ -84,7 +84,7 @@ export async function readGitHubAppEnvironment(context: Pick<AgentCallbackContex
   const configuredInstallations = envString(env.appInstallations);
   if (configuredInstallations) {
     const mappings: unknown = JSON.parse(configuredInstallations);
-    if (!isRuntimeRecord(mappings) || Array.isArray(mappings)) throw new Error("GITHUB_APP_INSTALLATIONS must be an owner-to-installation object.");
+    if (!isRuntimeRecord(mappings) || Array.isArray(mappings)) throw new Error("VITEHUB_GITHUB_APP_INSTALLATIONS must be an owner-to-installation object.");
     app.installations = Object.fromEntries(Object.entries(mappings).map(([owner, id]) => {
       const installationId = Number(id);
       if (!Number.isSafeInteger(installationId) || installationId <= 0) throw new Error(`Invalid GitHub installation for ${owner}.`);
@@ -96,7 +96,7 @@ export async function readGitHubAppEnvironment(context: Pick<AgentCallbackContex
 }
 
 /** The repositories that the PR filter allows. The Babysitter discovers open PRs only there. */
-export function babysitterRepositories(filter: unknown): string[] {
+function babysitterRepositories(filter: unknown): string[] {
   const allow = isRuntimeRecord(filter) && isRuntimeRecord(filter.repository) ? filter.repository.allow : undefined;
   const repositories = Array.isArray(allow) ? allow.filter((value): value is string => hasRuntimeType(value, "string") && /^[\w.-]+\/[\w.-]+$/.test(value)) : [];
   if (!repositories.length) throw new Error('[vitehub] Set options.filter.repository.allow to the "owner/name" repositories that the Babysitter serves.');
@@ -126,7 +126,7 @@ export async function sweepBabysitterWorkspaces(root = tmpdir(), startedAt = per
 /** Builds the GitHub host, process host, inbox, and reconciler for one discovered Babysitter Agent. */
 export async function createBabysitterProcessHost(context: AgentProcessHostContext): Promise<AgentProcessHostInstance> {
   // SAFETY: the Babysitter preset attaches this contribution only to its own configured definitions.
-  const agent = context.agent as AgentInput & { options: { filter: unknown; concurrency: number; driver?: string; admission: BabysitterAdmissionOptions; capacity?: import("../babysitter.ts").BabysitterOptions["capacity"] } };
+  const agent = context.agent as AgentInput & { options: { filter: unknown; concurrency: number; driver?: string; admission: BabysitterAdmissionOptions; capacity?: import("../babysitter.ts").BabysitterOptions["capacity"]; placement?: import("../babysitter.ts").BabysitterPlacement } };
   const repositories = babysitterRepositories(agent.options.filter);
   await cleanupLegacyBabysitterCheckouts(context.dataDir);
   const app = await readGitHubAppEnvironment();
@@ -144,6 +144,7 @@ export async function createBabysitterProcessHost(context: AgentProcessHostConte
     // than failing the claim, while bounding how long a checkout can be held.
     capacity: {
       ...agent.options.capacity,
+      ...(agent.options.placement?.remoteActive ? { remoteActive: () => agent.options.placement?.remoteActive?.() ?? 0 } : {}),
       concurrency: agent.options.concurrency,
       queue: {
         maxPending: agent.options.concurrency,

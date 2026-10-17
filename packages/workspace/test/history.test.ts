@@ -110,6 +110,90 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(await version.readFile("image.bin", { encoding: "binary" })).toEqual(binary)
   })
 
+  it("filters history changes by file and folder path before pagination", async () => {
+    const { facade } = await setup(driver)
+    const workspace = facade()
+    const first = await workspace.history.commit({
+      ifHead: null,
+      files: {
+        "docs/guide.md": { content: "one", mediaType: "text/markdown", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const same = await workspace.history.commit({
+      ifHead: first.id,
+      files: {
+        "docs/guide.md": { content: "one", mediaType: "text/markdown", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const content = await workspace.history.commit({
+      ifHead: same.id,
+      files: {
+        "docs/guide.md": { content: "two", mediaType: "text/markdown", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const mediaType = await workspace.history.commit({
+      ifHead: content.id,
+      files: {
+        "docs/guide.md": { content: "two", mediaType: "text/custom", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const metadata = await workspace.history.commit({
+      ifHead: mediaType.id,
+      files: {
+        "docs/guide.md": { content: "two", mediaType: "text/custom", metadata: { version: 2 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const rename = await workspace.history.commit({
+      ifHead: metadata.id,
+      files: {
+        "docs/new.md": { content: "two", mediaType: "text/custom", metadata: { version: 2 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const unrelated = await workspace.history.commit({
+      ifHead: rename.id,
+      files: {
+        "docs/new.md": { content: "two", mediaType: "text/custom", metadata: { version: 2 } },
+        "docs-old/z.md": "new",
+      },
+    })
+
+    const matching: string[] = []
+    let cursor: string | undefined
+    do {
+      const page = await workspace.history.list({ path: "docs/", limit: 1, cursor })
+      matching.push(...page.revisions.map(revision => revision.id))
+      cursor = page.cursor
+    } while (cursor)
+    expect(matching).toEqual([rename.id, metadata.id, mediaType.id, content.id, first.id])
+    expect(matching).not.toContain(same.id)
+    expect(matching).not.toContain(unrelated.id)
+    expect((await workspace.history.list({ path: "docs/new.md" })).revisions.map(revision => revision.id)).toEqual([rename.id])
+    expect((await workspace.history.list({ path: "docs/guide.md" })).revisions.map(revision => revision.id)).toEqual([rename.id, metadata.id, mediaType.id, content.id, first.id])
+    expect((await workspace.history.list({ path: "docs-old" })).revisions.map(revision => revision.id)).toEqual([unrelated.id, first.id])
+    await expect(workspace.history.list({ path: "../docs" })).rejects.toMatchObject({ code: "WORKSPACE_PATH_INVALID" })
+  })
+
+  it("treats LIKE metacharacters as literal path characters", async () => {
+    const { facade } = await setup(driver)
+    const workspace = facade()
+    const first = await workspace.history.commit({
+      ifHead: null,
+      files: { "foo%/file.txt": "one", "fooA/file.txt": "one", "foo_/file.txt": "one", "foox/file.txt": "one" },
+    })
+    const second = await workspace.history.commit({
+      ifHead: first.id,
+      files: { "foo%/file.txt": "one", "fooA/file.txt": "two", "foo_/file.txt": "two", "foox/file.txt": "two" },
+    })
+    expect((await workspace.history.list({ path: "foo%" })).revisions.map(revision => revision.id)).toEqual([first.id])
+    expect((await workspace.history.list({ path: "foo_" })).revisions.map(revision => revision.id)).toEqual([second.id, first.id])
+  })
+
   it("uploads each retained digest once, counts unique bytes, and keeps workspaces isolated", async () => {
     const { store, facade, uploads, blob, database } = await setup(driver)
     const workspace = facade()

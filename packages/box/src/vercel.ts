@@ -174,18 +174,42 @@ function vercelExecutionAuthority(
 function allowsAllNetworkDestinations(
   networkPolicy: Exclude<VercelBoxNetworkPolicy, string>,
 ): boolean {
-  if (networkPolicy.subnets?.deny?.length) return false;
-  const allow = networkPolicy.allow;
-  return Array.isArray(allow) ? allow.includes("*") : Boolean(allow && Object.hasOwn(allow, "*"));
+  const subnets = ownNetworkPolicyMember(networkPolicy, "subnets");
+  if (hasOwnArrayEntries(ownNetworkPolicyMember(subnets, "deny"))) return false;
+  const allow = ownNetworkPolicyMember(networkPolicy, "allow");
+  return Array.isArray(allow) ? hasOwnArrayValue(allow, "*") : Boolean(allow && Object.hasOwn(allow, "*"));
 }
 
 function hasEffectiveNetworkPolicy(
   networkPolicy: Exclude<VercelBoxNetworkPolicy, string>,
 ): boolean {
-  const allow = networkPolicy.allow;
-  if (Array.isArray(allow) && allow.length > 0) return true;
+  const allow = ownNetworkPolicyMember(networkPolicy, "allow");
+  if (hasOwnArrayEntries(allow)) return true;
   if (allow && !Array.isArray(allow) && Object.keys(allow).length > 0) return true;
-  return Boolean(networkPolicy.subnets?.allow?.length || networkPolicy.subnets?.deny?.length);
+  const subnets = ownNetworkPolicyMember(networkPolicy, "subnets");
+  return hasOwnArrayEntries(ownNetworkPolicyMember(subnets, "allow")) || hasOwnArrayEntries(ownNetworkPolicyMember(subnets, "deny"));
+}
+
+function hasOwnArrayEntries(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  for (let index = 0; index < value.length; index++) {
+    if (Object.hasOwn(value, index)) return true;
+  }
+  return false;
+}
+
+function hasOwnArrayValue<T>(value: readonly T[], expected: T): boolean {
+  for (let index = 0; index < value.length; index++) {
+    if (Object.hasOwn(value, index) && value[index] === expected) return true;
+  }
+  return false;
+}
+
+function ownNetworkPolicyMember<T extends object, K extends keyof T>(
+  value: T | null | undefined,
+  key: K,
+): T[K] | undefined {
+  return value !== null && value !== undefined && Object.hasOwn(value, key) ? value[key] : undefined;
 }
 
 async function loadVercelSandbox() {
@@ -199,7 +223,10 @@ async function loadVercelSandbox() {
 }
 
 function isMissingFile(error: unknown) {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+  return error !== null
+    && typeof error === "object"
+    && Object.hasOwn(error, "code")
+    && Reflect.get(error, "code") === "ENOENT";
 }
 
 function createVercelSession(
