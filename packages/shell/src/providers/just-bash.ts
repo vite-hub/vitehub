@@ -81,7 +81,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           cwd,
           networkGrants,
           maxOutputLength: runOptions.maxOutputLength,
-          signal: runOptions.signal,
+          signal: runOptions.signal
         })
         if (curlResult) return curlResult
 
@@ -92,6 +92,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           cwd,
           fs: options.fs,
         })
+
         return await bash.exec(command, {
           cwd,
           env: execOptions.env,
@@ -149,6 +150,7 @@ async function runControlledCurlCommand(
     const request: ShellNetworkRequest = {
       body: parsed.body,
       method: parsed.method,
+      signal: options.signal,
       url: parsed.url,
     }
     // Keep the cancellation signal on the request without changing the

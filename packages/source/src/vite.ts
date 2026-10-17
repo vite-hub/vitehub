@@ -24,7 +24,6 @@ export { inspectCollectionDefinitions, type CollectionInspectionOptions } from "
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
 const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-registry.d.ts"
-const legacyCollectionTypesEntry = ".vitehub/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
 const contentPreviewEntry = ".vitehub/content/preview.mjs"
@@ -119,7 +118,6 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
   const fixedEntries = [
     collectionTypesEntry,
     collectionTypesPackageEntry,
-    legacyCollectionTypesEntry,
     contentRouteEntry,
     contentPreviewEntry,
   ]
@@ -151,7 +149,6 @@ async function restoreGeneratedSourceArtifacts(
   for (const entry of [
     collectionTypesEntry,
     collectionTypesPackageEntry,
-    legacyCollectionTypesEntry,
     contentRouteEntry,
     contentPreviewEntry,
   ]) {
@@ -264,7 +261,6 @@ async function writeCollectionArtifacts(
 ): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, collectionTypesEntry)
   const packageOutput = resolve(options.projectRoot, collectionTypesPackageEntry)
-  await rm(resolve(options.projectRoot, legacyCollectionTypesEntry), { force: true })
   const routesDirectory = resolve(options.projectRoot, collectionRoutesDirectory)
   if (collections.length === 0) {
     await Promise.all([

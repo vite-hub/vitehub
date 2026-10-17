@@ -1167,7 +1167,6 @@ onBeforeUnmount(() => {
           :has-more="Boolean(list.cursor.value)"
           :items="invocationItems"
           :loading="list.isLoading.value || list.isLoadingMore.value"
-          :remaining-statuses="list.remainingStatuses.value"
           group-by="recency"
           :now="nowMs"
           :selected-id="selectedInvocationId"

@@ -111,7 +111,6 @@ const items = invocations.map((invocation) => ({
 | `now`               | `number`                             |                    | Timestamp for relative times. Set it for stable server rendering. Without it, rows show no time. |
 | `groupBy`           | `'recency'`                          |                    | Groups rows under Today, Yesterday, Previous 7 days, and Older. Requires `now`. |
 | `ariaLabel`         | `string`                             | `'Agent sessions'` | Accessible name of the navigation region.                |
-| `remainingStatuses` | `readonly AgentInvocationStatus[]`   | `[]`               | Deprecated. The flat list ignores it.                    |
 
 #### Events
 

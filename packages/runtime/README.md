@@ -140,6 +140,21 @@ owner package has no H3 dependency.
 fresh empty `capabilities` and `runtimeConfig` objects when the host omits them,
 and preserves the supplied objects when the host provides them.
 
+### Invocation execution budgets
+
+`createExecutionBudget()` gives one Invocation a shared deadline, cancellation
+signal, and counters for tool calls, input bytes, output bytes, and retries.
+`child()` adds stricter limits while sharing usage with its parent. The budget
+returns a serializable `snapshot()` for inspection and throws
+`ExecutionBudgetExceededError` before a counter can exceed its limit.
+
+Agent input accepts `executionBudget` limits. The Agent runtime creates one
+Invocation-owned budget and Workspace Shell tools spend it, so separate tool
+calls cannot bypass the same limit. AI SDK model requests spend serialized prompt
+bytes on each attempt, and responses spend serialized content bytes (or content
+deltas while streaming). Provider retries and repair generations share the retry
+counter. `cancel(reason)` aborts the budget signal and clears its deadline timer.
+
 ## Understand the boundaries
 
 ### Runtime Host Context

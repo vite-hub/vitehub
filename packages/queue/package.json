@@ -100,7 +100,7 @@
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "ws": "^8.22.0",
-    "undici": "7.30.0"
+    "undici": "8.12.2"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

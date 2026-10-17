@@ -1,6 +1,6 @@
 import { isResponse } from "./internal/response.ts"
 import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
-import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { ExecutionBudgetExceededError, getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
@@ -19,12 +19,28 @@ export function agentResultKind(result: unknown): string {
   return runtimeType(result)
 }
 
+function resultPropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
+  if (!isRuntimeObject(value)) return
+  const seen = new Set<object>()
+  const maxPrototypeHops = 100
+  let owner: object | null = value
+  try {
+    for (let hop = 0; owner && hop < maxPrototypeHops && !seen.has(owner); hop++) {
+      seen.add(owner)
+      const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+      if (descriptor) return descriptor
+      owner = Object.getPrototypeOf(owner)
+    }
+  }
+  catch {
+    // Provider result proxies may reject descriptor or prototype inspection.
+  }
+}
+
 export function hasTraceableStreamResult(value: unknown): boolean {
   if (!isRecord(value)) return false
   return ["fullStream", "stream", "textStream"].some((property) => {
-    let descriptor: PropertyDescriptor | undefined
-    for (let owner: object | null = value; owner && !descriptor; owner = Object.getPrototypeOf(owner))
-      descriptor = Object.getOwnPropertyDescriptor(owner, property)
+    const descriptor = resultPropertyDescriptor(value, property)
     return descriptor !== undefined
       && ("get" in descriptor || isAsyncIterable(descriptor.value))
   })
@@ -311,9 +327,17 @@ async function resolveUsageValue(value: unknown): Promise<unknown> {
   return isPromiseLike(value) ? await value : value
 }
 
+function usageMetadataValue(result: Record<string, unknown>, key: string): unknown {
+  if (!hasTraceableStreamResult(result)) return result[key]
+  // Stream result getters can create rejecting promise projections while the provider is still running.
+  const descriptor = resultPropertyDescriptor(result, key)
+  return descriptor && "value" in descriptor ? descriptor.value : undefined
+}
+
 function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model" | "provider" | "transport"> | undefined {
   if (!isRecord(result)) return
-  const response = isRecord(result.response) ? result.response : undefined
+  const responseValue = usageMetadataValue(result, "response")
+  const response = isRecord(responseValue) ? responseValue : undefined
   const rawModel = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
   const provider = readString(result, "provider")
   if (rawModel === undefined && provider !== "gateway") return
@@ -355,10 +379,11 @@ function isDateValue(value: unknown): value is Date {
 
 function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
   if (!isRecord(result)) return
-  const response = isRecord(result.response) ? result.response : undefined
+  const responseValue = usageMetadataValue(result, "response")
+  const response = isRecord(responseValue) ? responseValue : undefined
   const id = readString(response, "id")
   const timestamp = response?.timestamp
-  const finishReason = result.finishReason
+  const finishReason = usageMetadataValue(result, "finishReason")
   if (id === undefined && timestamp === undefined) return
   return {
     ...(finishReason !== undefined ? { finishReason } : {}),
@@ -382,8 +407,10 @@ function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undef
 }
 
 function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | undefined {
-  if (!isRecord(result) || !isRecord(result.providerMetadata)) return
-  for (const metadata of Object.values(result.providerMetadata)) {
+  if (!isRecord(result)) return
+  const providerMetadata = usageMetadataValue(result, "providerMetadata")
+  if (!isRecord(providerMetadata)) return
+  for (const metadata of Object.values(providerMetadata)) {
     const cost = isRecord(metadata) && isRecord(metadata.usage) ? metadata.usage.cost : undefined
     if (hasRuntimeType(cost, "number") && Number.isFinite(cost) && cost >= 0) {
       return materializeAgentUsageCost({
@@ -787,6 +814,12 @@ function safeStreamErrorString(error: unknown): string {
 
 export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
 
+function isBudgetExhaustionEvent(event: StreamEvent): boolean {
+  // SAFETY: Stream events carry this private marker only when the runtime attached an ExecutionBudgetExceededError.
+  return event.type === "error"
+    && (event as StreamEvent & { [agentStreamErrorSymbol]?: unknown })[agentStreamErrorSymbol] instanceof ExecutionBudgetExceededError
+}
+
 async function* streamChunksToEvents(
   chunks: AsyncIterable<unknown>,
   usageSource?: unknown,
@@ -824,6 +857,7 @@ async function* streamChunksToEvents(
         usageRecord = undefined
       }
       yield event
+      if (event.type === "error" && (!event.recoverable || isBudgetExhaustionEvent(event))) return
     }
   }
   catch (error) {
@@ -860,6 +894,7 @@ async function* streamChunksToEventsWithTextFallback(
         }
       }
       yield event
+      if (event.type === "error" && (!event.recoverable || isBudgetExhaustionEvent(event))) return
     }
     if (!hasText && !observation.explicitTextPhaseSeen) {
       textIterator ??= getTextIterator()

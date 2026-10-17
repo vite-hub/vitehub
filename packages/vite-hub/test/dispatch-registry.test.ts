@@ -33,7 +33,7 @@ it.each([
     const options = {
       agent: false, auth: false, blob: false, database: false,
       env: false, kv: false, preset, queue: true, rateLimit: false,
-      realtime: false, sandbox: false, schedule: true, workflow: false, workspace: false,
+      realtime: false, sandboxTask: false, schedule: true, workflow: false, workspace: false,
     } as const
     if (framework === "nuxt") {
       const hooks: Array<(config: Record<string, unknown>) => Promise<void>> = []

@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types` and `box`, and the CLI includes the built-in `inspect` and `provision` namespaces. `box` does not load the project config, so it also runs in a deployed container without Vite.
+The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types` and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -49,7 +49,7 @@ Available namespaces:
   types       Generate ViteHub TypeScript declarations.
   inspect     Inspect discovered Definitions and generated Provider Output.
   provision   Idempotently create missing provider resources.
-  box         Serve and check an SSH Box runner. Does not load the project config.
+  sandbox         Serve and check an SSH Sandbox runner. Does not load the project config.
 ```
 
 ## Commands
@@ -84,8 +84,8 @@ Available namespaces:
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally or through the deployed Console. |
-| `vitehub box check` | Available | Box Package | Start the provider Driver through the SSH runner and report readiness. |
-| `vitehub box serve` | Available | Box Package | Serve authenticated SSH commands from this machine. |
+| `vitehub sandbox check` | Available | Sandbox Package | Start the provider Driver through the SSH runner and report readiness. |
+| `vitehub sandbox serve` | Available | Sandbox Package | Serve authenticated SSH commands from this machine. |
 | `vitehub workflow start` | Available | Workflow Package | Start a discovered Workflow in the local development runtime. |
 | `vitehub workflow get` | Available | Workflow Package | Read a Workflow run. |
 | `vitehub workflow cancel` | Available | Workflow Package | Cancel a run when the provider supports it. |
