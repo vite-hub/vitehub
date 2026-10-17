@@ -161,7 +161,14 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
             const factoryResult = Reflect.apply(factory, constructor, args)
             if (!factoryResult || typeof factoryResult !== "object"
               || objectToString.call(factoryResult) !== "[object Response]"
-              || Object.prototype.hasOwnProperty.call(factoryResult, Symbol.toStringTag)) return false
+              || Object.prototype.hasOwnProperty.call(factoryResult, Symbol.toStringTag)
+              // Independently implemented Fetch constructors materialize their
+              // response state on factory results. A caller-created factory
+              // that merely returns Object.create(proto) is not a branded
+              // Response and must not satisfy this probe.
+              || !Object.prototype.hasOwnProperty.call(factoryResult, "status")
+              || !Object.prototype.hasOwnProperty.call(factoryResult, "headers")
+              || !Object.prototype.hasOwnProperty.call(factoryResult, "body")) return false
             let factoryPrototype = Object.getPrototypeOf(factoryResult)
             while (factoryPrototype) {
               if (factoryPrototype === responsePrototype) return true
