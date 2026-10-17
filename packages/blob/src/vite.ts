@@ -190,7 +190,9 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
-    cloudflare ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
+    // Under the Nitro Cloudflare dev server, `cloudflare:workers` is unenv's `process.env` proxy, which reads
+    // `globalThis.__env__`. Storing that proxy there makes it read itself, so prefer the bindings Nitro put there.
+    cloudflare ? "  setActiveCloudflareEnv((globalThis as { __env__?: typeof vitehubEnv }).__env__ ?? vitehubEnv)" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
     "}",
     "",

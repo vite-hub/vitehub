@@ -646,7 +646,7 @@ describe("hubBlob", () => {
       expect(nitroPlugin).toContain('"driver":"cloudflare-r2"')
       expect(nitroPlugin).toContain('"bucketName":"assets"')
       expect(nitroPlugin).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
-      expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
+      expect(nitroPlugin).toContain("setActiveCloudflareEnv((globalThis as { __env__?: typeof vitehubEnv }).__env__ ?? vitehubEnv)")
       expect(nitroPlugin).not.toContain("hooks.hook('request'")
       const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
       expect(middleware).toContain("defineMiddleware((event) =>")
