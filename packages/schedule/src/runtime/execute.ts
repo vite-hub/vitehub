@@ -71,13 +71,19 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
-function isDate(value: unknown): value is Date {
+function getDateTime(value: unknown): number | undefined {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
   try {
-    return !Number.isNaN(Date.prototype.getTime.call(value))
+    const time = Reflect.apply(Date.prototype.getTime, value, [])
+    return typeof time === "number" && !Number.isNaN(time) ? time : undefined
   }
   catch {
-    return false
+    return
   }
+}
+
+function isDate(value: unknown): value is Date {
+  return getDateTime(value) !== undefined
 }
 
 function validateScheduledAt(scheduledAt: Date): Date {
@@ -86,7 +92,7 @@ function validateScheduledAt(scheduledAt: Date): Date {
       details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
     })
   }
-  return new Date(Date.prototype.getTime.call(scheduledAt))
+  return new Date(getDateTime(scheduledAt)!)
 }
 
 function toRunError(error: unknown): ScheduleRunError {

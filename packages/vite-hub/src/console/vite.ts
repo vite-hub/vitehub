@@ -125,6 +125,7 @@ export interface ConsoleVitePluginOptions {
   blobStores?: readonly string[]
   console?: ConsoleOptions
   connections?: unknown
+  runtimeCapabilityImports?: Record<string, false | string>
   /** D1 binding that stores the journal in production Cloudflare builds. */
   resolveD1Binding?: (root: string, serverDirs: string[] | undefined) => string | undefined
   databaseUrl?: string
@@ -410,6 +411,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let serverDirs: string[] | undefined
   let scheduleDiscoveryRoot: string | undefined
   let workspaceDiscoveryRoot: string | undefined
+  let resolvedPlugins: readonly unknown[] | undefined
   let fixture: string | undefined
   let cliDiscovery = false
   let invoke = false
@@ -431,8 +433,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess())
+    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -492,7 +494,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
-      if ("database" in viteConfig) {
+      if (Object.hasOwn(viteConfig, "database")) {
         sections = sections.filter(section => section !== "databases")
         if (viteConfig.database) sections = [...sections, "databases"]
       }
@@ -510,7 +512,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
-      databaseDiscoveryRoot = configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
+      databaseDiscoveryRoot = Object.hasOwn(viteConfig, "database")
+        ? configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
+        : configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
       rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? configuredProjectRoot({ projectRoot: options.rateLimitDiscoveryRoot })
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rate Limit configuration crosses Vite's open user-config boundary, so validate scan directory entries before discovery.
       rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
@@ -584,6 +588,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           consoleAuthMode,
           retention,
           consoleAccess(),
+          options.runtimeCapabilityImports,
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
@@ -612,6 +617,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       if (openAccessBuildWarning) config.logger.warn(openAccessBuildWarning)
       if (journal && "d1Binding" in journal && sections.includes("agents")) config.logger.info(consoleD1JournalMessage(journal.d1Binding))
       root = config.root
+      resolvedPlugins = config.plugins
       const previousConsoleAuthHandlers = consoleAuthHandlers
       baseURL = config.base
       if (resolvedConsoleConfiguration) {
@@ -632,10 +638,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
-      databaseDiscoveryRoot = "database" in viteConfig
+      databaseDiscoveryRoot = Object.hasOwn(viteConfig, "database")
         ? configuredProjectRoot(viteConfig.database)
         : databaseDiscoveryRoot
-      if ("database" in viteConfig) {
+      if (Object.hasOwn(viteConfig, "database")) {
         sections = sections.filter(section => section !== "databases")
         if (viteConfig.database) sections = [...sections, "databases"]
       }

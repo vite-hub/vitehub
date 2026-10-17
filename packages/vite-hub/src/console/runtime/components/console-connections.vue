@@ -221,7 +221,7 @@ export default defineConnection({
                   :aria-label="`Review ${plural(pending.get(row.original.name) ?? 0, 'pending approval')} for ${row.original.name}`"
                   size="xs"
                   variant="soft"
-                  @click="open(row.original.name, 'approvals')"
+                  @click.stop="open(row.original.name, 'approvals')"
                 /></div
             ></template>
             <template #account-cell="{ row }"
@@ -242,6 +242,7 @@ export default defineConnection({
                     size="xs"
                     trailing-icon="i-ph-arrow-up-right-light"
                     variant="outline"
+                    @click.stop
                   />
                   <UButton
                     v-else
@@ -251,7 +252,7 @@ export default defineConnection({
                     icon="i-ph-key-light"
                     size="xs"
                     variant="outline"
-                    @click="open(row.original.name, 'details', true)"
+                    @click.stop="open(row.original.name, 'details', true)"
                   />
                 </template>
                 <UIcon

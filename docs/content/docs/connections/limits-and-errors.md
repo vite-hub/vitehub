@@ -38,4 +38,6 @@ icon: i-lucide-circle-alert
 
 Management routes return `{ error: { code, message, fix, docs } }`. The connect and callback routes show the same code, fix, and docs link on their HTML page. `message` says why the request failed, `fix` says how to repair it, and `docs` links the page that explains the code.
 
+Management routes return `{ error: { code, message, fix, docs } }`. `message` says why the request failed, `fix` says how to repair it, and `docs` links the page that explains the code.
+
 When you change the provider of a Connection, the stored grant belongs to the old provider. The status becomes `needs-reconnect` with `lastError: 'CONNECTIONS_PROVIDER_CHANGED'`, and ViteHub never sends that grant to the new provider. Reconnect the Connection.

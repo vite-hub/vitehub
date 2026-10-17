@@ -617,6 +617,7 @@ describe("vitehub", () => {
       "@vite-hub/env/vite",
       "@vite-hub/auth/vite",
       "@vite-hub/sandbox/vite",
+      "vite-hub/agent-invocations",
       "@vite-hub/agent/vite",
       "@vite-hub/channels/vite",
       "@vite-hub/connections/types-cleanup",
@@ -1026,6 +1027,15 @@ describe("vitehub", () => {
     expect(aliases["vite-hub/_internal/agent/server/internal"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/internal\.js$/)
     expect(aliases["vite-hub/_internal/sandbox/runtime/state"]).toMatch(/packages\/vite-hub\/dist\/_internal\/sandbox\/runtime\/state\.js$/)
     expect(aliases["vite-hub/shell/workspace"]).toMatch(/packages\/vite-hub\/dist\/shell\/workspace\.js$/)
+  })
+
+  it("aliases non-JavaScript exports before the JavaScript entry they sit under", () => {
+    const aliases = pluginAliases(dependencyPlugin())
+    const specifiers = Object.keys(aliases)
+
+    expect(aliases["vite-hub/ui/styles.css"]).toMatch(/packages\/vite-hub\/dist\/ui\/styles\.css$/)
+    expect(aliases["vite-hub/ui"]).toMatch(/packages\/vite-hub\/dist\/ui\.js$/)
+    expect(specifiers.indexOf("vite-hub/ui/styles.css")).toBeLessThan(specifiers.indexOf("vite-hub/ui"))
   })
 
   it("passes the unused Upstash fallback only to provider bundlers", () => {
