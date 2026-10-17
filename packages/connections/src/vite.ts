@@ -299,7 +299,7 @@ function renderRegistryTypes(definitions: DiscoveredConnectionDefinition[]): str
 }
 
 function connectionMountBase(base: unknown): string {
-  const parsed = v.safeParse(v.pipe(v.string(), v.regex(/^\/(?!\/)/)), base);
+  const parsed = v.safeParse(v.pipe(v.string(), v.regex(/^\/(?!\/)[^?#]*$/)), base);
   return parsed.success ? parsed.output.replace(/\/+$/, "") : "";
 }
 
