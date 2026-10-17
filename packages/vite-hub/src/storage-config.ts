@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
-import { resolveDBViteConfig } from "@vite-hub/database/config"
+import { resolveDBViteConfig, resolveDefaultDatabase } from "@vite-hub/database/config"
 import type { BlobStoreConfig } from "@vite-hub/blob"
 import type { KVStoreConfig } from "@vite-hub/kv"
 import type { ViteHubOptions } from "./index.ts"
@@ -75,9 +75,9 @@ export function consoleD1Binding(
   const root = resolve(definitions.root, options?.projectRoot ?? ".")
   const serverDirs = options?.projectRoot !== undefined ? [resolve(root, "server")] : definitions.serverDirs
   const config = resolveDBViteConfig(options, root, { serverDirs })
-  const name = config?.databases.default ? "default" : config?.databaseNames.length === 1 ? config.databaseNames[0] : undefined
-  if (!name) return
-  return config?.databases[name]?.cloudflare?.binding
+  const target = resolveDefaultDatabase(config?.databaseNames ?? [])
+  if (target.status !== "resolved") return
+  return config?.databases[target.name]?.cloudflare?.binding
     ?? (options?.driver === "d1" ? options.binding?.trim() || "DB" : undefined)
 }
 

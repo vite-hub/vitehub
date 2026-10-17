@@ -140,6 +140,17 @@ describe("Console journal host defaults", () => {
     expect(withoutDefinition.plugin).not.toContain("cloudflare:workers")
   })
 
+  it("reads the D1 binding from the only named Database and skips ambiguous ones", async () => {
+    const named = (name: string, binding: string) => `export default defineDatabase({ name: "${name}", cloudflare: { binding: "${binding}", databaseName: "${name}" }, schema: {} })\n`
+    const only = await generatedConsolePlugin({ ...cloudflare, database: true }, "build", { "server/databases/app/config.ts": named("app", "APP_DB") })
+    expect(only.plugin).toContain('d1: { binding: "APP_DB",')
+    const ambiguous = await generatedConsolePlugin({ ...cloudflare, database: true }, "build", {
+      "server/databases/app/config.ts": named("app", "APP_DB"),
+      "server/databases/audit/config.ts": named("audit", "AUDIT_DB"),
+    })
+    expect(ambiguous.plugin).not.toContain("cloudflare:workers")
+  })
+
   it("reads the D1 binding from the Database project root", async () => {
     const { plugin } = await generatedConsolePlugin({ ...cloudflare, database: { projectRoot: "data" } }, "build", {
       "server/databases/config.ts": 'export default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n',

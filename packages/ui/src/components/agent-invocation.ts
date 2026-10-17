@@ -1212,6 +1212,7 @@ function renderConfiguration(
   showSources: boolean,
   showCapabilities: boolean,
   selectTool: (name: string) => void,
+  showSources = true,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.

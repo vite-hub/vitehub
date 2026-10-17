@@ -41,6 +41,7 @@ const docsShellUi = {
 
     <AppFooter />
   </UMain>
+  <AppFooter />
 </template>
 
 <style scoped>

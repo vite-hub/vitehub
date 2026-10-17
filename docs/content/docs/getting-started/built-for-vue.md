@@ -1,11 +1,13 @@
 ---
-title: UI for Vue and Nuxt
+title: Built for the Vue ecosystem
 description: "Use Vue components for chat, sessions, files, and Agent inspection."
-navigation.title: Why Vue?
+navigation.title: Built for the Vue ecosystem
 navigation.order: 3.5
 navigation.group: Start
 icon: i-simple-icons-vuedotjs
 ---
+
+I am Maxi, and I built ViteHub's Vue component package for Vue and Nuxt applications.
 
 `@vite-hub/ui` is ViteHub's Vue component package. It contains the chat,
 session, invocation, trace, diff, and file components used by the ViteHub

@@ -4,6 +4,8 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
+  getDocsRailCatalog,
+  getDocsSectionKind,
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
@@ -48,6 +50,21 @@ describe("docs product navigation", () => {
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
     expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
+  });
+
+  it("keeps the rail concise while retaining Platform in the catalog", () => {
+    expect(getDocsRailCatalog(docsManifest.sections).map(group => group.category))
+      .toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
+    expect(getDocsCatalog(docsManifest.sections).some(group => group.category === "Platform")).toBe(true);
+  });
+
+  it("labels product sections for the catalog consumer", () => {
+    const kind = (id: string) => getDocsSectionKind(docsManifest.sections.find(section => section.id === id)!);
+    expect(kind("kv")).toBe("Server Primitive");
+    expect(kind("agents")).toBe("Agent runtime");
+    expect(kind("ui")).toBe("UI components");
+    expect(kind("getting-started")).toBe("Getting started");
+    expect(kind("reference")).toBe("Platform");
   });
 
   it("orders every Server Primitive section by the product page template", () => {
@@ -119,7 +136,7 @@ describe("docs product navigation", () => {
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null, null, "Build", null]);
+    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
   });
 
   it("lists each topic once inside a section", () => {
@@ -153,7 +170,7 @@ describe("docs product navigation", () => {
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle)
+    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.title)
       .toBe("Runtime policy, approvals, and traces");
   });
 
