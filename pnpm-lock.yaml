@@ -111,10 +111,6 @@ catalogs:
     vite-doctor:
       specifier: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
       version: 0.0.12
-  effect:
-    effect:
-      specifier: 4.0.5
-      version: 4.0.5
   h3-v1-compat:
     h3:
       specifier: ^1.15.11
@@ -417,9 +413,6 @@ catalogs:
       specifier: ^0.8.0
       version: 0.8.0
   workflow:
-    cron-schedule:
-      specifier: ^6.0.0
-      version: 6.0.0
     openworkflow:
       specifier: ^0.11.0
       version: 0.11.0
@@ -2084,12 +2077,6 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      cron-schedule:
-        specifier: catalog:workflow
-        version: 6.0.0
-      effect:
-        specifier: catalog:effect
-        version: 4.0.5
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2

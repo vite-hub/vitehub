@@ -1427,12 +1427,14 @@ async function finalizeStagedDenoDeploymentOutput(
   const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
   const serverDir = join(outputDir, "server")
   const scheduleSource = join(options.rootDir, ".vitehub", "schedule", "deno-cron.mjs")
+  const nitroScheduleSource = join(options.rootDir, ".vitehub", "nitro", "schedule", "deno-cron.mjs")
   const applicationEntrySource = join(options.rootDir, "main.ts")
   const resolvedPackageJsonPaths = new Map<string, string>()
   const sourceAnalyses = new Map<string, ImportSourceAnalysis>()
   await recordServerRuntimePackageResolutions(runtimeServerDir, options.rootDir, resolvedPackageJsonPaths, sourceAnalyses)
   let entrypoint = "server/index.mjs"
   let hasSchedule = false
+  let nitroSchedule = false
   try {
     await access(scheduleSource)
     if (options.hasScheduleIntegration === false) {
@@ -1513,7 +1515,16 @@ async function finalizeStagedDenoDeploymentOutput(
   catch (error) {
     // SAFETY: filesystem access and cleanup failures expose Node's optional error code.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-    if (hasSchedule) {
+    try {
+      await access(nitroScheduleSource)
+      if (options.hasScheduleIntegration === false) throw Object.assign(internalErrorDiagnostics.INTERNAL_B0030({ message: "stale Deno Schedule output" }), { code: "ENOENT" })
+      hasSchedule = true
+      nitroSchedule = true
+    }
+    catch (nitroError) {
+      if ((nitroError as NodeJS.ErrnoException).code !== "ENOENT") throw nitroError
+    }
+    if (hasSchedule && !nitroSchedule) {
       throw internalErrorDiagnostics.INTERNAL_B0033({ message: 'Deno Schedule output requires a project-root "main.ts" application entrypoint.', cause: error })
     }
   }

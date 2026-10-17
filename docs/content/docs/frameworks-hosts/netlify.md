@@ -17,7 +17,7 @@ explicit remote provider or are not available on this preset.
 | --- | --- |
 | Blob | `hubBlob()` selects the `netlify-blobs` driver when the build reports Netlify hosting. Application code continues to use `vite-hub/blob`. |
 | Agent routes | `hubAgent()` writes one `vitehub-agent` function when hosted Agent Definitions exist. It mounts the conventional chat dispatcher and webhook route; route-enabled Channels select which Agents answer chat requests. `routes.discordGateway` remains explicit. |
-| Static schedules | `hubSchedule()` writes one scheduled Netlify function per discovered static Schedule Definition. |
+| Static schedules | Each Static Schedule is a Nitro task. Nitro has no Netlify scheduler, so ViteHub writes one scheduled Netlify function per Definition. The function calls the Nitro route `POST /_vitehub/schedules/run`. |
 | Local proof | The repository runs a real-project fixture through Netlify CLI in pull-request CI. |
 
 Agent function output lives under `.netlify/v1/functions`, with its generated source wrapper under `.vitehub/agent/netlify-function.mjs`. The wrapper and deployed function are Provider Output, not public application imports.
@@ -26,16 +26,10 @@ In a Nuxt app, the source wrapper follows Nuxt's build directory and is normally
 ## Configure the preset
 
 Each active package integration contributes only its owned Netlify output.
-This example adds the Schedule integration directly with
-`providerOutput: 'standalone'`, so each static Schedule Definition becomes a
-Netlify scheduled function. Install its owner package first.
-
-```bash [Terminal]
-pnpm add @vite-hub/schedule
-```
+This example enables Schedule, so each Static Schedule Definition becomes a
+Netlify scheduled function.
 
 ```ts [vite.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -46,15 +40,15 @@ export default defineConfig({
       preset: 'netlify',
       agent: true,
       blob: true,
+      schedule: true,
     }),
-    hubSchedule({ providerOutput: 'standalone' }),
     // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
     nitro() as never,
   ],
 })
 ```
 
-The `netlify` preset selects the Netlify Blobs driver and the Agent function output. Each static Schedule Definition generates a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`.
+The `netlify` preset selects the Netlify Blobs driver and the Agent function output. Each Static Schedule Definition generates a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`. The function sends `CRON_SECRET`, or a secret that each build generates, to the Nitro route. Set `CRON_SECRET` in the Netlify site environment to choose the secret.
 
 ## Generated functions
 

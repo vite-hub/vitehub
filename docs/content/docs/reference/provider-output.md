@@ -19,7 +19,6 @@ It belongs to the package that owns the primitive. Application code does not edi
 | Vercel Build Output | Vercel | Package integration using Vercel output | Writes functions, static files, routes, and function config under `.vercel/output`. |
 | Netlify function output | Netlify | Agent and Schedule Packages | Writes generated functions and static config under `.netlify/v1`. |
 | Deno Agent server output | Deno | Agent Package | Writes `.vitehub/agent/deno-server.ts` for `Deno.serve` chat and webhook routes. |
-| Deno cron output | Deno | Schedule Package | Writes `.vitehub/schedule/deno-cron.mjs` for `Deno.cron` static schedule wake output. |
 | Rate Limit manifest | Local and hosted | Rate Limit Package | Writes `.vitehub/rate-limit/manifest.json` with sorted Rate Limit IDs, resolved providers, and driver capabilities. |
 | Generated Runtime Registry | Local and hosted | Package that discovers Definitions | Maps Discovery Identity to lazy-loaded Definitions. |
 | Generated Nitro handler or plugin | Nitro-shaped hosts | Package that requires a host bridge | Registers package-owned routes or runtime hooks. |

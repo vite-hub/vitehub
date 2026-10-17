@@ -1,29 +1,25 @@
 ---
 title: Schedule hosts
-description: Understand Schedule Provider Output, the Process Runtime, development inspection, and production checks.
+description: Understand how each host runs Static Schedules, development inspection, and production checks.
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-## Provider output
+## How each host runs a Static Schedule
 
-| Mode | Output | Nuance |
-| --- | --- | --- |
-| `auto` | Selects the appropriate generated output for the active build context. | Default mode for Vite projects. |
-| `standalone` | Writes standalone provider output outside Nitro. | Use when ViteHub owns provider output directly. |
-| `nitro` | Writes Nitro Cloudflare module and plugin output. | Use when Nitro owns Cloudflare cron wiring. |
-| `false` | Disables generated provider output. | Runtime helpers still work when you wire execution yourself. |
+`vite build` registers each Static Schedule Definition as a Nitro task named `vitehub:schedule:<name>` and adds its cron to Nitro `scheduledTasks`. Nitro then wires the host scheduler.
 
-| Host | Static Schedule output |
+| Host (Nitro preset) | Who fires the Schedule |
 | --- | --- |
-| Cloudflare | Cron trigger output and Cloudflare schedule runtime entry wiring. |
-| Vercel | Vercel cron-compatible output for static schedules. |
-| Deno | `Deno.cron` output loaded by generated Deno Agent server output. |
-| Node or Docker | The Process Runtime (`runtime: { driver: 'process' }`) runs each Definition in the long-lived process. |
+| Node or Docker (`node-server`) | Nitro runs [croner](https://croner.56k.guru/) in the server process. |
+| Cloudflare (`cloudflare-module`) | Nitro adds the cron to `triggers.crons` in `.output/server/wrangler.json`. The Worker `scheduled()` handler runs the task. |
+| Vercel (`vercel`) | Nitro adds the cron to `crons` in `.vercel/output/config.json`, with the `/_vercel/cron` route. Set `CRON_SECRET` to protect the route. |
+| Netlify (`netlify`) | Nitro has no Netlify scheduler. ViteHub writes `.netlify/v1/functions/vitehub-schedule-<name>.mjs` with `config.schedule`. It calls the Nitro route `POST /_vitehub/schedules/run`. `CRON_SECRET`, or a secret that each build generates, protects the route. |
+| Deno Deploy (`deno-deploy`) | Nitro has no Deno Deploy scheduler. A ViteHub Nitro plugin calls `Deno.cron()` when the server module loads. |
 
 ::warning
-Provider Wake output requires a static five-field UTC cron string compatible with generated provider output.
+A Static Schedule needs a static five-field UTC cron string that Cloudflare, Vercel, and Netlify all accept.
 ::
 
 ## Run and inspect Schedules during development

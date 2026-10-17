@@ -61,12 +61,6 @@
       "require": "./dist/runtime/kv.js",
       "default": "./dist/runtime/kv.js"
     },
-    "./runtime/process": {
-      "types": "./dist/runtime/process.d.ts",
-      "import": "./dist/runtime/process.js",
-      "require": "./dist/runtime/process.js",
-      "default": "./dist/runtime/process.js"
-    },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
@@ -95,8 +89,6 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "cron-schedule": "catalog:workflow",
-    "effect": "catalog:effect",
     "esbuild": "catalog:tooling",
     "nostics": "catalog:runtime"
   },

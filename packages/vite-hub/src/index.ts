@@ -872,9 +872,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   // the one enabled by Connections) are provisioned and bound like explicit
   // D1 configurations.
   if (plan.preset === "cloudflare" && options.database === true) options = { ...options, database: { driver: "d1" } }
-  if (options.schedule && plan.preset === "deno") {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0086({ message: "[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration." })
-  }
   if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.preset === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0087({ message: "[vitehub] The \"deno\" preset cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the preset's Nitro runtime or compose an explicit Deno Agent deployment." })
   }
@@ -1119,10 +1116,8 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   }
   if (options.schedule) {
     plugins.push(hubSchedule({
-      ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
       importBase: `${generatedImportBase}/schedule`,
-      providerImportAliases,
       runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))
   }

@@ -2,7 +2,7 @@ import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions } from "./discovery.ts"
-import { readRuntimeDefinitionCrons } from "./internal/provider-output.ts"
+import { readRuntimeDefinitionCrons } from "./internal/cron.ts"
 
 import type { ViteHubConsoleRecord, ViteHubConsoleSectionContribution } from "@vite-hub/internal/console"
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"

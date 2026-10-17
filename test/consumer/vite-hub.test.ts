@@ -1302,11 +1302,11 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
       expect(existsSync(join(appDir, "dist", "app", "index.js"))).toBe(true)
 
-      const [authTypes, blobPlugin, envServer, scheduleRegistryTypes] = await Promise.all([
+      const [authTypes, blobPlugin, envServer, scheduleTask] = await Promise.all([
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
-        readFile(join(appDir, ".vitehub/nitro/schedule/provider-registry.d.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/nitro/schedule/task.mjs"), "utf8"),
       ])
       const generatedSources = await readGeneratedSources(join(appDir, ".vitehub"))
       const bareOwnerPackageSpecifiers = Object.entries(generatedSources).flatMap(([file, source]) =>
@@ -1322,7 +1322,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(authTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
       expect(envServer).toContain("vite-hub/env/server")
-      expect(scheduleRegistryTypes).toContain("vite-hub/_internal/schedule")
+      expect(scheduleTask).toContain("vite-hub/_internal/schedule/runtime/static")
 
       expect(existsSync(join(vercelFunctionsRoot, "__queue.func/index.mjs"))).toBe(false)
       expect(existsSync(queueCallback)).toBe(false)
@@ -1356,7 +1356,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         VITEHUB_PRESET: "vercel",
       })
       const [nativeWorkflowFile] = await readdir(join(appDir, ".vitehub/workflow/vercel-native"))
-      const [agentRoute, authTypes, blobPlugin, emailTemplate, envServer, workflowRegistry, workspacePlugin, nativeWorkflow, scheduleFunction, flowBundle, vercelConfig] = await Promise.all([
+      const [agentRoute, authTypes, blobPlugin, emailTemplate, envServer, workflowRegistry, workspacePlugin, nativeWorkflow, flowBundle, vercelConfig] = await Promise.all([
         readFile(join(appDir, ".vitehub/agent/chat-webhook-route.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
@@ -1365,7 +1365,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         readFile(join(appDir, ".vitehub/workflow/registry.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/workspace/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/workflow/vercel-native", nativeWorkflowFile), "utf8"),
-        readFile(join(appDir, ".vercel/output/functions/api/vitehub/schedules/vercel/heartbeat.func/index.mjs"), "utf8"),
         readFile(join(appDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs"), "utf8"),
         readFile(join(appDir, ".vercel/output/config.json"), "utf8"),
       ])
@@ -1392,7 +1391,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       // Nitro bundles the Workflow DevKit flow route, so the Email step resolves the generated Email definition directly.
       expect(Object.values(await readJavaScriptSources(join(appDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func"))).join("\n")).toContain("RESEND_API_KEY")
       expect(JSON.parse(vercelConfig).crons).toContainEqual({
-        path: "/api/vitehub/schedules/vercel/heartbeat",
+        path: "/_vercel/cron",
         schedule: "0 0 * * *",
       })
 

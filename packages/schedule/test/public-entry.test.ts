@@ -22,10 +22,10 @@ it("keeps build dependencies out of the published application entry", async () =
   expect(imports).not.toContain("node:path")
 })
 
-it("keeps build dependencies out of the runtime Process entry", async () => {
+it("keeps build dependencies out of the runtime entry that Nitro tasks import", async () => {
   const result = await build({
     bundle: true,
-    entryPoints: [resolve(import.meta.dirname, "../dist/runtime/process.js")],
+    entryPoints: [resolve(import.meta.dirname, "../dist/runtime/static.js")],
     format: "esm",
     metafile: true,
     packages: "external",

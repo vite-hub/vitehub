@@ -16,8 +16,7 @@ import { getVercelQueueTopicName } from "../../../packages/queue/src/integration
 import { discoverRateLimitCatalog } from "../../../packages/rate-limit/src/discovery.ts"
 import { createCloudflareRateLimitBindings } from "../../../packages/rate-limit/src/internal/cloudflare-bindings.ts"
 import { discoverScheduleDefinitions } from "../../../packages/schedule/src/discovery.ts"
-import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
-import { readDefinitionCrons } from "../../../packages/schedule/src/internal/provider-output.ts"
+import { readDefinitionCrons } from "../../../packages/schedule/src/internal/cron.ts"
 import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, defaultCloudflareSandboxMigrationTag, configureCloudflareSandbox, writeCloudflareSandboxDockerfile } from "../../../packages/sandbox-task/src/cloudflare.ts"
 import { resolveSandboxTaskProject } from "../../../packages/sandbox-task/src/project.ts"
 import { discoverServerSandboxTaskDefinitions } from "../../../packages/sandbox-task/src/discovery.ts"
@@ -48,6 +47,10 @@ import type { AgentSandboxTaskConfig } from "../../../packages/sandbox-task/src/
 import type { ResolvedWorkspaceModuleOptions } from "../../../packages/workspace/src/core/types.ts"
 import type { ResolvedWorkflowOptions } from "../../../packages/workflow/src/types.ts"
 import type { Plugin } from "vite"
+
+function getVercelSchedulePath(name: string): string {
+  return `/api/vitehub/schedules/vercel/${name.replace(/[^a-z0-9/_-]+/gi, "_")}`
+}
 
 const currentDir = dirname(fileURLToPath(import.meta.url))
 const workspaceDir = resolve(currentDir, "../../..")

@@ -213,12 +213,6 @@
       "require": "./dist/_internal/schedule/runtime/kv.js",
       "default": "./dist/_internal/schedule/runtime/kv.js"
     },
-    "./_internal/schedule/runtime/process": {
-      "types": "./dist/_internal/schedule/runtime/process.d.ts",
-      "import": "./dist/_internal/schedule/runtime/process.js",
-      "require": "./dist/_internal/schedule/runtime/process.js",
-      "default": "./dist/_internal/schedule/runtime/process.js"
-    },
     "./_internal/schedule/runtime/static": {
       "types": "./dist/_internal/schedule/runtime/static.d.ts",
       "import": "./dist/_internal/schedule/runtime/static.js",
@@ -788,12 +782,6 @@
       "import": "./dist/schedule/runtime/kv.js",
       "require": "./dist/schedule/runtime/kv.js",
       "default": "./dist/schedule/runtime/kv.js"
-    },
-    "./schedule/runtime/process": {
-      "types": "./dist/schedule/runtime/process.d.ts",
-      "import": "./dist/schedule/runtime/process.js",
-      "require": "./dist/schedule/runtime/process.js",
-      "default": "./dist/schedule/runtime/process.js"
     },
     "./shell": {
       "types": "./dist/shell.d.ts",

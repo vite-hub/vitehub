@@ -51,8 +51,6 @@ catalogs:
     drizzle-kit: ^0.31.11
     drizzle-orm: ^0.45.4
     postgres: ^3.4.9
-  effect:
-    effect: 4.0.5
   esbuild-v27:
     esbuild: ^0.27.7
   h3-v1-compat:
@@ -171,7 +169,6 @@ catalogs:
   vite-compat:
     vite: ">=8.0.0"
   workflow:
-    cron-schedule: ^6.0.0
     openworkflow: ^0.11.0
     workflow: 5.2.2
   workspace:

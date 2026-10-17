@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { executeStaticSchedule } from "../src/runtime.ts"
 import { executeStaticSchedule as executeProviderStaticSchedule } from "../src/runtime/static.ts"
-import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { getScheduleRunStore, resetScheduleRuntime } from "../src/runtime/state.ts"
 import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
 
@@ -110,79 +109,6 @@ describe("Schedule waitUntil", () => {
         status: "failed",
       }),
     ])
-  })
-
-  it("propagates process-owned work, reports rejections, and drains on close", async () => {
-    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
-    const releases: Array<() => void> = []
-    const completed: string[] = []
-    const onError = vi.fn()
-    const defer = (name: string) => new Promise<void>((resolve) => {
-      releases.push(() => {
-        completed.push(name)
-        resolve()
-      })
-    })
-    const controller = await installProcessScheduleRuntime({
-      now: () => scheduledAt,
-      onError,
-      registry: {
-        "static-report": async () => ({
-          cron: "0 9 * * *",
-          handler: async ({ waitUntil }) => {
-            waitUntil(defer("static"))
-            waitUntil(Promise.reject(new Error("deferred process failure")))
-          },
-        }),
-      },
-      scheduleRunStore: createMemoryScheduleRunStore(),
-    })
-
-    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      message: "deferred process failure",
-    })))
-    expect(releases).toHaveLength(1)
-    expect(completed).toEqual([])
-
-    let closed = false
-    const closing = controller.close().then(() => { closed = true })
-    await flushAsyncWork()
-    expect(closed).toBe(false)
-
-    for (const release of releases) release()
-    await closing
-
-    expect(completed).toEqual(["static"])
-  })
-
-  it("waits for active wakes to register deferred work before closing", async () => {
-    const scheduledAt = new Date("2026-07-11T09:00:00.000Z")
-    let releaseHandler: (() => void) | undefined
-    let releaseDeferred: (() => void) | undefined
-    const controller = await installProcessScheduleRuntime({
-      now: () => scheduledAt,
-      registry: {
-        report: async () => ({
-          cron: "0 9 * * *",
-          handler: async ({ waitUntil }) => {
-            await new Promise<void>(resolve => { releaseHandler = resolve })
-            waitUntil(new Promise<void>(resolve => { releaseDeferred = resolve }))
-          },
-        }),
-      },
-      scheduleRunStore: createMemoryScheduleRunStore(),
-    })
-
-    await vi.waitFor(() => expect(releaseHandler).toBeTypeOf("function"))
-    let closed = false
-    const closing = controller.close().then(() => { closed = true })
-    releaseHandler!()
-    await vi.waitFor(() => expect(releaseDeferred).toBeTypeOf("function"))
-    await flushAsyncWork()
-    expect(closed).toBe(false)
-    releaseDeferred!()
-    await closing
-    expect(closed).toBe(true)
   })
 })
 
