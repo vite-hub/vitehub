@@ -248,7 +248,20 @@ function transientGitHubFailure(error: unknown): boolean {
 /** `gh api <path>` without a method, fields or input is a REST read, so a retry cannot repeat a write. */
 function isRestRead(args: string[]): boolean {
   if (args[0] !== "api" || isGraphQLCommand(args)) return false
-  return !args.some(argument => /^(?:-X|--method|-f|-F|--field|--raw-field|--input)(?:=|$)/.test(argument) || /^-[XfF]./.test(argument))
+  for (let index = 1; index < args.length; index += 1) {
+    const argument = args[index]!
+    if (argument === "-X" || argument === "--method") {
+      const method = args[++index]
+      if (method?.toUpperCase() !== "GET") return false
+      continue
+    }
+    if (/^(?:-X|--method)=/i.test(argument)) {
+      if (argument.slice(argument.indexOf("=") + 1).toUpperCase() !== "GET") return false
+      continue
+    }
+    if (/^(?:-f|-F|--field|--raw-field|--input)(?:=|$)/.test(argument) || /^-[fF]./.test(argument)) return false
+  }
+  return true
 }
 
 const TRANSIENT_RETRY_DELAYS_MS = [1_000, 3_000]
