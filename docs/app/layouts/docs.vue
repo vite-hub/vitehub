@@ -63,7 +63,6 @@ const hasPanel = computed(
     overflow-x: clip;
   }
 
-  }
 
   .vh-docs-shell > .vh-docs-desktop-nav {
     display: flex;
@@ -109,19 +108,6 @@ const hasPanel = computed(
   :deep(.vh-docs-sidebars) {
     flex-direction: row;
     overflow: visible;
-    border-right: 1px solid var(--ui-border);
-  }
-}
-
-  .vh-docs-aside {
-    position: sticky;
-    top: var(--ui-header-height);
-    display: flex;
-    height: calc(100dvh - var(--ui-header-height));
-    max-height: calc(100dvh - var(--ui-header-height));
-    min-height: calc(100dvh - var(--ui-header-height));
-    flex-direction: column;
-    overflow: hidden;
     border-right: 1px solid var(--ui-border);
   }
 }
