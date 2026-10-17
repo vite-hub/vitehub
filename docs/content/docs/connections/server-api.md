@@ -35,6 +35,10 @@ A rejected request returns `403` with `CONNECTION_FORBIDDEN`. With the Console, 
 
 The OAuth callback is reached by a redirect from the provider. It completes the flow only for the browser that started it (the `state` cookie) and for the same manager. The `state` works one time only and expires after 10 minutes. A `state` from another manager returns `403`.
 
+Add `?return=/path` to the connect route to name the page to return to, for example `/_vitehub/connections/connect/google?return=/settings`. Only a same-origin path is kept. The callback shows a result page in light or dark mode. After a success, it returns to that page after two seconds and shows a **Back to Connections** link. A failure shows the error code, the fix, a docs link, and the same link, and it does not return by itself. Without `return`, a success asks the user to close the tab.
+
+The action route takes only `POST`, so a `GET` of `/_vitehub/connections` reaches the Console Connections page.
+
 ### Origin checks
 
 The `POST` action route accepts only `application/json` requests from the app origin. It compares the browser `Origin` header with the origin of the request URL that the server sees. A different origin returns `403` with `CONNECTION_ORIGIN_REJECTED`, and `details` has `expectedOrigin` and `receivedOrigin`. A request without a JSON content type returns `403` with `CONNECTION_CONTENT_TYPE_REJECTED`.

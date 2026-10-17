@@ -45,7 +45,7 @@ describe("Console section preferences", () => {
   })
 
   it("derives enabled primitive sections, including Agent-enabled Workflow", () => {
-    expect(resolveConsoleSectionIds({ agent: true, blob: true, connections: true, database: true, kv: true, queue: true, rateLimit: true, sandbox: true, schedule: true, workflow: true, workspace: true })).toEqual([
+    expect(resolveConsoleSectionIds({ agent: true, blob: true, connections: true, database: true, kv: true, queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })).toEqual([
       "connections",
       "agents",
       "usage",
@@ -53,7 +53,7 @@ describe("Console section preferences", () => {
       "databases",
       "kv",
       "rate-limits",
-      "sandboxes",
+      "sandbox-tasks",
       "workspaces",
       "workflows",
       "queues",
@@ -78,7 +78,7 @@ describe("Console section preferences", () => {
 
   it("prioritizes the last active section without losing configured sections", () => {
     expect(prioritizeConsoleSectionIds(["agents", "usage", "kv"], "kv")).toEqual(["kv", "agents", "usage"])
-    expect(prioritizeConsoleSectionIds(["agents", "usage", "blob", "databases", "kv", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"], "schedules")).toEqual([
+    expect(prioritizeConsoleSectionIds(["agents", "usage", "blob", "databases", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules"], "schedules")).toEqual([
       "schedules",
       "agents",
       "usage",
@@ -86,7 +86,7 @@ describe("Console section preferences", () => {
       "databases",
       "kv",
       "rate-limits",
-      "sandboxes",
+      "sandbox-tasks",
       "workspaces",
       "workflows",
       "queues",
@@ -134,12 +134,12 @@ describe("Console section routes", () => {
 
 describe("Console section groups", () => {
   it("groups the rail by purpose, keeps the navigation order, and puts unknown sections last", () => {
-    const ids = ["env", "connections", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules", "custom-tool"]
+    const ids = ["env", "connections", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules", "custom-tool"]
     const groups = groupConsoleSections(ids.map(id => ({ id }))).map(group => group.map(section => section.id))
     expect(groups).toEqual([
       ["agents", "usage"],
       ["blob", "databases", "kv", "workspaces"],
-      ["sandboxes", "workflows", "queues", "schedules"],
+      ["sandbox-tasks", "workflows", "queues", "schedules"],
       ["env", "connections", "email", "rate-limits"],
       ["custom-tool"],
     ])
@@ -184,7 +184,7 @@ describe("Console Go to shortcuts", () => {
       workflows: "g f",
       queues: "g q",
       schedules: "g s",
-      sandboxes: "g x",
+      "sandbox-tasks": "g x",
       env: "g e",
       connections: "g c",
       email: "g m",

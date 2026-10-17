@@ -25,8 +25,6 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0007: dynamicError,
     WORKSPACE_R0008: dynamicError,
     WORKSPACE_R0009: dynamicError,
-    WORKSPACE_R0010: dynamicError,
-    WORKSPACE_R0011: dynamicError,
     WORKSPACE_C0001: dynamicError,
     WORKSPACE_C0002: dynamicError,
     WORKSPACE_R0015: dynamicError,
@@ -87,5 +85,13 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0064: dynamicError,
     WORKSPACE_R0065: dynamicError,
     WORKSPACE_R0066: dynamicError,
+    WORKSPACE_R0010: {
+      why: ({ path }: { path: string }) => `[vitehub] Workspace Collection ${path} must be a file.`,
+      fix: "Point workspaceFile() at a JSON file, not a directory.",
+    },
+    WORKSPACE_R0011: {
+      why: ({ path }: { path: string }) => `[vitehub] Workspace Collection ${path} must contain a JSON array.`,
+      fix: "Store the Collection items as a top-level JSON array.",
+    },
   },
 })

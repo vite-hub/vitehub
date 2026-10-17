@@ -98,7 +98,6 @@ function mergeTarget(snapshot: Snapshot) {
 /** Assessment is bound to full feedback bodies and failed check evidence, never prose heuristics. */
 export function mergeReviewEvidenceKey(snapshot: Snapshot, policy: FeedbackPolicy = {}): string {
   const head = snapshot.pr?.head?.sha;
-  // doctor-disable-next-line typescript/performance/no-array-filter-map -- Evidence normalization intentionally filters before mapping to retain only current-head failures.
   const failures = [...Object.values(snapshot.checks), ...Object.values(snapshot.statuses)]
     .filter(value => !value.deleted && (value.head_sha ?? value.sha) === head
       && failing.has(String(value.conclusion ?? value.state).toLowerCase()))
@@ -132,11 +131,8 @@ export function feedbackFingerprints(snapshot: Snapshot, policy: FeedbackPolicy 
     createHash("sha256").update(JSON.stringify([target, kind, value.id, value.body, value.state])).digest("hex").slice(0, 32)));
 }
 
-export function resolveBabysitterMerge(merge: unknown, autoMerge: unknown): ResolvedBabysitterMerge {
-  if (autoMerge === true && merge !== false && merge !== "auto") {
-    throw new TypeError('[vitehub] Babysitter autoMerge is deprecated; set only merge: "auto".');
-  }
-  if (merge === false) return autoMerge === true ? { mode: "auto" } : { mode: "off" };
+export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge {
+  if (merge === false) return { mode: "off" };
   if (merge === "auto") return { mode: "auto" };
   if (merge === "direct") return { mode: "direct", method: "squash" };
   if (isRuntimeRecord(merge) && merge.strategy === "direct") {

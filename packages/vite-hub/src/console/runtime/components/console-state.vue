@@ -109,6 +109,8 @@ onBeforeUnmount(() => {
         <p v-if="problem?.fix" class="text-xs leading-5 text-default">{{ problem.fix }}</p>
       </div>
     </div>
+    <!-- Extra content for the state, such as a code example for an empty state. -->
+    <slot />
     <div
       v-if="stateActions.length || problem"
       :class="compact ? 'flex flex-wrap items-center gap-x-1 gap-y-1 ps-6' : 'flex flex-wrap items-center justify-center gap-1'"

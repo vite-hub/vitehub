@@ -12,11 +12,10 @@ Use the [Agent setup](/docs/agents/get-started) to install ViteHub and configure
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true }), nitro() as never],
+  plugins: [vitehub({ preset: 'node', agent: true })],
 })
 ```
 
@@ -65,6 +64,7 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `concurrency` | `1` | Pull requests repaired at the same time. |
 | `admission` | `{}` | Token budgets, a free-space guard and custom checks that stop model passes. See [Limit model passes](#limit-model-passes). |
 | `capacity` | Process defaults | Host admission `memory`, `cpu`, and `fallbackConcurrency` settings. |
+| `placement` | None | Runs each pass on this host or in a Sandbox on another host. See [Bound local verification](#bound-local-verification). |
 
 Use the Agent's top-level [`budget`](/docs/agents/capabilities/budget) option for a per-pass token or USD policy. Babysitter `admission` remains a host and time-window gate over retained journal usage. The two policies compose: admission can delay a new pass, while an invocation budget reports or enforces the usage of the pass that runs.
 
@@ -118,9 +118,11 @@ The health route shows the decision in `admission` and the token use, the limits
 
 Start with one concurrent repair on a shared Linux host. Use `options.capacity.memory.perInvocationBytes` for each worker's growth budget and `reserveBytes` for memory that other services need. Use `serviceReserveBytes` for the reserve inside the process or cgroup budget (1 GiB by default); the host reserve is applied only to host memory. Linux admission checks host pressure and each visible cgroup ancestor, including a delegated service parent. It uses the least remaining cgroup memory headroom and observes ancestor pressure and high events. It does not read above a namespaced cgroup mount. An unreadable known cgroup uses the configured sample fallback. Admission reserves growth headroom for active workers. Set `options.capacity.fallbackConcurrency` to zero if a failed sample must pause admission.
 
-A Babysitter Box uses the host-prepared PR checkout as its `cwd`. Configure its runtime, Home and requirements; the preset owns the working tree.
+A Babysitter Sandbox uses the host-prepared PR checkout as its `cwd`. Configure its runtime, Home and requirements; the preset owns the working tree.
 
-Admission only gates new work. Configure [Box memory limits](/docs/agents/boxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
+To add capacity beyond one host, set `options.placement`. Its `place({ repository, number })` runs before host dependency installation and returns `{ sandbox?, release }`. A pass with a `sandbox` runs there, for example in a custom SSH runtime with `network: "direct"`, and skips the host install. The Sandbox installs through its session's `refreshDependencies`. A pass without a `sandbox` runs on this host. `release()` runs once when the pass ends. Return `remoteActive()` to count remote passes toward `concurrency` without reserving local memory for them. A configured `sandbox` always takes precedence over placement.
+
+Admission only gates new work. Configure [Sandbox memory limits](/docs/agents/sandboxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
 
 ## Share the Console journal
 

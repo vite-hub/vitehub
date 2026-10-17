@@ -40,7 +40,7 @@ export async function discoverEmailTemplates(templatesRoots: string[]): Promise<
     for (const file of await listEmailTemplates(root)) {
       const name = templateName(root, file)
       const existing = templates.get(name)
-      if (existing) throw emailErrorDiagnostics.EMAIL_B0005({ message: `[vitehub] Duplicate Email template ${JSON.stringify(name)} in ${JSON.stringify(existing)} and ${JSON.stringify(file)}.` })
+      if (existing) throw emailErrorDiagnostics.EMAIL_DUPLICATE_TEMPLATE({ name, sources: [existing, file] })
       templates.set(name, file)
     }
   }
