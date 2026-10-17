@@ -1,5 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
+import { Response as UndiciResponse } from "undici"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -350,11 +351,11 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       seen.add(current)
       current = Object.getPrototypeOf(current)
     }
+    return false
   }
   catch {
     return false
   }
-  return false
 }
 
 
@@ -385,6 +386,7 @@ function isSerializableAuthorizationBody(
     if (!readerVerified) return false
     const locked = Reflect.get(body, "locked")
     return locked === false
+
   }
   catch {
     return false
@@ -528,7 +530,7 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           const releaseReader = Reflect.apply(descriptor.value, releaseStream, []) as object
           const releaseResult = Reflect.apply(probeMethods.releaseLock, releaseReader, [])
           if (releaseResult !== undefined || releaseStream.locked) return
-          foreignReaderMethods.set(descriptor.value, probeMethods)
+          foreignReaderMethods.set(constructor, probeMethods)
           return descriptor.value
         }
         return
@@ -554,7 +556,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
       const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
       if (descriptor) {
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        const expected = foreignReaderMethods.get(getReader as unknown as Function)?.[key]
+        const expected = foreignReaderMethods.get(Object.getOwnPropertyDescriptor(Object.getPrototypeOf(reader), "constructor")?.value as Function)?.[key]
         if ((expected ? descriptor.value !== expected : !isNativeReaderMethod(descriptor.value, key))
           || constructor?.name !== "ReadableStreamDefaultReader") {
           throw new Error("Malformed authorization response reader")
@@ -585,7 +587,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
       seen.add(prototype)
       const descriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
       if (descriptor) {
-        const expected = foreignReaderMethods.get(getReader as unknown as Function)?.releaseLock
+        const expected = foreignReaderMethods.get(Object.getOwnPropertyDescriptor(Object.getPrototypeOf(reader), "constructor")?.value as Function)?.releaseLock
         if (typeof descriptor.value === "function"
           && (expected ? descriptor.value === expected : isNativeReaderMethod(descriptor.value, "releaseLock"))) {
           sourceReleaseLock = descriptor.value as (this: object) => unknown
@@ -665,17 +667,26 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     let nativeProperties = false
+    let nativeBodyUnused = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
         const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
         return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
+      const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyUnused = Boolean(bodyUsedGetter && !Reflect.apply(bodyUsedGetter, candidate, []))
+        && (body === null || Boolean(lockedGetter && !Reflect.apply(lockedGetter, body, [])))
     }
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    // A foreign implementation must carry its own native Headers methods.
+    // Accepting a foreign Response prototype paired with current-realm Headers
+    // would make a user-defined Response-shaped object indistinguishable from
+    // a genuine cross-runtime response.
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
@@ -685,6 +696,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       : await getNativeAuthorizationBodyReader(body)
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
+
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
@@ -725,7 +737,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
   }
   catch {
-    return undefined
+    return
   }
 }
 

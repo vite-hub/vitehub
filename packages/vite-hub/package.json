@@ -1077,18 +1077,6 @@
       "require": "./dist/workspace/cloudflare.js",
       "default": "./dist/workspace/cloudflare.js"
     },
-    "./workspace/collections": {
-      "types": "./dist/workspace/collections.d.ts",
-      "import": "./dist/workspace/collections.js",
-      "require": "./dist/workspace/collections.js",
-      "default": "./dist/workspace/collections.js"
-    },
-    "./workspace/collections/client": {
-      "types": "./dist/workspace/collections/client.d.ts",
-      "import": "./dist/workspace/collections/client.js",
-      "require": "./dist/workspace/collections/client.js",
-      "default": "./dist/workspace/collections/client.js"
-    },
     "./workspace/loader": {
       "types": "./dist/workspace/loader.d.ts",
       "import": "./dist/workspace/loader.js",

@@ -34,10 +34,12 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   const content: Record<ConsoleSectionId, ConsoleSectionContent> = {}
   if (sections.includes("databases")) {
     content.databases = {
-      definitions: inspectDatabaseDefinitions({
+      definitions: await inspectDatabaseDefinitions({
+        plugins: options.plugins,
         projectRoot,
         rootDir: options.databaseDiscoveryRoot ?? options.discoveryRoot,
         serverDirs: options.databaseDiscoveryRoot ? undefined : serverDirs,
+        viteRoot: options.discoveryRoot,
       }),
       kind: "definition-catalog",
     }

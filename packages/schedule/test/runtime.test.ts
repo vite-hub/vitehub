@@ -729,12 +729,15 @@ describe("Schedule Run bookkeeping", () => {
     })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
     })
-    const hostileScheduledAt = { get [Symbol.toStringTag]() { throw new Error("hostile tag") } } as unknown as Date
+    const hostile = { get [Symbol.toStringTag]() { throw new Error("spoofed tag") } } as unknown as Date
+    await expect(schedules.run("schedule-1", { scheduledAt: hostile })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+    })
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
       definition: { cron: "0 9 * * *", handler: async () => {} },
       name: "report",
-      scheduledAt: hostileScheduledAt,
+      scheduledAt: hostile,
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
