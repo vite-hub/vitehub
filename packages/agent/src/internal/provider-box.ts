@@ -13,11 +13,11 @@ import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 const activeBoxes = new WeakMap<AgentInvocationContextStore, ProviderBoxSession>()
 
-export function activeProviderBox(context: AgentInvocationContextStore) {
+export function activeProviderBox(context: AgentInvocationContextStore): ProviderBoxSession | undefined {
   return activeBoxes.get(context)
 }
 
-export function setActiveProviderBox(context: AgentInvocationContextStore, session: ProviderBoxSession) {
+export function setActiveProviderBox(context: AgentInvocationContextStore, session: ProviderBoxSession): () => void {
   activeBoxes.set(context, session)
   return () => {
     if (activeBoxes.get(context) === session) activeBoxes.delete(context)

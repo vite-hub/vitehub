@@ -43,6 +43,7 @@
       "@vite-hub/env/*": ["packages/env/src/*"],
       "@vite-hub/kv": ["packages/kv/src/index.ts"],
       "@vite-hub/kv/*": ["packages/kv/src/*"],
+      "@vite-hub/presets/*": ["packages/presets/src/*"],
       "@vite-hub/queue": ["packages/queue/src/index.ts"],
       "@vite-hub/queue/*": ["packages/queue/src/*"],
       "@vite-hub/rate-limit": ["packages/rate-limit/src/index.ts"],
