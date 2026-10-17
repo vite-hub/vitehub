@@ -645,7 +645,7 @@ describe("agent output helpers", () => {
         const sameRealm = new Error("clone fallback boom")
         const sameRealmEvent = toAgentStreamEvent({ error: sameRealm, type: "error" })
         expect(sameRealmEvent).toMatchObject({ error: "clone fallback boom", type: "error" })
-        expect(Reflect.get(sameRealmEvent!, agentStreamErrorSymbol)).toBe(sameRealm)
+        expect(Object.getOwnPropertySymbols(sameRealmEvent!)).not.toContain(agentStreamErrorSymbol)
 
         const forgedCloneFailure = Object.create(Error.prototype)
         Object.defineProperties(forgedCloneFailure, {
@@ -654,6 +654,16 @@ describe("agent output helpers", () => {
         })
         const forgedCloneFailureEvent = toAgentStreamEvent({ error: forgedCloneFailure, type: "error" })
         expect(Object.getOwnPropertySymbols(forgedCloneFailureEvent!)).not.toContain(agentStreamErrorSymbol)
+
+        const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
+        const copiedGetter = Object.create(Error.prototype)
+        Object.defineProperties(copiedGetter, {
+          message: { value: "forged copied getter" },
+          stack: { get: nativeStackGetter, configurable: true },
+          uncloneable: { value: () => undefined },
+        })
+        const copiedGetterEvent = toAgentStreamEvent({ error: copiedGetter, type: "error" })
+        expect(Object.getOwnPropertySymbols(copiedGetterEvent!)).not.toContain(agentStreamErrorSymbol)
       }
       finally {
         Object.defineProperty(globalThis, "structuredClone", { value: nativeStructuredClone, configurable: true })
