@@ -3,7 +3,7 @@ import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
-import { CollectionCursorError, defineCollection } from "../src/index.ts"
+import { array, CollectionCursorError, defineCollection } from "../src/index.ts"
 
 interface Row {
   createdAt: number
@@ -138,6 +138,13 @@ describe("Collections", () => {
     })
   })
 
+  it("accepts source loaders created in another realm", async () => {
+    const load = runInNewContext("() => [{ id: 'one' }]") as () => readonly { id: string }[]
+    const collection = defineCollection({ source: array(load) })
+
+    await expect(collection.page({ query: {} })).resolves.toMatchObject({ items: [{ id: "one" }] })
+  })
+
   it("derives the continuation cursor before a transform mutates its source item", async () => {
     const load = vi.fn(async ({ cursor }: { cursor?: number }) =>
       cursor === undefined
@@ -174,6 +181,13 @@ describe("Collections", () => {
     // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
     expect(() => defineCollection(async () => [{ id: 1 }], { ...options, authorize: "yes" as never }))
       .toThrow("Collection authorize must be true or a function.")
+  })
+
+  it("accepts authorize callbacks created in another realm", () => {
+    const authorize = runInNewContext("({ user }) => user.id === 'u1'") as (input: unknown) => boolean
+    const options = { cursor: (item: { id: number }) => item.id, cursorSchema: v.number() }
+
+    expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize }).authorize).toBe(authorize)
   })
 
   it("rejects malformed cursors and invalid definition limits", async () => {

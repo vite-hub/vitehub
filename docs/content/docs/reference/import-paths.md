@@ -40,8 +40,8 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
 | `vite-hub/agent/server/github-inbox` | Durable GitHub pull request inbox storage, webhook ingestion, hydration, claims, and [explicit waits](/docs/reference/github-inbox-waits). |
 | `vite-hub/agent/invocations/d1` | Cloudflare D1 Agent Invocation Journal and explicit schema statements. |
+| `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
-| `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a discovered ViteHub Database. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/agent/runtime/process` | Adaptive process-local Agent capacity for self-hosted Node applications. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
@@ -61,7 +61,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |
-| `vite-hub/blob` | Blob Runtime Helpers and Blob Store access. |
+| `vite-hub/blob` | Blob Runtime Helpers, Blob Store access, and the `image()` and `file()` Blob reference schemas. |
 | `vite-hub/blob/client` | Framework-neutral browser upload helpers: `uploadFiles()` and `createMultipartUploader()`. |
 | `vite-hub/blob/content-type` | Detect common image and PDF signatures from leading bytes before upload. |
 | `vite-hub/blob/vue` | Vue upload composables: `useUpload()` and `useMultipartUpload()`. |
@@ -89,7 +89,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
-| `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing with canonical [Realtime checkpoints](/docs/realtime). |
+| `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter with request bindings and tracked background work. |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
@@ -107,6 +107,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/source/mcp` | MCP Resources implementation with its private SDK closure. |
 | `vite-hub/source/vite` | Source discovery, generated artifacts, and Nitro route integration for custom Vite plugin composition. |
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | AI interface components, headless message scrolling, and default styles. |
+| `vite-hub/ui/attachment`, `vite-hub/ui/bubble`, `vite-hub/ui/marker`, `vite-hub/ui/message`, and `vite-hub/ui/trace` | Focused imports for shadcn/ui Agent interface parts. |
 | `vite-hub/ui/agent-chat`, `vite-hub/ui/agent-chat-message`, `vite-hub/ui/agent-chat-prompt`, `vite-hub/ui/agent-message-parts` | Focused imports for chat components. |
 | `vite-hub/ui/agent-invocation`, `vite-hub/ui/agent-invocation-inspector`, `vite-hub/ui/agent-invocation-list`, `vite-hub/ui/agent-invocation-timeline` | Focused imports for agent Invocation components. |
 | `vite-hub/ui/agent-capability-inspector`, `vite-hub/ui/agent-tool-list`, `vite-hub/ui/agent-trace` | Focused imports for capability and trace inspection components. |
@@ -150,7 +151,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/vue` | Agent Package | Vue Agent client handle and AI SDK chat composable. |
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
 | `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
-| `@vite-hub/blob` | Blob Package | Blob Runtime Helpers and Blob Store access. |
+| `@vite-hub/blob` | Blob Package | Blob Runtime Helpers, Blob Store access, and Blob reference schemas. |
 | `@vite-hub/blob/client` | Blob Package | Framework-neutral browser upload helpers. |
 | `@vite-hub/blob/content-type` | Blob Package | Detect common image and PDF signatures from leading bytes before upload. |
 | `@vite-hub/blob/vue` | Blob Package | Vue upload composables. |

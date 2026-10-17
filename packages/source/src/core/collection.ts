@@ -419,7 +419,10 @@ export function defineCollection<
   const cursorDefinition = "cursorSchema" in definition ? definition : undefined
   const cursorCodec = cursorDefinition ? createCollectionCursorCodec(cursorDefinition.cursorSchema) : undefined
   const authorize = definition.authorize
-  if (authorize !== undefined && authorize !== true && !(authorize instanceof Function)) {
+  // Cross-realm functions do not pass an `instanceof Function` check.
+  // `typeof` accepts callbacks created by another JavaScript realm while
+  // still rejecting non-callable values at runtime.
+  if (authorize !== undefined && authorize !== true && typeof authorize !== "function") {
     throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true or a function." })
   }
 

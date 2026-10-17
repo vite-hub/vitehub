@@ -43,7 +43,7 @@ import { isAgentInvocationCancellationError } from "../internal/invocation-cance
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
-import { attachmentStringBytes, isAttachmentData } from "../messages.ts"
+import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentData, isBlobValue, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -61,6 +61,7 @@ import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDir
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl, withAgentChatApprovalGrant } from "../internal/chat-approvals.ts"
 import { agentChatInvocationIdHeader } from "../internal/routes.ts"
+import { interruptedChatRetrySuffix, isChatReplyTargetId } from "../internal/chat-reply.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
@@ -860,27 +861,31 @@ function logChannelListener(event: string, provider: string, listenerId: string,
 }
 
 function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker): Thread {
+  const observe = async <T>(send: () => Promise<T>): Promise<T> => {
+    await recordChannelDeliveryEvidence(delivery, { type: "outbound.started" })
+    try {
+      const message = await send()
+      await recordChannelDeliveryEvidence(delivery, {
+        // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
+        messageId: agentChannelDeliverySourceValue((message as { id?: unknown }).id),
+        type: "outbound.completed",
+      })
+      return message
+    } catch (error) {
+      await recordChannelDeliveryEvidence(delivery, {
+        error: channelDeliveryError(error),
+        type: "outbound.failed",
+      })
+      throw error
+    }
+  }
   return new Proxy(thread, {
     get(target, property) {
       if (property === "post") {
-        return async (...args: Parameters<Thread["post"]>) => {
-          await recordChannelDeliveryEvidence(delivery, { type: "outbound.started" })
-          try {
-            const message = await target.post(...args)
-            await recordChannelDeliveryEvidence(delivery, {
-              // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
-              messageId: agentChannelDeliverySourceValue((message as { id?: unknown }).id),
-              type: "outbound.completed",
-            })
-            return message
-          } catch (error) {
-            await recordChannelDeliveryEvidence(delivery, {
-              error: channelDeliveryError(error),
-              type: "outbound.failed",
-            })
-            throw error
-          }
-        }
+        return async (...args: Parameters<Thread["post"]>) => await observe(() => target.post(...args))
+      }
+      if (property === "reply") {
+        return async (...args: Parameters<Thread["reply"]>) => await observe(() => target.reply(...args))
       }
       const value = Reflect.get(target, property, target)
       return isRuntimeFunction(value) ? value.bind(target) : value
@@ -4140,11 +4145,15 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
   const identity: ChatConfig["identity"] =
     options?.identity ?? (options?.transcripts ? ({ author }) => (author.isBot === true ? null : `${adapterName}:${author.userId}`) : undefined)
   const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial" | "steer">(options, "concurrency")
+  const debounceMs = chatSdkOption<number>(options, "debounceMs")
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   return objectWithoutUndefined({
     adapters: { [adapterName]: adapter },
     // Steering must reach the running provider instead of waiting in Chat SDK's queue.
-    concurrency: concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
+    // With debounceMs, a burst of messages first starts one handler with the earlier messages as skipped context.
+    concurrency: concurrency === "steer" && isRuntimeNumber(debounceMs) && Number.isFinite(debounceMs) && debounceMs >= 0
+      ? { debounceMs, strategy: "burst" }
+      : concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
     identity,
@@ -4198,43 +4207,8 @@ interface ChatMessagePartOptions {
   rejectOversizedTextAttachments?: boolean
 }
 
-function isChatArrayBuffer(value: unknown): value is ArrayBuffer {
-  try {
-    const getter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
-    if (!getter) return false
-    getter.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-function isChatUint8Array(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value)) return false
-  try {
-    const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
-    return getter?.call(value) === "Uint8Array"
-  }
-  catch {
-    return false
-  }
-}
-
-function isChatBlob(value: unknown): value is Blob {
-  try {
-    const getter = Object.getOwnPropertyDescriptor(Blob.prototype, "size")?.get
-    if (!getter) return false
-    getter.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
 function imageAttachmentMediaType(attachment: Attachment): string | undefined {
-  if (isChatBlob(attachment.data) && attachment.data.type.startsWith("image/")) return attachment.data.type
+  if (isBlobValue(attachment.data) && blobType(attachment.data).startsWith("image/")) return blobType(attachment.data)
   for (const path of [attachment.name, attachment.url]) {
     const extension = path?.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase()
     if (extension && imageAttachmentMimeTypes[extension]) return imageAttachmentMimeTypes[extension]
@@ -4252,7 +4226,7 @@ function isTextAttachment(attachment: Attachment): boolean {
 }
 
 function checkedTextAttachmentBytes(value: unknown, options: ChatMessagePartOptions = {}): Uint8Array | undefined {
-  const bytes = isChatArrayBuffer(value) ? new Uint8Array(value) : isChatUint8Array(value) ? value : undefined
+  const bytes = isArrayBufferValue(value) ? new Uint8Array(value) : isUint8ArrayValue(value) ? value : undefined
   if (!bytes) return
   if (bytes.byteLength > chatTextAttachmentMaxBytes) {
     if (!options.rejectOversizedTextAttachments) return
@@ -4272,14 +4246,15 @@ async function textAttachmentBytes(attachment: Attachment, options: ChatMessageP
   }
   if (isRuntimeFunction(attachment.fetchData)) {
     try {
-      return checkedTextAttachmentBytes(await attachment.fetchData(), options)
+      const data = await attachment.fetchData()
+      return checkedTextAttachmentBytes(isBlobValue(data) ? await blobArrayBuffer(data) : data, options)
     } catch (error) {
       if (isTextAttachmentOversizeError(error)) throw error
       return undefined
     }
   }
-  if (isChatBlob(attachment.data)) {
-    return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
+  if (isBlobValue(attachment.data)) {
+    return checkedTextAttachmentBytes(await blobArrayBuffer(attachment.data), options)
   }
   return checkedTextAttachmentBytes(attachment.data, options)
 }
@@ -4542,7 +4517,7 @@ async function chatTriggerMessages(
     includeReplyAttachmentInput: true,
     rejectOversizedTextAttachments: true,
   })
-  const queued = options?.concurrency === "queue"
+  const queued = options?.concurrency === "queue" || options?.concurrency === "steer"
     ? await Promise.all((messageContext?.skipped ?? []).map(item => chatSdkMessageToUiMessage(item, undefined, {
         includeReplyAttachmentInput: true,
         rejectOversizedTextAttachments: true,
@@ -4727,6 +4702,20 @@ function chatMessageDeliveryArtifacts(message: AgentChatMessage): readonly Publi
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
 }
 
+// Chat SDK keeps the triggering message only on the handler's ThreadImpl. Read it by shape, because an adapter can load another copy of `chat`.
+function chatReplyTargetId(thread: Thread): string | undefined {
+  if (!thread.adapter.reply) return undefined
+  const target: unknown = Reflect.get(thread, "_currentMessage")
+  if (!isRecord(target) || target.threadId !== thread.id || (isRecord(target.author) && (target.author.isMe === true || target.author.isBot === true))) return undefined
+  return isChatReplyTargetId(target.id) ? target.id : undefined
+}
+
+/** Answers the triggering message as a native reply when the adapter supports it. */
+async function postChatReply(thread: Thread, message: AdapterPostableMessage): Promise<unknown> {
+  const targetId = chatReplyTargetId(thread)
+  return targetId ? await thread.reply(targetId, message) : await thread.post(message)
+}
+
 async function postChatMessage(thread: Thread, message: AgentChatMessage, abortSignal?: AbortSignal): Promise<void> {
   message = formatChannelCitationMessage(message)
   if (isAsyncIterable(message)) {
@@ -4745,7 +4734,7 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
   }
   if (!isRuntimeObject(message) || message === null) {
     if (await postDiscordSplitContent(thread, message, abortSignal)) return
-    await removeAbortedChatDelivery(await thread.post(message), abortSignal)
+    await removeAbortedChatDelivery(await postChatReply(thread, message), abortSignal)
     return
   }
 
@@ -4754,12 +4743,12 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     const postable = isTextChatMessage(message) ? message.text : (message as AdapterPostableMessage)
     if (await postDiscordSplitContent(thread, postable, abortSignal)) return
-    await removeAbortedChatDelivery(await thread.post(postable), abortSignal)
+    await removeAbortedChatDelivery(await postChatReply(thread, postable), abortSignal)
     return
   }
 
   if (isTextChatMessage(message)) {
-    await removeAbortedChatDelivery(await thread.post({ attachments, raw: message.text }), abortSignal)
+    await removeAbortedChatDelivery(await postChatReply(thread, { attachments, raw: message.text }), abortSignal)
     return
   }
 
@@ -4771,7 +4760,7 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
   }
   await removeAbortedChatDelivery(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    await thread.post({
+    await postChatReply(thread, {
       ...postable,
       // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
       attachments: [...(Array.isArray(postable.attachments) ? (postable.attachments as Attachment[]) : []), ...attachments],
@@ -5444,7 +5433,6 @@ export interface DrainInlineChatInvocationsResult {
 }
 
 const inlineChatInvocations = new Set<InlineChatInvocation>()
-const interruptedChatRetrySuffix = "#vitehub-retry"
 const interruptedChatRetryNote = "[Retry after interruption] A server restart interrupted the previous attempt at this request. Before creating branches, commits, pull requests, comments, or messages, check whether the previous attempt already did it and reuse its results."
 
 function hostRestartedError(retry: "pending" | "exhausted"): ViteHubError<"HOST_RESTARTED", { retry: "pending" | "exhausted" }> {
@@ -6601,7 +6589,7 @@ async function handleChatSdkMessage(
             await deliverPrimaryChatReply(chatFinish, async () => {
               invocationDeadlineAbort?.signal.throwIfAborted()
               if (!(await postDiscordSplitContent(thread, { markdown: text }, invocationDeadlineAbort?.signal))) {
-                const sent = await thread.post({ markdown: text })
+                const sent = await postChatReply(thread, { markdown: text })
                 if (invocationDeadlineAbort?.signal.aborted) {
                   await deleteManualDeliveryPlaceholder(sent)
                   invocationDeadlineAbort.signal.throwIfAborted()
@@ -7058,19 +7046,6 @@ function historyBytesToBase64(data: Uint8Array): string {
 const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
 const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
 
-function isChannelHistoryBlob(value: unknown): { size: number, arrayBuffer: () => Promise<ArrayBuffer> } | undefined {
-  if (!isRuntimeObject(value)) return
-  try {
-    const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(value)
-    if (!isRuntimeNumber(size) || !Number.isSafeInteger(size) || size < 0) return
-    const arrayBuffer = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer")!.value
-    if (!isRuntimeFunction(arrayBuffer)) return
-    return { size, arrayBuffer: () => arrayBuffer.call(value) }
-  } catch {
-    return
-  }
-}
-
 function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
   let bytes: Uint8Array
   const prototype = Object.getPrototypeOf(Uint8Array.prototype)
@@ -7186,12 +7161,13 @@ async function channelHistoryAttachment(
   }
   const maxBytes = Math.min(channelHistoryAttachmentMaxBytes, budget.remaining)
   let data: unknown = isRuntimeNumber(resolved.size) && resolved.size > maxBytes ? undefined : resolved.data
-  const blob = isChannelHistoryBlob(data)
-  if (blob) {
-    if (blob.size <= maxBytes) {
+  if (isBlobValue(data)) {
+    if (blobSize(data) <= maxBytes) {
       try {
-        // SAFETY: Blob.arrayBuffer() is the native method applied to a branded Blob, so it resolves to an ArrayBuffer.
-        data = new Uint8Array(await boundedChannelHistoryOperation(blob.arrayBuffer, signal) as ArrayBuffer)
+        const blob = data
+        const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal)
+        // SAFETY: blobArrayBuffer always resolves to an ArrayBuffer; the bounded wrapper preserves that result.
+        data = new Uint8Array(buffer as ArrayBuffer)
       } catch {
         data = undefined
       }
@@ -7202,6 +7178,16 @@ async function channelHistoryAttachment(
     try {
       data = await boundedChannelHistoryOperation(() => resolved.fetchData!(), signal)
     } catch {}
+  }
+  if (isBlobValue(data)) {
+    if (blobSize(data) <= maxBytes) {
+      try {
+        const blob = data
+        const buffer = await boundedChannelHistoryOperation(() => blobArrayBuffer(blob), signal)
+        // SAFETY: blobArrayBuffer always resolves to an ArrayBuffer; the bounded wrapper preserves that result.
+        data = new Uint8Array(buffer as ArrayBuffer)
+      } catch { data = undefined }
+    } else data = undefined
   }
   let bytes: Uint8Array | undefined
   try {

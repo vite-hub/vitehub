@@ -1,4 +1,5 @@
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
+import { Request as UndiciRequest } from "undici"
 import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
 import { createQueueError } from "../errors.ts"
@@ -11,11 +12,44 @@ import type { QueueDefinition, VercelQueueCallbackOptions } from "../types.ts"
 
 export const hostedVercelWaitUntil: (promise: Promise<unknown>) => void | undefined = vercelWaitUntil
 
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object") return false
+
+  // Request accessors perform a non-spoofable internal-slot check. Keep the
+  // accessors from trusted implementations instead of reading candidate
+  // prototypes, which ordinary objects can control.
+  const getters = [
+    Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get,
+    Object.getOwnPropertyDescriptor(UndiciRequest.prototype, "url")?.get,
+  ].filter((getter): getter is NonNullable<typeof getter> => typeof getter === "function")
+
+  return getters.some((getter) => {
+    try {
+      getter.call(value)
+      return true
+    } catch {
+      return false
+    }
+  })
+}
+
 async function toRequest(event: {
   method?: string
   request?: Request
 }) {
-  if (event.request instanceof Request) {
+  // `instanceof` can invoke a proxy's traps; treat hostile callback values as
+  // non-Requests and let the existing H3 normalization handle them.
+  let sameRealmRequest = false
+  try {
+    sameRealmRequest = event.request instanceof Request
+  } catch {
+    sameRealmRequest = false
+  }
+  if (sameRealmRequest) {
+    // SAFETY: The guarded instanceof check confirms the value is a Request from this realm.
+    return event.request as Request
+  }
+  if (isRequestLike(event.request)) {
     return event.request
   }
 

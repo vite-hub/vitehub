@@ -1,7 +1,4 @@
-import { AsyncLocalStorage } from "node:async_hooks"
-
 import { addCacheBypass } from "@vite-hub/internal/runtime/cache-bypass"
-import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
@@ -149,8 +146,12 @@ function markPrivate(event: ContentPreviewEvent): void {
   for (const [name, value] of privateHeaders) appendResponseHeader(event, name, value, "set")
 }
 
+function isResponseLike(value: unknown): value is Response {
+  return isObject(value) && Object.prototype.toString.call(value) === "[object Response]" && isObject(value.headers)
+}
+
 function privateResponse<TResult>(result: TResult): TResult {
-  if (!(result instanceof Response)) return result
+  if (!isResponseLike(result)) return result
   try {
     for (const [name, value] of privateHeaders) result.headers.set(name, value)
     return result
@@ -196,7 +197,7 @@ function decodeKey(value: string): Uint8Array<ArrayBuffer> | undefined {
 
 function configuredKey(): string | undefined {
   const fromProcess: unknown = globalThis.process?.env?.[contentKeyVariable]
-  const fromCloudflare: unknown = getActiveCloudflareEnv()?.[contentKeyVariable]
+  const fromCloudflare: unknown = (globalThis as { __env__?: Record<string, unknown> }).__env__?.[contentKeyVariable]
   const value = String(fromProcess) === fromProcess && fromProcess ? fromProcess : String(fromCloudflare) === fromCloudflare ? fromCloudflare : undefined
   return value?.trim() || undefined
 }
@@ -268,11 +269,22 @@ function assertEvent(event: unknown, method: string): asserts event is ContentPr
   }
 }
 
+interface Scope<T> { getStore(): T | undefined; run<R>(value: T, callback: () => R): R }
+function createScope<T>(): Scope<T> {
+  const Constructor = (globalThis as { AsyncLocalStorage?: new <V>() => Scope<V> }).AsyncLocalStorage
+  if (Constructor) return new Constructor<T>()
+  let current: T | undefined
+  return {
+    getStore: () => current,
+    run(value, callback) { const previous = current; current = value; try { return callback() } finally { current = previous } },
+  }
+}
+
 /** Create the preview grant and request scope for one Content runtime. */
 export function createContentPreview(options: { enabled: boolean }): ContentPreview {
   // Proof that one request carried a valid token. Only this runtime issues and checks it.
   const previewGrant = defineGrant("vitehub.content.preview", (expires: number) => expires)
-  const scope = new AsyncLocalStorage<ReturnType<typeof previewGrant.issue>>()
+  const scope = createScope<ReturnType<typeof previewGrant.issue>>()
   const resolved = new WeakMap<object, Promise<ReturnType<typeof previewGrant.issue> | undefined>>()
 
   function requireEnabled(method: string): void {
@@ -373,7 +385,14 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
     const preview = content.preview
     if (!preview || !isObject(nitroApp)) return
     // ViteHub routes Nitro's cache module through this check (nitroCacheBypass); the grant scope is the request's.
-    addCacheBypass(() => preview.active())
+    const removeCacheBypass = addCacheBypass(() => preview.active())
+    const hooks = nitroApp.hooks
+    if (isObject(hooks) && hooks.hook instanceof Function) {
+      const dispose = () => removeCacheBypass()
+      for (const name of ["close", "shutdown", "dispose"]) {
+        Reflect.apply(hooks.hook, hooks, [name, dispose])
+      }
+    }
     const scoped = (event: unknown, next: () => unknown): unknown =>
       isObject(event) && hasPreviewCookie(event) ? preview.run(event, next) : next()
     // Nitro 3: the Web fetch entry every preset and internal fetch calls.

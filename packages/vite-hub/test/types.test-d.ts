@@ -38,27 +38,30 @@ vitehub({ email: { driver: "resend" }, preset: "node" })
 vitehub({ email: true, preset: "cloudflare" })
 vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
 vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
+// @ts-expect-error Every environment chooses Console access explicitly.
 vitehub({ console: true, preset: "node" })
-vitehub({ auth: true, console: { access: "auth" }, preset: "node" })
-vitehub({ console: { authorize: "server/console-authorize.ts", exposure: "host-managed" }, preset: "node" })
-vitehub({ console: { authorize: "server/console-authorize.ts", exposure: "host-managed", invoke: true }, preset: "node" })
-vitehub({ console: { authorize: "server/console-authorize.ts", exposure: "host-managed", invoke: false }, preset: "node" })
-// @ts-expect-error Host-managed Console routes need the host authorize function.
-vitehub({ console: { exposure: "host-managed" }, preset: "node" })
+// @ts-expect-error console.auth is required.
+vitehub({ console: {}, preset: "node" })
+vitehub({ console: false, preset: "node" })
+vitehub({ console: { auth: false }, preset: "node" })
+vitehub({ auth: true, console: { auth: "app" }, preset: "node" })
+vitehub({ auth: true, console: { auth: "app", authorize: "server/console-authorize.ts" }, preset: "node" })
+vitehub({ console: { auth: false, authorize: "server/console-authorize.ts" }, preset: "node" })
+vitehub({ console: { auth: false, authorize: "server/console-authorize.ts", invoke: true }, preset: "node" })
+vitehub({ console: { auth: false, authorize: "server/console-authorize.ts", invoke: false }, preset: "node" })
+vitehub({ console: { auth: { provider: "github", allowedEmails: ["maintainer@example.com"] }, authorize: "server/console-authorize.ts" }, preset: "node" })
 // @ts-expect-error console.authorize is a server file path, not an inline function.
-vitehub({ console: { authorize: () => true, exposure: "host-managed" }, preset: "node" })
-// @ts-expect-error ViteHub Auth access uses Auth callbacks, not console.authorize.
-vitehub({ console: { access: "auth", authorize: "server/console-authorize.ts" }, preset: "node" })
-vitehub({ console: { access: "auth", auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
-vitehub({ console: { access: "auth", auth: { provider: "cloudflare-access", teamDomain: "acme.cloudflareaccess.com", audience: env({ source: env.source("CF_ACCESS_AUD") }) }, invoke: true }, preset: "vercel" })
+vitehub({ console: { auth: false, authorize: () => true }, preset: "node" })
+vitehub({ console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
+vitehub({ console: { auth: { provider: "cloudflare-access", teamDomain: "acme.cloudflareaccess.com", audience: env({ source: env.source("CF_ACCESS_AUD") }) }, invoke: true }, preset: "vercel" })
 // @ts-expect-error Cloudflare Access Console Auth has no database or allowlist; the Access policy decides who signs in.
-vitehub({ console: { access: "auth", auth: { provider: "cloudflare-access", allowedEmails: ["maintainer@example.com"] } }, preset: "cloudflare" })
+vitehub({ console: { auth: { provider: "cloudflare-access", allowedEmails: ["maintainer@example.com"] } }, preset: "cloudflare" })
 // @ts-expect-error Access settings are strings or Env declarations.
-vitehub({ console: { access: "auth", auth: { provider: "cloudflare-access", audience: 1 } }, preset: "cloudflare" })
-// @ts-expect-error Production access contracts are mutually exclusive.
-vitehub({ console: { access: "auth", exposure: "host-managed" }, preset: "node" })
-// @ts-expect-error Unknown Console access modes must not silently expose inspection routes.
-vitehub({ console: { access: "public" }, preset: "node" })
+vitehub({ console: { auth: { provider: "cloudflare-access", audience: 1 } }, preset: "cloudflare" })
+// @ts-expect-error The old access and exposure keys are removed.
+vitehub({ console: { access: "auth" }, preset: "node" })
+// @ts-expect-error Unknown Console Auth modes must not silently expose inspection routes.
+vitehub({ console: { auth: "public" }, preset: "node" })
 expectTypeOf<ConsoleAgentInvocationInput["prompt"]>().toBeString()
 const consoleInput: ConsoleAgentInvocationInput = { prompt: "Follow up", messages: [createMessage({ role: "user", text: "Earlier question" })] }
 expectTypeOf<NonNullable<typeof consoleInput.messages>[number]["role"]>().toEqualTypeOf<"user" | "assistant">()
