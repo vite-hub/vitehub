@@ -155,27 +155,45 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
             ["json", [null]],
             ["redirect", ["https://example.com"]],
           ] as const
-          hasFactoryBrand = factories.every(([name, args]) => {
+          hasFactoryBrand = true
+          for (const [name, args] of factories) {
             const factory = Object.getOwnPropertyDescriptor(constructor, name)?.value
-            if (typeof factory !== "function") return false
+            if (typeof factory !== "function") {
+              hasFactoryBrand = false
+              break
+            }
             const factoryResult = Reflect.apply(factory, constructor, args)
             if (!factoryResult || typeof factoryResult !== "object"
               || objectToString.call(factoryResult) !== "[object Response]"
               || Object.prototype.hasOwnProperty.call(factoryResult, Symbol.toStringTag)
-              // Independently implemented Fetch constructors materialize their
-              // response state on factory results. A caller-created factory
-              // that merely returns Object.create(proto) is not a branded
-              // Response and must not satisfy this probe.
               || !Object.prototype.hasOwnProperty.call(factoryResult, "status")
               || !Object.prototype.hasOwnProperty.call(factoryResult, "headers")
-              || !Object.prototype.hasOwnProperty.call(factoryResult, "body")) return false
+              || !Object.prototype.hasOwnProperty.call(factoryResult, "body")) {
+              hasFactoryBrand = false
+              break
+            }
+            const factoryArrayBuffer = Reflect.get(factoryResult, "arrayBuffer")
+            if (typeof factoryArrayBuffer !== "function") {
+              hasFactoryBrand = false
+              break
+            }
+            const factoryBody = await Reflect.apply(factoryArrayBuffer, factoryResult, [])
+            try {
+              ArrayBuffer.prototype.byteLength.call(factoryBody)
+            }
+            catch {
+              hasFactoryBrand = false
+              break
+            }
             let factoryPrototype = Object.getPrototypeOf(factoryResult)
-            while (factoryPrototype) {
-              if (factoryPrototype === responsePrototype) return true
+            while (factoryPrototype && factoryPrototype !== responsePrototype) {
               factoryPrototype = Object.getPrototypeOf(factoryPrototype)
             }
-            return false
-          })
+            if (!factoryPrototype) {
+              hasFactoryBrand = false
+              break
+            }
+          }
         }
         catch {
           hasConstructibleResponse = false
