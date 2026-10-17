@@ -3700,6 +3700,32 @@ button.vh-agent-tool-list__count:focus-visible {
   --vh-primitive-icon-motion: translateY(-1px);
 }
 
+/* Realtime collaboration caret and selection decorations. */
+.collaboration-carets__caret {
+  border-left: 1px solid var(--collaboration-caret-color, currentColor);
+  border-right: 1px solid var(--collaboration-caret-color, currentColor);
+  margin-left: -1px;
+  margin-right: -1px;
+  pointer-events: none;
+  position: relative;
+}
+
+.collaboration-carets__label {
+  background-color: var(--collaboration-caret-color, currentColor);
+  border-radius: 3px 3px 3px 0;
+  color: white;
+  font-size: 0.75rem;
+  left: -1px;
+  line-height: 1;
+  padding: 2px 4px;
+  position: absolute;
+  top: -1.25rem;
+  white-space: nowrap;
+}
+
+.ProseMirror-yjs-selection {
+  background-color: color-mix(in srgb, currentColor 25%, transparent);
+}
 /*
  * shadcn/ui agentic parts: Message, Bubble, Marker, Trace, and Attachment.
  * These rules translate the default classes of https://ui.shadcn.com/docs/components/trace and its siblings to Nuxt UI tokens:

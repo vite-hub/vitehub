@@ -94,7 +94,8 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "miniflare": "4.20260730.0"
   },
   "peerDependencies": {
     "@types/json-schema": "catalog:ai",
