@@ -1,6 +1,5 @@
 import { posix } from "node:path"
 import { createHash } from "node:crypto"
-import { isDeepStrictEqual } from "node:util"
 
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, decodeFile, isWorkspaceBytes, normalizeWorkspacePath, sha256 } from "../core/path.ts"
@@ -265,6 +264,22 @@ function observableFileMetadata(metadata: Record<string, unknown> | undefined): 
     .filter(([key, value]) => key !== "materializedAt" && key !== "validatedAt" && value !== undefined)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => [key, normalizeMetadataValue(value)]))
+}
+
+function isDeepStrictEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false
+  if (Array.isArray(left) !== Array.isArray(right)) return false
+  if (Array.isArray(left)) {
+    return left.length === (right as unknown[]).length
+      && left.every((value, index) => isDeepStrictEqual(value, (right as unknown[])[index]))
+  }
+  const leftRecord = left as Record<string, unknown>
+  const rightRecord = right as Record<string, unknown>
+  const leftKeys = Object.keys(leftRecord)
+  const rightKeys = Object.keys(rightRecord)
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every(key => Object.hasOwn(rightRecord, key) && isDeepStrictEqual(leftRecord[key], rightRecord[key]))
 }
 
 function fileAttributesEqual(

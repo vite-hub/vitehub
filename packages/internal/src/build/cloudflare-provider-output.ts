@@ -1,10 +1,24 @@
-import { isDeepStrictEqual } from "node:util"
-
 import { mergeProviderOutputConfig } from "./provider-output-config.ts"
 import type { CloudflareProviderOutputValue, ProviderOutputCatalog } from "./provider-output-catalog.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 // SAFETY: ViteHub owns this namespaced global registry, and every bundled copy uses the same value type.
+function isDeepStrictEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false
+  if (Array.isArray(left) !== Array.isArray(right)) return false
+  if (Array.isArray(left)) {
+    return left.length === (right as unknown[]).length
+      && left.every((value, index) => isDeepStrictEqual(value, (right as unknown[])[index]))
+  }
+  const leftRecord = left as Record<string, unknown>
+  const rightRecord = right as Record<string, unknown>
+  const leftKeys = Object.keys(leftRecord)
+  const rightKeys = Object.keys(rightRecord)
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every(key => Object.hasOwn(rightRecord, key) && isDeepStrictEqual(leftRecord[key], rightRecord[key]))
+}
+
 const providerOutputCatalogRegistry = globalThis as typeof globalThis & {
   __vitehubProviderOutputCatalogsByNitroValue?: WeakMap<object, ProviderOutputCatalog>
 }

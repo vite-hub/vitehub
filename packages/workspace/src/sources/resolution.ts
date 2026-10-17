@@ -1,4 +1,3 @@
-import { types } from "node:util"
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
@@ -111,7 +110,6 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
       return Object.is(left, right)
     }
-    if (types.isProxy(left) || types.isProxy(right)) return false
     const prototype = Object.getPrototypeOf(left)
     if (Array.isArray(left) !== Array.isArray(right)
       || prototype !== Object.getPrototypeOf(right)
@@ -121,14 +119,22 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     const leftKeys = Reflect.ownKeys(left)
     const rightKeys = Reflect.ownKeys(right)
     if (leftKeys.length !== rightKeys.length) return false
+    const leftProperties = leftKeys.map(key => Object.getOwnPropertyDescriptor(left, key))
+    const rightProperties = rightKeys.map(key => Object.getOwnPropertyDescriptor(right, key))
+    // Inspect descriptors before structuredClone: cloning an accessor reads it.
+    if (leftProperties.some(property => !property || !("value" in property))
+      || rightProperties.some(property => !property || !("value" in property))) return false
+    // structuredClone rejects Proxy values while avoiding a Node-only builtin.
+    // Run it only after accessors have been rejected, so no getter can execute.
+    if (!isCloneableSourceValue(left) || !isCloneableSourceValue(right)) return false
     ancestors.add(left)
     ancestors.add(right)
     try {
       // Preserve property order, array length, and holes. Source Sync uses JSON order.
       return leftKeys.every((key, index) => {
         if (key !== rightKeys[index]) return false
-        const leftProperty = Object.getOwnPropertyDescriptor(left, key)
-        const rightProperty = Object.getOwnPropertyDescriptor(right, key)
+        const leftProperty = leftProperties[index]
+        const rightProperty = rightProperties[index]
         return !!leftProperty && !!rightProperty
           && "value" in leftProperty && "value" in rightProperty
           && leftProperty.enumerable === rightProperty.enumerable
@@ -140,6 +146,16 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     }
   } catch {
     // Unknown fingerprints may contain proxies or other values that cannot be inspected.
+    return false
+  }
+}
+
+function isCloneableSourceValue(value: object): boolean {
+  try {
+    structuredClone(value)
+    return true
+  }
+  catch {
     return false
   }
 }
