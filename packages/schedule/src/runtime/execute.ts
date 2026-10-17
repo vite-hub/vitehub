@@ -43,7 +43,24 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
 }
 
-export { isScheduleDate, validateScheduledAt } from "./date.ts"
+function isDate(value: unknown): value is Date {
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Date]") return false
+    return !Number.isNaN(Date.prototype.getTime.call(value as Date))
+  }
+  catch {
+    return false
+  }
+}
+
+function validateScheduledAt(scheduledAt: Date): Date {
+  if (!isDate(scheduledAt)) {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+      details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
+    })
+  }
+  return new Date(Date.prototype.getTime.call(scheduledAt))
+}
 
 function toRunError(error: unknown): ScheduleRunError {
   if (error instanceof Error) {

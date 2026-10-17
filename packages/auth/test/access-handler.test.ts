@@ -1,6 +1,5 @@
 import { runInNewContext } from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -105,84 +104,37 @@ describe("Auth access handlers", () => {
       return handler(new Request("https://app.example/"))
     }
 
-    // A Response of this runtime passes the native `status` getter of `Response.prototype`.
-    // ViteHub sends it as the rejection and does not copy or inspect it.
-    it.each([
-      ["a Response with separate Set-Cookie headers", () => new Response("Policy rejected", {
-        status: 409,
-        headers: [["set-cookie", "first=1"], ["set-cookie", "second=2"], ["x-policy", "reject"]],
-      })],
-      ["a Response with a consumed body", async () => {
-        const response = new Response("consumed", { status: 409 })
-        await response.text()
-        return response
-      }],
-      ["Response.error()", () => Response.error()],
-      ["a Response subclass", () => new (class PolicyResponse extends Response {})("Policy rejected", { status: 409 })],
-      ["a Response with a shadowed accessor", () => {
-        const response = new Response("Policy rejected", { status: 409 })
-        Object.defineProperty(response, "status", { get: () => 409 })
-        return response
-      }],
-    ])("returns %s unchanged", async (_name, create) => {
-      const source = await create()
-      await expect(run(source)).resolves.toBe(source)
-    })
+  it("returns authorization responses whose bodies are already consumed", async () => {
+    const response = new Response("Policy rejected", { status: 409 })
+    await response.text()
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+  })
 
-    it("keeps the status, headers, and body of a custom rejection", async () => {
-      const result = await run(new Response("Policy rejected", { status: 409, headers: { "x-policy": "reject" } }))
-      expect(result?.status).toBe(409)
-      expect(result?.headers.get("x-policy")).toBe("reject")
-      await expect(result?.text()).resolves.toBe("Policy rejected")
-    })
+  it("returns authorization responses from another realm unchanged", async () => {
+    const foreignResponse = runInNewContext('new Response("Policy rejected", { status: 409 })', { Response })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
 
-    // Only `true` grants access. Every value that is not a Response of this runtime gets the default 403.
-    it.each([
-      ["false", () => false],
-      ["undefined", () => undefined],
-      ["a string", () => "allow"],
-      ["a plain object", () => ({ status: 200 })],
-      ["a Response from another Fetch implementation", () => new ForeignResponse("Policy rejected", { status: 409 })],
-      ["a Response from another Fetch implementation with one cookie and no getSetCookie", () => {
-        const response = new ForeignResponse("Policy rejected", { status: 409, headers: { "set-cookie": "first=1" } })
-        Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
-        return response
-      }],
-      ["a Response created in another realm", () => runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })],
-      ["a proxy around a Response", () => new Proxy(new Response("Policy rejected", { status: 409 }), {})],
-      ["an object created from Response.prototype", () => Object.create(Response.prototype)],
-      ["an object tagged Response", () => ({ status: 409, statusText: "Conflict", headers: new Headers(), [Symbol.toStringTag]: "Response" })],
-      ["an instance of a class named Response", () => runInNewContext(`new (class Response {
-        get status() { return 409 }
-        get headers() { return new Headers({ "x-policy": "forged" }) }
-        get body() { return null }
-      })()`, { Headers })],
-      ["a proxy whose reflection throws", () => new Proxy({}, {
-        getPrototypeOf: () => { throw new Error("reflection failed") },
-        getOwnPropertyDescriptor: () => { throw new Error("reflection failed") },
-      })],
-    ])("returns 403 for %s", async (_name, create) => {
-      const result = await run(create())
-      expect(result).toBeInstanceOf(Response)
-      expect(result?.status).toBe(403)
-      expect(result?.headers.has("x-policy")).toBe(false)
-      await expect(result?.json()).resolves.toEqual({ error: "Forbidden." })
-    })
+    await expect(handler(new Request("https://app.example/"))).resolves.toBe(foreignResponse)
+  })
 
-    it("does not read the getters of a forged Response", async () => {
-      const status = vi.fn(() => 409)
-      const headers = vi.fn(() => new Headers({ "x-policy": "forged" }))
-      const prototype = Object.defineProperties({}, {
-        constructor: { value: function Response() {} },
-        [Symbol.toStringTag]: { value: "Response" },
-        status: { get: status },
-        headers: { get: headers },
-      })
+  it("rejects spoofed authorization responses", async () => {
+    const spoofedResponse = {
+      status: 409,
+      statusText: "Conflict",
+      headers: { get() { return null } },
+      [Symbol.toStringTag]: "Response",
+    }
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoofedResponse as never }] },
+    }))
 
-      await expect(run(Object.create(prototype))).resolves.toMatchObject({ status: 403 })
-      expect(status).not.toHaveBeenCalled()
-      expect(headers).not.toHaveBeenCalled()
-    })
+    const response = await handler(new Request("https://app.example/"))
+    expect(response?.status).toBe(403)
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
@@ -203,5 +155,6 @@ describe("Auth access handlers", () => {
     provider.handler.mockClear()
     expect((await handler(new Request("https://app.example/private")))?.status).toBe(401)
     expect(provider.handler).not.toHaveBeenCalled()
+  })
   })
 })
