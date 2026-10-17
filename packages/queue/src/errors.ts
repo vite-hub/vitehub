@@ -74,7 +74,7 @@ export function createQueueError<TCode extends QueueErrorCode>(
   const message = code === "QUEUE_PROVIDER_OPERATION_FAILED" && details && "provider" in details && "operation" in details
     ? `[vitehub] ${details.provider} queue provider failed during ${details.operation}.`
     : code === "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED" && details && "binding" in details && details.binding
-      ? `[vitehub] Cloudflare queue binding "${details.binding}" is not in the Worker env. The dev server has no local Queue delivery: run the built Worker with \`wrangler dev\`, or deploy it.`
+      ? `[vitehub] Cloudflare queue binding "${details.binding}" is not in the Worker env. In dev, the server has no local Queue delivery: run the built Worker with \`wrangler dev\`, or deploy it. In a deployed Worker, add the binding to the Worker configuration.`
       : queueErrorMessages[code]
   const error = new ViteHubError(code, message, options)
   queueOwnedErrors.add(error)
