@@ -63,18 +63,57 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
   if (value instanceof Response) return value
   if ((typeof value !== "object" && typeof value !== "function") || value === null) return
   try {
-    // Fetch accessors perform the native internal-slot brand check.
+    // Keep the trusted current-realm brand check as the first path.
     const status = Response.prototype.status.call(value)
     const statusText = Response.prototype.statusText.call(value)
     const headers = Response.prototype.headers.call(value)
     const bodyUsed = Response.prototype.bodyUsed.call(value)
     Response.prototype.clone.call(value)
-    if (typeof status !== "number" || typeof statusText !== "string" || !(headers instanceof Object) || typeof bodyUsed !== "boolean") return
+    if (typeof status !== "number" || typeof statusText !== "string" || typeof bodyUsed !== "boolean") return
     if (bodyUsed) return
     const body = Response.prototype.body.call(value)
     const init = { headers: new Headers(headers), status, statusText }
     if (body === null) return new Response(null, init)
     return new Response(body as BodyInit, init)
+  }
+  catch {
+    // A foreign realm's native accessors reject the current realm's brand
+    // check. Retry with the accessors belonging to the value's Response.
+  }
+  try {
+    // Fetch accessors perform the native internal-slot brand check. For a
+    // foreign realm, use that realm's native accessors instead of applying
+    // this realm's brand checks to the value.
+    let prototype: object | null = value
+    while (prototype) {
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      const statusGetter = Object.getOwnPropertyDescriptor(prototype, "status")?.get
+      const statusTextGetter = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get
+      const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
+      const bodyUsedGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
+      const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
+      const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+      if (typeof constructor === "function" && constructor.prototype === prototype
+        && constructor !== Response
+        && constructor.name === "Response"
+        && typeof statusGetter === "function" && typeof statusTextGetter === "function"
+        && typeof headersGetter === "function" && typeof bodyUsedGetter === "function"
+        && typeof bodyGetter === "function" && typeof clone === "function") {
+        const status = Reflect.apply(statusGetter, value, [])
+        const statusText = Reflect.apply(statusTextGetter, value, [])
+        const headers = Reflect.apply(headersGetter, value, [])
+        const bodyUsed = Reflect.apply(bodyUsedGetter, value, [])
+        Reflect.apply(clone, value, [])
+        if (typeof status !== "number" || typeof statusText !== "string" || headers === null || (typeof headers !== "object" && typeof headers !== "function") || typeof bodyUsed !== "boolean") return
+        if (bodyUsed) return
+        const body = Reflect.apply(bodyGetter, value, [])
+        const init = { headers: new Headers(headers as Headers), status, statusText }
+        if (body === null) return new Response(null, init)
+        return new Response(body as BodyInit, init)
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return
   }
   catch {
     return
