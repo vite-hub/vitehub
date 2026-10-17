@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import type { PullRequestInbox, Snapshot } from "../../server/github-inbox.ts";
-import { isStatusDeliveryCurrent, type StatusDelivery } from "../../server/github-inbox/status-delivery.ts";
+import type { PullRequestInbox, Snapshot } from "./inbox/store.ts";
+import { isStatusDeliveryCurrent, type StatusDelivery } from "./inbox/status-delivery.ts";
 
 export function isWorkerBlocker(snapshot: Pick<Snapshot, "wait" | "lastResult">): boolean {
   if (snapshot.wait?.kind !== "external" || snapshot.wait.wake || snapshot.wait.retryAt !== undefined) return false;

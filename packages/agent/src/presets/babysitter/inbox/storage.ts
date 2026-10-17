@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { SQLInputValue } from 'node:sqlite'
 
-import type { SqliteAgentStateExtension, SqliteAgentStateExtensionExecutor, SqliteAgentStateRow } from '../../state/sqlite.ts'
+import type { SqliteAgentStateExtension, SqliteAgentStateExtensionExecutor, SqliteAgentStateRow } from '../../../state/sqlite.ts'
 
 export type PullRequestInboxRow = SqliteAgentStateRow
 export type PullRequestInboxExecutor = SqliteAgentStateExtensionExecutor

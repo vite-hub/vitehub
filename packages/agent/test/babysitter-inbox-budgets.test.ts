@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PullRequestInbox } from '../src/server/github-inbox.ts'
+import { PullRequestInbox } from '../src/presets/babysitter/inbox/store.ts'
 
 const repository = 'vite-hub/vitehub'
 const pr = (head = 'a') => ({ number: 7, state: 'open', head: { sha: head, ref: 'fix' }, base: { ref: 'main' } })
@@ -337,7 +337,7 @@ test('CI recovery admission survives restart without admitting unrelated exhaust
   await inbox.close()
   inbox = new PullRequestInbox({ path, repositories: [repository], budgets: { noProgress: 1 } })
   assert.equal((await inbox.claim(2)).length, 0)
-  const recoveryOptions = { includeBlocked: true, only: (snapshot: import('../src/server/github-inbox.ts').Snapshot) => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha) }
+  const recoveryOptions = { includeBlocked: true, only: (snapshot: import('../src/presets/babysitter/inbox/store.ts').Snapshot) => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha) }
   let claims = await inbox.claim(1, recoveryOptions)
   assert.deepEqual(claims.map(claim => claim.snapshot.number), [7])
   assert.equal(claims[0]!.snapshot.refresh, true)

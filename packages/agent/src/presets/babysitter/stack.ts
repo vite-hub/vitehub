@@ -1,5 +1,5 @@
 import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
-import type { GitHubPullRequestRecord } from "../../server/github-inbox.ts";
+import type { GitHubPullRequestRecord } from "./inbox/types.ts";
 
 const field = (value: unknown, ...path: string[]): unknown => {
   let current = value;

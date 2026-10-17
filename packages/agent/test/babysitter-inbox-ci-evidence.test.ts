@@ -1,9 +1,10 @@
 import { it, afterEach } from 'vitest'
 import assert from 'node:assert/strict'
-import { PullRequestInbox, type GitHubEvidence } from '../src/server/github-inbox.ts'
-import { diagnosticExcerpt, hydrateFailedCiEvidence } from '../src/server/github-inbox/ci-evidence.ts'
+import { PullRequestInbox } from '../src/presets/babysitter/inbox/store.ts'
+import type { GitHubEvidence } from '../src/presets/babysitter/inbox/types.ts'
+import { diagnosticExcerpt, hydrateFailedCiEvidence } from '../src/presets/babysitter/inbox/ci-evidence.ts'
 import { rerunFailedActions } from '../src/presets/babysitter/ci-recovery.ts'
-import type { Claim } from '../src/server/github-inbox.ts'
+import type { Claim } from '../src/presets/babysitter/inbox/store.ts'
 const repository = 'vite-hub/vitehub'
 const pr = { number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'head', ref: 'fix' }, base: { ref: 'main' } }
 const check = (patch: GitHubEvidence = {}) => ({ id: 11, name: 'types', app: { slug: 'github-actions' }, head_sha: 'head', status: 'completed', conclusion: 'failure', completed_at: '2026-09-13T10:00:00Z', html_url: `https://github.com/${repository}/actions/runs/1/job/11`, ...patch })
