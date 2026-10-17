@@ -4,7 +4,7 @@ import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedBlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedBlobStoreConfig } from "../types.ts"
 import type { Adapter, FileInfo, Files } from "files-sdk"
 
 type FilesCtor = typeof import("files-sdk").Files
@@ -79,6 +79,26 @@ function mapUploadResult(result: FileInfo, fallback: BlobPutOptions): BlobObject
     size: result.size,
     uploadedAt: result.lastModified ? new Date(result.lastModified) : new Date(),
   }
+}
+
+function unsupportedSign(driver: string, reason: string) {
+  return blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver}" cannot sign this request: ${reason}.` })
+}
+
+// files-sdk reports per instance whether `url()` and `signedUploadUrl()` mint expiring links,
+// so one implementation serves every files-sdk driver without a permanent-link fallback.
+async function signRequest(client: FilesInstance, driver: string, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+  const { signedUpload, signedUrl } = client.capabilities
+  if (signOptions.method === "GET") {
+    if (!signedUrl.supported || signedUrl.expiry !== "exact") throw unsupportedSign(driver, "the provider has no expiring read URL")
+    return { headers: {}, method: "GET", url: await client.url(pathname, { expiresIn: signOptions.expiresIn }) }
+  }
+  if (!signedUpload.supported) throw unsupportedSign(driver, "the provider has no signed upload URL")
+  if (signOptions.createOnly) throw unsupportedSign(driver, "the provider cannot bind `createOnly`")
+  if (signOptions.contentType && !signedUpload.contentType) throw unsupportedSign(driver, "the provider cannot bind `contentType`")
+  const upload = await client.signedUploadUrl(pathname, { contentType: signOptions.contentType, expiresIn: signOptions.expiresIn })
+  if (upload.method !== "PUT") throw unsupportedSign(driver, "the provider signs uploads as a POST form")
+  return { headers: upload.headers ?? {}, method: "PUT", url: upload.url }
 }
 
 async function getUploadUrl(client: FilesInstance, pathname: string): Promise<string | undefined> {
@@ -265,6 +285,9 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         contentType: result.contentType || putOptions.contentType || (isBlob(body) ? body.type : undefined),
         url: await getUploadUrl(client, result.key),
       }
+    },
+    async sign(pathname, signOptions) {
+      return await signRequest(await files(), options.driver, pathname, signOptions)
     },
   }
 }
