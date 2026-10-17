@@ -4,6 +4,8 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
+  getDocsRailCatalog,
+  getDocsSectionKind,
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
@@ -50,8 +52,23 @@ describe("docs product navigation", () => {
     expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
   });
 
+  it("keeps the rail concise while retaining Platform in the catalog", () => {
+    expect(getDocsRailCatalog(docsManifest.sections).map(group => group.category))
+      .toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
+    expect(getDocsCatalog(docsManifest.sections).some(group => group.category === "Platform")).toBe(true);
+  });
+
+  it("labels product sections for the catalog consumer", () => {
+    const kind = (id: string) => getDocsSectionKind(docsManifest.sections.find(section => section.id === id)!);
+    expect(kind("kv")).toBe("Server Primitive");
+    expect(kind("agents")).toBe("Agent runtime");
+    expect(kind("ui")).toBe("UI components");
+    expect(kind("getting-started")).toBe("Getting started");
+    expect(kind("reference")).toBe("Platform");
+  });
+
   it("orders every Server Primitive section by the product page template", () => {
-    const template = ["Overview", "Tutorial", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
+    const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
 
     for (const sectionId of serverPrimitiveSections) {
       const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
@@ -61,8 +78,12 @@ describe("docs product navigation", () => {
 
       expect(pages[0]?.path, sectionId).toBe(`/docs/${sectionId}`);
       expect(titles[0], sectionId).toBe("Overview");
-      expect(templateTitles, sectionId).toContain("Tutorial");
+      expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
+      // Template pages keep their order when related topic pages sit between them.
+      expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
+      const templateIndexes = templateTitles.map(title => titles.indexOf(title));
+      expect(templateIndexes, sectionId).toEqual([...templateIndexes].sort((left, right) => left - right));
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -95,6 +116,7 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
+      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
@@ -109,10 +131,11 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
+      expect(groups.every(group => group.pages.length > 0), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null, null, "Build", null]);
+    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
   });
 
   it("lists each topic once inside a section", () => {
@@ -141,19 +164,17 @@ describe("docs product navigation", () => {
     expect(isDocsLandingPath(docsManifest.sections, "/docs/ui")).toBe(false);
 
     const kv = docsManifest.sections.find(section => section.id === "kv");
-    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Tutorial");
+    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Get started");
     expect(getDocsSectionSubpages(kv!).some(page => page.id === "index")).toBe(false);
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle)
+    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.title)
       .toBe("Runtime policy, approvals, and traces");
   });
 
   it("redirects each removed page, its trailing-slash form, and its raw Markdown copy to a published page", () => {
     const routeRules = createDocsRedirectRouteRules();
-
-    expect(docsPageRedirects["/docs/ui/built-for-vue"]).toBe("/docs/getting-started/built-for-vue");
 
     expect(docsPageRedirects["/docs/server-primitives/kv"]).toBe("/docs/kv");
     expect(docsPageRedirects["/docs/capabilities/db"]).toBe("/docs/database/agent-capability");
