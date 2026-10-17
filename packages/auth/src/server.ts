@@ -559,16 +559,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
-    const nativeHeaderMethods = ["get", "forEach"].every(key =>
-      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
-    // A foreign implementation must carry its own native Headers methods.
-    // Accepting a foreign Response prototype paired with current-realm Headers
-    // would make a user-defined Response-shaped object indistinguishable from
-    // a genuine cross-runtime response.
+    // The trusted brand probe above establishes native Header internal slots;
+    // method identities may legitimately differ across Web realms.
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
-      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    if (!nativeHeaderMethods || !nativeCookieMethod) return
+      || typeof cookieDescriptor.value === "function")
+    if (!nativeCookieMethod) return
     const bodyReader = body === null ? undefined : getNativeAuthorizationBodyReader(body)
     if (body !== null && (!bodyReader || !isSerializableAuthorizationBody(body))) return
     const forEach = Reflect.get(headerCarrier, "forEach")

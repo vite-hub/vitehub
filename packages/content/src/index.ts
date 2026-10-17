@@ -407,6 +407,7 @@ export function defineContentHandler(
     // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
     const nodeRequest = event.node.req as NodeContentRequest
     const method = event.method || nodeRequest.method || "GET"
+    const dispatch = async () => {
     const headers = new Headers()
     for (const [name, value] of Object.entries(nodeRequest.headers)) {
       if (value === undefined) continue
@@ -446,6 +447,10 @@ export function defineContentHandler(
       method,
       signal: abort.signal,
     }))
+    }
+    return await (content.preview
+      ? content.preview.run(event, dispatch)
+      : dispatch())
   }) as ContentHandler
 }
 
