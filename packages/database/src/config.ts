@@ -360,7 +360,7 @@ function readOpaqueDeclarationExpression(identifier: string, source: string): st
         else if (char === ";" && nested === 0) { expressionEnd = index; break }
         else if (nested === 0 && (char === "\n" || char === "\r")) {
           const following = remainder.slice(index + 1)
-          if (/^\s*(?:export\s+default\b|export\s+(?:const|let|var)\b|(?:const|let|var)\b|function\b|class\b|import\b)/.test(following)) {
+          if (/^\s*(?:export\s+default\b|export\s+(?:(?:const|let|var|function|class|interface|type|enum|namespace|declare)\b)|(?:const|let|var|function|class|interface|type|enum|namespace|declare)\b|import\b)/.test(following)) {
             expressionEnd = index
             break
           }
@@ -388,7 +388,7 @@ function readOpaqueDeclarationExpression(identifier: string, source: string): st
         else if (char === ";" && nested === 0) { expressionEnd = index; break }
         else if (nested === 0 && (char === "\n" || char === "\r")) {
           const following = remainder.slice(index + 1)
-          if (/^\s*(?:export\s+default\b|export\s+(?:const|let|var)\b|(?:const|let|var)\b|function\b|class\b|import\b)/.test(following)) {
+          if (/^\s*(?:export\s+default\b|export\s+(?:(?:const|let|var|function|class|interface|type|enum|namespace|declare)\b)|(?:const|let|var|function|class|interface|type|enum|namespace|declare)\b|import\b)/.test(following)) {
             expressionEnd = index
             break
           }
