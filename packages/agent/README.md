@@ -888,12 +888,14 @@ dependencies on the host before the model starts: it detects pnpm, npm or
 Yarn from the lockfile and installs frozen, or runs `{ command, args }`. The
 install gets a scrubbed environment and records its result and timing in
 `.git/vitehub-install.json`. On Linux, a detected pnpm install reuses the
-`node_modules` trees through independent copies (copy-on-write where supported).
+`node_modules` trees through independent copy-on-write copies. The default
+cache directory is used only when its filesystem supports reflinks, because full
+copies cost more than a frozen install from the pnpm store.
 The cache is scoped by repository identity, lockfile, workspace configuration,
 package manifests, `.npmrc` files, patches and Node version. Restored trees are
 verified offline, with one install per cache key at a time. Detected installs
 disable lifecycle and build scripts; custom commands are trusted host configuration.
-`install: { cache: { directory, entries } }` configures the cache, and
+`install: { cache: { directory, entries } }` configures the cache on any filesystem, and
 `cache: false` disables it. At startup, the built-in host removes pass
 workspaces from an earlier process when its temporary directory is inside the
 service directory. Stack parents are claimed first, and a restart

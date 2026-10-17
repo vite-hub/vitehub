@@ -96,11 +96,13 @@ jobs:
           }, null, 2)}\n`)
           NODE
 
-          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
-          echo "publish=$publish" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          {
+            echo "artifact_name=$artifact_name"
+            echo "publish=$publish"
+            echo "version=$version"
+            echo "npm_tag=$npm_tag"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Apply release version
         env:
@@ -282,6 +284,7 @@ jobs:
         run: |
           node --version
           npm --version
+          # shellcheck disable=SC2016 # The single quotes hold JavaScript, not shell.
           node -e '
             const { execFileSync } = require("node:child_process")
             const version = execFileSync("npm", ["--version"], { encoding: "utf8" }).trim().split(".").map(Number)

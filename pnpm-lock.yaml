@@ -77,6 +77,9 @@ catalogs:
     drizzle-orm:
       specifier: ^0.45.3
       version: 0.45.3
+    postgres:
+      specifier: ^3.4.9
+      version: 3.4.9
   default:
     '@cloudflare/vitest-plugin':
       specifier: ^1.4.4
@@ -1404,6 +1407,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261003.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.2)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
+      postgres:
+        specifier: catalog:database
+        version: 3.4.9
       publint:
         specifier: catalog:tooling
         version: 0.3.25

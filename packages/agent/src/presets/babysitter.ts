@@ -121,7 +121,8 @@ export type BabysitterInstall = boolean | {
   /**
    * Reuse the node_modules trees of a detected pnpm install across passes with the same lockfile,
    * using independent copy-on-write copies on Linux. `directory` defaults to `BABYSITTER_INSTALL_CACHE` or
-   * `<tmpdir>/vitehub-install-cache` and must share a filesystem with the pass workspaces.
+   * `<tmpdir>/vitehub-install-cache` and must share a filesystem with the pass workspaces. The default
+   * directory is used only when it supports reflinks; a configured `directory` is used on any filesystem.
    * `entries` defaults to `BABYSITTER_INSTALL_CACHE_ENTRIES` or 8. `false` disables the cache.
    */
   cache?: false | { directory?: string; entries?: number };

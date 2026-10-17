@@ -15,6 +15,7 @@ import type { Plugin } from "vite"
 
 const cloudflareBridgeState = vi.hoisted(() => ({
   activeEnv: undefined as Record<string, unknown> | undefined,
+  scopedEnv: undefined as Record<string, unknown> | undefined,
   fallbackEnv: Object.defineProperties({ FALLBACK: "fallback", SHARED: "fallback" }, {
     DB: { value: "binding" },
     NATIVE: { value: "native" },
@@ -23,6 +24,15 @@ const cloudflareBridgeState = vi.hoisted(() => ({
 
 vi.mock("cloudflare:workers", () => ({ env: cloudflareBridgeState.fallbackEnv }))
 vi.mock("@vite-hub/database/runtime/state", () => ({
+  runWithActiveCloudflareEnv: (env: Record<string, unknown>, callback: () => unknown) => {
+    cloudflareBridgeState.scopedEnv = env
+    try {
+      return callback()
+    }
+    finally {
+      cloudflareBridgeState.scopedEnv = undefined
+    }
+  },
   setActiveCloudflareEnv: (env: Record<string, unknown>) => {
     cloudflareBridgeState.activeEnv = env
     ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = env
@@ -163,7 +173,6 @@ describe("Database Nuxt integration", () => {
         {
           handler: ".vitehub/nitro/database/middleware.ts",
           middleware: true,
-          route: "/**",
         },
       ],
       rollupConfig: {
@@ -219,6 +228,12 @@ describe("Database Nuxt integration", () => {
         SHARED: "event",
       })
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("event-binding")
+      const response = middleware({ env: { DB: "next-binding" } }, () => {
+        expect(cloudflareBridgeState.scopedEnv?.DB).toBe("next-binding")
+        return "next-response"
+      })
+      expect(response).toBe("next-response")
+      expect(cloudflareBridgeState.scopedEnv).toBeUndefined()
       middleware({})
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("native-binding")
       expect(Object.hasOwn(cloudflareBridgeState.activeEnv!, "DB")).toBe(true)
@@ -229,6 +244,52 @@ describe("Database Nuxt integration", () => {
     }
     finally {
       ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = previousEnv
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("wires Postgres Hyperdrive bindings and runtime into Cloudflare Nitro output", async () => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-database-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      await mkdir(join(rootDir, "server/databases"), { recursive: true })
+      await writeFile(join(rootDir, "server/databases/config.ts"), [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "import { pgTable, text } from 'drizzle-orm/pg-core'",
+        "export default defineDatabase({",
+        "  dialect: 'postgresql',",
+        "  cloudflare: { hyperdriveId: 'hyperdrive-id' },",
+        "  connection: { url: process.env.DATABASE_URL },",
+        "  schema: { notes: pgTable('notes', { title: text('title') }) },",
+        "})",
+        "",
+      ].join("\n"))
+      const { hooks, nuxt } = createNuxt({
+        dev: false,
+        nitro: { preset: "cloudflare_module" },
+        rootDir,
+        vite: {},
+      })
+
+      await hubDb()(undefined, nuxt)
+      const nitroConfig: Record<string, unknown> = { cloudflare: { wrangler: { hyperdrive: [{ binding: "OTHER", id: "other-id" }] } } }
+      await callHook(hooks, "nitro:config", nitroConfig)
+
+      expect(nitroConfig).toMatchObject({
+        alias: { "@vite-hub/database/drizzle": join(rootDir, ".vitehub/database/cloudflare-runtime.mjs") },
+        cloudflare: {
+          wrangler: {
+            hyperdrive: [
+              { binding: "OTHER", id: "other-id" },
+              { binding: "HYPERDRIVE", id: "hyperdrive-id" },
+            ],
+          },
+        },
+      })
+      const runtime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
+      expect(runtime).toContain("createPostgresDatabase(definition_0, {\"binding\":\"HYPERDRIVE\"")
+    }
+    finally {
       await rm(rootDir, { force: true, recursive: true })
     }
   })
@@ -467,6 +528,25 @@ describe("Database Nuxt integration", () => {
       else process.env.VITEHUB_TEST_NATIVE_APP_ID = originalId
       if (originalName === undefined) delete process.env.VITEHUB_TEST_NATIVE_APP_NAME
       else process.env.VITEHUB_TEST_NATIVE_APP_NAME = originalName
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("creates Postgres clients in the Nitro development runtime", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-local-postgres-"))
+    const buildDir = join(rootDir, ".nuxt")
+    try {
+      await mkdir(join(rootDir, "server/databases"), { recursive: true })
+      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} })\n")
+      const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: {} })
+      await hubDb()(undefined, nuxt)
+      await callHook(hooks, "nitro:config", {})
+
+      const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
+      expect(code).toMatch(/import \{ createPostgresDatabase \} from "file:.+\/runtime\/postgres\.js"/)
+      expect(code).toContain("db: createPostgresDatabase(definition_0, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+    }
+    finally {
       await rm(rootDir, { force: true, recursive: true })
     }
   })

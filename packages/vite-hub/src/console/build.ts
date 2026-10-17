@@ -25,6 +25,8 @@ export interface ConsoleBuildCatalog {
  */
 export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscoveryContext & {
   databaseDiscoveryRoot?: string
+  /** List the implicit default Database when the app has no Database Definition. The Vite Database plugin uses one. */
+  databaseImplicitDefault?: boolean
   sections: readonly ConsoleSectionId[]
 }): Promise<ConsoleBuildCatalog> {
   const { projectRoot, sections, serverDirs } = options
@@ -35,6 +37,7 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   if (sections.includes("databases")) {
     content.databases = {
       definitions: await inspectDatabaseDefinitions({
+        implicitDefault: options.databaseImplicitDefault,
         plugins: options.plugins,
         projectRoot,
         rootDir: options.databaseDiscoveryRoot ?? options.discoveryRoot,

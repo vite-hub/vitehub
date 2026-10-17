@@ -19,14 +19,17 @@ const pageGroups = computed(() => {
   const groups = getDocsSidebarGroups(section.value);
   const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
   if (section.value.id !== "ui" || !perspective) return groups;
-  return groups.map((group) => {
-    const pages = group.pages.filter(page => page.path !== perspective.path);
-    if (group.label !== "Start") return { ...group, pages };
-    return {
-      ...group,
-      pages: [...pages, perspective],
-    };
-  }).filter(group => group.pages.length > 0);
+
+  const perspectivePath = normalizeDocsPath(perspective.path);
+  const hasPerspective = groups.some(group => group.pages.some(page => normalizeDocsPath(page.path) === perspectivePath));
+  if (hasPerspective) return groups;
+  const perspectiveGroup = groups.find(group => group.label === "Perspective");
+  if (perspectiveGroup) {
+    return groups.map(group => group === perspectiveGroup
+      ? { ...group, pages: [...group.pages, perspective] }
+      : group);
+  }
+  return [...groups, { label: "Perspective", pages: [perspective] }];
 });
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
