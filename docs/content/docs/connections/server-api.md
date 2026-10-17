@@ -10,9 +10,9 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `defineConnection`, `oauth2`, `apiKey`, `useConnection` from `vite-hub/connections` | Define a Connection, use a generic OAuth 2 or API key provider, and call a Connection from server code. |
-| `google`, `gmail`, `gmailOperations` from `vite-hub/connections/google` | Google OAuth preset and typed Gmail REST Operations. |
-| `createConnectionsRuntime`, `useConnectionsRuntime` from `vite-hub/connections/server` | Runtime access for hosts and tests. |
+| `defineConnection`, `apiKey` from `vite-hub/connections` | Define a Connection and use an API key provider. |
+| `google` from `vite-hub/connections/google` | Google OAuth preset with typed Gmail methods. |
+| `useConnection`, `createConnectionsRuntime`, `getConnectionsRuntime`, `setConnectionsRuntime` from `vite-hub/connections/server` | Call a Connection from server code, and runtime access for hosts and tests. |
 | `createConnectionsHandler` from `vite-hub/connections/http` | Management, connect, and callback routes. The Console mounts them. It requires an `actor` access policy. |
 | `hubConnections` from `@vite-hub/connections/vite` | Standalone Vite integration. |
 

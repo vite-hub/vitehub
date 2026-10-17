@@ -163,8 +163,8 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/box/ssh` | Box Package | `sshLaunch` and `serveSsh` for a trusted SSH command transport. |
 | `@vite-hub/channels` | Channels Package | Outbound Channel Definitions with `defineOutboundChannel()`, explicit clients, portable types, and normalized delivery results. |
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
-| `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `oauth2()`, `apiKey()`, `useConnection()`, the Google preset, and typed Gmail Operations. |
-| `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access, management and OAuth routes, and the Agent primitive handle. |
+| `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `apiKey()`, the Google preset, and typed Gmail Operations. |
+| `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, management and OAuth routes, and the Agent primitive handle. |
 | `@vite-hub/content` and `@vite-hub/content/client` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, and typed client. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
 | `@vite-hub/email` | Email Package | Explicit clients, portable types, and normalized errors. |
