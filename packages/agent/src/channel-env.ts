@@ -25,6 +25,12 @@ export const builtInChannelEnv = {
   github: forgeEnv.github,
   gitlab: forgeEnv.gitlab,
   forgejo: forgeEnv.forgejo,
+  teams: {
+    apiUrl: { names: ["TEAMS_API_URL"], requiredUnless: ["adapter"] },
+    appId: { names: ["TEAMS_APP_ID"], requiredUnless: ["adapter"] },
+    appPassword: { names: ["TEAMS_APP_PASSWORD"], requiredUnless: ["adapter"], secret: true },
+    appTenantId: { names: ["TEAMS_APP_TENANT_ID"], requiredUnless: ["adapter"] },
+  },
   telegram: {
     apiBaseUrl: { names: ["TELEGRAM_API_BASE_URL"] },
     botToken: { names: ["TELEGRAM_BOT_TOKEN"], requiredUnless: ["adapter", "botToken"], secret: true },
