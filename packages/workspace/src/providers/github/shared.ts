@@ -4,7 +4,7 @@ import { Diagnostic } from "nostics";
 import { workspaceConflict, workspaceError } from "../../core/errors.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
 
-import type { GitHubWorkspaceOption, WorkspaceEntry } from "../../core/types.ts";
+import type { GitHubWorkspaceOption } from "../../core/types.ts";
 
 export interface GitHubWorkspaceOptions {
   branch?: GitHubWorkspaceOption;
@@ -179,14 +179,10 @@ export function githubBranchMovedConflict(input: {
   actualHead?: string;
   branch: string;
   expectedHead: string;
-  kind?: "publisher" | "store";
   repository: string;
 }): ReturnType<typeof workspaceConflict> {
-  const message = input.kind === "publisher"
-    ? `[vitehub] GitHub branch update conflict for ${input.repository}@${input.branch}: the branch moved after this update started. Retry against the current branch head.`
-    : `[vitehub] GitHub Workspace Store conflict for ${input.repository}@${input.branch}: the branch moved after this Workspace Store loaded. Rebase from the current branch head and retry.`;
   return workspaceConflict(
-    message,
+    `[vitehub] GitHub Workspace Store conflict for ${input.repository}@${input.branch}: the branch moved after this Workspace Store loaded. Rebase from the current branch head and retry.`,
     {
       details: {
         actualHead: input.actualHead,
@@ -231,17 +227,15 @@ function activeCloudflareEnv(
 }
 
 export function requireGitHubOption(
-  kind: "publisher" | "store",
   label: string,
   value: string | undefined,
 ): string {
-  if (!value) throw workspaceError(`[vitehub] GitHub workspace ${kind} requires ${label}.`);
+  if (!value) throw workspaceError(`[vitehub] GitHub workspace store requires ${label}.`);
   return value;
 }
 
 export function splitGitHubRepository(
   repository: string,
-  kind: "publisher" | "store",
 ): { owner: string; repo: string } {
   const parts = repository.split("/");
   const owner = parts[0];
@@ -252,7 +246,7 @@ export function splitGitHubRepository(
     || !repo || /[^A-Za-z0-9_.-]/.test(repo) || repo === "." || repo === ".."
   ) {
     throw workspaceError(
-      `[vitehub] GitHub workspace ${kind} requires a repository in owner/repo format.`,
+      "[vitehub] GitHub workspace store requires a repository in owner/repo format.",
     );
   }
   return { owner: owner, repo: repo };
@@ -279,12 +273,6 @@ export function workspacePathFromGitPath(path: string, root: string): string | u
   if (!normalizedRoot) return normalizeWorkspacePath(normalized);
   if (!normalized.startsWith(`${normalizedRoot}/`)) return undefined;
   return normalizeWorkspacePath(normalized.slice(normalizedRoot.length + 1));
-}
-
-export function isWorkspaceFileEntry(
-  entry: WorkspaceEntry,
-): entry is WorkspaceEntry & { type: "file" } {
-  return entry.type === "file";
 }
 
 function toHex(bytes: Uint8Array): string {
@@ -441,7 +429,7 @@ export async function readGitHubRawFile(input: {
   repository: string;
   token: string;
 }): Promise<Uint8Array> {
-  const { owner, repo } = splitGitHubRepository(input.repository, "store");
+  const { owner, repo } = splitGitHubRepository(input.repository);
   const path = input.path.split("/").map(encodeURIComponent).join("/");
   const response = await requestGitHub(
     `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(input.ref)}/${path}`,
@@ -468,7 +456,7 @@ export async function readGitHubArchive(input: {
   signal?: AbortSignal;
   token: string;
 }): Promise<Uint8Array> {
-  const { owner, repo } = splitGitHubRepository(input.repository, "store");
+  const { owner, repo } = splitGitHubRepository(input.repository);
   const response = await requestGitHub(
     `https://codeload.github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tar.gz/${encodeURIComponent(input.ref)}`,
     {
@@ -492,11 +480,10 @@ export async function readGitHubArchive(input: {
 export function findGitHubRemoteFiles(
   tree: GitHubTreeResponse,
   root: string,
-  kind: "publisher" | "store",
 ): Map<string, GitHubTreeEntry> {
   if (tree.truncated) {
     throw workspaceError(
-      `[vitehub] GitHub workspace ${kind} could not compare the remote tree because GitHub returned a truncated tree.`,
+      "[vitehub] GitHub workspace store could not compare the remote tree because GitHub returned a truncated tree.",
     );
   }
 
@@ -511,13 +498,11 @@ export function findGitHubRemoteFiles(
 
 export async function readGitHubBranchState(input: {
   branch: string;
-  kind: "publisher" | "store";
-  paths?: string[];
   repository: string;
   root: string;
   token: string;
 }): Promise<GitHubBranchState> {
-  const { owner, repo } = splitGitHubRepository(input.repository, input.kind);
+  const { owner, repo } = splitGitHubRepository(input.repository);
   let branchExists = true;
   let ref: GitHubRefResponse;
   try {
@@ -546,34 +531,6 @@ export async function readGitHubBranchState(input: {
     input.token,
     `/repos/${owner}/${repo}/git/commits/${ref.object.sha}`,
   ), isGitHubCommitResponse, "commit");
-  if (input.paths) {
-    const entries = await Promise.all(input.paths.map(async (path) => {
-      const fullPath = joinGitPath(input.root, path);
-      const encodedPath = fullPath.split("/").map(encodeURIComponent).join("/");
-      try {
-        const entry = await requestGitHubJson(
-          input.repository,
-          input.token,
-          `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref.object.sha)}`,
-          { headers: { accept: "application/vnd.github.object+json" } },
-        );
-        return requireGitHubResponse(entry, isGitHubTreeEntry, "content");
-      }
-      catch (error) {
-        if (githubRequestStatus(error) === 404) return undefined;
-        throw error;
-      }
-    }));
-    return {
-      branchExists,
-      files: new Map(input.paths.flatMap((path, index) => {
-        const entry = entries[index];
-        return entry?.type === "file" ? [[path, entry] as const] : [];
-      })),
-      refSha: ref.object.sha,
-      treeSha: current.tree.sha,
-    };
-  }
   const tree = requireGitHubResponse(await requestGitHubJson(
     input.repository,
     input.token,
@@ -581,7 +538,7 @@ export async function readGitHubBranchState(input: {
   ), isGitHubTreeResponse, "tree");
   return {
     branchExists,
-    files: findGitHubRemoteFiles(tree, input.root, input.kind),
+    files: findGitHubRemoteFiles(tree, input.root),
     refSha: ref.object.sha,
     treeSha: current.tree.sha,
   };
@@ -593,20 +550,17 @@ export async function commitGitHubChanges(input: {
   branchExists: boolean;
   deletePaths: string[];
   files: GitHubFileUpdate[];
-  kind?: "publisher" | "store";
   message: string;
   parentSha: string;
   repository: string;
   token: string;
 }): Promise<GitHubCommitResult> {
-  const kind = input.kind || "store";
-  const { owner, repo } = splitGitHubRepository(input.repository, kind);
+  const { owner, repo } = splitGitHubRepository(input.repository);
   const blobs = await Promise.all(
     input.files.map((file) =>
       file.bytes
         ? createGitHubBlob({
             bytes: file.bytes,
-            kind,
             repository: input.repository,
             token: input.token,
           })
@@ -665,7 +619,6 @@ export async function commitGitHubChanges(input: {
         throw githubBranchMovedConflict({
           branch: input.branch,
           expectedHead: input.parentSha,
-          kind,
           repository: input.repository,
         });
       }
@@ -688,12 +641,10 @@ export async function commitGitHubChanges(input: {
 
 export async function createGitHubBlob(input: {
   bytes: Uint8Array;
-  kind?: "publisher" | "store";
   repository: string;
   token: string;
 }): Promise<{ sha: string }> {
-  const kind = input.kind || "store";
-  const { owner, repo } = splitGitHubRepository(input.repository, kind);
+  const { owner, repo } = splitGitHubRepository(input.repository);
   const response = await requestGitHubJson(
     input.repository,
     input.token,

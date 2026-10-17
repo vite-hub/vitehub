@@ -23,7 +23,6 @@ import { defineWorkflow } from "vite-hub/workflow"
 import { defineWorkspace } from "vite-hub/workspace"
 import * as cloudflareWorkspace from "vite-hub/workspace/cloudflare"
 import * as workspaceLoader from "vite-hub/workspace/loader"
-import * as workspacePublisher from "vite-hub/workspace/publish"
 import * as workspaceServer from "vite-hub/workspace/server"
 
 export const contract = {
@@ -47,7 +46,6 @@ export const contract = {
     justBashShell,
     cloudflareWorkspace,
     workspaceLoader,
-    workspacePublisher,
     workspaceServer,
   ],
   plugins: vitehub({

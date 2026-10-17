@@ -303,11 +303,12 @@ test('explicit waits and exhausted budgets must both clear before admission', as
   assert.equal((await inbox.claim(1)).length, 1)
 })
 
-test('stale wait completion releases its claim without charging progress', async t => {
+test('a wait rejected by human feedback releases its claim without charging progress', async t => {
   const inbox = memory(t)
   await inbox.seed(repository, pr())
   const claim = (await inbox.claim(1))[0]!
-  await wake(inbox, 500)
+  await inbox.ingest('500', 'issue_comment', { repository: { full_name: repository }, issue: { number: 7, pull_request: {} },
+    sender: { login: 'maintainer', type: 'User' }, comment: { id: 500, body: 'feedback 500' } })
   assert.equal(await inbox.finish(claim, { text: 'Stale', progress: { kind: 'no-progress' },
     wait: { reason: 'Checks pending', evidenceKey: 'checks:pending' } }), false)
   assert.equal((await inbox.get(repository, 7))!.progressBudget, undefined)
@@ -343,4 +344,18 @@ test('CI recovery admission survives restart without admitting unrelated exhaust
   await inbox.wake((await inbox.get(repository, 7))!, 'new-feedback')
   assert.equal((await inbox.claim(2, recoveryOptions)).length, 0)
   assert.equal((await inbox.claim(2)).length, 0)
+})
+
+test('a pass whose wait loses to a new event on the same head still uses the no-progress budget', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  for (let index = 0; index < 3; index++) {
+    const [claim] = await inbox.claim(1)
+    assert.ok(claim, `pass ${index + 1} is claimed`)
+    // A check finishes while the pass runs, so its wait no longer matches the stored generation.
+    await inbox.ingest(`check-${index}`, 'check_run', { repository: { full_name: repository }, action: 'completed',
+      check_run: { id: 100 + index, name: 'lint', head_sha: 'a', status: 'completed', conclusion: 'success', app: { id: 1 }, pull_requests: [{ number: 7 }] } })
+    assert.equal(await inbox.finish(claim, { text: 'Needs a maintainer', progress: { kind: 'no-progress' }, wait: { kind: 'external', reason: 'Needs a maintainer' } }), false)
+  }
+  assert.deepEqual((await inbox.get(repository, 7))?.progressBudget, { head: 'a', limit: 3, count: 3, exhausted: true, creditedEvidence: [] })
+  assert.equal((await inbox.claim(1)).length, 0)
 })

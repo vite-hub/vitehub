@@ -461,7 +461,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
               delivery.concurrencyLimit,
               delivery.leaseTtlMs,
               delivery.enqueuedAt,
-              delivery.enqueuedAt,
+              delivery.availableAt ?? delivery.enqueuedAt,
             ],
           ),
       )
@@ -676,6 +676,18 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       this.driver,
       `SELECT value FROM ${this.tables.webhookQueue}
         WHERE scope = ? AND status != 'completed'
+        ORDER BY id ASC`,
+      [scope],
+    )
+    return rows.flatMap((row) => (isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : []))
+  }
+
+  async queuedWebhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]> {
+    await this.cleanupExpiredStateIfDue()
+    const rows = await execute(
+      this.driver,
+      `SELECT value FROM ${this.tables.webhookQueue}
+        WHERE scope = ? AND status = 'queued'
         ORDER BY id ASC`,
       [scope],
     )
