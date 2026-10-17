@@ -2,7 +2,7 @@ import { fake } from "forges/fake"
 import { fixtureFetch } from "forges/testing"
 import { describe, expect, it, vi } from "vitest"
 import { github } from "../src/channels.ts"
-import { codeHostProvider } from "../src/internal/code-host.ts"
+import { forgeProvider } from "@vite-hub/forge"
 import { codeHostActivityComments, codeHostDeliveryEffects, codeHostIdentity, codeHostPullRequestMetadata, codeHostThreadRef } from "../src/internal/code-host-channel.ts"
 import type { CodeHostTarget } from "../src/internal/code-host-channel.ts"
 import { messageChannelDeliveredReplyBody } from "../src/internal/message-channel-delivery-body.ts"
@@ -63,7 +63,7 @@ describe("Code Host Channel core", () => {
       { request: { method: "GET", url: "https://api.github.com/repos/acme/app/issues/42/comments?per_page=100" }, response: { status: 200, body: [{ id: 1, body: "first" }, { id: 2, body: "second" }] } },
       { request: { method: "GET", url: "https://api.github.com/repos/acme/app/pulls/42/files?per_page=100" }, response: { status: 200, body: [file, { ...file, filename: "extra.ts" }] } },
     ])
-    const provider = await codeHostProvider({ host: "github", token: "token", fetch: fixture.fetch as typeof fetch })
+    const provider = await forgeProvider({ forge: "github", token: "token", fetch: fixture.fetch as typeof fetch })
     const metadata = await codeHostPullRequestMetadata(provider, target, { maxComments: 1, maxFiles: 1 })
     expect(metadata.files[0]).toEqual(file)
     expect(metadata.comments[0]).toEqual({ id: 1, body: "first" })
@@ -77,7 +77,7 @@ describe("Code Host Channel core", () => {
       { request: { method: "POST", url: `https://api.github.com${path}` }, response: { status: 201, body: { id: 55 } } },
       { request: { method: "DELETE", url: `https://api.github.com${path}/55` }, response: { status: 204 } },
     ])
-    const provider = await codeHostProvider({ host: "github", token: "installation-token", fetch: fixture.fetch as typeof fetch })
+    const provider = await forgeProvider({ forge: "github", token: "installation-token", fetch: fixture.fetch as typeof fetch })
     const effects = codeHostDeliveryEffects({ provider: async () => provider, target: () => ({ ...target, commentId }), statusContext: "Agent", reactions: "id" })
     if (typeof effects.reaction !== "function") throw new Error("Missing reaction effect.")
     const input = { context: {} }
@@ -93,7 +93,7 @@ describe("Code Host Channel core", () => {
     const fixture = fixtureFetch([
       { request: { method: "POST", url: "https://api.github.com/repos/acme/app/statuses/abc" }, response: { status: 201, body: { id: 1, state: "success", context: "Agent" } } },
     ])
-    const provider = await codeHostProvider({ host: "github", token: "installation-token", fetch: fixture.fetch as typeof fetch })
+    const provider = await forgeProvider({ forge: "github", token: "installation-token", fetch: fixture.fetch as typeof fetch })
     const effects = codeHostDeliveryEffects({ provider: async () => provider, target: () => target, statusContext: "Agent", reactions: "id" })
     if (typeof effects.status !== "function") throw new Error("Missing status effect.")
     await effects.status(effectContext({ kind: "status", payload: { state: "success", sha: "abc" } }))
@@ -107,7 +107,7 @@ describe("Code Host Channel core", () => {
       { request: { method: "GET", url: "https://api.github.com/repos/acme/app/pulls/42" }, response: { status: 200, body: { head: { sha: "head-sha" }, base: { sha: "base-sha" } } } },
       { request: { method: "POST", url: "https://api.github.com/repos/acme/app/statuses/head-sha" }, response: { status: 201, body: { id: 1, state: "pending", context: "Agent" } } },
     ])
-    const provider = await codeHostProvider({ host: "github", token: "installation-token", fetch: fixture.fetch as typeof fetch })
+    const provider = await forgeProvider({ forge: "github", token: "installation-token", fetch: fixture.fetch as typeof fetch })
     const effects = codeHostDeliveryEffects({ provider: async () => provider, target: () => target, statusContext: "Agent", reactions: "id" })
     if (typeof effects.status !== "function") throw new Error("Missing status effect.")
     await effects.status(effectContext({ kind: "status", payload: { state: "pending" } }))
@@ -116,7 +116,7 @@ describe("Code Host Channel core", () => {
 
   it("maps delivery failures to the existing diagnostic", async () => {
     const fixture = fixtureFetch([{ request: { method: "POST", url: "https://api.github.com/repos/acme/app/issues/42/comments" }, response: { status: 401, body: {} } }])
-    const provider = await codeHostProvider({ host: "github", token: "bad", fetch: fixture.fetch as typeof fetch })
+    const provider = await forgeProvider({ forge: "github", token: "bad", fetch: fixture.fetch as typeof fetch })
     const effects = codeHostDeliveryEffects({ provider: async () => provider, target: () => target, statusContext: "Agent", reactions: "id" })
     if (typeof effects.reply !== "function") throw new Error("Missing reply effect.")
     await expect(effects.reply(effectContext({ kind: "reply", payload: "reply" }))).rejects.toMatchObject({ code: "AGENT_R0350", message: "[vitehub] GitHub delivery effect failed with 401." })
@@ -132,7 +132,7 @@ describe("Code Host Channel core", () => {
         headers: page === 1 ? { link: '<https://api.github.com/repos/acme/app/issues/42/comments?per_page=100&page=8>; rel="last"' } : {},
       })
     }
-    const provider = await codeHostProvider({ host: "github", token: "token", fetch: fetcher })
+    const provider = await forgeProvider({ forge: "github", token: "token", fetch: fetcher })
     const comments = await codeHostActivityComments(provider, target, 500).list()
     expect(comments).toHaveLength(500)
     expect(comments[0]?.ref.id).toBe("800")
@@ -145,7 +145,7 @@ describe("Code Host Channel core", () => {
       { request: { method: "GET", url: "https://api.github.com/repos/acme/app/issues/comments/7" }, response: { status: 200, body: { id: 7, body: "activity", user: { login: "bot" } } } },
       { request: { method: "GET", url: "https://api.github.com/repos/acme/app/issues/comments/8" }, response: { status: 404, body: {} } },
     ])
-    const provider = await codeHostProvider({ host: "github", token: "token", fetch: fixture.fetch as typeof fetch })
+    const provider = await forgeProvider({ forge: "github", token: "token", fetch: fixture.fetch as typeof fetch })
     const comments = codeHostActivityComments(provider, target, 500)
     expect((await comments.get(7))?.raw).toEqual({ id: 7, body: "activity", user: { login: "bot" } })
     expect(await comments.get(8)).toBeUndefined()

@@ -4,11 +4,11 @@ import { fixtureFetch } from "forges/testing"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
-  CodeHostResponseError,
-  codeHostErrorStatus,
-  codeHostProvider,
+  ForgeResponseError,
+  forgeErrorStatus,
+  forgeProvider,
   githubAppCredentials,
-} from "../src/internal/code-host.ts"
+} from "../src/index.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -82,9 +82,9 @@ describe("internal Code Host client", () => {
     const key = privateKeys("pkcs8")
     const failed = githubAppCredentials({ appId: 987, privateKey: key, fetch: async () => Response.json({ message: "Bad credentials" }, { status: 401 }) })
     const error: unknown = await failed.installationToken(8).catch((reason: unknown) => reason)
-    expect(codeHostErrorStatus(error)).toBe(401)
+    expect(forgeErrorStatus(error)).toBe(401)
     const empty = githubAppCredentials({ appId: 988, privateKey: key, fetch: async () => Response.json({ expires_at: new Date(Date.now() + 3_600_000).toISOString() }) })
-    await expect(empty.installationToken(8)).rejects.toBeInstanceOf(CodeHostResponseError)
+    await expect(empty.installationToken(8)).rejects.toBeInstanceOf(ForgeResponseError)
   })
 
   it.each(["pkcs1", "pkcs8"] as const)("signs %s private keys", async type => {
@@ -113,20 +113,20 @@ describe("internal Code Host client", () => {
       { request: { method: "GET", url: "https://api.github.com/repos/acme/app/installation" }, response: { status: 404, body: {} } },
     ])
     await expect(githubAppCredentials({ appId: 12, privateKey: privateKeys("pkcs1"), fetch: fixture.fetch as typeof fetch }).installation("acme/app"))
-      .rejects.toMatchObject({ code: "AGENT_R0757" })
+      .rejects.toMatchObject({ code: "FORGE_R0001" })
   })
 
   it("uses the GitLab and Forgejo API paths and token auth", async () => {
     const gitlab = fixtureFetch([{ request: { method: "GET", url: "https://gitlab.com/api/v4/projects/acme%2Fapp" }, response: { status: 200, body: {} } }])
     const forgejo = fixtureFetch([{ request: { method: "GET", url: "https://codeberg.org/api/v1/repos/acme/app" }, response: { status: 200, body: {} } }])
-    await (await codeHostProvider({ host: "gitlab", token: "gitlab-token", fetch: gitlab.fetch as typeof fetch })).request("GET", "/projects/acme%2Fapp")
-    await (await codeHostProvider({ host: "forgejo", token: "forgejo-token", fetch: forgejo.fetch as typeof fetch })).request("GET", "/repos/acme/app")
+    await (await forgeProvider({ forge: "gitlab", token: "gitlab-token", fetch: gitlab.fetch as typeof fetch })).request("GET", "/projects/acme%2Fapp")
+    await (await forgeProvider({ forge: "forgejo", token: "forgejo-token", fetch: forgejo.fetch as typeof fetch })).request("GET", "/repos/acme/app")
     expect(gitlab.calls[0]?.authorization).toBe("Bearer gitlab-token")
     expect(forgejo.calls[0]?.authorization).toBe("token forgejo-token")
   })
 
   it("blocks writes in read-only mode", async () => {
-    const provider = await codeHostProvider({ host: "github", readOnly: true })
+    const provider = await forgeProvider({ forge: "github", readOnly: true })
     expect(provider.can("threads.comment", "pull_request")).toBe(false)
     await expect(provider.threads.comment({ forge: "github", instance: "github.com", repo: { forge: "github", instance: "github.com", owner: "acme", name: "app" }, kind: "pull_request", number: "1" }, "body"))
       .rejects.toThrow()

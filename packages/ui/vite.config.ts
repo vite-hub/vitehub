@@ -1,6 +1,5 @@
 import { defineConfig } from "vite-plus";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
-import { componentEntryName, componentNames } from "./src/component-entries.ts";
 
 export default defineConfig({
   pack: {
@@ -23,7 +22,6 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      ...new Set(componentNames.map((name) => `src/${componentEntryName(name)}.ts`)),
       "src/index.ts",
       "src/headless.ts",
       "src/nuxt.ts",

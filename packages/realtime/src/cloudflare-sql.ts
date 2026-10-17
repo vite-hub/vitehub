@@ -38,7 +38,6 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // identify that exact prototype. This rejects copied members and bound or
     // arrow constructor proxies before any candidate callback is invoked.
     if (constructorEntry.owner !== execEntry.owner || constructorEntry.owner !== databaseSizeEntry.owner) return false
-    if (!Object.hasOwn(constructor, "prototype") || constructor.prototype !== constructorEntry.owner) return false
     // Accessor callbacks supplied by JavaScript have an own `prototype`;
     // workerd's native getter does not. Reject these before the brand probe so
     // discovery never invokes a fabricated getter.

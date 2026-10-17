@@ -1,4 +1,5 @@
 import { resolvePublicUrl } from "@vite-hub/runtime"
+import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
@@ -20,6 +21,7 @@ function isAuthDatabaseMetadata(value: unknown): boolean {
     || (
       isPlainObject(value)
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate metadata fields at the untrusted options boundary.
+      && Object.hasOwn(value, "name")
       && typeof value.name === "string"
       && Object.keys(value).every(key => key === "dedicated" || key === "name")
     )
@@ -30,6 +32,7 @@ function isAuthSecondaryStorageMetadata(value: unknown): boolean {
     || (
       isPlainObject(value)
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate metadata fields at the untrusted options boundary.
+      && Object.hasOwn(value, "store")
       && typeof value.store === "string"
       && Object.keys(value).every(key => key === "store")
     )
@@ -52,8 +55,9 @@ function stripViteHubOptions(
     ...rest,
     ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
     ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
+    // Better Auth appends this path to an origin `baseURL`, so the app base path keeps routes and callbacks below it.
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Better Auth accepts a string base path; malformed JavaScript input is ignored.
-    basePath: normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined),
+    basePath: resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)),
   } as AuthBetterAuthRuntimeOptions
 }
 
