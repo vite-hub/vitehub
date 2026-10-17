@@ -79,7 +79,7 @@ function failure(status: number, message: string): Response {
 }
 
 /**
- * A fake of the GitHub REST and GraphQL endpoints that the Workspace GitHub Store, publisher and history use.
+ * A fake of the GitHub REST and GraphQL endpoints that the Workspace GitHub Store and history use.
  * Install `fake.fetch` as the global `fetch`.
  */
 export function createFakeGitHub(options: { owner?: string, repo?: string } = {}) {
