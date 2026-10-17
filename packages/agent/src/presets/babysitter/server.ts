@@ -43,10 +43,10 @@ import { createHash } from "node:crypto";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import type { BabysitterAgent, BabysitterPassResult, BabysitterPlacementLease } from "../babysitter.ts";
 import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } from "../../agent-layers.ts";
-import { importBoxCommit } from "./box-commit.ts";
+import { importSandboxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
-import { importBoxRepairFiles, importBoxRepairWorkspace, publishBoxDependencies } from "./box-repair.ts";
-import { activeProviderBox } from "../../internal/provider-box.ts";
+import { importSandboxRepairFiles, importSandboxRepairWorkspace, publishSandboxDependencies } from "./box-repair.ts";
+import { activeProviderSandbox } from "../../internal/provider-box.ts";
 import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from "../../server/github-required-checks.ts";
@@ -827,8 +827,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         ]);
         let providerDirectory: string | undefined;
         let placementLease: BabysitterPlacementLease | undefined;
-        // A pass placed in a Box installs there; the host checkout keeps no dependencies.
-        const hostInstall = () => presetOptions.install !== false && !placementLease?.box;
+        // A pass placed in a Sandbox installs there; the host checkout keeps no dependencies.
+        const hostInstall = () => presetOptions.install !== false && !placementLease?.sandbox;
         let modelWorkParked = false;
         const parkBlockedModelWork = async () => {
           const currentAdmission = await options.admission?.();
@@ -1270,12 +1270,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // the host identity, but dropping the whole map loses other
               // channel-scoped capabilities needed by repair passes.
               const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
-              // Placement runs once per pass, before any host install, and never overrides a configured Box.
-              if (presetOptions.placement && !workerSettings.box) {
+              // Placement runs once per pass, before any host install, and never overrides a configured Sandbox.
+              if (presetOptions.placement && !workerSettings.sandbox) {
                 placementLease ??= await presetOptions.placement.place({ repository, number });
-                if (placementLease.box) workerSettings.box = placementLease.box;
+                if (placementLease.sandbox) workerSettings.sandbox = placementLease.sandbox;
               }
-              if (workerSettings.box) providerDirectory = checkout;
+              if (workerSettings.sandbox) providerDirectory = checkout;
               const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
               const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
                 if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
@@ -1286,32 +1286,32 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               }));
               const baseCapabilities = workerSettings.capabilities;
               const repair = repairCapability(operations, merge.mode === "auto", presetOptions.mentionAllowlist, async (context) => {
-                if (!workerSettings.box) return;
-                const session = activeProviderBox(context);
-                if (!session) throw new Error("The repair Box is not prepared.");
+                if (!workerSettings.sandbox) return;
+                const session = activeProviderSandbox(context);
+                if (!session) throw new Error("The repair Sandbox is not prepared.");
                 await assertLease();
-                if (!session.localWorkspace) await importBoxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
+                if (!session.localWorkspace) await importSandboxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
               }, {
                 runRepair: execute => repairOperation.run(true, execute),
                 beforeRepair: async (context, paths) => {
-                  if (!workerSettings.box) return;
+                  if (!workerSettings.sandbox) return;
                   await assertLease();
                   await assertRepairBase();
-                  const box = activeProviderBox(context);
-                  if (!box) throw new Error("The repair Box is not prepared.");
-                  if (!box.localWorkspace) {
-                    await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
-                    if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
-                    else await importBoxRepairWorkspace(box.session, checkout, abortSignal);
+                  const sandbox = activeProviderSandbox(context);
+                  if (!sandbox) throw new Error("The repair Sandbox is not prepared.");
+                  if (!sandbox.localWorkspace) {
+                    await importSandboxCommit(sandbox.session, checkout, pullRequest.headRefOid, abortSignal);
+                    if (paths) await importSandboxRepairFiles(sandbox.session, checkout, paths, abortSignal);
+                    else await importSandboxRepairWorkspace(sandbox.session, checkout, abortSignal);
                   }
                   await assertLease();
                 },
                 afterRefresh: async context => {
-                  if (!workerSettings.box || presetOptions.install === false) return;
+                  if (!workerSettings.sandbox || presetOptions.install === false) return;
                   await assertLease();
-                  const box = activeProviderBox(context);
-                  if (!box) throw new Error("The repair Box is not prepared.");
-                  if (!box.localWorkspace) await publishBoxDependencies(box.session, checkout, abortSignal);
+                  const sandbox = activeProviderSandbox(context);
+                  if (!sandbox) throw new Error("The repair Sandbox is not prepared.");
+                  if (!sandbox.localWorkspace) await publishSandboxDependencies(sandbox.session, checkout, abortSignal);
                   await assertLease();
                 },
               });
@@ -1375,7 +1375,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                         : await resolveRuntimeValue(workerDriver.env, context);
                     return repairEnvironment(environment, join(checkout, ".vitehub-github-auth"), prepared.env);
                   },
-                  ...(workerSettings.box ? undefined : { launch: async (context: AgentProviderLaunchContext) => {
+                  ...(workerSettings.sandbox ? undefined : { launch: async (context: AgentProviderLaunchContext) => {
                     if (context.purpose !== "inspection") {
                       await prepareRepairWorkspace(context.cwd, hasRuntimeType(context.environment.NODE_OPTIONS, "string") ? context.environment.NODE_OPTIONS : undefined);
                       providerDirectory = context.cwd;
@@ -1390,14 +1390,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   } }),
                 },
               };
-              if (workerSettings.box) {
-                // Box runtimes copy the host cwd when they open. Prepare the
+              if (workerSettings.sandbox) {
+                // Sandbox runtimes copy the host cwd when they open. Prepare the
                 // exact merge and installed graph before that copy is taken.
                 await prepareRepairWorkspace(checkout);
                 if (await parkBlockedModelWork()) throw new DOMException("Provider dispatch is waiting for admission.", "AbortError");
               }
-              const agent = workerSettings.box
-                ? defineAgent({ ...workerOptions, box: { ...workerSettings.box, checkout: undefined, cwd: checkout, requires: [...(workerSettings.box.requires ?? []), "git"] } })
+              const agent = workerSettings.sandbox
+                ? defineAgent({ ...workerOptions, sandbox: { ...workerSettings.sandbox, checkout: undefined, cwd: checkout, requires: [...(workerSettings.sandbox.requires ?? []), "git"] } })
                 : defineAgent({ ...workerOptions, workspace: {
                     ...baseWorkspace,
                     commit: false,
@@ -1426,8 +1426,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               inboxClaim.activity = githubRun.activity;
               const result = await runWithProviderRetry(async () => {
                 // Run metadata and retry backoff can outlive a sibling admission
-                // block. Check each Box dispatch immediately before runAgent.
-                if (workerSettings.box && await parkBlockedModelWork()) throw new DOMException("Provider dispatch is waiting for admission.", "AbortError");
+                // block. Check each Sandbox dispatch immediately before runAgent.
+                if (workerSettings.sandbox && await parkBlockedModelWork()) throw new DOMException("Provider dispatch is waiting for admission.", "AbortError");
                 return await runAgent(
                   agent,
                   {

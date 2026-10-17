@@ -902,7 +902,9 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     createDefaultNetlifyOutputRoot(rootDir),
     createDefaultVercelOutputRoot(rootDir),
     resolve(rootDir, ".vitehub/agent"),
-    resolve(rootDir, ".vitehub/blob/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/queue/cloudflare-output.json"),
+    resolve(rootDir, ".vitehub/queue/registry.mjs"),
+    resolve(rootDir, ".vitehub/queue/vercel-output.json"),
     resolve(rootDir, ".vitehub/schedule"),
     resolve(rootDir, ".vitehub/workflow"),
   ]

@@ -77,7 +77,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/kv/vite", { "vite": "declaration" }],
   ["@vite-hub/queue/vite", { "vite": "declaration" }],
   ["@vite-hub/realtime/vite", { "vite": "declaration" }],
-  ["@vite-hub/sandbox/vite", { "vite": "declaration" }],
+  ["@vite-hub/sandbox-task/vite", { "vite": "declaration" }],
   ["@vite-hub/schedule/vite", { "vite": "declaration" }],
   ["@vite-hub/workflow/vite", { "vite": "declaration" }],
   ["@vite-hub/workspace/vite", { "vite": "declaration" }],

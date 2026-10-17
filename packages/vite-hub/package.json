@@ -183,11 +183,11 @@
       "require": "./dist/_internal/rate-limit/runtime/console.js",
       "default": "./dist/_internal/rate-limit/runtime/console.js"
     },
-    "./_internal/sandbox/runtime/state": {
-      "types": "./dist/_internal/sandbox/runtime/state.d.ts",
-      "import": "./dist/_internal/sandbox/runtime/state.js",
-      "require": "./dist/_internal/sandbox/runtime/state.js",
-      "default": "./dist/_internal/sandbox/runtime/state.js"
+    "./_internal/sandbox-task/runtime/state": {
+      "types": "./dist/_internal/sandbox-task/runtime/state.d.ts",
+      "import": "./dist/_internal/sandbox-task/runtime/state.js",
+      "require": "./dist/_internal/sandbox-task/runtime/state.js",
+      "default": "./dist/_internal/sandbox-task/runtime/state.js"
     },
     "./_internal/schedule": {
       "types": "./dist/_internal/schedule.d.ts",
@@ -495,18 +495,6 @@
       "require": "./dist/blob/vue.js",
       "default": "./dist/blob/vue.js"
     },
-    "./box": {
-      "types": "./dist/box.d.ts",
-      "import": "./dist/box.js",
-      "require": "./dist/box.js",
-      "default": "./dist/box.js"
-    },
-    "./box/ssh": {
-      "types": "./dist/box/ssh.d.ts",
-      "import": "./dist/box/ssh.js",
-      "require": "./dist/box/ssh.js",
-      "default": "./dist/box/ssh.js"
-    },
     "./browser": {
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js",
@@ -789,6 +777,18 @@
       "require": "./dist/sandbox.js",
       "default": "./dist/sandbox.js"
     },
+    "./sandbox/ssh": {
+      "types": "./dist/sandbox/ssh.d.ts",
+      "import": "./dist/sandbox/ssh.js",
+      "require": "./dist/sandbox/ssh.js",
+      "default": "./dist/sandbox/ssh.js"
+    },
+    "./sandbox-task": {
+      "types": "./dist/sandbox-task.d.ts",
+      "import": "./dist/sandbox-task.js",
+      "require": "./dist/sandbox-task.js",
+      "default": "./dist/sandbox-task.js"
+    },
     "./schedule": {
       "types": "./dist/schedule.d.ts",
       "import": "./dist/schedule.js",
@@ -1025,7 +1025,6 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
-    "@vite-hub/box": "workspace:*",
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cli": "workspace:*",
@@ -1041,6 +1040,7 @@
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
