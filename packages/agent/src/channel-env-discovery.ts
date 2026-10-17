@@ -135,6 +135,7 @@ function staticOptionKeys(tokens: string[], start: number, empty: string, typesc
       ? key === "botToken" && !method
       : isUndefinedValue(tokens, value, new Set([",", "}"])) || (key === "botToken" && canResolveUndefined(tokens, value))
     const adapterOverride = value !== undefined && !canResolveUndefined(tokens, value)
+      && !(kind === "teams" && tokens[value] === "true")
       && (isStaticAdapter(tokens, value, kind) || (kind === "teams" && !isTeamsOptionsLiteral(tokens, value)))
     if (!omitted && (key !== "adapter" || method || adapterOverride)) keys.add(key)
   })) return undefined

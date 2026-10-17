@@ -17,6 +17,13 @@ function uses(source: string) {
 }
 
 describe("built-in Channel discovery", () => {
+  it("keeps Teams Env required for the runtime-supported adapter true value", () => {
+    expect(uses(`
+      import { teams } from "vite-hub/agent/channels"
+      teams({ adapter: true })
+    `)).toEqual([{ kind: "teams", keys: [] }])
+  })
+
   it.each(["tele\\u0067ram", "tele\\u{67}ram", "\\u0074elegram"])("decodes escaped identifier Channel keys: %s", (key) => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"

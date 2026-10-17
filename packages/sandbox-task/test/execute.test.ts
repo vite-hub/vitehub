@@ -1,0 +1,1197 @@
+import { describe, expect, it, vi } from "vitest"
+import { posix } from "node:path"
+import { runInNewContext } from "node:vm"
+import { unknownExecutionAuthority } from "@vite-hub/runtime"
+
+import { executeSandboxTaskDefinition } from "../src/runtime/execute.ts"
+import { createHandlerError, extractSandboxTaskOutputFromExecution, readExecOutputWithRecovery, tryParseSandboxTaskOutput } from "../src/runtime/output-recovery.ts"
+import { toSandboxTaskError } from "../src/runtime/error-normalization.ts"
+import { SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
+import type { ViteHubError } from "@vite-hub/runtime"
+import type { TaskSandbox } from "../src/runtime/task-sandbox.ts"
+
+type SandboxExecResult = Awaited<ReturnType<TaskSandbox["exec"]>>
+type SandboxExecHook = (execution: {
+  args: string[]
+  read: (path: string) => Uint8Array | undefined
+  write: (path: string, contents: Uint8Array) => void
+}) => Promise<SandboxExecResult | undefined>
+
+it("bounds provider error messages while preserving the sandbox error", () => {
+  const error = toSandboxTaskError(new Error("x".repeat(20_000)))
+  expect(error).toMatchObject({ code: "SANDBOX_TASK_RUNTIME_ERROR" })
+  expect(error.message).toHaveLength(16_384)
+})
+
+it("preserves messages from errors created in another realm", () => {
+  const error = runInNewContext('new Error("foreign provider failure")')
+  expect(toSandboxTaskError(error)).toMatchObject({
+    code: "SANDBOX_TASK_RUNTIME_ERROR",
+    message: "foreign provider failure",
+  })
+})
+
+it("falls back when a foreign error has a non-string message", () => {
+  const error = runInNewContext('(() => { const error = new Error("foreign provider failure"); error.message = 42; return error })()')
+  expect(toSandboxTaskError(error)).toMatchObject({
+    code: "SANDBOX_TASK_RUNTIME_ERROR",
+    message: "Sandbox execution failed.",
+  })
+})
+
+it("falls back when a foreign error has a function message", () => {
+  const error = runInNewContext('(() => { const error = new Error("foreign provider failure"); error.message = function message() {}; return error })()')
+  expect(() => toSandboxTaskError(error)).not.toThrow()
+  expect(toSandboxTaskError(error)).toMatchObject({
+    code: "SANDBOX_TASK_RUNTIME_ERROR",
+    message: "Sandbox execution failed.",
+  })
+})
+
+it.each([
+  {
+    label: "string message",
+    value: { [Symbol.toStringTag]: "Error", message: "spoofed" },
+  },
+  {
+    label: "object message",
+    value: { [Symbol.toStringTag]: "Error", message: { toString: () => { throw new Error("message probe") } } },
+  },
+  {
+    label: "throwing message getter",
+    value: Object.defineProperty({ [Symbol.toStringTag]: "Error" }, "message", { get: () => { throw new Error("message probe") } }),
+  },
+  {
+    label: "stateful message getter",
+    value: (() => {
+      let reads = 0
+      return Object.defineProperty({ [Symbol.toStringTag]: "Error" }, "message", {
+        get: () => reads++ === 0 ? "spoofed" : (() => { throw new Error("message probe") })(),
+      })
+    })(),
+  },
+])("does not trust spoofed Error values with a $label", ({ value }) => {
+  expect(() => toSandboxTaskError(value)).not.toThrow()
+  expect(toSandboxTaskError(value)).toMatchObject({ code: "SANDBOX_TASK_RUNTIME_ERROR", message: "[object Error]" })
+})
+
+it("waits for complete Cloudflare output before rejecting a malformed envelope", async () => {
+  const outputs = ['{"ok":', '{"ok":1,"result":true}']
+  const readFile = vi.fn(async () => outputs.shift()!)
+  const sandbox = {
+    provider: "cloudflare",
+    readFile,
+  } as unknown as TaskSandbox
+
+  const output = await readExecOutputWithRecovery(
+    sandbox,
+    "/output.json",
+    { code: 0 },
+    undefined,
+    { code: 0 },
+  )
+
+  expect(readFile).toHaveBeenCalledTimes(2)
+  expect(output).toBe('{"ok":1,"result":true}')
+  expect(tryParseSandboxTaskOutput(output)).toBeNull()
+})
+
+it("extracts output from a large provider stream", () => {
+  const output = '{"ok":true,"result":"ready"}'
+  const stream = `${"x".repeat(1_000_000)}\n${"noise ".repeat(100)}${"__VITEHUB_OUTPUT__"}${output}`
+
+  expect(extractSandboxTaskOutputFromExecution({ stdout: stream })).toBe(output)
+})
+
+function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExecResult, holdExecution?: boolean, holdFileWrite?: boolean, holdInstall?: boolean, onExecute?: SandboxExecHook, provider?: "cloudflare" | "vercel" } = {}) {
+  const files = new Map<string, Uint8Array>()
+  const directories = new Set<string>(["/"])
+  const normalize = (path: string) => posix.resolve("/", path)
+  const addParents = (path: string) => {
+    let current = posix.dirname(normalize(path))
+    while (!directories.has(current)) {
+      directories.add(current)
+      current = posix.dirname(current)
+    }
+  }
+  const execCalls: Array<{ cmd: string, args: string[], options?: { cwd?: string, env?: Record<string, string>, signal?: AbortSignal } }> = []
+  const mkdirCalls: string[] = []
+  let releaseInstall = () => {}
+  const installGate = new Promise<void>(resolve => releaseInstall = resolve)
+
+  const sandbox = {
+    executionAuthority: unknownExecutionAuthority,
+    id: "fake",
+    provider: options.provider ?? "vercel",
+    async close() {},
+    async exec(cmd: string, args: string[] = [], execOptions?: { cwd?: string, env?: Record<string, string>, signal?: AbortSignal }): Promise<SandboxExecResult> {
+      execCalls.push({ cmd, args, options: execOptions })
+      if (options.execError)
+        throw options.execError
+      if (options.execResult)
+        return options.execResult
+
+      if (cmd === "mkdir") {
+        const target = normalize(args[0] || "")
+        if (directories.has(target)) return { ok: false, stdout: "", stderr: "exists", code: 1 }
+        addParents(target)
+        directories.add(target)
+        return { ok: true, stdout: "", stderr: "", code: 0 }
+      }
+
+      const outputPath = args.at(-1)
+      if (!outputPath)
+        throw new Error("Missing output path")
+
+      if (cmd === "pnpm" && execOptions?.cwd) {
+        if (options.holdInstall) await installGate
+        const installed = `${execOptions.cwd}/node_modules/.installed`
+        addParents(installed)
+        files.set(installed, new TextEncoder().encode("ready"))
+        return { ok: true, stdout: "", stderr: "", code: 0 }
+      }
+      if (cmd === "node" && args[1]?.includes('rename(process.argv[1], process.argv[2])')) {
+        const source = normalize(args[2] || "")
+        const destination = normalize(args[3] || "")
+        if (directories.has(destination)) return { ok: false, stdout: "", stderr: "exists", code: 1 }
+        for (const directory of directories) {
+          if (directory === source || directory.startsWith(`${source}/`)) {
+            directories.delete(directory)
+            directories.add(`${destination}${directory.slice(source.length)}`)
+          }
+        }
+        for (const [path, content] of files) {
+          if (path === source || path.startsWith(`${source}/`)) {
+            files.delete(path)
+            files.set(`${destination}${path.slice(source.length)}`, content)
+          }
+        }
+        return { ok: true, stdout: "", stderr: "", code: 0 }
+      }
+      if (options.holdExecution && cmd === "node" && args[1] === "import(process.argv[1])") {
+        return await new Promise<SandboxExecResult>((_resolve, reject) => {
+          execOptions?.signal?.addEventListener("abort", () => reject(execOptions.signal?.reason), { once: true })
+        })
+      }
+      if (options.onExecute && cmd === "node" && args[1] === "import(process.argv[1])") {
+        const result = await options.onExecute({
+          args,
+          read: path => files.get(normalize(path)),
+          write: (path, contents) => {
+            const target = normalize(path)
+            addParents(target)
+            files.set(target, contents)
+          },
+        })
+        if (result) return result
+      }
+      if (cmd === "rm") {
+        await sandbox.files.remove(args.at(-1) || "", { recursive: true })
+        return { ok: true, stdout: "", stderr: "", code: 0 }
+      }
+      files.set(normalize(outputPath), new TextEncoder().encode(JSON.stringify({ ok: true, result: { ok: true } })))
+      return { ok: true, stdout: "", stderr: "", code: 0 }
+    },
+    files: {
+      async exists(path: string) {
+        const target = normalize(path)
+        return files.has(target) || directories.has(target)
+      },
+      async list(path: string, listOptions?: { recursive?: boolean }) {
+        const root = normalize(path)
+        const prefix = root === "/" ? "/" : `${root}/`
+        return [
+          ...[...directories].filter(path => path !== root && path.startsWith(prefix)).map(path => ({ path, type: "directory" as const })),
+          ...[...files].filter(([path]) => path.startsWith(prefix)).map(([path, content]) => ({ path, size: content.byteLength, type: "file" as const })),
+        ].filter(entry => listOptions?.recursive || !entry.path.slice(prefix.length).includes("/"))
+      },
+      async mkdir(path: string) {
+        const target = normalize(path)
+        addParents(target)
+        directories.add(target)
+      },
+      async read(path: string) {
+        return files.get(normalize(path)) || null
+      },
+      async remove(path: string, removeOptions?: { recursive?: boolean }) {
+        const target = normalize(path)
+        files.delete(target)
+        directories.delete(target)
+        if (removeOptions?.recursive) {
+          for (const file of files.keys()) if (file.startsWith(`${target}/`)) files.delete(file)
+          for (const directory of directories) if (directory.startsWith(`${target}/`)) directories.delete(directory)
+        }
+      },
+      async write(path: string, content: Uint8Array, writeOptions?: { signal?: AbortSignal }) {
+        if (options.holdFileWrite) {
+          await new Promise<void>((_resolve, reject) => {
+            writeOptions?.signal?.addEventListener("abort", () => reject(writeOptions.signal?.reason), { once: true })
+          })
+        }
+        const target = normalize(path)
+        addParents(target)
+        files.set(target, content)
+      },
+    },
+    async writeFile(path: string, content: string) {
+      const target = normalize(path)
+      addParents(target)
+      files.set(target, new TextEncoder().encode(content))
+    },
+    async readFile(path: string) {
+      const content = files.get(normalize(path))
+      if (typeof content === "undefined")
+        throw new Error("Missing file: " + path)
+      return new TextDecoder().decode(content)
+    },
+    async mkdir(path: string) {
+      mkdirCalls.push(path)
+      const target = normalize(path)
+      addParents(target)
+      directories.add(target)
+    },
+    async exists(path: string) {
+      return files.has(normalize(path)) || directories.has(normalize(path))
+    },
+  } as TaskSandbox
+
+  return { sandbox, execCalls, hasFile: (path: string) => files.has(normalize(path)), mkdirCalls, releaseInstall }
+}
+
+describe("executeSandboxTaskDefinition", () => {
+  it("tracks inner execution until cleanup finishes after cancellation returns", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ holdExecution: true, provider: "cloudflare" })
+    let finishCleanup!: () => void
+    const cleanup = new Promise<void>(resolve => { finishCleanup = resolve })
+    const exec = sandbox.exec.bind(sandbox)
+    sandbox.exec = vi.fn(async (command, args, options) => {
+      if (command === "rm") await cleanup
+      return await exec(command, args, options)
+    })
+    let trackedExecution: Promise<unknown> | undefined
+    const controller = new AbortController()
+    const run = executeSandboxTaskDefinition(sandbox, "release-notes", undefined, {
+      entry: "definition.mjs",
+      modules: { "definition.mjs": "export default async () => true" },
+    }, undefined, undefined, {
+      onExecution(execution) { trackedExecution = execution },
+    }, controller.signal)
+    await vi.waitFor(() => expect(execCalls.some(call => call.cmd === "node")).toBe(true))
+    const reason = new DOMException("request disconnected", "AbortError")
+    controller.abort(reason)
+    await expect(run).rejects.toBe(reason)
+    let settled = false
+    const completion = trackedExecution!.catch(error => {
+      expect(error).toBe(reason)
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finishCleanup()
+    await completion
+    expect(settled).toBe(true)
+  })
+
+  it("preserves an external abort reason while execution is running", async () => {
+    const { sandbox } = createFakeSandbox({ holdExecution: true })
+    const controller = new AbortController()
+    const reason = new DOMException("request disconnected", "AbortError")
+    const run = executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      undefined,
+      undefined,
+      undefined,
+      controller.signal,
+    )
+
+    controller.abort(reason)
+    await expect(run).rejects.toBe(reason)
+  })
+
+  it("does not cross the handler boundary when Definition staging fails", async () => {
+    const { sandbox } = createFakeSandbox({ provider: "cloudflare" })
+    const onHandlerStart = vi.fn()
+    sandbox.files.write = vi.fn(async () => {
+      throw new Error("container is starting")
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      undefined,
+      undefined,
+      { onHandlerStart },
+    )).rejects.toThrow("container is starting")
+
+    expect(onHandlerStart).not.toHaveBeenCalled()
+  })
+
+  it("crosses the handler boundary before user code can fail", async () => {
+    const onHandlerStart = vi.fn()
+    const { sandbox } = createFakeSandbox({
+      provider: "cloudflare",
+      async onExecute({ args, write }) {
+        expect(onHandlerStart).toHaveBeenCalledOnce()
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
+          error: { message: "container is starting" },
+          ok: false,
+        })))
+        return { code: 1, ok: false, stderr: "", stdout: "" }
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      undefined,
+      undefined,
+      { onHandlerStart },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_HANDLER_ERROR",
+      message: "container is starting",
+    })
+
+    expect(onHandlerStart).toHaveBeenCalledOnce()
+  })
+
+  it("bounds handler diagnostics before constructing the public error", () => {
+    const error = createHandlerError("Sandbox Task Definition failed." + "!".repeat(20_000), "vercel", {
+      ignored: { private: true },
+      stderr: "x".repeat(20_000),
+    })
+
+    expect(error).toMatchObject({
+      code: "SANDBOX_TASK_HANDLER_ERROR",
+      details: { provider: "vercel", stderr: "x".repeat(16_384) },
+      message: ("Sandbox Task Definition failed." + "!".repeat(20_000)).slice(0, 16_384),
+    })
+    expect(error.details).not.toHaveProperty("ignored")
+  })
+
+  it("sanitizes arbitrary provider details during normalization", () => {
+    const providerError = Object.assign(new Error("Provider failed."), {
+      code: "PROVIDER_FAILED",
+      details: {
+        cyclic: undefined as unknown,
+        date: new Date(),
+        stderr: "x".repeat(20_000),
+      },
+    })
+    providerError.details.cyclic = providerError.details
+
+    expect(toSandboxTaskError(providerError)).toMatchObject({
+      code: "SANDBOX_TASK_RUNTIME_ERROR",
+      details: { stderr: "x".repeat(16_384) },
+    })
+  })
+
+  it("normalizes empty provider error messages", () => {
+    expect(toSandboxTaskError(new Error())).toMatchObject({
+      code: "SANDBOX_TASK_RUNTIME_ERROR",
+      message: "Sandbox execution failed.",
+    })
+  })
+
+  it("bounds setup with the definition timeout", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
+    const onHandlerStart = vi.fn()
+    let finishSetup: (() => void) | undefined
+    sandbox.mkdir = async () => await new Promise<void>((resolve) => {
+      finishSetup = resolve
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      { timeout: 10 },
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+      undefined,
+      undefined,
+      { onHandlerStart },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TIMEOUT",
+      details: { provider: "cloudflare", timeout: 10 },
+    } satisfies Partial<ViteHubError>)
+
+    finishSetup?.()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(execCalls.some(call => call.cmd === "node")).toBe(false)
+    expect(onHandlerStart).not.toHaveBeenCalled()
+  })
+
+  it("marks execution started only when the handler launcher begins", async () => {
+    const { sandbox } = createFakeSandbox()
+    const onHandlerStart = vi.fn()
+
+    await executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+      undefined,
+      undefined,
+      { onHandlerStart },
+    )
+
+    expect(onHandlerStart).toHaveBeenCalledOnce()
+  })
+
+  it("imports the generated entry once with the default Node launcher", async () => {
+    const { sandbox, execCalls } = createFakeSandbox()
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+    )).resolves.toEqual({ ok: true })
+
+    const launchCalls = execCalls.filter(call => call.cmd === "node")
+    expect(launchCalls).toHaveLength(1)
+    expect(launchCalls[0]?.args.slice(0, 2)).toEqual(["-e", "import(process.argv[1])"])
+    expect(launchCalls[0]?.options?.cwd).toMatch(/^\/tmp\/vitehub-sandbox-task\/release-notes-/)
+  })
+
+  it("awaits an executable module default export", async () => {
+    const { sandbox, execCalls } = createFakeSandbox()
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: {
+          "definition.mjs": "await Promise.resolve(); export default async () => ({ ok: true })",
+        },
+      },
+    )).resolves.toEqual({ ok: true })
+
+    const launch = execCalls.find(call => call.cmd === "node")!
+    const entry = await sandbox.readFile(launch.args[2]!)
+    expect(entry).toContain("if (typeof exported !== 'function')")
+    expect(entry).toContain("const result = await exported(input.payload, input.context)")
+    expect(entry).not.toContain("definition.run")
+  })
+
+  it("stages and revives nested binary values through Sandbox files", async () => {
+    const markerObject = {
+      [SANDBOX_VALUE_MARKER]: {
+        id: 99,
+        kind: "uint8array",
+        tag: "binary",
+      },
+      path: "/etc/passwd",
+    }
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        const input = JSON.parse(new TextDecoder().decode(read(inputPath)!))
+        expect(input.payload.image[SANDBOX_VALUE_MARKER]).toEqual({
+          id: 0,
+          kind: "blob",
+          tag: "binary",
+          type: "image/jpeg",
+        })
+        expect(input.context.bytes[SANDBOX_VALUE_MARKER]).toEqual({
+          id: 1,
+          kind: "uint8array",
+          tag: "binary",
+        })
+        expect(input.payload.markerObject[SANDBOX_VALUE_MARKER]).toMatchObject({ tag: "object" })
+        expect(read(`${inputPath}.files/0`)).toEqual(Uint8Array.from([0xff, 0xd8, 0xff]))
+        expect(read(`${inputPath}.files/1`)).toEqual(Uint8Array.from([1, 2, 3]))
+
+        write(`${outputPath}.files/0`, Uint8Array.from([9, 8, 7]))
+        write(`${outputPath}.files/1`, Uint8Array.from([6, 5, 4]))
+        write(outputPath, new TextEncoder().encode(JSON.stringify({
+          ok: true,
+          result: {
+            image: { [SANDBOX_VALUE_MARKER]: { id: 0, kind: "blob", tag: "binary", type: "image/webp" } },
+            markerObject: input.payload.markerObject,
+            nested: [{ [SANDBOX_VALUE_MARKER]: { id: 1, kind: "uint8array", tag: "binary" } }],
+          },
+        })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    const result = await executeSandboxTaskDefinition(
+      sandbox,
+      "image-optimizer",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async ({ image }) => image" },
+      },
+      {
+        image: new Blob([Uint8Array.from([0xff, 0xd8, 0xff])], { type: "image/jpeg" }),
+        markerObject,
+      },
+      { bytes: Uint8Array.from([1, 2, 3]) },
+    ) as { image: Blob, markerObject: typeof markerObject, nested: Uint8Array[] }
+
+    expect(result.image).toBeInstanceOf(Blob)
+    expect(result.image.type).toBe("image/webp")
+    expect(new Uint8Array(await result.image.arrayBuffer())).toEqual(Uint8Array.from([9, 8, 7]))
+    expect(result.nested[0]).toEqual(Uint8Array.from([6, 5, 4]))
+    expect(result.markerObject).toEqual(markerObject)
+  })
+
+  it("preserves Buffer values through binary sidecars", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        const input = JSON.parse(new TextDecoder().decode(read(inputPath)!))
+        expect(input.payload.bytes[SANDBOX_VALUE_MARKER]).toEqual({
+          id: 0,
+          kind: "buffer",
+          tag: "binary",
+        })
+        write(`${outputPath}.files/0`, Uint8Array.from([4, 5, 6]))
+        write(outputPath, new TextEncoder().encode(JSON.stringify({
+          ok: true,
+          result: { [SANDBOX_VALUE_MARKER]: { id: 0, kind: "buffer", tag: "binary" } },
+        })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    const result = await executeSandboxTaskDefinition(
+      sandbox,
+      "buffer-transform",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async bytes => bytes" },
+      },
+      { bytes: Buffer.from([1, 2, 3]) },
+      {},
+    )
+
+    expect(Buffer.isBuffer(result)).toBe(true)
+    expect(result).toEqual(Buffer.from([4, 5, 6]))
+  })
+
+  it("applies payload toJSON before staging nested binary values", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        expect(JSON.parse(new TextDecoder().decode(read(inputPath)!))).toEqual({
+          context: {},
+          payload: { length: 3 },
+        })
+        write(outputPath, new TextEncoder().encode(JSON.stringify({ ok: true, result: true })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    const payload = {
+      bytes: Uint8Array.from([1, 2, 3]),
+      toJSON() {
+        return { length: this.bytes.byteLength }
+      },
+    }
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "json-semantics",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      payload,
+      {},
+    )).resolves.toBe(true)
+  })
+
+  it("classifies payload toJSON failures as serialization errors", async () => {
+    const { sandbox } = createFakeSandbox()
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "invalid-json-hook",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      { toJSON() { throw new Error("broken JSON hook") } },
+      {},
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_SERIALIZATION_ERROR",
+      cause: expect.objectContaining({ message: "broken JSON hook" }),
+    })
+  })
+
+  it("classifies a payload toJSON getter failure as a serialization error", async () => {
+    const { sandbox } = createFakeSandbox()
+    const payload = Object.defineProperty({}, "toJSON", {
+      enumerable: true,
+      get() { throw new Error("broken JSON getter") },
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "invalid-json-getter",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      payload,
+      {},
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_SERIALIZATION_ERROR",
+      cause: expect.objectContaining({ message: "broken JSON getter" }),
+    })
+  })
+
+  it("classifies a generated result toJSON getter failure as a serialization error", async () => {
+    const { sandbox } = createFakeSandbox({
+      onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
+          ok: false,
+          error: {
+            code: "SANDBOX_TASK_SERIALIZATION_ERROR",
+            message: "Sandbox result must be JSON-serializable.",
+          },
+        })))
+        return Promise.resolve({ code: 1, ok: false, stderr: "", stdout: "" })
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "invalid-result-json-getter",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: {
+          "definition.mjs": `export default async () => Object.defineProperty({}, "toJSON", {
+            get() { throw new Error("broken result JSON getter") },
+          })`,
+        },
+      },
+      {},
+      {},
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_SERIALIZATION_ERROR",
+    })
+  })
+
+  it("classifies payload traversal failures as serialization errors", async () => {
+    const { sandbox } = createFakeSandbox()
+    const payload = Object.defineProperty({}, "broken", {
+      enumerable: true,
+      get() { throw new Error("broken payload getter") },
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "invalid-payload-getter",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      payload,
+      {},
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_SERIALIZATION_ERROR",
+      cause: expect.objectContaining({ message: "broken payload getter" }),
+    })
+  })
+
+  it("stages binary fields from JSON-visible class payloads", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        const input = JSON.parse(new TextDecoder().decode(read(inputPath)!))
+        expect(input.payload.bytes[SANDBOX_VALUE_MARKER]).toMatchObject({
+          kind: "uint8array",
+          tag: "binary",
+        })
+        expect(read(`${inputPath}.files/0`)).toEqual(Uint8Array.from([1, 2, 3]))
+        write(outputPath, new TextEncoder().encode(JSON.stringify({ ok: true, result: true })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    class Payload {
+      bytes = Uint8Array.from([1, 2, 3])
+    }
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "class-payload",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      new Payload(),
+      {},
+    )).resolves.toBe(true)
+  })
+
+  it("applies array payload toJSON before walking its elements", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        expect(JSON.parse(new TextDecoder().decode(read(inputPath)!))).toEqual({
+          context: {},
+          payload: { length: 1 },
+        })
+        write(outputPath, new TextEncoder().encode(JSON.stringify({ ok: true, result: true })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    class Payload extends Array<Uint8Array> {
+      toJSON() {
+        return { length: this.length }
+      }
+    }
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "array-payload",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      new Payload(Uint8Array.from([1, 2, 3])),
+      {},
+    )).resolves.toBe(true)
+  })
+
+  it("preserves boxed primitive payload semantics", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read, write }) {
+        const inputPath = args.at(-2)!
+        const outputPath = args.at(-1)!
+        expect(JSON.parse(new TextDecoder().decode(read(inputPath)!))).toEqual({
+          context: {},
+          payload: { boolean: true, number: 5, string: "ready" },
+        })
+        write(outputPath, new TextEncoder().encode(JSON.stringify({ ok: true, result: true })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "boxed-payload",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      { boolean: Object(true), number: Object(5), string: Object("ready") },
+      {},
+    )).resolves.toBe(true)
+  })
+
+  it.each([
+    ["invalid", -1, undefined, true],
+    ["negative-zero", 0, "-0", true],
+    ["missing", 7, undefined, false],
+  ])("rejects %s output sidecar identifiers", async (_label, id, rawId, writeSidecar) => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, write }) {
+        const outputPath = args.at(-1)!
+        if (writeSidecar)
+          write(`${outputPath}.files/${id}`, Uint8Array.from([1]))
+        let output = JSON.stringify({
+          ok: true,
+          result: { [SANDBOX_VALUE_MARKER]: { id, kind: "uint8array", tag: "binary" } },
+        })
+        if (rawId) output = output.replace(`"id":${id}`, `"id":${rawId}`)
+        write(outputPath, new TextEncoder().encode(output))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "image-optimizer",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+    )).rejects.toMatchObject({ code: "SANDBOX_TASK_SERIALIZATION_ERROR" })
+  })
+
+  it("enforces timeout during executable module evaluation", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ holdExecution: true, provider: "cloudflare" })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      { timeout: 10 },
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: {
+          "definition.mjs": "await new Promise(() => {}); export default null",
+        },
+      },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TIMEOUT",
+      details: { provider: "cloudflare", timeout: 10 },
+    } satisfies Partial<ViteHubError>)
+
+    expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(true)
+  })
+
+  it("aborts binary sidecar writes when the invocation times out", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ holdFileWrite: true })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "binary-timeout",
+      { timeout: 10 },
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      Uint8Array.from([1, 2, 3]),
+      {},
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TIMEOUT",
+      details: { provider: "vercel" },
+      name: "ViteHubError",
+    })
+
+    expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(false)
+  })
+
+  it("rejects invalid package payloads before project preparation", async () => {
+    const { sandbox, execCalls } = createFakeSandbox()
+    const payload: { self?: unknown } = {}
+    payload.self = payload
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "invalid-package-payload",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+        project: {
+          digest: "b".repeat(64),
+          files: {
+            "package.json": {
+              contents: Buffer.from(JSON.stringify({ private: true, type: "module" })).toString("base64"),
+              encoding: "base64",
+            },
+          },
+          install: { args: ["install", "--frozen-lockfile"], command: "pnpm", cwd: "." },
+          packagePath: ".",
+        },
+      },
+      payload,
+      {},
+    )).rejects.toMatchObject({ code: "SANDBOX_TASK_SERIALIZATION_ERROR" })
+
+    expect(execCalls.some(call => call.cmd === "pnpm")).toBe(false)
+  })
+
+  it("prepares one package project once per digest", async () => {
+    const { sandbox, execCalls, hasFile, mkdirCalls } = createFakeSandbox()
+    const bundle = {
+      entry: ".vitehub-sandbox-task/definition.js",
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      project: {
+        digest: "a".repeat(64),
+        files: {
+          "package.json": {
+            contents: Buffer.from(JSON.stringify({ private: true, type: "module" })).toString("base64"),
+            encoding: "base64" as const,
+          },
+        },
+        install: { args: ["install", "--frozen-lockfile"], command: "pnpm" as const, cwd: "." },
+        packagePath: ".",
+      },
+    }
+
+    await expect(executeSandboxTaskDefinition(sandbox, "release-notes", { env: { SECRET: "handler-only" } }, bundle))
+      .resolves.toEqual({ ok: true })
+    await expect(executeSandboxTaskDefinition(sandbox, "release-notes", { env: { SECRET: "handler-only" } }, bundle))
+      .resolves.toEqual({ ok: true })
+
+    expect(execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+    expect(execCalls.filter(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toHaveLength(2)
+    expect(hasFile(`/tmp/vitehub-sandbox-task/projects/${"a".repeat(64)}/node_modules/.installed`)).toBe(true)
+    expect(execCalls.find(call => call.cmd === "pnpm")).toMatchObject({
+      cmd: "pnpm",
+      args: ["install", "--frozen-lockfile"],
+      options: { cwd: expect.stringMatching(new RegExp(`^/tmp/vitehub-sandbox-task/projects/${"a".repeat(64)}\\.staging-`)) },
+    })
+    expect(execCalls.find(call => call.cmd === "pnpm")?.options?.env).toBeUndefined()
+    expect(mkdirCalls).toContainEqual(expect.stringMatching(new RegExp(`^/tmp/vitehub-sandbox-task/projects/${"a".repeat(64)}\\.staging-.+/\\.vitehub$`)))
+    expect(execCalls.filter(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])"))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ options: expect.objectContaining({ env: { SECRET: "handler-only" } }) }),
+      ]))
+  })
+
+  it("serializes concurrent preparation for one project digest", async () => {
+    const { sandbox, execCalls, releaseInstall } = createFakeSandbox({ holdInstall: true })
+    const bundle = {
+      entry: ".vitehub-sandbox-task/definition.js",
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      project: {
+        digest: "b".repeat(64),
+        files: {
+          "package.json": {
+            contents: Buffer.from(JSON.stringify({ private: true, type: "module" })).toString("base64"),
+            encoding: "base64" as const,
+          },
+        },
+        install: { args: ["install", "--frozen-lockfile"], command: "pnpm" as const, cwd: "." },
+        packagePath: ".",
+      },
+    }
+
+    const first = executeSandboxTaskDefinition(sandbox, "release-notes", undefined, bundle)
+    await vi.waitFor(() => expect(execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1))
+    const second = executeSandboxTaskDefinition(sandbox, "release-notes", undefined, bundle)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+    releaseInstall()
+
+    await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }])
+    expect(execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+  })
+
+  it("prepares separate Sandbox filesystems that share an id", async () => {
+    const firstSandbox = createFakeSandbox({ holdInstall: true })
+    const secondSandbox = createFakeSandbox()
+    const bundle = {
+      entry: ".vitehub-sandbox-task/definition.js",
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      project: {
+        digest: "c".repeat(64),
+        files: {
+          "package.json": {
+            contents: Buffer.from(JSON.stringify({ private: true })).toString("base64"),
+            encoding: "base64" as const,
+          },
+        },
+        install: { args: ["install", "--frozen-lockfile"], command: "pnpm" as const, cwd: "." },
+        packagePath: ".",
+      },
+    }
+
+    const first = executeSandboxTaskDefinition(firstSandbox.sandbox, "first", undefined, bundle)
+    await vi.waitFor(() => expect(firstSandbox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1))
+    const second = executeSandboxTaskDefinition(secondSandbox.sandbox, "second", undefined, bundle)
+    firstSandbox.releaseInstall()
+
+    await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }])
+    expect(firstSandbox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+    expect(secondSandbox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+  })
+
+  it("cleans up the staging project when a concurrent publisher loses", async () => {
+    const shared = createFakeSandbox({ holdInstall: true })
+    const competing = { ...shared.sandbox, id: "competing" } as TaskSandbox
+    const digest = "d".repeat(64)
+    const bundle = {
+      entry: ".vitehub-sandbox-task/definition.js",
+      modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
+      project: {
+        digest,
+        files: {
+          "package.json": {
+            contents: Buffer.from(JSON.stringify({ private: true })).toString("base64"),
+            encoding: "base64" as const,
+          },
+        },
+        install: { args: ["install", "--frozen-lockfile"], command: "pnpm" as const, cwd: "." },
+        packagePath: ".",
+      },
+    }
+
+    const first = executeSandboxTaskDefinition(shared.sandbox, "first", undefined, bundle)
+    const second = executeSandboxTaskDefinition(competing, "second", undefined, bundle)
+    await vi.waitFor(() => expect(shared.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(2))
+    shared.releaseInstall()
+
+    await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }])
+    const entries = await shared.sandbox.files.list("/tmp/vitehub-sandbox-task/projects", { recursive: true })
+    expect(entries.some(entry => entry.path.includes(".staging-"))).toBe(false)
+    expect(entries.some(entry => entry.path === `/tmp/vitehub-sandbox-task/projects/${digest}/.vitehub/prepared`)).toBe(true)
+  })
+
+  it("recursively deletes successful Cloudflare invocation files before reuse", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+    )).resolves.toEqual({ ok: true })
+
+    expect(execCalls.at(-1)).toMatchObject({
+      cmd: "rm",
+      args: ["-rf", "--", expect.stringMatching(/^\/tmp\/vitehub-sandbox-task\/release-notes-/)],
+    })
+  })
+
+  it("rethrows unrecoverable exec errors instead of masking them as output parse failures", async () => {
+    const execError = new Error("vercel transport unavailable")
+    const { sandbox } = createFakeSandbox({ execError })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+    )).rejects.toThrow(execError)
+  })
+
+  it("wraps missing output from completed executions with diagnostics", async () => {
+    const { sandbox } = createFakeSandbox({
+      execResult: {
+        ok: false,
+        stdout: "booted",
+        stderr: "runtime command failed",
+        code: 127,
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "release-notes",
+      undefined,
+      {
+        entry: "definition.mjs",
+        modules: {
+          "definition.mjs": "export default { run() { return { ok: true } } }",
+        },
+      },
+    )).rejects.toMatchObject({
+      name: "ViteHubError",
+      code: "SANDBOX_TASK_HANDLER_ERROR",
+      details: {
+        exitCode: 127,
+        provider: "vercel",
+        stderrPreview: "runtime command failed",
+        stdoutPreview: "booted",
+      },
+    } satisfies Partial<ViteHubError>)
+  })
+
+  it("rejects output envelopes whose ok field is not boolean", async () => {
+    const { sandbox } = createFakeSandbox({
+      onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({ ok: 1, result: true })))
+        return Promise.resolve({ ok: true, stdout: "", stderr: "", code: 0 })
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "malformed-output",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_HANDLER_ERROR",
+      message: "Sandbox Task Definition output is not valid JSON.",
+    } satisfies Partial<ViteHubError>)
+  })
+
+  it("preserves malformed output from a failed Vercel execution", async () => {
+    const { sandbox } = createFakeSandbox({
+      onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({ ok: 1, result: true })))
+        return Promise.resolve({ ok: false, stdout: "", stderr: "handler failed", code: 1 })
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "malformed-output",
+      undefined,
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_HANDLER_ERROR",
+      message: "Sandbox Task Definition output is not valid JSON.",
+    } satisfies Partial<ViteHubError>)
+  })
+})

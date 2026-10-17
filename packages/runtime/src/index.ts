@@ -65,6 +65,14 @@ export {
   type ViteHubErrorShape,
 } from "./errors.ts"
 
+export {
+  defineErrors,
+  type DefineErrorsOptions,
+  type ErrorCatalog,
+  type Result,
+  type ResultError,
+} from "./result.ts"
+
 export type MaybePromise<T> = T | Promise<T>
 
 // Capture platform methods before application callbacks run. As with the other

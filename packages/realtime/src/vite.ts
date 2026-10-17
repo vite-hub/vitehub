@@ -2,10 +2,9 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
 import { summarizeRealtimeDefinitions } from "./inspect.ts"
@@ -142,9 +141,8 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const discovered = discoverRealtimeDefinitions(root, serverDirs)
       // SAFETY: Vite's config contract exposes Nitro options through this optional property.
       const nitro = { ...(config as { nitro?: NitroConfig }).nitro }
-      const configuredPreset = nitro.preset || process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-      const deploymentPreset = deploymentPresetFromNitro(configuredPreset)
-      const provider = getHostingProvider(configuredPreset)
+      const deploymentPreset = resolveHost({ nitro })
+      const provider = getHostingProvider(deploymentPreset)
       const authority = options.authority || "auto"
       const directory = resolve(root, ".vitehub/nitro/realtime")
       // The authority a contribution may rely on. Configurations that fail below have none.
@@ -202,17 +200,17 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       ])
 
       if (authority === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
-        throw realtimeErrorDiagnostics.REALTIME_B0001({ message: `[vitehub] Realtime authority "cloudflare" conflicts with the ${deploymentPreset} deployment preset.` })
+        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "cloudflare", preset: deploymentPreset })
       }
       if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
         inspectionAuthority = "cloudflare"
         configureCloudflareRealtime(nitro)
       }
       else if (environment?.command === "build" && authority === "auto") {
-        throw realtimeErrorDiagnostics.REALTIME_B0002({ message: "[vitehub] Realtime production builds require one room authority. Deploy to Cloudflare Durable Objects or explicitly set realtime.authority to \"memory\" for a single-process server." })
+        throw realtimeErrorDiagnostics.REALTIME_MISSING_AUTHORITY()
       }
       else if (authority === "memory" && deploymentPreset && deploymentPreset !== "node") {
-        throw realtimeErrorDiagnostics.REALTIME_B0003({ message: `[vitehub] Realtime authority "memory" is single-process only and cannot use the ${deploymentPreset} deployment preset.` })
+        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "memory", preset: deploymentPreset })
       }
       if (authority === "memory" || (authority === "auto" && environment?.command !== "build" && inspectionAuthority !== "cloudflare")) {
         inspectionAuthority = "memory"

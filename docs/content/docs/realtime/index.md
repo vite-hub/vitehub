@@ -68,7 +68,8 @@ Prove two clients joining, a concurrent edit, reconnect, and checkpoint recovery
   ```
 
   ```ts [Checkpoint]
-  const checkpoint = await realtime.history.checkpoint()
+  const [error, checkpoint] = await realtime.history.checkpoint()
+  if (error) throw error
 
   checkpoint.document.body
   checkpoint.snapshot

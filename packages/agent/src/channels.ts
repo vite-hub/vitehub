@@ -7,6 +7,8 @@ import type { CodeHostTarget } from "./internal/code-host-channel.ts"
 import { codeHostChannelFetch, codeHostActivityComments, codeHostDeliveryEffects, codeHostIdentity, codeHostPullRequest, codeHostPullRequestMetadata, codeHostThreadRef, codeHostChannelRequest, codeHostChannelRead, codeHostChannelWrite } from "./internal/code-host-channel.ts"
 import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
+export { channelEnv, channelEnvValue } from "./channel-env.ts"
+export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, readGitHubAppPrivateKey } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
