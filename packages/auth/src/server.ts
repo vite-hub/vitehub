@@ -587,9 +587,13 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
       seen.add(prototype)
       const descriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
       if (descriptor) {
-        const expected = foreignReaderMethods.get(Object.getOwnPropertyDescriptor(Object.getPrototypeOf(reader), "constructor")?.value as Function)?.releaseLock
-        if (typeof descriptor.value === "function"
-          && (expected ? descriptor.value === expected : isNativeReaderMethod(descriptor.value, "releaseLock"))) {
+        const readerConstructor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(reader), "constructor")?.value as Function
+        const expected = foreignReaderMethods.get(readerConstructor)?.releaseLock
+        // Keep the verified source-runtime intrinsic even when the reader's
+        // visible method was replaced. Validation will reject that reader,
+        // but the intrinsic can still release its brand-held lock.
+        if (typeof expected === "function") sourceReleaseLock = expected as (this: object) => unknown
+        else if (typeof descriptor.value === "function" && isNativeReaderMethod(descriptor.value, "releaseLock")) {
           sourceReleaseLock = descriptor.value as (this: object) => unknown
         }
         break
