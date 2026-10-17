@@ -108,7 +108,7 @@ function normalizeSandboxTaskDefinitionOptions(name: string, options: SandboxTas
     return JSON.parse(JSON.stringify(options)) as SandboxTaskDefinitionOptions
   }
   catch (error) {
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0011({ message: `[vitehub] Sandbox definition "${name}" options must be JSON-serializable.`, ...{
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0011({ message: `[vitehub] Sandbox Task Definition "${name}" options must be JSON-serializable.`, ...{
       cause: error,
     } })
   }
@@ -164,14 +164,14 @@ function createSandboxTaskProviderLoaderContents(
   const providerExport = sandboxTaskProviderRuntimeExport(provider)
   const providerLoaderPath = sandboxTaskRuntimeProviderSpecifiers[provider]
   return [
-    `import { ${providerExport} as resolveSandboxTaskBox } from ${JSON.stringify(providerLoaderPath)}`,
+    `import { ${providerExport} as resolveTaskSandbox } from ${JSON.stringify(providerLoaderPath)}`,
     `import { unsupportedHostedSandboxTaskProviderError } from ${JSON.stringify(sandboxTaskRuntimeSpecifier)}`,
     '',
     'export async function loadSandboxTaskRuntimeProvider(selectedProvider) {',
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
     '    throw unsupportedHostedSandboxTaskProviderError(selectedProvider)',
     '  return {',
-    '    resolveSandboxTaskBox,',
+    '    resolveTaskSandbox,',
     '  }',
     '}',
     '',
@@ -180,8 +180,8 @@ function createSandboxTaskProviderLoaderContents(
 
 export function sandboxTaskProviderRuntimeExport(provider: SandboxTaskProvider) {
   return provider === 'cloudflare'
-    ? 'resolveCloudflareSandboxTaskBox'
-    : 'resolveVercelSandboxTaskBox'
+    ? 'resolveCloudflareTaskSandbox'
+    : 'resolveVercelTaskSandbox'
 }
 
 export function resolveSandboxTaskFeatureConfig(sandboxTaskConfig: AgentSandboxTaskConfig, hosting?: string): AgentSandboxTaskConfig {
@@ -227,7 +227,7 @@ export async function createSandboxTaskFeaturePlan(
   for (const definition of sandboxTaskDefinitions) {
     const existing = definitionFileByName.get(definition.definitionFilename)
     if (existing) {
-      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0013({ message: `[vitehub] Sandbox definitions "${existing}" and "${definition.name}" generate the same artifact path "${definition.definitionFilename}".` })
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0013({ message: `[vitehub] Sandbox Task Definitions "${existing}" and "${definition.name}" generate the same artifact path "${definition.definitionFilename}".` })
     }
     definitionFileByName.set(definition.definitionFilename, definition.name)
   }

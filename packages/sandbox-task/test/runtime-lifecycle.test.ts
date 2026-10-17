@@ -5,8 +5,8 @@ const runtimeMocks = vi.hoisted(() => ({
   close: vi.fn(async () => {}),
   executeSandboxTaskDefinition: vi.fn(),
   open: vi.fn(),
-  resolveProviderBox: vi.fn(),
-  resolveSandboxTaskBox: vi.fn(),
+  resolveProviderSandbox: vi.fn(),
+  resolveTaskSandbox: vi.fn(),
   sleep: vi.fn(async () => {}),
 }))
 
@@ -20,7 +20,7 @@ vi.mock("../src/internal/shared/utils.ts", () => ({
 
 vi.mock("vitehub-sandbox-task-provider-loader", () => ({
   loadSandboxTaskRuntimeProvider: async () => ({
-    resolveSandboxTaskBox: runtimeMocks.resolveSandboxTaskBox,
+    resolveTaskSandbox: runtimeMocks.resolveTaskSandbox,
   }),
 }))
 
@@ -38,7 +38,7 @@ const definition = {
 
 function createSession() {
   return {
-    id: "box-session",
+    id: "sandbox-session",
     cwd: "/workspace",
     executionAuthority: unknownExecutionAuthority,
     files: {
@@ -61,16 +61,16 @@ beforeEach(() => {
   runtimeMocks.close.mockClear()
   runtimeMocks.executeSandboxTaskDefinition.mockReset()
   runtimeMocks.open.mockReset()
-  runtimeMocks.resolveProviderBox.mockReset()
-  runtimeMocks.resolveSandboxTaskBox.mockReset()
+  runtimeMocks.resolveProviderSandbox.mockReset()
+  runtimeMocks.resolveTaskSandbox.mockReset()
   runtimeMocks.sleep.mockClear()
-  runtimeMocks.resolveSandboxTaskBox.mockImplementation(async ({ provider }) => ({
+  runtimeMocks.resolveTaskSandbox.mockImplementation(async ({ provider }) => ({
     closeAfterRun: provider.provider === "cloudflare" ? provider.keepAlive === true : true,
     provider: provider.provider,
-    resolveBox: runtimeMocks.resolveProviderBox,
+    resolveSandbox: runtimeMocks.resolveProviderSandbox,
     sandboxId: provider.sandboxId,
   }))
-  runtimeMocks.resolveProviderBox.mockResolvedValue({
+  runtimeMocks.resolveProviderSandbox.mockResolvedValue({
     plan: { executionAuthority: unknownExecutionAuthority },
     open: runtimeMocks.open,
   })
@@ -98,7 +98,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(createCloudflareExecutionSandboxId("example", "shared-sandbox")).toBe("shared-sandbox")
   })
 
-  it("composes Cloudflare through Box and closes a unique default session", async () => {
+  it("composes Cloudflare through Sandbox and closes a unique default session", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
@@ -107,7 +107,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     expect(result.ok).toBe(true)
     expect(await result.json()).toEqual({ ok: true })
-    expect(runtimeMocks.resolveProviderBox).toHaveBeenCalledWith(["node"])
+    expect(runtimeMocks.resolveProviderSandbox).toHaveBeenCalledWith(["node"])
     expect(runtimeMocks.open).toHaveBeenCalledWith({
       id: expect.stringMatching(/^vitehub-example-[a-z0-9]+-[0-9a-f-]{36}$/),
     })
@@ -140,7 +140,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     expect(result.ok).toBe(false)
     expect(await result.json()).toMatchObject({ error: { message: expect.any(String) } })
-    expect(runtimeMocks.resolveSandboxTaskBox).not.toHaveBeenCalled()
+    expect(runtimeMocks.resolveTaskSandbox).not.toHaveBeenCalled()
   })
 
   it("rejects invalid Definition timeouts before resolving a provider", async () => {
@@ -156,9 +156,9 @@ describe("Sandbox runtime lifecycle", () => {
 
     expect(result.ok).toBe(false)
     expect(await result.json()).toMatchObject({ error: {
-      message: "[vitehub] Sandbox definition timeout must be a positive integer no greater than 2147483647.",
+      message: "[vitehub] Sandbox Task Definition timeout must be a positive integer no greater than 2147483647.",
     } })
-    expect(runtimeMocks.resolveSandboxTaskBox).not.toHaveBeenCalled()
+    expect(runtimeMocks.resolveTaskSandbox).not.toHaveBeenCalled()
   })
 
   it("keeps configured and per-run Cloudflare identity overrides", async () => {
@@ -173,7 +173,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.open).toHaveBeenNthCalledWith(2, { id: "per-run" })
   })
 
-  it("forwards an invocation signal to Box startup and execution", async () => {
+  it("forwards an invocation signal to Sandbox startup and execution", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
@@ -206,7 +206,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.open).not.toHaveBeenCalled()
   })
 
-  it("runs default Cloudflare executions in distinct Boxes", async () => {
+  it("runs default Cloudflare executions in distinct Sandboxes", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     const releases: Array<() => void> = []
@@ -226,7 +226,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).toHaveBeenCalledTimes(2)
   })
 
-  it("keeps an aborted queued run from releasing a shared Box slot early", async () => {
+  it("keeps an aborted queued run from releasing a shared Sandbox slot early", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare", sandboxId: "shared" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     const releases: Array<() => void> = []
@@ -256,7 +256,7 @@ describe("Sandbox runtime lifecycle", () => {
     await expect(third).resolves.toEqual({ ok: true })
   })
 
-  it("holds an actively cancelled shared Box until execution and destruction settle", async () => {
+  it("holds an actively cancelled shared Sandbox until execution and destruction settle", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare", sandboxId: "active-cancellation" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     let finishExecution!: () => void
@@ -295,7 +295,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
   })
 
-  it("closes the Box session after failed definitions", async () => {
+  it("closes the Sandbox session after failed definitions", async () => {
     setSandboxTaskRuntimeConfig({ provider: "vercel" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockRejectedValue(new Error("definition failed"))
@@ -330,7 +330,7 @@ describe("Sandbox runtime lifecycle", () => {
     runtimeMocks.executeSandboxTaskDefinition.mockImplementation(async (...args) => {
       const lifecycle = args[6] as { onHandlerStart?: () => void }
       lifecycle.onHandlerStart?.()
-      throw sandboxTaskError("[vitehub] Cloudflare Box exists timed out after 15000ms.", {
+      throw sandboxTaskError("[vitehub] Cloudflare Sandbox exists timed out after 15000ms.", {
         code: "SANDBOX_TASK_HANDLER_ERROR",
         provider: "cloudflare",
       })
@@ -350,7 +350,7 @@ describe("Sandbox runtime lifecycle", () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition
-      .mockRejectedValueOnce(new Error("[vitehub] Cloudflare Box exists failed: [vitehub] Cloudflare Box exists timed out after 15000ms."))
+      .mockRejectedValueOnce(new Error("[vitehub] Cloudflare Sandbox exists failed: [vitehub] Cloudflare Sandbox exists timed out after 15000ms."))
       .mockImplementationOnce(async (...args) => {
         const lifecycle = args[6] as { onHandlerStart?: () => void }
         lifecycle.onHandlerStart?.()
@@ -373,10 +373,10 @@ describe("Sandbox runtime lifecycle", () => {
     runtimeMocks.open
       .mockRejectedValueOnce(new AggregateError(
         [
-          new Error("[vitehub] Cloudflare Box exists timed out after 15000ms."),
-          new Error("[vitehub] Cloudflare Box destroy timed out after 10000ms."),
+          new Error("[vitehub] Cloudflare Sandbox exists timed out after 15000ms."),
+          new Error("[vitehub] Cloudflare Sandbox destroy timed out after 10000ms."),
         ],
-        "[vitehub] cloudflare Box initialization failed: [vitehub] Cloudflare Box exists timed out after 15000ms. Cleanup failed: [vitehub] Cloudflare Box destroy timed out after 10000ms.",
+        "[vitehub] cloudflare Sandbox initialization failed: [vitehub] Cloudflare Sandbox exists timed out after 15000ms. Cleanup failed: [vitehub] Cloudflare Sandbox destroy timed out after 10000ms.",
       ))
       .mockResolvedValueOnce(createSession())
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
@@ -421,7 +421,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
-  it("declares the project package manager as a Box requirement", async () => {
+  it("declares the project package manager as a Sandbox requirement", async () => {
     setSandboxTaskRuntimeConfig({ provider: "vercel" })
     setSandboxTaskRuntimeRegistry({
       example: {
@@ -440,7 +440,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     await runSandboxTaskRuntime("example")
 
-    expect(runtimeMocks.resolveProviderBox).toHaveBeenCalledWith(["node", "pnpm"])
+    expect(runtimeMocks.resolveProviderSandbox).toHaveBeenCalledWith(["node", "pnpm"])
   })
 
   it("accepts package entries stored in project files", async () => {

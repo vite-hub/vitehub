@@ -13,7 +13,7 @@ export function createEntrySource(definitionPath: string, execution: 'definition
         `    const mod = await import(pathToFileURL(${JSON.stringify(definitionPath)}).href)`,
         `    const definition = mod?.default`,
         `    if (!definition || typeof definition.run !== 'function')`,
-        `      throw new Error('Sandbox Definition must default-export defineSandboxTask({ run }).')`,
+        `      throw new Error('Sandbox Task Definition must default-export defineSandboxTask({ run }).')`,
         `    const result = await definition.run(input.payload, input.context)`,
       ]
   return [

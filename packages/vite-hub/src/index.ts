@@ -97,7 +97,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/auth": true,
   "@vite-hub/blob": true,
   "@vite-hub/browser": true,
-  "@vite-hub/box": true,
+  "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
   "@vite-hub/connections": true,

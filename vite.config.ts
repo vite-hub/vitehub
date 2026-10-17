@@ -112,7 +112,7 @@ export default defineConfig({
         command: "node packages/rate-limit/test/e2e.mjs",
         dependsOn: ["@vite-hub/rate-limit#build"],
       },
-      "sandbox:e2e": {
+      "sandbox-task:e2e": {
         cache: false,
         command: "node packages/sandbox-task/test/e2e.mjs",
         dependsOn: ["@vite-hub/sandbox-task#build"],

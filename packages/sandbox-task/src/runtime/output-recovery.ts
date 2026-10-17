@@ -5,7 +5,7 @@ import { hasRuntimeType } from '@vite-hub/runtime/internal/runtime-type'
 import { readSandboxTaskErrorMetadata } from './error-normalization'
 import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
 
-import type { SandboxTaskExecutionBox } from './execution-box'
+import type { TaskSandbox } from './task-sandbox'
 
 const MIN_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 20_000
 const DEFAULT_EXEC_OUTPUT_RECOVERY_TIMEOUT_MS = 60_000
@@ -63,7 +63,7 @@ export function createHandlerError(message: string, provider: string, details?: 
 }
 
 export function createTimeoutError(provider: string, timeout: number) {
-  return sandboxTaskError(`Sandbox definition timed out after ${timeout}ms.`, {
+  return sandboxTaskError(`Sandbox Task Definition timed out after ${timeout}ms.`, {
     code: 'SANDBOX_TASK_TIMEOUT',
     provider,
     details: { timeout },
@@ -171,14 +171,14 @@ function resolveExecOutputRecoveryTimeout(timeout?: number) {
 }
 
 function createExecOutputFailure(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   outputPath: string,
   error: unknown,
   recoveryTimeout: number,
   execution?: ExecutionMeta,
   details?: Record<string, unknown>,
 ) {
-  return createHandlerError('Sandbox definition execution failed before producing an output file.', sandbox.provider, {
+  return createHandlerError('Sandbox Task Definition execution failed before producing an output file.', sandbox.provider, {
     outputPath,
     cause: getErrorMessage(error),
     recoveryTimeout,
@@ -189,7 +189,7 @@ function createExecOutputFailure(
 }
 
 async function waitForExecOutput(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   outputPath: string,
   error: unknown,
   timeout: number | undefined,
@@ -224,7 +224,7 @@ async function waitForExecOutput(
 }
 
 async function recoverExecOutput(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   outputPath: string,
   error: unknown,
   timeout?: number,
@@ -246,7 +246,7 @@ async function recoverExecOutput(
 }
 
 async function waitForCloudflareOutput(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   outputPath: string,
   error: unknown,
   timeout?: number,
@@ -270,7 +270,7 @@ async function waitForCloudflareOutput(
 }
 
 export async function readExecOutputWithRecovery(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   outputPath: string,
   error: unknown,
   timeout?: number,

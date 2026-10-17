@@ -18,7 +18,7 @@ const childProcessTimeout = 15_000
 const packedPackages = [
   "agent",
   "auth",
-  "box",
+  "sandbox",
   "env",
   "markdown-template",
   "rate-limit",

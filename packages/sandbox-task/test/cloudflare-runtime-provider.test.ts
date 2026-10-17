@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
 
-const { resolveCloudflareBox } = vi.hoisted(() => ({
-  resolveCloudflareBox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
+const { resolveCloudflareSandbox } = vi.hoisted(() => ({
+  resolveCloudflareSandbox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
 }))
 
-vi.mock("@vite-hub/box/_internal/cloudflare", () => ({ resolveCloudflareBox }))
+vi.mock("@vite-hub/sandbox/_internal/cloudflare", () => ({ resolveCloudflareSandbox }))
 
-import { resolveCloudflareSandboxTaskBox } from "../src/runtime/providers/cloudflare.ts"
+import { resolveCloudflareTaskSandbox } from "../src/runtime/providers/cloudflare.ts"
 
 const namespace = {
   get: vi.fn(),
@@ -15,16 +15,16 @@ const namespace = {
 
 describe("Cloudflare Sandbox runtime provider", () => {
   it("defaults idle shutdown to five minutes", async () => {
-    const provider = await resolveCloudflareSandboxTaskBox({
+    const provider = await resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare" },
     }, {
       event: { context: { cloudflare: { env: { SANDBOX: namespace } } } },
     })
 
-    await provider.resolveBox(["node"])
+    await provider.resolveSandbox(["node"])
     expect(provider.closeAfterRun).toBe(false)
-    expect(resolveCloudflareBox).toHaveBeenCalledWith(
+    expect(resolveCloudflareSandbox).toHaveBeenCalledWith(
       expect.objectContaining({
         namespace,
         cloudflare: expect.objectContaining({ sleepAfter: "5m" }),
@@ -34,15 +34,15 @@ describe("Cloudflare Sandbox runtime provider", () => {
   })
 
   it("preserves an explicit idle shutdown override", async () => {
-    const provider = await resolveCloudflareSandboxTaskBox({
+    const provider = await resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare", sleepAfter: "30s" },
     }, {
       event: { context: { cloudflare: { env: { SANDBOX: namespace } } } },
     })
 
-    await provider.resolveBox(["node", "npm"])
-    expect(resolveCloudflareBox).toHaveBeenCalledWith(
+    await provider.resolveSandbox(["node", "npm"])
+    expect(resolveCloudflareSandbox).toHaveBeenCalledWith(
       expect.objectContaining({
         cloudflare: expect.objectContaining({ sleepAfter: "30s" }),
       }),
@@ -50,8 +50,8 @@ describe("Cloudflare Sandbox runtime provider", () => {
     )
   })
 
-  it("closes a Box session when keepAlive disables idle shutdown", async () => {
-    const provider = await resolveCloudflareSandboxTaskBox({
+  it("closes a Sandbox session when keepAlive disables idle shutdown", async () => {
+    const provider = await resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare", keepAlive: true },
     }, {
@@ -62,7 +62,7 @@ describe("Cloudflare Sandbox runtime provider", () => {
   })
 
   it("says how to run Sandbox locally when the dev server has no binding", async () => {
-    await expect(resolveCloudflareSandboxTaskBox({
+    await expect(resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare" },
     }, {
@@ -72,14 +72,14 @@ describe("Cloudflare Sandbox runtime provider", () => {
 
   it.each(["__proto__", "constructor", "toString"])("rejects inherited Cloudflare binding %s", async (binding) => {
     const env = Object.create(Object.prototype) as Record<string, unknown>
-    resolveCloudflareBox.mockClear()
+    resolveCloudflareSandbox.mockClear()
 
-    await expect(resolveCloudflareSandboxTaskBox({
+    await expect(resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare", binding },
     }, {
       event: { context: { cloudflare: { env } } },
     })).rejects.toThrow(`Cloudflare sandbox requires the ${JSON.stringify(binding)} binding`)
-    expect(resolveCloudflareBox).not.toHaveBeenCalled()
+    expect(resolveCloudflareSandbox).not.toHaveBeenCalled()
   })
 })

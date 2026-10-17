@@ -34,7 +34,7 @@ it("keeps the activated registry when a retained generation evaluates later", as
 
   const loadCurrentDefinition = currentRegistry.example
   if (typeof loadCurrentDefinition !== "function")
-    throw new TypeError("Expected a generated Sandbox Definition loader.")
+    throw new TypeError("Expected a generated Sandbox Task Definition loader.")
   await expect(loadCurrentDefinition()).resolves.toMatchObject({ default: { bundle: { entry: "current.mjs" } } })
   expect(loadCurrent).toHaveBeenCalledOnce()
   expect(loadRetained).not.toHaveBeenCalled()
@@ -51,8 +51,8 @@ it("does not load a removed definition through a retained registry", async () =>
 
   const loadRemovedDefinition = retainedRegistry.removed
   if (typeof loadRemovedDefinition !== "function")
-    throw new TypeError("Expected a retained Sandbox Definition loader.")
-  await expect(loadRemovedDefinition()).rejects.toThrow('Sandbox definition "removed" is no longer generated')
+    throw new TypeError("Expected a retained Sandbox Task Definition loader.")
+  await expect(loadRemovedDefinition()).rejects.toThrow('Sandbox Task Definition "removed" is no longer generated')
   expect(loadRetained).not.toHaveBeenCalled()
 })
 
@@ -83,7 +83,7 @@ it("resolves the active Windows generation when a retained registry generation w
   setSandboxTaskRuntimeRegistry(registry)
   const loadRetainedDefinition = registry.example
   if (typeof loadRetainedDefinition !== "function")
-    throw new TypeError("Expected a generated Sandbox Definition loader.")
+    throw new TypeError("Expected a generated Sandbox Task Definition loader.")
 
   await rm(join(generationsDir, "runtime-retained"), { recursive: true })
   await writeFile(activeFacade, `export default { example: async () => import(${JSON.stringify(pathToFileURL(currentDefinition).href)}) }\n`)
@@ -111,7 +111,7 @@ it("reloads a replaced stable Definition during Windows recovery", async () => {
   setSandboxTaskRuntimeRegistry(registry)
   const loadDefinition = registry.example
   if (typeof loadDefinition !== "function")
-    throw new TypeError("Expected a generated Sandbox Definition loader.")
+    throw new TypeError("Expected a generated Sandbox Task Definition loader.")
 
   await expect(loadDefinition()).resolves.toMatchObject({ default: { bundle: { value: "current" } } })
   await writeFile(stableDefinition, `export default { bundle: { value: "next" } }\n`)

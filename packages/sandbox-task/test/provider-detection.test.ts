@@ -55,11 +55,11 @@ describe("provider detection", () => {
   it("resolves the Cloudflare binding from the scoped environment", async () => {
     const namespace = {}
 
-    const { resolveCloudflareSandboxTaskBox } = await import("../src/runtime/providers/cloudflare.ts")
+    const { resolveCloudflareTaskSandbox } = await import("../src/runtime/providers/cloudflare.ts")
     const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () =>
-      resolveCloudflareSandboxTaskBox({ local: {}, provider: { provider: "cloudflare" } }))
+      resolveCloudflareTaskSandbox({ local: {}, provider: { provider: "cloudflare" } }))
 
-    expect(provider.resolveBox).toEqual(expect.any(Function))
+    expect(provider.resolveSandbox).toEqual(expect.any(Function))
   })
 
   it("does not mark platform sandboxes available when their SDK cannot resolve", async () => {

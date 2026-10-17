@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it } from "vitest"
 import { resolveSandboxTaskProject } from "../src/project.ts"
 import { bundleSandboxTaskDefinition } from "../src/bundle.ts"
 import { executeSandboxTaskDefinition } from "../src/runtime/execute.ts"
-import { createSandboxTaskExecutionBox } from "../src/runtime/execution-box.ts"
-import { resolveBox } from "@vite-hub/box"
+import { createTaskSandbox } from "../src/runtime/task-sandbox.ts"
+import { resolveSandbox } from "@vite-hub/sandbox"
 
 const roots: string[] = []
 
@@ -1065,25 +1065,25 @@ describe("resolveSandboxTaskProject", () => {
 
   it("executes TypeScript package projects without runtime type stripping", { timeout: 30_000 }, async () => {
     const root = await createRoot()
-    const sandbox = join(root, "sandboxes/image")
+    const taskDir = join(root, "sandboxes/image")
     const first = join(root, "packages/first")
     const second = join(root, "packages/second")
-    await Promise.all([mkdir(sandbox, { recursive: true }), mkdir(first, { recursive: true }), mkdir(second, { recursive: true })])
+    await Promise.all([mkdir(taskDir, { recursive: true }), mkdir(first, { recursive: true }), mkdir(second, { recursive: true })])
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - sandboxes/*\n  - packages/*\n")
-    await writeFile(join(sandbox, "package.json"), JSON.stringify({ dependencies: { "@fixture/first": "workspace:*" }, private: true, type: "module" }))
-    await mkdir(join(sandbox, "lib"))
-    await writeFile(join(sandbox, "lib/prompt.md"), "relative helper asset")
-    await writeFile(join(sandbox, "lib/helper.mts"), [
+    await writeFile(join(taskDir, "package.json"), JSON.stringify({ dependencies: { "@fixture/first": "workspace:*" }, private: true, type: "module" }))
+    await mkdir(join(taskDir, "lib"))
+    await writeFile(join(taskDir, "lib/prompt.md"), "relative helper asset")
+    await writeFile(join(taskDir, "lib/helper.mts"), [
       "import { readFile } from 'node:fs/promises'",
       "export const asset = await readFile(new URL('./prompt.md', import.meta.url), 'utf8')",
       "",
     ].join("\n"))
-    await writeFile(join(sandbox, "lib/helper.d.ts"), "export { Missing } from './missing'\n")
+    await writeFile(join(taskDir, "lib/helper.d.ts"), "export { Missing } from './missing'\n")
     await writeFile(join(first, "package.json"), JSON.stringify({ dependencies: { "@fixture/second": "workspace:*" }, exports: "./index.js", name: "@fixture/first", type: "module" }))
     await writeFile(join(first, "index.js"), "export { value } from '@fixture/second'\n")
     await writeFile(join(second, "package.json"), JSON.stringify({ exports: "./index.js", name: "@fixture/second", type: "module" }))
     await writeFile(join(second, "index.js"), "export const value = 42\n")
-    const definitionFile = join(sandbox, "index.ts")
+    const definitionFile = join(taskDir, "index.ts")
     await writeFile(definitionFile, [
       "import { value } from '@fixture/first'",
       "import { asset } from './lib/helper.mts'",
@@ -1102,10 +1102,10 @@ describe("resolveSandboxTaskProject", () => {
     })
     expect(bundle.entry).toBe("sandboxes/image/index.ts.mjs")
     expect(bundle.project?.files).toHaveProperty("sandboxes/image/lib/helper.mts.mjs")
-    const box = await resolveBox({ runtime: "trusted-host" }, {}, { requires: ["node", "pnpm"] })
-    const session = await box.open()
+    const sandbox = await resolveSandbox({ runtime: "trusted-host" }, {}, { requires: ["node", "pnpm"] })
+    const session = await sandbox.open()
     try {
-      const execution = createSandboxTaskExecutionBox(session, "cloudflare")
+      const execution = createTaskSandbox(session, "cloudflare")
       const root = dirname(session.cwd)
       const physical = (path: string) => path.startsWith('/') ? join(root, path) : path
       const exec = execution.exec

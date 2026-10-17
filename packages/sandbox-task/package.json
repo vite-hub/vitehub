@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/sandbox-task",
   "version": "0.0.4",
-  "description": "Sandbox execution primitives and Vite integration for ViteHub.",
+  "description": "Run named package projects as Sandbox Tasks, with Vite integration for ViteHub.",
   "keywords": [
     "cloudflare",
     "sandbox",
@@ -93,8 +93,8 @@
     "test": "vp run -t @vite-hub/sandbox-task#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/box": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
     "esbuild": "catalog:tooling",
     "local-pkg": "catalog:tooling",
     "mlly": "catalog:unjs",

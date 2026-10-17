@@ -673,13 +673,13 @@ function renderSandboxTaskProviderLoaderModule(file: string, provider: "cloudfla
   const runtimeProviderFile = resolvePackageRuntime(sandboxTaskPackageDir, `runtime/providers/${provider}`)
 
   return [
-    `import { ${providerExport} as resolveSandboxTaskBox } from ${JSON.stringify(createImportPath(file, runtimeProviderFile))}`,
+    `import { ${providerExport} as resolveTaskSandbox } from ${JSON.stringify(createImportPath(file, runtimeProviderFile))}`,
     "",
     "export async function loadSandboxTaskRuntimeProvider(selectedProvider) {",
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
     "    throw new Error(`[vitehub] Unsupported sandbox provider for this hosted build: ${selectedProvider}`)",
     "  return {",
-    "    resolveSandboxTaskBox,",
+    "    resolveTaskSandbox,",
     "  }",
     "}",
     "",

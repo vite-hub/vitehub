@@ -83,7 +83,7 @@ export async function bundleSandboxTaskDefinition(
   } = {},
 ): Promise<SandboxTaskDefinitionBundle> {
   if (options.includeProject === true && !options.project)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0001({ message: `[vitehub] Sandbox Definition ${file} declares project: true but no project was resolved.` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0001({ message: `[vitehub] Sandbox Task Definition ${file} declares project: true but no project was resolved.` })
   const project = options.includeProject === false ? undefined : options.project
   if (options.execution === 'module' && project) {
     const prefix = project.packagePath === '.' ? '' : `${project.packagePath}/`
@@ -180,7 +180,7 @@ export async function bundleSandboxTaskDefinition(
   const hasUnbundledRuntimeDependency = hasRuntimeModuleResolution
     || externalImports.some(specifier => !builtinModuleSet.has(specifier))
   if (options.includeProject === false && hasUnbundledRuntimeDependency) {
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0002({ message: `[vitehub] Sandbox Definition ${file} declares project: false but has a runtime dependency that could not be bundled.` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0002({ message: `[vitehub] Sandbox Task Definition ${file} declares project: false but has a runtime dependency that could not be bundled.` })
   }
   const requiresProject = options.includeProject === true
     || (options.includeProject !== false && (

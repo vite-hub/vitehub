@@ -1,9 +1,9 @@
 declare module 'vitehub-sandbox-task-provider-loader' {
-  import type { Box } from '@vite-hub/box'
+  import type { Sandbox } from '@vite-hub/sandbox'
   import type { SandboxTaskDefinitionOptions, SandboxTaskDefinitionProviderOptions, SandboxTaskProvider } from '../module-types'
 
   export function loadSandboxTaskRuntimeProvider(selectedProvider: string): Promise<{
-    resolveSandboxTaskBox: (
+    resolveTaskSandbox: (
       provider: {
         local: SandboxTaskDefinitionOptions
         provider: SandboxTaskDefinitionProviderOptions & { provider: SandboxTaskProvider }
@@ -11,7 +11,7 @@ declare module 'vitehub-sandbox-task-provider-loader' {
       context: { event?: unknown },
     ) => Promise<{
       provider: SandboxTaskProvider
-      resolveBox: (requirements: readonly string[]) => Promise<Box>
+      resolveSandbox: (requirements: readonly string[]) => Promise<Sandbox>
       sandboxId?: string
     }>
   }>

@@ -45,7 +45,7 @@ describe("Console section preferences", () => {
   })
 
   it("derives enabled primitive sections, including Agent-enabled Workflow", () => {
-    expect(resolveConsoleSectionIds({ agent: true, blob: true, connections: true, database: true, kv: true, queue: true, rateLimit: true, sandbox: true, schedule: true, workflow: true, workspace: true })).toEqual([
+    expect(resolveConsoleSectionIds({ agent: true, blob: true, connections: true, database: true, kv: true, queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })).toEqual([
       "connections",
       "agents",
       "usage",
@@ -184,7 +184,7 @@ describe("Console Go to shortcuts", () => {
       workflows: "g f",
       queues: "g q",
       schedules: "g s",
-      sandboxes: "g x",
+      "sandbox-tasks": "g x",
       env: "g e",
       connections: "g c",
       email: "g m",

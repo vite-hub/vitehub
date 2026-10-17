@@ -173,8 +173,8 @@
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
-    "@vite-hub/box": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",

@@ -401,7 +401,7 @@ function assertProviderRuntimeReachabilityClosed(
   const forbiddenPackagePaths = [
     "node_modules/@modelcontextprotocol/sdk/",
     "node_modules/@vite-hub/agent/",
-    "node_modules/@vite-hub/box/",
+    "node_modules/@vite-hub/sandbox/",
     "node_modules/@vite-hub/source/",
     "node_modules/@vite-hub/workspace/",
     "node_modules/pkce-challenge/",
@@ -479,7 +479,7 @@ function isRetainedProviderSource(file: string) {
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
   it("serves SSH from a packed vite-hub-only installation without hoisting", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vite-hub-box-consumer-"))
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-sandbox-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
 
@@ -501,7 +501,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await Promise.all([hostKey, identity].map(path => run("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", path], appDir)))
       const port = await availablePort()
       const child = spawn(join(appDir, "node_modules/.bin/vitehub"), [
-        "box", "serve", "--user", "agent", "--host-key", hostKey,
+        "sandbox", "serve", "--user", "agent", "--host-key", hostKey,
         "--authorized-key", `${identity}.pub`, "--port", String(port), "--cwd", appDir,
       ], { cwd: appDir, stdio: ["ignore", "pipe", "pipe"] })
       const closed = once(child, "close")
@@ -521,7 +521,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           child.once("error", error => { clearTimeout(timeout); reject(error) })
           child.once("close", () => { clearTimeout(timeout); reject(new Error(`SSH runner exited before listening.\n${stdout}${stderr}`)) })
         })
-        expect(JSON.parse(stdout.trim())).toEqual({ event: "box.listening", port })
+        expect(JSON.parse(stdout.trim())).toEqual({ event: "sandbox.listening", port })
         child.kill("SIGTERM")
         expect(await closed).toEqual([0, null])
         expect(stderr).toBe("")
@@ -1060,7 +1060,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         mkdir(packDir, { recursive: true }),
       ])
       const specs = await packWorkspacePackages(packDir, new Set([
-        "@vite-hub/box",
+        "@vite-hub/sandbox",
         "@vite-hub/markdown-template",
         "@vite-hub/runtime",
         "@vite-hub/source",

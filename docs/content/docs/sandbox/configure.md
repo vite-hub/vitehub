@@ -1,6 +1,6 @@
 ---
-title: Sandbox configuration
-description: Lay out Sandbox package projects, free-form Definitions, entrypoints, and Definition options.
+title: Sandbox Task configuration
+description: Lay out Sandbox Task package projects, free-form Definitions, entrypoints, and Definition options.
 navigation.title: Configure
 navigation.order: 4
 icon: i-lucide-sliders-horizontal
@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Package projects
 
-Under `server/sandbox-tasks`, use one folder per package project with an adjacent `package.json` and an `index.ts`, `index.mts`, `index.js`, or `index.mjs` entrypoint. The folder path supplies the Definition name. Other files in the package are ordinary helpers, not separate Sandboxes.
+Under `server/sandbox-tasks`, use one folder per package project with an adjacent `package.json` and an `index.ts`, `index.mts`, `index.js`, or `index.mjs` entrypoint. The folder path supplies the Definition name. Other files in the package are ordinary helpers, not separate Sandbox Tasks.
 
 ```text
 server/sandbox-tasks/
@@ -20,7 +20,7 @@ server/sandbox-tasks/
     └── index.ts
 ```
 
-ViteHub selects the package manager from the manifest's `packageManager` field, then a lockfile at that package root, then npm. A nested independent package never inherits an unrelated ancestor lockfile. Lockfiles enable frozen installation. ViteHub installs the project inside the Box before the entrypoint starts. Installed dependencies are not written back to your repository.
+ViteHub selects the package manager from the manifest's `packageManager` field, then a lockfile at that package root, then npm. A nested independent package never inherits an unrelated ancestor lockfile. Lockfiles enable frozen installation. ViteHub installs the project inside the Sandbox before the entrypoint starts. Installed dependencies are not written back to your repository.
 
 ViteHub also understands a standard pnpm Workspace without ViteHub-specific configuration:
 

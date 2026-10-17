@@ -169,7 +169,7 @@ describe("Sandbox landing projects", () => {
         expect(manifest.dependencies[dependency]).toBeTruthy();
       }
       const config = files.get(variant.framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts");
-      expect(config).toContain('preset: "vercel", sandbox: true');
+      expect(config).toContain('preset: "vercel", sandboxTask: true');
       expect(files.get("server/sandbox-tasks/release-notes/index.ts")).toContain("export default async function");
       expect(files.get("server/sandbox-tasks/release-notes/index.ts")).not.toContain("defineSandboxTask");
       expect(files.get("server/release-notes.ts")).toContain('runSandboxTask("release-notes", { notes: "ship it" })');

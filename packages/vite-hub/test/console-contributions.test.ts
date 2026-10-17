@@ -23,7 +23,7 @@ describe("Console section contributions", () => {
   })
 
   it("keeps navigation order and omits built-in sections", () => {
-    const sections = resolveConsoleSectionIds({ agent: true, database: true, kv: true, queue: true, rateLimit: true, sandbox: true, schedule: true, workflow: true, workspace: true })
+    const sections = resolveConsoleSectionIds({ agent: true, database: true, kv: true, queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })
 
     expect(describeConsoleContributedSections(sections).map(section => section.id)).toEqual([
       "rate-limits",

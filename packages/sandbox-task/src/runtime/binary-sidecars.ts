@@ -1,6 +1,6 @@
 import { deserializeResponse, isSerializedResponse } from '@vite-hub/runtime'
 import { isSandboxTaskError, sandboxTaskError } from '../sandbox-task/errors'
-import type { SandboxTaskExecutionBox } from './execution-box'
+import type { TaskSandbox } from './task-sandbox'
 
 export const SANDBOX_VALUE_MARKER = 'vitehub:sandbox-task:value'
 
@@ -63,7 +63,7 @@ function serializationError(message: string, details?: Record<string, unknown>, 
 }
 
 export async function encodeSandboxTaskValue(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   value: unknown,
   assetsDir: string,
   label: string,
@@ -149,7 +149,7 @@ export async function encodeSandboxTaskValue(
 }
 
 export async function decodeSandboxTaskValue(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   value: unknown,
   assetsDir: string,
   label: string,

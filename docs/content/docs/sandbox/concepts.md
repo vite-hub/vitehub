@@ -1,13 +1,13 @@
 ---
 title: Sandbox concepts
-description: Understand the boundary between a Sandbox definition, its provider runtime, and the application that starts it.
+description: Understand the boundary between a Sandbox Task Definition, its provider runtime, and the application that starts it.
 navigation.title: Concepts
 navigation.order: 9
 navigation.group: Concepts
 icon: i-lucide-lightbulb
 ---
 
-A Sandbox runs a named package project away from the application process. The
+A Sandbox Task runs a named package project in a Sandbox, away from the application process. The
 application chooses the provider in Vite configuration. The Definition stays
 portable and the provider supplies the isolation, filesystem, network, and
 process limits.
@@ -30,6 +30,6 @@ they do not expose identical limits or local development behavior. Choose the
 provider in [Hosts](/docs/sandbox/hosts), then verify the generated output with
 the ViteHub CLI before deployment.
 
-Read [Sandbox configuration](/docs/sandbox/configure) for package layout and
+Read [Sandbox Task configuration](/docs/sandbox/configure) for package layout and
 runtime options. Read [Limits and errors](/docs/sandbox/limits-and-errors)
 before accepting untrusted input.

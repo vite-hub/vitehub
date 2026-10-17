@@ -39,7 +39,7 @@ async function loadActiveGeneratedSandboxTaskDefinition(scope: string, name: str
   const activeModule = await import(/* @vite-ignore */ createGeneratedSandboxTaskModuleSpecifier(scope, true))
   const activeEntry = activeModule.default?.[name] as SandboxTaskRuntimeRegistry[string] | undefined
   if (!activeEntry)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0074({ message: `[vitehub] Sandbox definition "${name}" is no longer generated.` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0074({ message: `[vitehub] Sandbox Task Definition "${name}" is no longer generated.` })
   return typeof activeEntry === 'function' ? await activeEntry() : { default: activeEntry }
 }
 
@@ -51,7 +51,7 @@ export function createGeneratedSandboxTaskRuntimeRegistry(
     const activeRegistry = generatedRegistries.get(scope)
     const entry = activeRegistry === undefined ? registry[name] : activeRegistry[name]
     if (!entry)
-      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0075({ message: `[vitehub] Sandbox definition "${name}" is no longer generated.` })
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0075({ message: `[vitehub] Sandbox Task Definition "${name}" is no longer generated.` })
     try {
       return await entry.load()
     }

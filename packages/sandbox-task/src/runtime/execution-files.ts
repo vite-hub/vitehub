@@ -1,7 +1,7 @@
 import { dirname } from 'pathe'
 
 import type { SandboxTaskDefinitionBundle } from '../module-types'
-import type { SandboxTaskExecutionBox } from './execution-box'
+import type { TaskSandbox } from './task-sandbox'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
 const DEFAULT_DEFINITION_ENTRY = 'definition.js'
@@ -49,7 +49,7 @@ function normalizeSandboxTaskBundlePath(path: string) {
   return parts.join('/')
 }
 
-export async function writeSandboxTaskDefinitionBundle(sandbox: SandboxTaskExecutionBox, baseDir: string, bundle: SandboxTaskDefinitionBundle, signal?: AbortSignal) {
+export async function writeSandboxTaskDefinitionBundle(sandbox: TaskSandbox, baseDir: string, bundle: SandboxTaskDefinitionBundle, signal?: AbortSignal) {
   const files = Object.entries({
     ...(bundle.project
       ? Object.fromEntries(Object.entries(bundle.project.files).map(([path, file]) => [path, Uint8Array.from(Buffer.from(file.contents, file.encoding))]))

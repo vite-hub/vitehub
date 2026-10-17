@@ -17,7 +17,7 @@ import {
   recoverExecOutput,
   tryParseSandboxTaskOutput,
 } from './output-recovery'
-import type { SandboxTaskExecutionBox } from './execution-box'
+import type { TaskSandbox } from './task-sandbox'
 
 import type { SandboxTaskDefinitionOptions } from '../module-types'
 
@@ -40,7 +40,7 @@ function toJson(value: unknown, label: string) {
 }
 
 async function executeSandboxTaskDefinitionOnce<TPayload>(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   definitionName: string,
   definitionOptions: SandboxTaskDefinitionOptions | undefined,
   source: SandboxTaskDefinitionSource,
@@ -91,7 +91,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
     const execArgs = ['-e', 'import(process.argv[1])', files.entryPath, files.inputPath, files.outputPath]
 
     let outputRaw = ''
-    let execution: Awaited<ReturnType<SandboxTaskExecutionBox['exec']>> | undefined
+    let execution: Awaited<ReturnType<TaskSandbox['exec']>> | undefined
 
     try {
       lifecycle?.onHandlerStart?.()
@@ -124,7 +124,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
       || tryParseSandboxTaskOutput(extractSandboxTaskOutputFromExecution(execution) || '')
 
     if (!output) {
-      throw createHandlerError('Sandbox definition output is not valid JSON.', sandbox.provider, {
+      throw createHandlerError('Sandbox Task Definition output is not valid JSON.', sandbox.provider, {
         output: outputRaw,
         cause: 'Output file was empty or contained incomplete JSON.',
       })
@@ -141,7 +141,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
       })
     }
 
-    throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
+    throw createHandlerError(output.error?.message || 'Sandbox Task Definition failed.', sandbox.provider, {
       name: output.error?.name,
       stack: output.error?.stack,
       cause: output.error?.cause,
@@ -157,7 +157,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
 }
 
 export async function executeSandboxTaskDefinition<TPayload>(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   definitionName: string,
   definitionOptions: SandboxTaskDefinitionOptions | undefined,
   source: SandboxTaskDefinitionSource,

@@ -604,7 +604,7 @@ describe("vitehub", () => {
       kv: true,
       preset: "cloudflare",
       rateLimit: true,
-      sandbox: true,
+      sandboxTask: true,
       schedule: true,
       workflow: true,
       workspace: true,
@@ -635,7 +635,7 @@ describe("vitehub", () => {
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
-    expect(pluginNames(vitehub({ preset: "node", sandbox: false }))).not.toContain("@vite-hub/sandbox-task/vite")
+    expect(pluginNames(vitehub({ preset: "node", sandboxTask: false }))).not.toContain("@vite-hub/sandbox-task/vite")
     expect(pluginNames(vitehub({ agent: true, preset: "node" }))).toContain("@vite-hub/workflow/vite")
     expect(pluginNames(vitehub({ agent: true, preset: "node", workflow: false }))).not.toContain("@vite-hub/workflow/vite")
 
@@ -886,7 +886,7 @@ describe("vitehub", () => {
   })
 
   it("keeps Sandbox loaders aligned with preset enablement", () => {
-    vitehub({ agent: true, preset: "cloudflare", sandbox: true, workflow: true })
+    vitehub({ agent: true, preset: "cloudflare", sandboxTask: true, workflow: true })
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
@@ -994,7 +994,7 @@ describe("vitehub", () => {
   })
 
   it("resolves provider facades after framework aliasing", async () => {
-    const plugin = dependencyPlugin({ preset: "vercel", sandbox: true })
+    const plugin = dependencyPlugin({ preset: "vercel", sandboxTask: true })
     const frameworkSandboxTaskFacade = pluginAliases(plugin)["vite-hub/sandbox-task"]
     const sandboxTaskAliases = providerAliasesFromCall(integrationMocks.hubSandboxTask.mock.calls.at(-1))
     const providerSandboxTaskFacade = "/app/.vitehub/sandbox-task/provider.mjs"
@@ -1026,7 +1026,7 @@ describe("vitehub", () => {
     expect(aliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
     expect(aliases["vite-hub/_internal/agent/server/registry"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/registry\.js$/)
     expect(aliases["vite-hub/_internal/agent/server/internal"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/internal\.js$/)
-    expect(aliases["vite-hub/_internal/sandbox-task/runtime/state"]).toMatch(/packages\/vite-hub\/dist\/_internal\/sandbox\/runtime\/state\.js$/)
+    expect(aliases["vite-hub/_internal/sandbox-task/runtime/state"]).toMatch(/packages\/vite-hub\/dist\/_internal\/sandbox-task\/runtime\/state\.js$/)
     expect(aliases["vite-hub/shell/workspace"]).toMatch(/packages\/vite-hub\/dist\/shell\/workspace\.js$/)
   })
 
@@ -1188,7 +1188,7 @@ describe("vitehub", () => {
       nitro.options.commands.deploy = "node ./deploy.mjs"
     }
     const config = await applyDeploymentConfig(
-      { preset: "cloudflare", sandbox: true },
+      { preset: "cloudflare", sandboxTask: true },
       { nitro: { commands: { preview: "node ./preview.mjs" }, modules: [userModule] } },
     )
 
@@ -1226,7 +1226,7 @@ describe("vitehub", () => {
   })
 
   it("preserves an explicit Cloudflare Sandbox deploy command", async () => {
-    const plugins = vitehub({ preset: "cloudflare", sandbox: true })
+    const plugins = vitehub({ preset: "cloudflare", sandboxTask: true })
     // SAFETY: The explicit preset and Sandbox option install both named plugins.
     const preset = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     // SAFETY: The explicit preset and Sandbox option install both named plugins.
@@ -1327,7 +1327,7 @@ describe("vitehub", () => {
   })
 
   it("leaves deployment output to the Nitro module matching the active preset", async () => {
-    const config = await applyDeploymentConfig({ preset: "cloudflare", sandbox: true })
+    const config = await applyDeploymentConfig({ preset: "cloudflare", sandboxTask: true })
     // SAFETY: applyDeploymentConfig populated Nitro commands and modules for the Sandbox preset.
     const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
     const nitro = {
@@ -1551,9 +1551,9 @@ describe("vitehub", () => {
   })
 
   it("wires supported Sandbox adapters from the deployment plan", () => {
-    vitehub({ preset: "cloudflare", sandbox: true })
+    vitehub({ preset: "cloudflare", sandboxTask: true })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "cloudflare" }))
-    vitehub({ preset: "vercel", sandbox: true })
+    vitehub({ preset: "vercel", sandboxTask: true })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
   })
 
@@ -1575,7 +1575,7 @@ describe("vitehub", () => {
 
     try {
       const config = await applyDeploymentConfig(
-        { preset: "cloudflare", blob: true, queue: true, rateLimit: true, sandbox: true },
+        { preset: "cloudflare", blob: true, queue: true, rateLimit: true, sandboxTask: true },
         { root: appRoot },
       )
       expect(config).toMatchObject({
@@ -1583,7 +1583,7 @@ describe("vitehub", () => {
         nitro: { cloudflare: { wrangler: { name: "acme-my-app" } } },
         queue: { namePrefix: "acme-my-app-", provider: "cloudflare" },
         rateLimit: { namespace: "acme-my-app", provider: "cloudflare" },
-        sandbox: { name: "acme-my-app-sandbox", provider: "cloudflare" },
+        sandboxTask: { name: "acme-my-app-sandbox", provider: "cloudflare" },
       })
 
       const configuredRateLimit = await applyDeploymentConfig(
@@ -1632,7 +1632,7 @@ describe("vitehub", () => {
         preset: "cloudflare",
         queue: true,
         rateLimit: true,
-        sandbox: true,
+        sandboxTask: true,
       })
 
       expect(config).toMatchObject({
@@ -1640,7 +1640,7 @@ describe("vitehub", () => {
         nitro: { cloudflare: { wrangler: { name: "vitehub-drop-preview" } } },
         queue: { namePrefix: "vitehub-drop-preview-", provider: "cloudflare" },
         rateLimit: { namespace: "vitehub-drop-preview", provider: "cloudflare" },
-        sandbox: { name: "vitehub-drop-preview-sandbox", provider: "cloudflare" },
+        sandboxTask: { name: "vitehub-drop-preview-sandbox", provider: "cloudflare" },
       })
     })
 
@@ -1698,14 +1698,14 @@ describe("vitehub", () => {
       preset: "cloudflare",
       queue: true,
       rateLimit: true,
-      sandbox: true,
+      sandboxTask: true,
     })
     expect(config.blob).toMatchObject({ bucketName: "a".repeat(48) })
     expect(config.nitro).toMatchObject({ cloudflare: { wrangler: { name: "a".repeat(48) } } })
     // SAFETY: applyDeploymentConfig populated the enabled Queue integration with a string namePrefix.
     expect((config.queue as { namePrefix: string }).namePrefix).toBe(`${"a".repeat(80)}-`)
     expect(config.rateLimit).toMatchObject({ namespace: "a".repeat(80) })
-    expect(config.sandbox).toMatchObject({ name: `${"a".repeat(48)}-sandbox` })
+    expect(config.sandboxTask).toMatchObject({ name: `${"a".repeat(48)}-sandbox` })
   })
 
   it("derives valid R2 bucket defaults from short and truncated identities", async () => {

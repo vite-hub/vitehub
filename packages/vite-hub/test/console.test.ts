@@ -1351,13 +1351,13 @@ describe("Agent invocation console", () => {
       const config: {
         nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
         root: string
-        sandbox?: boolean
+        sandboxTask?: boolean
         workspace?: boolean
-      } = { root, sandbox: true, workspace: true }
+      } = { root, sandboxTask: true, workspace: true }
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
-      config.sandbox = false
+      config.sandboxTask = false
       config.workspace = false
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
@@ -1385,9 +1385,9 @@ describe("Agent invocation console", () => {
         database: false
         nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
         root: string
-        sandbox: false
+        sandboxTask: false
         workspace: false
-      } = { database: false, root, sandbox: false, workspace: false }
+      } = { database: false, root, sandboxTask: false, workspace: false }
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
 
@@ -1439,7 +1439,7 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("serializes discovered Sandbox Definition metadata without starting a Sandbox", async () => {
+  it("serializes discovered Sandbox Task Definition metadata without starting a Sandbox", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-sandbox-host-"))
     try {
       await mkdir(join(root, "src"), { recursive: true })

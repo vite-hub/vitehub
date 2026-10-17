@@ -124,7 +124,7 @@ describe("launch documentation trust boundaries", () => {
       "Netlify can use an explicitly selected Vercel Sandbox provider with Vercel credentials",
     );
     expect(matrix).toMatch(
-      /\| Sandbox\s+\|[^\n]+\| Vercel Sandbox\s+\| —\s+\| Cloudflare or Vercel \| Box provider\s+\|/,
+      /\| Sandbox\s+\|[^\n]+\| Vercel Sandbox\s+\| —\s+\| Cloudflare or Vercel \| Sandbox provider\s+\|/,
     );
     expect(matrix).toContain(
       "the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify",

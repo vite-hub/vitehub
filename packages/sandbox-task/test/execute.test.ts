@@ -8,9 +8,9 @@ import { createHandlerError, extractSandboxTaskOutputFromExecution, readExecOutp
 import { toSandboxTaskError } from "../src/runtime/error-normalization.ts"
 import { SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
 import type { ViteHubError } from "@vite-hub/runtime"
-import type { SandboxTaskExecutionBox } from "../src/runtime/execution-box.ts"
+import type { TaskSandbox } from "../src/runtime/task-sandbox.ts"
 
-type SandboxExecResult = Awaited<ReturnType<SandboxTaskExecutionBox["exec"]>>
+type SandboxExecResult = Awaited<ReturnType<TaskSandbox["exec"]>>
 type SandboxExecHook = (execution: {
   args: string[]
   read: (path: string) => Uint8Array | undefined
@@ -81,7 +81,7 @@ it("waits for complete Cloudflare output before rejecting a malformed envelope",
   const sandbox = {
     provider: "cloudflare",
     readFile,
-  } as unknown as SandboxTaskExecutionBox
+  } as unknown as TaskSandbox
 
   const output = await readExecOutputWithRecovery(
     sandbox,
@@ -253,7 +253,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
     async exists(path: string) {
       return files.has(normalize(path)) || directories.has(normalize(path))
     },
-  } as SandboxTaskExecutionBox
+  } as TaskSandbox
 
   return { sandbox, execCalls, hasFile: (path: string) => files.has(normalize(path)), mkdirCalls, releaseInstall }
 }
@@ -371,7 +371,7 @@ describe("executeSandboxTaskDefinition", () => {
   })
 
   it("bounds handler diagnostics before constructing the public error", () => {
-    const error = createHandlerError("Sandbox definition failed." + "!".repeat(20_000), "vercel", {
+    const error = createHandlerError("Sandbox Task Definition failed." + "!".repeat(20_000), "vercel", {
       ignored: { private: true },
       stderr: "x".repeat(20_000),
     })
@@ -379,7 +379,7 @@ describe("executeSandboxTaskDefinition", () => {
     expect(error).toMatchObject({
       code: "SANDBOX_TASK_HANDLER_ERROR",
       details: { provider: "vercel", stderr: "x".repeat(16_384) },
-      message: ("Sandbox definition failed." + "!".repeat(20_000)).slice(0, 16_384),
+      message: ("Sandbox Task Definition failed." + "!".repeat(20_000)).slice(0, 16_384),
     })
     expect(error.details).not.toHaveProperty("ignored")
   })
@@ -506,7 +506,7 @@ describe("executeSandboxTaskDefinition", () => {
     expect(entry).not.toContain("definition.run")
   })
 
-  it("stages and revives nested binary values through Box files", async () => {
+  it("stages and revives nested binary values through Sandbox files", async () => {
     const markerObject = {
       [SANDBOX_VALUE_MARKER]: {
         id: 99,
@@ -1019,9 +1019,9 @@ describe("executeSandboxTaskDefinition", () => {
     expect(execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
   })
 
-  it("prepares separate Box filesystems that share an id", async () => {
-    const firstBox = createFakeSandbox({ holdInstall: true })
-    const secondBox = createFakeSandbox()
+  it("prepares separate Sandbox filesystems that share an id", async () => {
+    const firstSandbox = createFakeSandbox({ holdInstall: true })
+    const secondSandbox = createFakeSandbox()
     const bundle = {
       entry: ".vitehub-sandbox-task/definition.js",
       modules: { ".vitehub-sandbox-task/definition.js": "export default { run() { return { ok: true } } }" },
@@ -1038,19 +1038,19 @@ describe("executeSandboxTaskDefinition", () => {
       },
     }
 
-    const first = executeSandboxTaskDefinition(firstBox.sandbox, "first", undefined, bundle)
-    await vi.waitFor(() => expect(firstBox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1))
-    const second = executeSandboxTaskDefinition(secondBox.sandbox, "second", undefined, bundle)
-    firstBox.releaseInstall()
+    const first = executeSandboxTaskDefinition(firstSandbox.sandbox, "first", undefined, bundle)
+    await vi.waitFor(() => expect(firstSandbox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1))
+    const second = executeSandboxTaskDefinition(secondSandbox.sandbox, "second", undefined, bundle)
+    firstSandbox.releaseInstall()
 
     await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }])
-    expect(firstBox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
-    expect(secondBox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+    expect(firstSandbox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
+    expect(secondSandbox.execCalls.filter(call => call.cmd === "pnpm")).toHaveLength(1)
   })
 
   it("cleans up the staging project when a concurrent publisher loses", async () => {
     const shared = createFakeSandbox({ holdInstall: true })
-    const competing = { ...shared.sandbox, id: "competing" } as SandboxTaskExecutionBox
+    const competing = { ...shared.sandbox, id: "competing" } as TaskSandbox
     const digest = "d".repeat(64)
     const bundle = {
       entry: ".vitehub-sandbox-task/definition.js",
@@ -1168,7 +1168,7 @@ describe("executeSandboxTaskDefinition", () => {
       },
     )).rejects.toMatchObject({
       code: "SANDBOX_TASK_HANDLER_ERROR",
-      message: "Sandbox definition output is not valid JSON.",
+      message: "Sandbox Task Definition output is not valid JSON.",
     } satisfies Partial<ViteHubError>)
   })
 
@@ -1191,7 +1191,7 @@ describe("executeSandboxTaskDefinition", () => {
       },
     )).rejects.toMatchObject({
       code: "SANDBOX_TASK_HANDLER_ERROR",
-      message: "Sandbox definition output is not valid JSON.",
+      message: "Sandbox Task Definition output is not valid JSON.",
     } satisfies Partial<ViteHubError>)
   })
 })

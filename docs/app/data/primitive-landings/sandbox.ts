@@ -49,12 +49,12 @@ export const SandboxLanding = {
           ? {
               path: "nuxt.config.ts",
               language: "typescript",
-              content: 'import viteHubNuxt from "vite-hub/nuxt"\n\nexport default defineNuxtConfig({\n  modules: [[viteHubNuxt, { preset: "vercel", sandbox: true }]],\n})',
+              content: 'import viteHubNuxt from "vite-hub/nuxt"\n\nexport default defineNuxtConfig({\n  modules: [[viteHubNuxt, { preset: "vercel", sandboxTask: true }]],\n})',
             }
           : {
               path: "vite.config.ts",
               language: "typescript",
-              content: 'import { nitro } from "nitro/vite"\nimport { vitehub } from "vite-hub"\n\nexport default {\n  plugins: [vitehub({ preset: "vercel", sandbox: true }), nitro()],\n}',
+              content: 'import { nitro } from "nitro/vite"\nimport { vitehub } from "vite-hub"\n\nexport default {\n  plugins: [vitehub({ preset: "vercel", sandboxTask: true }), nitro()],\n}',
             },
         ...sandboxFiles,
       ],

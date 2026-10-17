@@ -1,5 +1,5 @@
-import type { CloudflareBoxOptions } from '@vite-hub/box'
-import { resolveCloudflareBox } from '@vite-hub/box/_internal/cloudflare'
+import type { CloudflareSandboxOptions } from '@vite-hub/sandbox'
+import { resolveCloudflareSandbox } from '@vite-hub/sandbox/_internal/cloudflare'
 import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
 import type { CloudflareSandboxTaskDefinitionProviderOptions, SandboxTaskDefinitionOptions } from '../../module-types'
 import { sandboxTaskErrorDiagnostics } from "../../error-diagnostics.ts"
@@ -16,7 +16,7 @@ type SandboxTaskEvent = {
   }
 }
 
-export async function resolveCloudflareSandboxTaskBox(options: SandboxTaskOptions, context: { event?: SandboxTaskEvent } = {}) {
+export async function resolveCloudflareTaskSandbox(options: SandboxTaskOptions, context: { event?: SandboxTaskEvent } = {}) {
   const env = getCloudflareEnv(context.event)
   const bindingName = options.provider.binding || 'SANDBOX'
   const namespace = env && Object.hasOwn(env, bindingName) ? env[bindingName] : undefined
@@ -33,9 +33,9 @@ export async function resolveCloudflareSandboxTaskBox(options: SandboxTaskOption
     closeAfterRun: options.provider.keepAlive === true,
     provider: 'cloudflare' as const,
     sandboxId: options.provider.sandboxId,
-    resolveBox: async (requirements: readonly string[]) => await resolveCloudflareBox(
+    resolveSandbox: async (requirements: readonly string[]) => await resolveCloudflareSandbox(
       {
-        namespace: namespace as CloudflareBoxOptions['namespace'],
+        namespace: namespace as CloudflareSandboxOptions['namespace'],
         sandboxId: options.provider.sandboxId,
         cloudflare: {
           sleepAfter: options.provider.sleepAfter ?? '5m',

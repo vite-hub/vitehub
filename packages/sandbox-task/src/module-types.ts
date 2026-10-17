@@ -1,4 +1,4 @@
-import type { VercelBoxNetworkPolicy, VercelBoxSource } from '@vite-hub/box'
+import type { VercelSandboxNetworkPolicy, VercelSandboxSource } from '@vite-hub/sandbox'
 import type { SandboxTaskProject } from './project'
 
 export type SandboxTaskProvider = 'cloudflare' | 'vercel'
@@ -15,8 +15,8 @@ export interface VercelSandboxTaskProviderOptions {
   timeout?: number
   cpu?: number
   ports?: number[]
-  source?: VercelBoxSource
-  networkPolicy?: VercelBoxNetworkPolicy
+  source?: VercelSandboxSource
+  networkPolicy?: VercelSandboxNetworkPolicy
   token?: string
   teamId?: string
   projectId?: string

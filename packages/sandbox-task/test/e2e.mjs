@@ -5,7 +5,7 @@ import { ofetch } from "ofetch";
 
 const providers = ["cloudflare", "vercel"];
 const liveOnlyMessage =
-  "Sandbox e2e requires a deployed app: vp run sandbox:e2e --mode live --provider cloudflare|vercel --url <url>";
+  "Sandbox Task e2e requires a deployed app: vp run sandbox-task:e2e --mode live --provider cloudflare|vercel --url <url>";
 
 const expectedProbe = {
   cloudflare: {

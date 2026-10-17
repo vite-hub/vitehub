@@ -26,7 +26,7 @@ it('keeps Workspace MCP clients out of the Sandbox Worker runtime', async () => 
 })
 
 
-it('stages Sandbox bundles directly into a replacement Box file tree', async () => {
+it('stages Sandbox bundles directly into a replacement Sandbox file tree', async () => {
   const operations: string[] = []
   const remove = vi.fn(async (path: string) => { operations.push(`remove:${path}`) })
   const mkdir = vi.fn(async (path: string) => { operations.push(`mkdir:${path}`) })

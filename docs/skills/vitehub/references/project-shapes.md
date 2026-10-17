@@ -37,7 +37,7 @@ server/agents/<name>/agent.ts
 src/server.ts or framework route
 ```
 
-Use the folder form when the Agent owns instructions, a Workspace, or Skills. Add Sources, Capabilities, Channels, Boxes, Schedules, and Workflows only when the outcome needs them.
+Use the folder form when the Agent owns instructions, a Workspace, or Skills. Add Sources, Capabilities, Channels, Sandboxes, Schedules, and Workflows only when the outcome needs them.
 
 ### Scheduled Agent
 

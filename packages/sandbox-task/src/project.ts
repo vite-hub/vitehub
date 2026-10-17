@@ -266,11 +266,11 @@ export async function resolveSandboxTaskProject(
   const root = await realpath(resolve(scanRoot))
   const definition = await realpath(resolve(definitionFile))
   if (!isInside(root, definition))
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0062({ message: `[vitehub] Sandbox Definition is outside its scan root: ${definitionFile}` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0062({ message: `[vitehub] Sandbox Task Definition is outside its scan root: ${definitionFile}` })
 
   const packageRoot = await firstDirectoryWithFile(ancestors(dirname(definition), root), 'package.json', root)
   if (!packageRoot) {
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0063({ message: `[vitehub] Sandbox Definition "${definitionFile}" requires a package.json between its directory and "${root}".` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0063({ message: `[vitehub] Sandbox Task Definition "${definitionFile}" requires a package.json between its directory and "${root}".` })
   }
 
   const manifestPath = resolve(packageRoot, 'package.json')

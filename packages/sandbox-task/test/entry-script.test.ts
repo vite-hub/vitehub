@@ -109,7 +109,7 @@ describe("package entry result transport", () => {
       `export default () => new Response(${empty ? 'null' : 'new Uint8Array([0, 127, 255])'}, { status: ${status}, statusText: 'Custom', headers: { 'x-result': 'preserved' } })`,
     )
     expect(execution.code).toBe(0)
-    // Response records carry their body inline and require no box file access.
+    // Response records carry their body inline and require no sandbox file access.
     const sandbox = {} as Parameters<typeof decodeSandboxTaskValue>[0]
     const response = await decodeSandboxTaskValue(sandbox, execution.output.result, '', 'result')
     expect(response).toBeInstanceOf(Response)

@@ -3,15 +3,15 @@ import { sleep } from '../internal/shared/utils'
 import { sandboxTaskError } from '../sandbox-task/errors'
 import { executeSandboxTaskDefinition } from './execute'
 import { readSandboxTaskErrorMetadata, toSandboxTaskError } from './error-normalization'
-import { createSandboxTaskExecutionBox, type SandboxTaskExecutionBox } from './execution-box'
-import type { ResolvedSandboxTaskBox } from './provider-loader'
+import { createTaskSandbox, type TaskSandbox } from './task-sandbox'
+import type { ResolvedTaskSandbox } from './provider-loader'
 import {
   assertSandboxTaskDefinitionOptions,
   createCloudflareExecutionSandboxId,
   detectSandbox,
   isSandboxAvailable,
   resolveRuntimeProvider,
-  resolveSandboxTaskBox,
+  resolveTaskSandbox,
   withSandboxTaskProvider,
 } from './provider-resolution'
 import { err, ok } from './result'
@@ -125,12 +125,12 @@ function hasValidSandboxTaskBundle(definition: SandboxTaskRegistryEntry) {
 async function resolveSandboxTaskProvider(
   sandboxTaskConfig: false | AgentSandboxTaskConfig | undefined,
   definition: SandboxTaskRegistryEntry,
-): Promise<ResolvedSandboxTaskBox> {
+): Promise<ResolvedTaskSandbox> {
   assertSandboxTaskDefinitionOptions(definition.options ?? {})
   const config = getSandboxTaskFeatureProvider(sandboxTaskConfig)
   const provider = resolveRuntimeProvider(config)
 
-  return await resolveSandboxTaskBox(
+  return await resolveTaskSandbox(
     provider,
     withSandboxTaskProvider(provider, config),
     definition.options ?? {},
@@ -141,13 +141,13 @@ async function resolveSandboxTaskProvider(
 async function createSandboxTaskRunner(
   name: string,
   definition: SandboxTaskRegistryEntry,
-  provider: ResolvedSandboxTaskBox,
+  provider: ResolvedTaskSandbox,
 ): Promise<SandboxTaskRunner> {
   const packageManager = definition.bundle.project?.install.command
-  const box = await provider.resolveBox(['node', ...(packageManager ? [packageManager] : [])])
+  const sandbox = await provider.resolveSandbox(['node', ...(packageManager ? [packageManager] : [])])
 
   return {
-    executionAuthority: box.plan.executionAuthority,
+    executionAuthority: sandbox.plan.executionAuthority,
     name,
     async run<TPayload = unknown, TResult = unknown>(payload?: TPayload, options: SandboxTaskExecutionOptions = {}): Promise<TResult> {
       const cloudflareSandboxId = provider.provider === 'cloudflare'
@@ -160,15 +160,15 @@ async function createSandboxTaskRunner(
       options.signal?.throwIfAborted()
       const run = serializeCloudflareRun(cloudflareSandboxId, async () => {
         for (let attempt = 0; attempt < attempts; attempt++) {
-          let sandbox: SandboxTaskExecutionBox | undefined
+          let taskSandbox: TaskSandbox | undefined
           let handlerMayHaveStarted = false
           let runError: Error | undefined
           let executionSettled: Promise<void> | undefined
           try {
             const session = options.signal
-              ? await box.open({ id: cloudflareSandboxId, signal: options.signal })
-              : await box.open({ id: cloudflareSandboxId })
-            sandbox = createSandboxTaskExecutionBox(session, provider.provider)
+              ? await sandbox.open({ id: cloudflareSandboxId, signal: options.signal })
+              : await sandbox.open({ id: cloudflareSandboxId })
+            taskSandbox = createTaskSandbox(session, provider.provider)
             const lifecycle = {
               onExecution(execution: Promise<unknown>) {
                 executionSettled = execution.then(() => undefined, () => undefined)
@@ -178,8 +178,8 @@ async function createSandboxTaskRunner(
               },
             }
             const result = options.signal
-              ? await executeSandboxTaskDefinition<TPayload>(sandbox, name, definition.options, definition.bundle, payload, options.context, lifecycle, options.signal)
-              : await executeSandboxTaskDefinition<TPayload>(sandbox, name, definition.options, definition.bundle, payload, options.context, lifecycle)
+              ? await executeSandboxTaskDefinition<TPayload>(taskSandbox, name, definition.options, definition.bundle, payload, options.context, lifecycle, options.signal)
+              : await executeSandboxTaskDefinition<TPayload>(taskSandbox, name, definition.options, definition.bundle, payload, options.context, lifecycle)
             // SAFETY: The generated registry binds this runtime Definition to its public result contract.
             return result as TResult
           }
@@ -205,7 +205,7 @@ async function createSandboxTaskRunner(
             await executionSettled
             if (options.signal?.aborted || readSandboxTaskErrorMetadata(runError)?.code === 'SANDBOX_TASK_TIMEOUT' || provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)) {
               try {
-                await sandbox?.close()
+                await taskSandbox?.close()
               }
               catch (cleanupError) {
                 if (options.signal?.aborted)

@@ -48,7 +48,7 @@ For Cloudflare, install `@cloudflare/sandbox` and use the [Cloudflare host integ
 
 Create the package manifest and entrypoint under
 `server/sandbox-tasks/image-optimizer`. The folder name becomes the Sandbox
-Definition name, while the manifest describes the package that runs in the
+Task Definition name, while the manifest describes the package that runs in the
 isolated environment.
 
 The manifest selects the TypeScript entrypoint and caps the run at 30 seconds. The nested folder is the package that the provider executes.
@@ -78,9 +78,9 @@ export default async function optimize({ width, height }: ImageInput) {
 }
 ```
 
-The entrypoint is ordinary ESM code and does not import the Sandbox package.
+The entrypoint is ordinary ESM code and does not import the Sandbox Task package.
 If the package needs a native dependency, add it to this nested `package.json`;
-it is installed and bundled inside the Sandbox project.
+it is installed and bundled inside the Sandbox Task project.
 
 ::
 

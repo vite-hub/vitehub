@@ -18,7 +18,7 @@ Diagnostic codes use this format:
 | `<PACKAGE>_B####` | Build, discovery, and generated-output-specific diagnostics |
 | `<PACKAGE>_R####` | General package diagnostics |
 
-The package prefix identifies the owner, for example `AGENT`, `AUTH`, `BLOB`, `DATABASE`, `ENV`, `KV`, `RATE_LIMIT`, `SANDBOX`, or `WORKSPACE`. The family letter groups the package catalog. It does not classify when the failure can occur because one validation site can run during configuration, build, or runtime work. The number identifies one failure site. Codes stay stable when a message gains context. Catch a diagnostic by its complete `code` when the application can repair or classify that exact defect.
+The package prefix identifies the owner, for example `AGENT`, `AUTH`, `BLOB`, `DATABASE`, `ENV`, `KV`, `RATE_LIMIT`, `SANDBOX`, `SANDBOX_TASK`, or `WORKSPACE`. The family letter groups the package catalog. It does not classify when the failure can occur because one validation site can run during configuration, build, or runtime work. The number identifies one failure site. Codes stay stable when a message gains context. Catch a diagnostic by its complete `code` when the application can repair or classify that exact defect.
 
 ```ts
 import { getAgentFromRegistry } from '@vite-hub/agent'

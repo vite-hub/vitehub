@@ -1,5 +1,5 @@
 import type { SandboxTaskDefinitionOptions, VercelSandboxTaskProviderOptions } from '../../module-types'
-import { resolveVercelBox } from '@vite-hub/box/_internal/vercel'
+import { resolveVercelSandbox } from '@vite-hub/sandbox/_internal/vercel'
 import { readEnv } from '@vite-hub/internal/env'
 
 type SandboxTaskOptions = {
@@ -41,9 +41,9 @@ function resolveCredentials(provider: VercelSandboxTaskProviderOptions) {
   }
 }
 
-export async function resolveVercelSandboxTaskBox(options: SandboxTaskOptions) {
+export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
   const credentials = resolveCredentials(options.provider)
-  const boxOptions = {
+  const sandboxOptions = {
     runtime: options.provider.runtime || 'node24',
     timeout: typeof options.local.timeout === 'number'
       ? options.local.timeout
@@ -56,8 +56,8 @@ export async function resolveVercelSandboxTaskBox(options: SandboxTaskOptions) {
   }
   return {
     provider: 'vercel' as const,
-    resolveBox: async (requirements: readonly string[]) => await resolveVercelBox(
-      boxOptions,
+    resolveSandbox: async (requirements: readonly string[]) => await resolveVercelSandbox(
+      sandboxOptions,
       requirements,
     ),
   }

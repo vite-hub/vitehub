@@ -1,12 +1,12 @@
 import { sandboxTaskError } from '../sandbox-task/errors'
 import { resolveSandboxTaskModulePath, writeSandboxTaskDefinitionBundle } from './execution-files'
 import type { SandboxTaskDefinitionBundle } from '../module-types'
-import type { SandboxTaskExecutionBox } from './execution-box'
+import type { TaskSandbox } from './task-sandbox'
 
 const projectPreparations = new Map<string, Promise<void>>()
 
 export async function prepareSandboxTaskDefinition(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   bundle: SandboxTaskDefinitionBundle,
   baseDir: string,
   options: { signal?: AbortSignal, timeout?: number },
@@ -53,7 +53,7 @@ export async function prepareSandboxTaskDefinition(
 }
 
 async function prepareSandboxTaskProjectAtomically(
-  sandbox: SandboxTaskExecutionBox,
+  sandbox: TaskSandbox,
   bundle: SandboxTaskDefinitionBundle & { project: NonNullable<SandboxTaskDefinitionBundle['project']> },
   projectDir: string,
   marker: string,

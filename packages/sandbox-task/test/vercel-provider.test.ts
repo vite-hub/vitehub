@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const { resolveVercelBox } = vi.hoisted(() => ({
-  resolveVercelBox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
+const { resolveVercelSandbox } = vi.hoisted(() => ({
+  resolveVercelSandbox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
 }))
 
-vi.mock("@vite-hub/box/_internal/vercel", () => ({ resolveVercelBox }))
+vi.mock("@vite-hub/sandbox/_internal/vercel", () => ({ resolveVercelSandbox }))
 
-import { resolveVercelSandboxTaskBox } from "../src/runtime/providers/vercel.ts"
+import { resolveVercelTaskSandbox } from "../src/runtime/providers/vercel.ts"
 
 const envKeys = [
   "VERCEL_TOKEN",
@@ -21,12 +21,12 @@ afterEach(() => {
   }
 })
 
-describe("resolveSandboxTaskBox", () => {
+describe("resolveTaskSandbox", () => {
   it("merges Vercel credentials from provider options and env", async () => {
     process.env.VERCEL_TEAM_ID = "team-from-env"
     process.env.VERCEL_PROJECT_ID = "project-from-env"
 
-    const provider = await resolveVercelSandboxTaskBox({
+    const provider = await resolveVercelTaskSandbox({
       local: {},
       provider: {
         provider: "vercel",
@@ -34,8 +34,8 @@ describe("resolveSandboxTaskBox", () => {
       },
     })
     expect(provider).toMatchObject({ provider: "vercel" })
-    await provider.resolveBox(["node"])
-    expect(resolveVercelBox).toHaveBeenCalledWith(
+    await provider.resolveSandbox(["node"])
+    expect(resolveVercelSandbox).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "token-from-config",
         teamId: "team-from-env",
@@ -48,7 +48,7 @@ describe("resolveSandboxTaskBox", () => {
   it("uses config credentials without process", async () => {
     vi.stubGlobal("process", undefined)
 
-    const provider = await resolveVercelSandboxTaskBox({
+    const provider = await resolveVercelTaskSandbox({
       local: {},
       provider: {
         provider: "vercel",
@@ -58,8 +58,8 @@ describe("resolveSandboxTaskBox", () => {
       },
     })
     expect(provider).toMatchObject({ provider: "vercel" })
-    await provider.resolveBox(["node"])
-    expect(resolveVercelBox).toHaveBeenCalledWith(
+    await provider.resolveSandbox(["node"])
+    expect(resolveVercelSandbox).toHaveBeenCalledWith(
       expect.objectContaining({
         token: "token-from-config",
         teamId: "team-from-config",

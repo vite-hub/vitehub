@@ -119,7 +119,7 @@ afterEach(async () => {
 })
 
 describe("hubSandboxTask", () => {
-  it.each(["plugin", "config"] as const)("omits Sandbox Definitions disabled through %s", async (disabledBy) => {
+  it.each(["plugin", "config"] as const)("omits Sandbox Task Definitions disabled through %s", async (disabledBy) => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../src/vite.ts")
     const plugin = hubSandboxTask(disabledBy === "plugin" ? false : undefined)
@@ -203,7 +203,7 @@ describe("hubSandboxTask", () => {
     expect(facade).toContain('from "./sandbox-task-registry.mjs"')
     expect(facade).toContain('from "./sandbox-task-provider-loader.mjs"')
     expect(registry).toContain('"tools/release-notes"')
-    expect(providerLoader).toContain("resolveSandboxTaskBox")
+    expect(providerLoader).toContain("resolveTaskSandbox")
     const providerRuntimeSpecifier = providerLoader.match(/from "([^"]+)"/)?.[1]
     if (!providerRuntimeSpecifier)
       throw new Error("Expected the generated provider loader to import its runtime.")
@@ -605,7 +605,7 @@ describe("hubSandboxTask", () => {
 
     expect(resolvedNitro.cloudflare.wrangler.containers).toMatchObject([{ class_name: "Sandbox" }])
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-registry.mjs"), "utf8")).resolves.toContain('"example"')
-    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-provider-loader.mjs"), "utf8")).resolves.toContain("resolveSandboxTaskBox")
+    await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-provider-loader.mjs"), "utf8")).resolves.toContain("resolveTaskSandbox")
     const generatedDefinition = await readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task-definitions/example.mjs"), "utf8")
     expect(JSON.parse(generatedDefinition.slice("export default ".length))).toMatchObject({
       bundle: {
@@ -622,7 +622,7 @@ describe("hubSandboxTask", () => {
     expect(generatedTypes).toContain("TArgs extends [] ? unknown : TArgs[0]")
   })
 
-  it("keeps Cloudflare output inert without Sandbox definitions", async () => {
+  it("keeps Cloudflare output inert without Sandbox Task Definitions", async () => {
     const rootDir = await createViteRoot()
     await rm(join(rootDir, "src/tools/release-notes.sandbox-task.ts"))
     const { hubSandboxTask } = await import("../src/vite.ts")
@@ -647,7 +647,7 @@ describe("hubSandboxTask", () => {
       .rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("keeps unsupported hosting inert without Sandbox definitions", async () => {
+  it("keeps unsupported hosting inert without Sandbox Task Definitions", async () => {
     const rootDir = await createViteRoot()
     await rm(join(rootDir, "src/tools/release-notes.sandbox-task.ts"))
     const { hubSandboxTask } = await import("../src/vite.ts")
@@ -1612,7 +1612,7 @@ describe("hubSandboxTask", () => {
     })
 
     expect(result.outputFiles[0]?.text).toContain("release-notes")
-    expect(result.outputFiles[0]?.text).toContain(provider === "cloudflare" ? "resolveCloudflareSandboxTaskBox" : "resolveVercelSandboxTaskBox")
+    expect(result.outputFiles[0]?.text).toContain(provider === "cloudflare" ? "resolveCloudflareTaskSandbox" : "resolveVercelTaskSandbox")
   })
 
   it("removes generated bundles for definitions that no longer exist", async () => {

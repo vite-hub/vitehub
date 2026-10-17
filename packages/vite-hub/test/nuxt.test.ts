@@ -518,7 +518,7 @@ describe("ViteHub Nuxt integration", () => {
     const existingModule = { name: "existing-module", setup: vi.fn() }
     const nitroConfig: Record<string, unknown> = { modules: existingModule }
 
-    await viteHubNuxtModule({ preset: "cloudflare", sandbox: true }, nuxt)
+    await viteHubNuxtModule({ preset: "cloudflare", sandboxTask: true }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
     expect(nitroConfig.modules).toEqual([existingModule, nitroModule])
@@ -559,7 +559,7 @@ describe("ViteHub Nuxt integration", () => {
       },
     }
 
-    await viteHubNuxtModule({ preset: "cloudflare", sandbox: true }, nuxt)
+    await viteHubNuxtModule({ preset: "cloudflare", sandboxTask: true }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
     expect(configResolved).toHaveBeenCalledOnce()
@@ -1893,7 +1893,7 @@ describe("ViteHub Nuxt integration", () => {
     try {
       const development = createNuxt(true)
 
-      await viteHubNuxtModule({ console: { auth: false }, preset: "cloudflare", sandbox: true }, development.nuxt)
+      await viteHubNuxtModule({ console: { auth: false }, preset: "cloudflare", sandboxTask: true }, development.nuxt)
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const pages: Array<{ file: string; name: string; path: string }> = []
       development.runPagesHook(pages)
@@ -1901,7 +1901,7 @@ describe("ViteHub Nuxt integration", () => {
       expect(pages).toEqual([
         expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
         expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
-        expect.objectContaining({ name: "vitehub-console-sandboxes", path: "/_vitehub/sandboxes" }),
+        expect.objectContaining({ name: "vitehub-console-sandbox-tasks", path: "/_vitehub/sandbox-tasks" }),
       ])
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
@@ -2664,10 +2664,10 @@ describe("ViteHub Nuxt integration", () => {
   it("removes Sandbox Console metadata when Nuxt replay disables Sandbox", async () => {
     const development = createNuxt(true, [{
       name: "vite-hub/sandbox-replay",
-      config: (): UserConfig & { sandbox?: boolean } => ({ sandbox: false }),
+      config: (): UserConfig & { sandboxTask?: boolean } => ({ sandboxTask: false }),
     }])
 
-    await viteHubNuxtModule({ console: { auth: false }, preset: "cloudflare", sandbox: true }, development.nuxt)
+    await viteHubNuxtModule({ console: { auth: false }, preset: "cloudflare", sandboxTask: true }, development.nuxt)
     const nitroConfig = nitroOptions(development.nuxt)
     await development.runNitroConfigHook(nitroConfig)
 
@@ -2679,7 +2679,7 @@ describe("ViteHub Nuxt integration", () => {
   it("keeps Sandbox Console metadata disabled when replay runs on an unsupported preset", async () => {
     const development = createNuxt(true)
 
-    await viteHubNuxtModule({ console: { auth: false }, preset: "node", sandbox: true }, development.nuxt)
+    await viteHubNuxtModule({ console: { auth: false }, preset: "node", sandboxTask: true }, development.nuxt)
     const nitroConfig = nitroOptions(development.nuxt)
     await development.runNitroConfigHook(nitroConfig)
 

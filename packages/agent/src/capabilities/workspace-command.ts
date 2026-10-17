@@ -38,7 +38,7 @@ interface WorkspaceCommandToolOptions {
   executionBudget?: ExecutionBudget
 }
 
-interface BoxCommandOptions {
+interface SandboxCommandOptions {
   abortSignal?: AbortSignal
   check?: boolean
   commitMessage?: string
@@ -155,7 +155,7 @@ export async function executeWorkspaceCommand(
   workspace: unknown,
   command: string,
   args: string[] = [],
-  options: BoxCommandOptions = {},
+  options: SandboxCommandOptions = {},
   context?: AgentInvocationContextStore,
 ): Promise<Awaited<ReturnType<WorkspaceSession["exec"]>>> {
   const activeExecute = context && activeAgentWorkspaceCommands(context)
@@ -173,7 +173,7 @@ export async function executeWorkspaceCommand(
     })
     options.executionBudget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
     if (options.check && result.exitCode !== 0) {
-      throw Object.assign(agentDiagnostics.AGENT_R0292({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), result, { name: "BoxCommandError" })
+      throw Object.assign(agentDiagnostics.AGENT_R0292({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), result, { name: "SandboxCommandError" })
     }
     return result
   }
@@ -197,7 +197,7 @@ export async function executeWorkspaceCommand(
       throw Object.assign(agentDiagnostics.AGENT_R0294({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), {
         command,
         exitCode: result.exitCode,
-        name: "BoxCommandError",
+        name: "SandboxCommandError",
         stderr: result.stderr,
         stdout: result.stdout,
       })

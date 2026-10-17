@@ -109,14 +109,14 @@ export function resolveRuntimeProvider(provider?: SandboxTaskDefinitionProviderO
 export function assertSandboxTaskDefinitionOptions(local: SandboxTaskDefinitionOptions) {
   const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
   if (invalidKeys.length > 0)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0069({ message: `[vitehub] Sandbox definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0069({ message: `[vitehub] Sandbox Task Definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}` })
   if (local.timeout !== undefined
     && (!Number.isInteger(local.timeout) || local.timeout <= 0 || local.timeout > maxTimeout)) {
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0070({ message: `[vitehub] Sandbox definition timeout must be a positive integer no greater than ${maxTimeout}.` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0070({ message: `[vitehub] Sandbox Task Definition timeout must be a positive integer no greater than ${maxTimeout}.` })
   }
 }
 
-export async function resolveSandboxTaskBox(
+export async function resolveTaskSandbox(
   provider: SandboxTaskProvider,
   providerOptions: SandboxTaskDefinitionProviderOptions & { provider: SandboxTaskProvider },
   local: SandboxTaskDefinitionOptions,
@@ -129,7 +129,7 @@ export async function resolveSandboxTaskBox(
     return dynamicImport('@vite-hub/sandbox-task/runtime/provider-loader')
   }) as ProviderLoaderModule
   const runtimeProvider = await providerLoader.loadSandboxTaskRuntimeProvider(provider)
-  return await runtimeProvider.resolveSandboxTaskBox({
+  return await runtimeProvider.resolveTaskSandbox({
     local,
     provider: providerOptions,
   }, context)

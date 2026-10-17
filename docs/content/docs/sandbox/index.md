@@ -6,8 +6,8 @@ navigation.order: 1
 icon: i-lucide-terminal-square
 ---
 
-::agent-only{skill="sandbox"}
-Use Sandbox to run a named project in an isolated Cloudflare or Vercel environment. A Sandbox Run is an execution boundary, not a general-purpose local shell.
+::agent-only{skill="sandbox-task" title="Sandbox Tasks"}
+Use a Sandbox Task to run a named project inside an isolated Cloudflare or Vercel Sandbox. A Sandbox Task run is an execution boundary, not a general-purpose local shell.
 
 Read [Get started](/docs/sandbox/get-started), [Configure](/docs/sandbox/configure), [Server API](/docs/sandbox/server-api), [Agent Capability](/docs/sandbox/agent-capability), or [Hosts](/docs/sandbox/hosts).
 
@@ -16,7 +16,7 @@ Keep images, mounts, network access, timeouts, and resource bounds explicit. Pas
 Prove successful execution, cancellation, timeout, and cleanup on the selected provider. Verify result-size limits only when the provider documents them. Inspect generated bindings and provider output.
 ::
 
-::product-hero{tagline="Run a named package project in an isolated Box, on Cloudflare or Vercel Sandbox chosen in config." hosts="Vercel, Cloudflare"}
+::product-hero{tagline="Run a named package project as a Sandbox Task in an isolated Sandbox, on Cloudflare or Vercel Sandbox chosen in config." hosts="Vercel, Cloudflare"}
   :::code-group
   ```ts [Definition and route]
   // server/sandbox-tasks/release-notes/index.ts
@@ -67,7 +67,7 @@ Prove successful execution, cancellation, timeout, and cleanup on the selected p
 
 
 ::product-features
-  :::product-feature-item{title="A Sandbox is a package project" icon="i-lucide-box" to="/docs/sandbox/configure"}
+  :::product-feature-item{title="A Sandbox Task is a package project" icon="i-lucide-box" to="/docs/sandbox/configure"}
   One folder under `server/sandbox-tasks`, with `package.json` and an entrypoint.
   :::
 
@@ -79,8 +79,8 @@ Prove successful execution, cancellation, timeout, and cleanup on the selected p
   Vercel Sandbox and Cloudflare Sandbox run the same Definitions.
   :::
 
-  :::product-feature-item{title="The Box is the boundary" icon="i-lucide-shield-alert" to="/docs/sandbox/limits-and-errors"}
-  Box code reaches what the provider exposes; read `executionAuthority` first.
+  :::product-feature-item{title="The Sandbox is the boundary" icon="i-lucide-shield-alert" to="/docs/sandbox/limits-and-errors"}
+  Sandbox code reaches what the provider exposes; read `executionAuthority` first.
   :::
 
   :::product-feature-item{title="Allowlisted executables, as one Agent tool" icon="i-lucide-bot" to="/docs/sandbox/agent-capability"}

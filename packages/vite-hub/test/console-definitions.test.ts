@@ -74,7 +74,7 @@ function definitionSummaries(name: string): Record<string, ConsoleDefinitionSumm
       name,
       source: "server-schedules",
     }],
-    sandboxes: [{
+    "sandbox-tasks": [{
       fields: [{ label: "Kind", value: "Definition" }],
       file: `src/${name}.sandbox-task.ts`,
       name,
@@ -186,7 +186,7 @@ describe("Console definition inspection", () => {
       kind: "definition-catalog",
       section: "schedules",
     })
-    expect(await definitionsHandler(event("?section=sandboxes"))).toEqual({
+    expect(await definitionsHandler(event("?section=sandbox-tasks"))).toEqual({
       definitions: [{
         fields: [{ label: "Kind", value: "Definition" }],
         file: "src/release.sandbox-task.ts",

@@ -19,12 +19,12 @@ Prove read, scoped write, diff, and restart or provider recovery. Inspect snapsh
 ::product-hero{tagline="A persistent file tree for server code and Agents, with the same calls on every Store provider." hosts="Node, Docker, Cloudflare, Vercel"}
   :::code-group
   ```ts [Session]
-  import { resolveBox } from '@vite-hub/box'
+  import { resolveSandbox } from '@vite-hub/sandbox'
   import { useWorkspace } from '@vite-hub/workspace'
 
   export async function testDocs() {
-    const box = await resolveBox({ runtime: 'trusted-host' }, undefined)
-    const host = await box.open()
+    const sandbox = await resolveSandbox({ runtime: 'trusted-host' }, undefined)
+    const host = await sandbox.open()
     const session = await useWorkspace('docs', { mode: 'write' }).startSession({ host })
 
     try {
@@ -91,7 +91,7 @@ Prove read, scoped write, diff, and restart or provider recovery. Inspect snapsh
   :::
 
   :::product-feature-item{title="Run a command and keep its diff" icon="i-lucide-terminal" to="/docs/workspace/server-api#use-sessions-and-shell"}
-  A Box Session diffs, commits, or rolls back on close.
+  A Sandbox Session diffs, commits, or rolls back on close.
   :::
 
   :::product-feature-item{title="Pick the Store once, keep the calls" icon="i-lucide-sliders-horizontal" to="/docs/workspace/configure#store-providers"}

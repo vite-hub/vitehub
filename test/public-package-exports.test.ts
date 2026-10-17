@@ -156,7 +156,7 @@ describe("public package export contracts", () => {
     expect(source).toMatch(/fetch\(input: Request \| URL \| string\): Promise<Response>/)
   })
 
-  it("keeps Sandbox's public request contract limited to readable payloads", () => {
+  it("keeps Sandbox Task's public request contract limited to readable payloads", () => {
     const source = readFileSync(join(packageDir("sandbox-task"), "src/internal/shared/request-payload.ts"), "utf8")
     expect(source).toMatch(/json: \(\) => Promise<unknown>/)
     expect(source).not.toMatch(/json\?:/)
