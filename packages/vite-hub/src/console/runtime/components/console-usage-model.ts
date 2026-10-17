@@ -348,9 +348,11 @@ export function formatConsoleUsageTimestamp(value: string, timeZone?: string): s
     hour: "numeric",
     minute: "2-digit",
     month: "short",
+
   };
   if (timeZone) options.timeZone = timeZone;
   return new Intl.DateTimeFormat("en", options).format(new Date(value));
+
 }
 
 /** The full date and time with seconds and time zone, for a title. */
@@ -358,7 +360,9 @@ export function formatConsoleUsageDateTime(value: string, timeZone?: string): st
   const options: Intl.DateTimeFormatOptions = {
     dateStyle: "full",
     timeStyle: "long",
+
   };
   if (timeZone) options.timeZone = timeZone;
   return new Intl.DateTimeFormat("en", options).format(new Date(value));
+
 }

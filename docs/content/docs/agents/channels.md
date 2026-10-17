@@ -67,6 +67,20 @@ concurrency modes use the same admission policy. The provider must deliver the
 messages first. For Teams, the Team app installation needs channel-message read
 permission and consent.
 
+## Ignore other bots
+
+Built-in chat Channels ignore messages from bot authors, including mentions and direct messages. Two bots that answer each other can loop without end. The Chat SDK already skips the Agent's own messages. Set `messages.allowBots: true` on the Agent or on one Channel to admit other bots:
+
+```ts
+teams({
+  messages: {
+    allowBots: true,
+  },
+})
+```
+
+An ignored bot message is recorded as a `rejected` Channel delivery. It does not reach `messages.filter`.
+
 ## Act on the Channel message in hooks
 
 The Channel defines the connector. The Agent reacts in its hooks. `agent:finish` and `agent:error` hooks receive `event.message`, a handle for the Channel message that started the Invocation.
@@ -462,7 +476,7 @@ Install the matching `@chat-adapter/*` package when a built-in Channel uses prov
 
 Built-in Channels read credentials from Server Env under `env.server.<channel>`. ViteHub discovers built-in Channel factories in Agent definitions and declares their fields automatically, so applications usually need no separate Env declaration. Explicit Channel options take precedence over Env values. Declare a field yourself when the host variable name or provider differs from the default.
 
-Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. Use the canonical name when the vendor name is taken, for example `VITEHUB_GITHUB_TOKEN` in CI. See [Server Env variable names](/docs/env/configure).
+Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. `github()`, `gitlab()` and `forgejo()` read the `VITEHUB_` name, then the `FORGES_` name of the [`forges`](https://forges.link/reference/environment-variables) library: `github()` reads `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. They do not read `GH_TOKEN` or `GITHUB_TOKEN`. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. See [Server Env variable names](/docs/env/configure).
 
 Use [Server Env](/docs/env) to inspect the discovered fields and their required or secret status. When a Channel is defined outside a discovered Agent file, declare its Env fields explicitly.
 
@@ -565,6 +579,26 @@ export default defineAgent({
 ```
 
 Channel-scoped Capabilities select abilities, not identity. Authenticate and resolve the Actor at the route, trigger, or `access()` boundary.
+
+## Add instructions to one Channel
+
+Set `instructions` on a Channel to give the Agent rules that apply only to the Invocations that this Channel starts. ViteHub adds them after the Agent instructions. Built-in Channels such as `teams()` and `telegram()` already add formatting guidance; your instructions come after it.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    github: github({
+      instructions: 'Review only the files that the pull request changes. Link each finding to its line.',
+    }),
+  },
+  driver: { model: 'openai/gpt-5.1-mini' },
+})
+```
+
+Channel instructions are trusted text from code. ViteHub reads them when the Invocation runs, so a queued delivery uses the current text. Direct `runAgent()` calls do not get them. Agent inspection lists them as `Channel "<name>" instructions`. Drivers with their own `run` function do not receive Agent instructions, so they do not receive Channel instructions either.
 
 ## Handle attachments
 

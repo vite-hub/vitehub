@@ -1,0 +1,57 @@
+// The components that the root entry exports and the Nuxt module registers.
+// Parts follow the names of the shadcn/ui agentic components: https://ui.shadcn.com/docs/changelog/2026-10-ai-elements
+const partFamilies = {
+  attachment: [
+    "Attachment",
+    "AttachmentAction",
+    "AttachmentActions",
+    "AttachmentContent",
+    "AttachmentDescription",
+    "AttachmentGroup",
+    "AttachmentMedia",
+    "AttachmentTitle",
+    "AttachmentTrigger",
+  ],
+  bubble: ["Bubble", "BubbleContent", "BubbleGroup", "BubbleReactions"],
+  marker: ["Marker", "MarkerContent", "MarkerIcon"],
+  message: ["Message", "MessageAvatar", "MessageContent", "MessageFooter", "MessageGroup", "MessageHeader"],
+  trace: [
+    "Trace",
+    "TraceCollapsible",
+    "TraceCollapsibleContent",
+    "TraceCollapsibleTrigger",
+    "TraceDescription",
+    "TraceIcon",
+    "TraceLine",
+    "TraceTitle",
+  ],
+} as const;
+
+export const componentNames = [
+  "AgentCapabilityInspector",
+  "AgentChat",
+  "AgentChatMessage",
+  "AgentChatPrompt",
+  "AgentCodeView",
+  "AgentFile",
+  "AgentFileDiff",
+  "AgentFileTree",
+  "AgentInvocation",
+  "AgentInvocationInspector",
+  "AgentInvocationList",
+  "AgentInvocationTimeline",
+  "AgentMarkdown",
+  "AgentMessageParts",
+  "AgentMultiFileDiff",
+  "AgentPatchDiff",
+  "AgentSession",
+  "AgentToolList",
+  "AgentTrace",
+  "AgentUnresolvedFile",
+  ...partFamilies.attachment,
+  ...partFamilies.bubble,
+  ...partFamilies.marker,
+  ...partFamilies.message,
+  ...partFamilies.trace,
+] as const;
+

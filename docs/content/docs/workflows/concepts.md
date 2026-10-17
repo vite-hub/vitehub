@@ -2,7 +2,7 @@
 title: Workflow concepts
 description: Understand workflow runs, durable steps, retries, and provider state before you design a long-running job.
 navigation.title: Concepts
-navigation.order: 3
+navigation.order: 8
 navigation.group: Concepts
 icon: i-lucide-lightbulb
 ---

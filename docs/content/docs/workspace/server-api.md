@@ -19,8 +19,9 @@ Use these imports and methods to work with a Workspace from server code.
 | Source resolution, request, and preparation helpers from `@vite-hub/workspace/runtime` | Integrate resolved Workspace Sources and process-local readiness into runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
 | `registerWorkspacePlugin` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Add rules and hooks to a Workspace you do not define. See [Add plugins to a Workspace](#add-plugins-to-a-workspace). |
+| `workspaceFile` from `@vite-hub/workspace` | Use a JSON array in a Workspace file as a [Collection source](/docs/source/server-api#collections-over-an-array). |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Register Workspace discovery, generated types, assets, and runtime wiring. |
-| `@vite-hub/workspace/loader`, `@vite-hub/workspace/publish`, `@vite-hub/workspace/test` | Add loaders and publishers, or register test Workspaces. |
+| `@vite-hub/workspace/loader`, `@vite-hub/workspace/test` | Add loaders, or register test Workspaces. |
 
 Workspace definition, Source Binding, rule, hook, store, sync, facade, and session types are exported from `@vite-hub/workspace`. Source resolution runtime types are exported from `@vite-hub/workspace/runtime`.
 
@@ -169,10 +170,6 @@ A commit waits for Definition synchronization before checking Source ownership. 
 
 Retained history requires access to the complete Workspace. A facade restricted to selected paths or Sources throws `WORKSPACE_R0069` instead of exposing or replacing a complete folder outside that scope.
 
-### Read history from the CLI
-
-During development, `vitehub workspace history`, `refs`, and `show` read the same history from a running Vite + Nitro Development Server. They list revisions with ref, author, message, and time, list refs with their heads, and print a revision or one file at that revision. Add `--json` for machine-readable output. See [Read Workspace history during development](/docs/development/cli#read-workspace-history-during-development).
-
 ## Add plugins to a Workspace
 
 `registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it from a package that owns some paths in a Workspace it does not define, for example to validate documents before every write:
@@ -230,8 +227,7 @@ Build and development integrations materialize Sources at build time. Runtime `s
 | `sources` | `all \| readonly string[]` | required | Selects all sync-enabled Sources or explicit Source keys. |
 | `details` | `counts \| paths` | `counts` | Returns per-Source counts, with optional per-path results. |
 | `snapshot` | `boolean \| { name?, message? }` | `false` | Creates a snapshot after successful reconciliation. A message is used as the snapshot name when `name` is absent. |
-| `publish` | `boolean` | `false` | Publishes the resulting snapshot through configured Workspace Publishers; enabling it also creates a snapshot. |
-| `publishPartial` | `boolean` | `false` | Applies and optionally publishes successful Source plans even when another selected Source fails. |
+| `publishPartial` | `boolean` | `false` | Applies successful Source plans even when another selected Source fails. With `snapshot`, it also creates the snapshot. |
 
 Source Sync requires a Workspace Store with metadata support. Without `publishPartial`, any planning error skips all otherwise valid plans so the sync does not apply only part of the requested selection.
 

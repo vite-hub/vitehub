@@ -2,10 +2,8 @@ import { workspaceError } from "./errors.ts"
 
 // Validate without invoking getters or toJSON hooks that can change ownership.
 function copyJsonValue(value: unknown, ancestors: Set<object>, normalizeOptional = false): unknown {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates JSON primitives without invoking user getters or serialization hooks.
   if (value === null || typeof value === "string" || typeof value === "boolean") return value
   if (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0)) return value
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only objects can enter descriptor traversal; functions and other non-JSON primitives are invalid.
   if (typeof value !== "object" || ancestors.has(value)) throw new Error("Invalid JSON metadata")
   const array = Array.isArray(value)
   const prototype = Object.getPrototypeOf(value)
@@ -17,7 +15,6 @@ function copyJsonValue(value: unknown, ancestors: Set<object>, normalizeOptional
     if (array && !normalizeOptional && keys.length !== descriptors.length?.value) throw new Error("Invalid JSON metadata")
     const copy = array ? [] : {}
     for (const [index, key] of keys.entries()) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON keys must be strings; symbols cannot survive serialization.
       if (typeof key !== "string" || (array && (normalizeOptional ? !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= descriptors.length?.value : key !== String(index)))) throw new Error("Invalid JSON metadata")
       const descriptor = descriptors[key]!
       if (!descriptor.enumerable || !("value" in descriptor)) throw new Error("Invalid JSON metadata")
@@ -42,7 +39,6 @@ export function copyJsonWorkspaceMetadata(path: string, metadata: Record<string,
   if (metadata === undefined) return
   let copy: Record<string, unknown> | undefined
   try {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject non-object JavaScript inputs before recursively validating the metadata contract.
     if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)) {
       // SAFETY: The non-null, non-array input is copied into a plain object; copyJsonValue rejects unsupported prototypes and recursively validates every property.
       copy = copyJsonValue(metadata, new Set(), normalizeOptional) as Record<string, unknown>
@@ -57,7 +53,6 @@ export function copyJsonFileMetadata(path: string, metadata: Record<string, unkn
   const copy = copyJsonWorkspaceMetadata(path, metadata, normalizeOptional)
   if (!copy) return
   const source = Object.getOwnPropertyDescriptor(copy, "source")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Source ownership is a reserved string field at the shared metadata boundary.
   if (source && typeof source.value !== "string") {
     throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. metadata.source must be a string when provided.`)
   }

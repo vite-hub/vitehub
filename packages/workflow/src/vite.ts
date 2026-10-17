@@ -296,7 +296,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         if (env.command !== "serve") return
         devWorkflow = resolveDevWorkflow()
         const projectRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteHub adds its authoritative project root to otherwise opaque Vite config extensions.
         devRootDir = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined })
         // Reserve the startup plugin before Nitro reads config. Later hooks may enable Workflows.
         const { plugin } = await writeDevRegistry(devRootDir, devWorkflow ?? false)
@@ -313,7 +312,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         registerWorkflowDevEndpoint(server, {
           nitroBaseURL: () => {
             const baseURL = Reflect.get(Object(Reflect.get(resolved ?? {}, "nitro")), "baseURL")
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the opaque Nitro development URL.
             return typeof baseURL === "string" ? baseURL : process.env.NITRO_APP_BASE_URL
           },
         })
@@ -405,7 +403,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       scheduledBuildConfigsByRoot.set(config.root, configs)
       if (devRootDir) {
         const projectRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Later Vite hooks may change the authoritative project root.
         devRootDir = resolveViteHubProjectRoot(config.root, { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined })
         devWorkflow = resolveDevWorkflow()
         await writeDevRegistry(devRootDir, devWorkflow ?? false)

@@ -56,7 +56,6 @@ function decodeCursor(cursor?: string): UpstashCursor {
     // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- The structural checks below validate every cursor member before use.
     // SAFETY: value remains confined to this parser until its required fields pass the checks below.
     const value = JSON.parse(decodeURIComponent(cursor)) as UpstashCursor
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cursor JSON crosses the HTTP boundary and needs a representation check.
     if (typeof value.cursor !== "string" || value.cursor.length === 0) throw kvErrorDiagnostics.KV_R0007()
     return value
   }
