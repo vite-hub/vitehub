@@ -375,9 +375,11 @@ const validatedAuthorizationStreamGetReader = (() => {
     const source = new ReadableStream()
     const reader = Reflect.apply(authorizationStreamGetReader, source, [])
     if (!Reflect.apply(authorizationStreamLocked, source, [])) return
-    Reflect.apply(authorizationReaderRead, reader, [])
-    Reflect.apply(authorizationReaderCancel, reader, [])
+    // Releasing the returned reader must unlock the exact stream passed to
+    // getReader. A replacement that locks `source` but returns an unrelated
+    // reader fails this association check and is rejected.
     Reflect.apply(authorizationReaderReleaseLock, reader, [])
+    if (Reflect.apply(authorizationStreamLocked, source, [])) return
     return authorizationStreamGetReader
   }
   catch {

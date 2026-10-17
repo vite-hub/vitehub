@@ -189,7 +189,7 @@ import { useUserSession } from "@vite-hub/auth/vue";
 export const session = useUserSession();
 ```
 
-That default talks to `/api/auth` on the same origin. If the Auth Definition uses a custom `basePath`, pass the same path to the Better Auth client.
+That default talks to `/api/auth` on the same origin. In a Nuxt app below `app.baseURL`, such as `/app/`, it talks to `/app/api/auth`, and the server serves Auth routes and OAuth callbacks below the same path. If the Auth Definition uses a custom `basePath`, pass the same path to the Better Auth client, below the app base path.
 
 ```ts
 // server/auth.ts
