@@ -48,8 +48,7 @@ The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or the Vi
 
 | Import                    | Use it for                                                                     |
 | ------------------------- | ------------------------------------------------------------------------------ |
-| `@vite-hub/ui`            | Styled components, composables, display helpers, and Pierre diff helpers.      |
-| `@vite-hub/ui/agent-*`    | One styled component entry point, such as `@vite-hub/ui/agent-chat`.            |
+| `@vite-hub/ui`            | Every styled component, composables, display helpers, and Pierre diff helpers. |
 | `@vite-hub/ui/headless`   | Message scroller primitives without styles or Nuxt UI.                         |
 | `@vite-hub/ui/nuxt`       | The Nuxt module. It installs Nuxt UI, registers components, and loads the CSS. |
 | `@vite-hub/ui/vite`       | The Vite plugin for Vue applications. It configures Nuxt UI and Comark.        |

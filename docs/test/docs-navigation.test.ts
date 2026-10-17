@@ -81,8 +81,9 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain(startTitle);
       expect(templateTitles, sectionId).toContain("Server API");
-      // Template pages appear in canonical template order. Product-specific pages may be interspersed.
-      expect(templateTitles, sectionId).toEqual(template.filter(title => titles.includes(title)));
+      // Template pages keep their order when related topic pages sit between them.
+      expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
+      expect(templateTitles.every((title, index) => titles.indexOf(title) === pages.findIndex(page => page.title === title)), sectionId).toBe(true);
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -115,6 +116,7 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
+      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
@@ -133,7 +135,7 @@ describe("docs product navigation", () => {
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).some(group => group.label === null)).toBe(true);
+    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
   });
 
   it("lists each topic once inside a section", () => {

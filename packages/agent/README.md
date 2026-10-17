@@ -403,7 +403,7 @@ GitHub pull request Channels use `pullRequest.workspace.mount` for a custom repo
 
 Provider Drivers get the mount as a real Git checkout of the exact head SHA, with `origin`, the fetched base branch, and a local head branch that tracks the pull request branch. A declared GitHub Source of the same repository and scope at the same mount is replaced for the Invocation; a different repository or scope fails with an error that names the Source. Checkout setup rejects a head branch without an explicit head repository, including pull requests from deleted forks.
 
-Set `defineAgent({ github })` to a GitHub identity such as `createGitHubHost()`. Provider Drivers receive its `access().env` (`GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit identity) before `driver.env`, and the pull request checkout and `git()` use the same credentials. `github({ app: host })` uses the identity for Channel API calls and also sets `defineAgent({ github })` when it is omitted.
+Set `defineAgent({ github })` to a GitHub identity such as `createGitHubHost()`. Every Invocation of the Agent gets it, including streamed runs. A runtime context that already sets `githubIdentity` keeps its own. Provider Drivers receive its `access().env` (`GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit identity) before `driver.env`, and the pull request checkout and `git()` use the same credentials. `github({ app: host })` uses the identity for Channel API calls and also sets `defineAgent({ github })` when it is omitted.
 
 Channels with `history: { collection, key, thread?, invocationItem? }` export Collection items through `vitehub channels history`. Use repeatable `--query key=value`, optional `--thread`, and `--invocations` for retained runs and unformatted deliveries. Live and replayed triggers annotate the item key and thread. `channelDelivery` records dry-run writes without sending. Declared `webhooks.path` values receive the same authenticated requests as built-in webhook routes. See the [Channel history guide](../../docs/content/docs/agents/channels.md#replay-channel-history).
 
@@ -914,11 +914,11 @@ Agent State. Hosts start in production builds, or in development only with
 `VITEHUB_AGENT_PROCESS_HOSTS=1`, so a development server does not repair real
 PRs by accident.
 
-The host reads the GitHub App from `env.server.github` or `GITHUB_APP_ID`,
-`GITHUB_APP_PRIVATE_KEY` (or `GITHUB_APP_PRIVATE_KEY_PATH`), and
-`GITHUB_WEBHOOK_SECRET`. It resolves the App installation of each repository and
-commits as the App's bot. `GITHUB_APP_INSTALLATION_ID` pins the installation for
-`GITHUB_APP_OWNER`. `GITHUB_APP_INSTALLATIONS` accepts a JSON object mapping owner
+The host reads the GitHub App from `env.server.github` or `VITEHUB_GITHUB_APP_ID`,
+`VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and
+`VITEHUB_GITHUB_WEBHOOK_SECRET`. It resolves the App installation of each repository and
+commits as the App's bot. `VITEHUB_GITHUB_INSTALLATION_ID` pins the installation for
+`VITEHUB_GITHUB_APP_OWNER`. `VITEHUB_GITHUB_APP_INSTALLATIONS` accepts a JSON object mapping owner
 names to installation IDs. Other owners resolve their own installation. The host
 ignores an environment installation ID without an owner.
 A delivery without a configured webhook secret is rejected. Only the commit
