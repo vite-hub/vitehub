@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Time, today } from "@internationalized/date";
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from "vue";
+import { AvatarStack, ConnectionStatus, ConnectionStatusIndicator, ConnectionStatusLabel } from "@vite-hub/ui";
 import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
 
 import {
@@ -36,11 +37,10 @@ import {
 } from "../client/schema-form";
 import { splitConsoleFrontmatter } from "../client/editor";
 import { useConsoleLiveDocument } from "../client/live";
-import { consoleClockTime, consoleLiveDefinition, consoleLiveLabel, consoleLiveSessions, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
+import { consoleClockTime, consoleLiveDefinition, consoleLiveLabel, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
 import { useConsoleToast } from "../client/toast";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
 import ConsoleDocumentHistory from "./console-document-history.vue";
-import ConsoleLiveFocus from "./console-live-focus.vue";
 import ConsoleSchemaForm from "./console-schema-form.vue";
 import ConsoleMarkdownEditor from "./console-markdown-editor.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
@@ -191,6 +191,8 @@ const live = liveDefinition
 /** This tab edits through the live room now. */
 const liveActive = computed(() => Boolean(live?.ready.value && liveRoom.value));
 const liveOthers = computed<ConsoleLivePerson[]>(() => (liveActive.value ? live?.others.value ?? [] : []));
+/** The room connection. A drop shorter than the delay of `ConnectionStatus` still reads as Live. */
+const liveStatus = computed(() => live?.status.value ?? "connecting");
 /** The room document, provider, and identity for the body editor. A reset mounts the editor again for the new room. */
 const liveBinding = computed(() => {
   const document = live?.document.value;
@@ -389,7 +391,6 @@ type HeaderAction = "conflict" | "fields" | "retry";
 const headerStatus = computed<{ action?: HeaderAction, label: string, pending?: boolean, savedAt?: string, tone: "error" | "neutral" | "success" | "warning" } | undefined>(() => {
   if (savingVisible.value) return { label: "Saving…", pending: true, tone: "neutral" };
   if (liveActive.value && live) {
-    if (live.status.value !== "connected") return { label: "Reconnecting…", pending: true, tone: "neutral" };
     if (live.saveStatus.value?.error) return { action: "retry", label: "Not saved · retry", tone: "error" };
     if (errorCount.value) return { action: "fields", label: `${errorCount.value === 1 ? "1 field needs" : `${errorCount.value} fields need`} attention`, tone: "error" };
     if (!state.value) return undefined;
@@ -1206,9 +1207,12 @@ const menuItems = computed(() => [[
     </template>
     <template #right>
       <template v-if="liveActive">
-        <ConsolePresenceAvatars v-if="liveOthers.length" class="me-1" :sessions="consoleLiveSessions(collection.name, id, liveOthers)" :user="sessionPresence?.user" />
+        <AvatarStack v-if="liveOthers.length" class="me-1" :people="liveOthers" :max="4" size="sm" variant="outline" />
         <UTooltip text="Everyone here edits together. The draft saves a few seconds after typing stops." :content="{ side: 'bottom' }">
-          <span class="me-1 hidden sm:inline-flex"><ConsoleStatus label="Live" /></span>
+          <ConnectionStatus class="me-1 hidden sm:inline-flex" :status="liveStatus">
+            <ConnectionStatusIndicator />
+            <ConnectionStatusLabel v-slot="{ state }">{{ state === "connected" ? "Live" : state === "reconnecting" ? "Reconnecting…" : "Connecting…" }}</ConnectionStatusLabel>
+          </ConnectionStatus>
         </UTooltip>
       </template>
       <ConsolePresenceAvatars v-else-if="sessionOthers.length" class="me-1" :sessions="sessionOthers" :user="sessionPresence?.user" />
@@ -1370,7 +1374,9 @@ const menuItems = computed(() => [[
               @focus="onFieldFocus"
               @blur="onFieldBlur"
             />
-            <ConsoleLiveFocus v-if="fieldPeople[`field-${titleField.name}`]" class="-mt-1" :people="fieldPeople[`field-${titleField.name}`]!" />
+            <span v-if="fieldPeople[`field-${titleField.name}`]" class="-mt-1" role="img" :aria-label="fieldPeople[`field-${titleField.name}`]!.map(person => `${person.name} is editing this field`).join(', ')">
+              <AvatarStack aria-hidden="true" :style="{ '--vh-avatar-size': '1rem' }" :people="fieldPeople[`field-${titleField.name}`]!" variant="outline" />
+            </span>
             <p v-if="fieldErrors[titleField.name]" :id="`field-${titleField.name}-error`" class="mt-1 text-xs text-error">{{ fieldErrors[titleField.name]!.join(" ") }}</p>
           </div>
 

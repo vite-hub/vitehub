@@ -255,7 +255,6 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-property-row.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-page-header.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-presence-avatars.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-live-focus.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-page-toolbar.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },

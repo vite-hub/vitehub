@@ -645,29 +645,4 @@ watch(editor, (instance) => {
 }
 
 .vitehub-markdown-editor__content[contenteditable="false"] :is(p, h1, h2, h3, h4).is-empty::before { content: none; }
-
-/* Live carets: a 2px bar and a small name tag in each person's colour, as in Notion and Linear. */
-.vitehub-markdown-editor__content .collaboration-carets__caret {
-  border-inline: 1px solid;
-  margin-inline: -1px;
-  pointer-events: none;
-  position: relative;
-  word-break: normal;
-}
-
-.vitehub-markdown-editor__content .collaboration-carets__label {
-  border-radius: 3px 3px 3px 0;
-  color: #fff;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 500;
-  inset-block-start: -1.45em;
-  inset-inline-start: -1px;
-  line-height: 1;
-  padding: 2px 4px;
-  position: absolute;
-  user-select: none;
-  white-space: nowrap;
-}
 </style>
