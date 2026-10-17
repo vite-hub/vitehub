@@ -28,15 +28,9 @@ export interface ConsoleAccess {
   readonly user?: ConsoleUser
 }
 
-/**
- * The Console section that a guarded route belongs to.
- * - `section`: a section id, or a function that reads it from the request. A request outside the allowed sections gets `403`.
- * - `anySection: true`: the route serves every Console user, such as the section list and the RPC transport.
- * - `user: true`: read the signed-in user before the handler runs, so `access.user` is set.
- */
 export type ConsoleRouteScope =
-  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean }
-  | { anySection: true, user?: boolean }
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined) }
+  | { anySection: true }
 
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
 export type ConsoleGuardedHandler<TEvent, TResult> = (event: TEvent, access: ConsoleAccess) => TResult | Promise<TResult>
@@ -249,9 +243,7 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
  * Name the manager of one Connections management request with the installed Console access policy.
  * The generated Connections actor module calls it, so Connections routes and Console data routes share one policy.
  * - `auth`: `sessionActor` reads the signed-in user as `user:<id>`.
- * - `open` has no user id and retains the former host-managed actor identity so
- *   persisted Connections authorization state remains usable across upgrades.
- * - `local` and `cloudflare-access` have no user id. The manager is `user:<mode>`.
+ * - `open`, `local`, and `cloudflare-access` have no user id. The manager is `user:<mode>`.
  * Returns the policy rejection when the policy rejects the request, so the Connections handler returns the same
  * Console diagnostic. Returns `403` with `CONSOLE_MANAGER_REQUIRED` when an `auth` session has no user id.
  */
@@ -271,15 +263,13 @@ export async function consoleConnectionsActor(
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | Response> {
   const access = await checkConsoleAccess(event, { user: true })
-  if (isResponseLike(access)) return access
+  if (access instanceof Response) return access
   if (!consoleAccessAllows(access, "connections")) return rejection(403, "CONSOLE_ACCESS_DENIED")
   if (access.mode === "auth") {
     const actor = sessionActor ? await sessionActor() : (await readConsoleAccessUser(access))?.id
     return actor ? (actor.startsWith("user:") ? actor : `user:${actor}`) : rejection(403, "CONSOLE_MANAGER_REQUIRED")
   }
-  // `open` replaces the removed host-managed policy. Keep its actor stable so
-  // an authorization started before an upgrade can still complete afterwards.
-  return access.mode === "open" ? "user:host-managed" : `user:${access.mode}`
+  return `user:${access.mode}`
 }
 
 /**
@@ -296,9 +286,8 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   const route = async (event: TEvent) => {
     let access = checkedEvents.get(event)
     if (!access || !consoleAccessGrant.isValid(access)) {
-      const checked = await checkConsoleAccess(event, { user: declared.user === true })
-      // A Response from another realm fails `instanceof`. It is a denial, not an access grant.
-      if (isResponseLike(checked)) return checked
+      const checked = await checkConsoleAccess(event)
+      if (checked instanceof Response) return checked
       access = checked
       checkedEvents.set(event, access)
     }
