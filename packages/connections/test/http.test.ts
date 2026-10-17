@@ -232,6 +232,8 @@ describe("createConnectionsHandler", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTION_INVALID",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
+        fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
       },
     })
@@ -252,6 +254,8 @@ describe("createConnectionsHandler", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTION_INVALID",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
+        fix: expect.any(String),
         message: "Connections approval pagination did not advance.",
       },
     })
@@ -283,6 +287,8 @@ describe("createConnectionsHandler", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "CONNECTION_INVALID",
+        docs: "https://vitehub.dev/docs/connections/limits-and-errors#errors",
+        fix: expect.any(String),
         message: "Connections approval pagination did not terminate.",
       },
     })
@@ -333,6 +339,42 @@ describe("createConnectionsHandler", () => {
     );
     expect((await handler(post({ action: "drop" }))).status).toBe(400);
     expect((await handler(new Request(`${origin}/_vitehub/connections`))).status).toBe(405);
+  });
+
+  it("names the expected and received origin when a TLS proxy hides https from the server", async () => {
+    const test = createTestRuntime();
+    const actor = vi.fn(() => "user:ada");
+    const handler = createConnectionsHandler({ actor, runtime: () => test.runtime });
+    // The proxy terminates TLS, so the server sees http:// while the browser sends its https:// Origin.
+    const request = new Request("http://agent.example.com/_vitehub/connections", {
+      body: JSON.stringify({ action: "list" }),
+      headers: { "content-type": "application/json", origin: "https://agent.example.com" },
+      method: "POST",
+    });
+    const response = await handler(request);
+    expect(actor).toHaveBeenCalledOnce();
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body).toEqual({
+      error: {
+        code: "CONNECTION_ORIGIN_REJECTED",
+        details: { expectedOrigin: "http://agent.example.com", receivedOrigin: "https://agent.example.com" },
+        docs: "https://vitehub.dev/docs/connections/server-api#origin-checks",
+        fix: expect.stringContaining("TLS-terminating proxy"),
+        message: "The request Origin https://agent.example.com does not match the server origin http://agent.example.com.",
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain("Sign in");
+  });
+
+  it("gives non-JSON requests their own code", async () => {
+    const test = createTestRuntime();
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime });
+    const response = await handler(post({ action: "list" }, { "content-type": "text/plain" }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: { code: "CONNECTION_CONTENT_TYPE_REJECTED", fix: "Send the request with Content-Type: application/json." },
+    });
   });
 
   it("maps Connection errors to HTTP statuses", async () => {
