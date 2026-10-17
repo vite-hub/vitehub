@@ -449,8 +449,8 @@ const sections = reactive<{ anchor?: string; label: string; rows: MatrixRow[] }[
         values: {
           local: cell(
             "package",
-            "Runs through the explicitly selected Box provider.",
-            "Box provider",
+            "Runs through the explicitly selected Sandbox provider.",
+            "Sandbox provider",
           ),
           cloudflare: cell("available", "Cloudflare Sandbox execution provider.", "CF Sandbox"),
           vercel: cell("available", "Vercel Sandbox execution provider.", "Vercel Sandbox"),
@@ -467,8 +467,8 @@ const sections = reactive<{ anchor?: string; label: string; rows: MatrixRow[] }[
           ),
           node: cell(
             "package",
-            "Orchestration can call an explicitly configured Box provider.",
-            "Box provider",
+            "Orchestration can call an explicitly configured Sandbox provider.",
+            "Sandbox provider",
           ),
         },
       },

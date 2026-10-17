@@ -117,6 +117,7 @@ function createStaticSchedules(definitions: readonly StaticScheduleDefinitionEnt
       enabled: true,
       id,
       target: entry.name,
+      ...(entry.definition.timeZone ? { timeZone: entry.definition.timeZone } : {}),
       updatedAt: timestamp,
     }
     byId.set(id, { ...entry, record })

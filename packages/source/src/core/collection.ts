@@ -241,7 +241,7 @@ export interface ProviderCollectionSource<
   cursorSchema?: undefined
 }
 
-/** Where a Collection reads rows from: `array()`, `table()`, or your own object. */
+/** Where a Collection reads rows from: `array()`, `table()`, `workspaceFile()`, or your own object. */
 export type CollectionSource<
   TSourceItem,
   TQuery extends object,

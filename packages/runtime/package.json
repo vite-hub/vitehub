@@ -37,6 +37,12 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./h3": {
+      "types": "./dist/h3.d.ts",
+      "import": "./dist/h3.js",
+      "require": "./dist/h3.js",
+      "default": "./dist/h3.js"
+    },
     "./internal/grant": {
       "types": "./dist/internal/grant.d.ts",
       "import": "./dist/internal/grant.js",
@@ -68,6 +74,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",

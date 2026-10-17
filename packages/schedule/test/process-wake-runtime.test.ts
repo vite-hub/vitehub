@@ -4,22 +4,14 @@ import { expect, it, vi } from "vitest"
 
 import { makeProcessWakeRuntime, unwrapProcessWakeExit } from "../src/internal/process-wake-runtime.ts"
 
-import type { RuntimeScheduleRecord, RuntimeScheduleWake } from "../src/types.ts"
+import type { ProcessScheduleEntry, ProcessScheduleWake } from "../src/internal/process-wake-runtime.ts"
 
-function record(): RuntimeScheduleRecord {
-  const epoch = new Date(0)
-  return {
-    createdAt: epoch,
-    cron: "* * * * *",
-    enabled: true,
-    id: "daily",
-    target: "report",
-    updatedAt: epoch,
-  }
+function record(): ProcessScheduleEntry {
+  return { cron: "* * * * *", id: "daily" }
 }
 
 it("drives process wake scanning with TestClock", async () => {
-  const wakes: RuntimeScheduleWake[] = []
+  const wakes: ProcessScheduleWake[] = []
   let resolveFirst!: () => void
   let resolveSecond!: () => void
   const firstWake = new Promise<void>((resolve) => {
@@ -64,7 +56,7 @@ it("drives process wake scanning with TestClock", async () => {
 })
 
 it("starts polling after an initial scan failure is retried", async () => {
-  const wakes: RuntimeScheduleWake[] = []
+  const wakes: ProcessScheduleWake[] = []
   let calls = 0
   let now = new Date(0)
   await Effect.runPromise(
@@ -104,7 +96,7 @@ it("starts polling after an initial scan failure is retried", async () => {
 })
 
 it("checks every minute since the previous scan when a timer fires late", async () => {
-  const wakes: RuntimeScheduleWake[] = []
+  const wakes: ProcessScheduleWake[] = []
   let now = new Date(59_900)
   await Effect.runPromise(
     Effect.scoped(
@@ -138,7 +130,7 @@ it("checks every minute since the previous scan when a timer fires late", async 
 })
 
 it("does not replay a minute after the wall clock moves backward", async () => {
-  const wakes: RuntimeScheduleWake[] = []
+  const wakes: ProcessScheduleWake[] = []
   let now = new Date(0)
   await Effect.runPromise(
     Effect.scoped(

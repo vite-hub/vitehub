@@ -9,10 +9,10 @@ import type { ConsoleSectionId } from "../sections.ts"
 
 /**
  * How the Console checks each request. Generated host output installs one policy for each server process.
- * - `local`: the development server, for `console: true` and development without an edge.
+ * - `open`: no sign-in. `authorize` runs when it is set.
+ * - `local`: the development server only. Production requests fail closed.
  * - `auth`: a ViteHub Auth Session. `check` is built on `withAuthorization()`.
  * - `cloudflare-access`: the Cloudflare Access application token.
- * - `host-managed`: the host-supplied `console.authorize` function.
  */
 export type ConsoleAccessPolicy =
   | { mode: "open" | "local" | "host-managed", authorize?: ConsoleAuthorize }
@@ -23,13 +23,20 @@ export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 /** The checked Console access that a guarded handler receives. Only `withConsoleAccess()` creates it. */
 export interface ConsoleAccess {
   readonly mode: ConsoleAccessMode
-  readonly sections?: "all" | readonly ConsoleSectionId[]
+  /** The sections that this request may use. `"all"` when `console.authorize` is not set or returns `true`. */
+  readonly sections: "all" | readonly ConsoleSectionId[]
   readonly user?: ConsoleUser
 }
 
+/**
+ * The Console section that a guarded route belongs to.
+ * - `section`: a section id, or a function that reads it from the request. A request outside the allowed sections gets `403`.
+ * - `anySection: true`: the route serves every Console user, such as the section list and the RPC transport.
+ * - `user: true`: read the signed-in user before the handler runs, so `access.user` is set.
+ */
 export type ConsoleRouteScope =
-  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined) }
-  | { anySection: true }
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean }
+  | { anySection: true, user?: boolean }
 
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
 export type ConsoleGuardedHandler<TEvent, TResult> = (event: TEvent, access: ConsoleAccess) => TResult | Promise<TResult>
@@ -340,6 +347,7 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
         const value = source.get(name)
         if (typeof value === "string") setHeader(name, value)
       }
+      return
     }
     if (!(source instanceof Object)) return
     for (const [name, value] of Object.entries(source)) {
@@ -442,7 +450,7 @@ export async function readConsoleAccessUser(access: ConsoleAccess): Promise<Cons
 
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
-  return access.sections === undefined || access.sections === "all" || (section !== undefined && access.sections.includes(section))
+  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
 }
 
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
@@ -453,7 +461,9 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
  * Name the manager of one Connections management request with the installed Console access policy.
  * The generated Connections actor module calls it, so Connections routes and Console data routes share one policy.
  * - `auth`: `sessionActor` reads the signed-in user as `user:<id>`.
- * - `local`, `host-managed`, and `cloudflare-access` have no user id. The manager is `user:<mode>`.
+ * - `open` has no user id and retains the former host-managed actor identity so
+ *   persisted Connections authorization state remains usable across upgrades.
+ * - `local` and `cloudflare-access` have no user id. The manager is `user:<mode>`.
  * Returns the policy rejection when the policy rejects the request, so the Connections handler returns the same
  * Console diagnostic. Returns `403` with `CONSOLE_MANAGER_REQUIRED` when an `auth` session has no user id.
  */
@@ -473,13 +483,15 @@ export async function consoleConnectionsActor(
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | Response> {
   const access = await checkConsoleAccess(event, { user: true })
-  if (access instanceof Response) return access
+  if (isRuntimeResponse(access)) return access
   if (!consoleAccessAllows(access, "connections")) return rejection(403, "CONSOLE_ACCESS_DENIED")
   if (access.mode === "auth") {
     const actor = sessionActor ? await sessionActor() : (await readConsoleAccessUser(access))?.id
     return actor ? (actor.startsWith("user:") ? actor : `user:${actor}`) : rejection(403, "CONSOLE_MANAGER_REQUIRED")
   }
-  return `user:${access.mode}`
+  // `open` replaces the removed host-managed policy. Keep its actor stable so
+  // an authorization started before an upgrade can still complete afterwards.
+  return access.mode === "open" ? "user:host-managed" : `user:${access.mode}`
 }
 
 /**
@@ -488,7 +500,7 @@ export async function consoleConnectionsActor(
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
-  routeScope: ConsoleRouteScope = { anySection: true },
+  routeScope: ConsoleRouteScope,
 ): (event: TEvent) => Promise<TResult | Response> {
   if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
   assertRouteScope(routeScope)
@@ -496,8 +508,9 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   const route = async (event: TEvent) => {
     let access = checkedEvents.get(event)
     if (!access || !consoleAccessGrant.isValid(access)) {
-      const checked = await checkConsoleAccess(event)
-      if (checked instanceof Response) return checked
+      const checked = await checkConsoleAccess(event, { user: declared.user === true })
+      // A Response from another realm fails `instanceof`. It is a denial, not an access grant.
+      if (isRuntimeResponse(checked)) return checked
       access = checked
       checkedEvents.set(event, access)
     }
