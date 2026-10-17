@@ -376,7 +376,7 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const streamDescriptors = getNativeAuthorizationStreamDescriptors(body)
+  const streamDescriptors = getNativeAuthorizationStreamDescriptors(body as object)
   if (!streamDescriptors || Reflect.apply(streamDescriptors.locked, body, [])) return false
   return true
 }
@@ -394,6 +394,12 @@ function getNativeAuthorizationStreamDescriptors(body: object) {
       // An interposed prototype that replaces either member is caller-controlled.
       if (getReader || locked) {
         if (typeof getReader?.value !== "function" || typeof locked?.get !== "function") return
+        // Native ReadableStream prototypes own their constructor and point it
+        // back at themselves. A forwarding/interposed prototype inherits that
+        // constructor (or otherwise points elsewhere), so reject it before any
+        // caller-supplied reader or lock accessor can be invoked.
+        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+        if (typeof constructor !== "function" || constructor.prototype !== current || constructor.name !== "ReadableStream") return
         return { getReader: getReader.value as (this: object) => ReadableStreamDefaultReader<Uint8Array>, locked: locked.get as (this: object) => boolean }
       }
       current = Object.getPrototypeOf(current)
@@ -572,7 +578,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Preserve the standard error response before constructing a local response.
     if (status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0) return Response.error()
     if (body === null) return new Response(null, { status, statusText, headers: normalizedHeaders })
-    const bridgedBody = bridgeAuthorizationBody(body, bodyReader!)
+    if (typeof bodyReader !== "function") return
+    const bridgedBody = bridgeAuthorizationBody(body, bodyReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
