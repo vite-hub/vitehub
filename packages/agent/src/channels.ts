@@ -209,6 +209,7 @@ export interface AgentChannelOptions<
   capabilities?: AgentChannelDefinition<TRuntimeConfig>["capabilities"]
   identity?: AgentChannelDefinition<TRuntimeConfig>["identity"]
   history?: AgentChannelHistory<THistoryItem>
+  instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   message?: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: boolean | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
@@ -3158,6 +3159,9 @@ export function defineChannel<
 ): AgentChannelDefinitionOf<TRuntimeConfig, TKind, TData, TMethods> {
   if (!hasRuntimeType(kind, "string") || !kind.trim()) {
     throw agentDiagnostics.AGENT_R0371({ message: "[vitehub] defineChannel() requires a non-empty Channel kind." })
+  }
+  if (options.instructions !== undefined && (!hasRuntimeType(options.instructions, "string") || !options.instructions.trim())) {
+    throw agentDiagnostics.AGENT_R0557({ message: `[vitehub] Channel "${kind}" instructions must be a non-empty string.` })
   }
   validateChannelMessageDefinition(kind, options.message)
   validateChannelHistoryDefinition(kind, options.history, options.triggers)

@@ -73,10 +73,7 @@ export function inspectMessageChannelInstructions(
   channels: Record<string, unknown> | undefined,
 ): string[] {
   return Object.entries(channels || {}).flatMap(([channelId, channel]) => {
-    const instructions = channel && hasRuntimeType(channel, "object")
-      // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
-      ? (channel as { [messageChannelInstructions]?: string })[messageChannelInstructions]
-      : undefined
+    const instructions = channel && hasRuntimeType(channel, "object") ? channelInstructions(channel) : undefined
     return instructions ? [`Channel "${channelId}" instructions:\n\n${instructions}`] : []
   })
 }
@@ -85,11 +82,16 @@ export function bindMessageChannelInstructions(
   context: AgentInvocationContextStore,
   channel: unknown,
 ): void {
-  const instructions = isRuntimeObject(channel)
-    // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
-    ? (channel as { [messageChannelInstructions]?: string })[messageChannelInstructions]
-    : undefined
+  const instructions = isRuntimeObject(channel) ? channelInstructions(channel) : undefined
   if (instructions) messageChannelInvocationInstructions.set(context, instructions)
+}
+
+/** The built-in guidance of a Channel, then the instructions that the app set with `defineChannel(kind, { instructions })`. */
+function channelInstructions(channel: object): string | undefined {
+  // SAFETY: The internal owner establishes the exact asserted Agent runtime contract.
+  const value = channel as { [messageChannelInstructions]?: string, instructions?: unknown }
+  const own = hasRuntimeType(value.instructions, "string") ? value.instructions.trim() : ""
+  return [value[messageChannelInstructions], own].filter(Boolean).join("\n\n") || undefined
 }
 
 export function markAuxiliaryMessageChannelInstructionContext<TContext extends object>(

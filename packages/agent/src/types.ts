@@ -2507,6 +2507,11 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   /** Past messages that `replayChannel()` and `vitehub channels replay` send through a trigger. */
   history?: AgentChannelHistory
   identity?: IdentityResolver
+  /**
+   * Trusted Markdown that ViteHub adds to the Agent instructions for each Invocation that this Channel starts.
+   * It is read from code when the Invocation runs, so a queued delivery uses the current text.
+   */
+  instructions?: string
   kind: string
   listener?: { kind: "telegram-polling" }
   /** Methods that hooks call through `event.message`. */
