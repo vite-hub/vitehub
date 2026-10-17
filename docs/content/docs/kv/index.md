@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-database-zap
 ---
 
+::agent-only{skill="kv"}
+Use KV for small values addressed by a key, such as flags, cursors, short-lived state, or counters that do not require relational queries.
+
+Read [Get started](/docs/kv/get-started), [Configure](/docs/kv/configure), [Server API](/docs/kv/server-api), [Hosts](/docs/kv/hosts), or [Limits and errors](/docs/kv/limits-and-errors).
+
+Choose the driver in Vite config. Keep key names and serialization in application code. KV operations are not a substitute for atomic Rate Limit enforcement or relational transactions.
+
+Prove put, get, list with a prefix, and delete. Restart local storage or query the hosted provider to confirm the durability you need.
+::
+
 ::product-hero{tagline="One key-value import for settings, flags, cursors, and cache records, on every supported host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-group
   ```ts [server/api/settings.get.ts]
@@ -47,8 +57,8 @@ icon: i-lucide-database-zap
 
 
 ::product-features
-  :::product-feature-item{title="Errors are values" size="large" icon="i-lucide-code-2" to="/docs/kv/server-api"}
-  `[error, value]` on every method, with the provider cause attached.
+  :::product-feature-item{title="Errors are values" size="large" icon="i-lucide-code-2" to="/docs/kv/limits-and-errors"}
+  `[error, value]` on every method. Each code has a `why` and a `fix`.
   :::
 
   :::product-feature-item{title="One import, every host" icon="i-lucide-sliders-horizontal" to="/docs/kv/configure#providers"}

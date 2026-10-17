@@ -137,6 +137,17 @@ describe("managed Rate Limit guard", () => {
     expect(limit).toHaveBeenCalledWith({ key: "198.51.100.9" })
   })
 
+  it("ignores inherited Cloudflare environment carriers", async () => {
+    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    const limit = vi.fn(async () => ({ success: true }))
+    const inherited = Object.create({ env: { [getCloudflareRateLimitBindingName("inherited-uploads")]: { limit } } })
+    Object.assign(inherited, { req: requestEvent("192.0.2.30").req })
+
+    await expect(requireRateLimit(inherited, "inherited-uploads", { key: "user", limit: 1, window: "1m" }))
+      .rejects.toThrow("binding")
+    expect(limit).not.toHaveBeenCalled()
+  })
+
   it("throws 503 with the provider cause when fail-closed enforcement is unavailable", async () => {
     setRateLimitRuntimeConfig({ provider: "cloudflare" })
     const cause = new Error("provider unavailable")

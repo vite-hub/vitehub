@@ -513,9 +513,8 @@ describe("hubAuth", () => {
       await middleware({ headers: { host: "app.example" }, method: "GET", url: "/api/auth/session" }, target, next)
       expect(next).not.toHaveBeenCalled()
       expect(target.statusCode).toBe(302)
-      expect(target.appendHeader.mock.calls.filter(([key]) => key === "set-cookie")).toEqual(
-        nativeCookies ? cookies.map(cookie => ["set-cookie", cookie]) : [["set-cookie", cookies.join(", ")]],
-      )
+      // Without getSetCookie(), sendWebResponse() splits the combined field at cookie names.
+      expect(target.appendHeader.mock.calls.filter(([key]) => key === "set-cookie")).toEqual(cookies.map(cookie => ["set-cookie", cookie]))
       expect(target.appendHeader).toHaveBeenCalledWith("location", "/app")
       expect(target.write).toHaveBeenCalledWith(Buffer.from("redirect"))
       expect(target.end).toHaveBeenCalledOnce()

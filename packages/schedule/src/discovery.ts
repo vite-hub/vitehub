@@ -31,52 +31,39 @@ export function isServerScheduleDefinition(definition: Pick<DiscoveredScheduleDe
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
-function readScheduleDiscoveryMetadata(file: string, contribution?: string): Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "manual" | "runtimeOnly"> {
+function readScheduleDiscoveryMetadata(file: string, contribution?: string): Pick<DiscoveredScheduleDefinition, "manual"> {
   const source = readFileSync(file, "utf8")
   const { findDefaultExportCall, findIdentifierCalls, readObjectProperty, readObjectPropertyNames, splitTopLevel, stripBoundaryComments } = createSourceScanner(file)
-  const names = ["defineSchedule", "defineScheduleTarget"]
   const definition = findDefaultExportCall(source, ["defineSchedule"], { positionalOptionsIndex: 2 })
-    ?? findDefaultExportCall(source, ["defineScheduleTarget"])
   const unsupported = (offset: number, message: string): never => {
     const line = source.slice(0, offset).split("\n").length
     throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: `[vitehub] ${file}:${line}: ${message}` })
   }
   if (!definition) {
-    const call = names.flatMap(name => findIdentifierCalls(source, name))[0]
-    if (call) unsupported(call.start, "Schedule discovery requires a direct default export of defineSchedule() or defineScheduleTarget() with literal options.")
+    const call = findIdentifierCalls(source, "defineSchedule")[0]
+    if (call) unsupported(call.start, "Schedule discovery requires a direct default export of defineSchedule() with literal options.")
     if (contribution) {
-      throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: `[vitehub] ${contribution} has no default export of defineSchedule() or defineScheduleTarget(). The build reads contributed Schedules from source, so the module must contain \`export default defineSchedule({ cron: "...", handler })\`.` })
+      throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: `[vitehub] ${contribution} has no default export of defineSchedule(). The build reads contributed Schedules from source, so the module must contain \`export default defineSchedule({ cron: "...", handler })\`.` })
     }
-    return { allowRuntimeSchedules: false }
-  }
-  if (definition.name === "defineScheduleTarget") {
-    return { allowRuntimeSchedules: true, runtimeOnly: true }
+    return {}
   }
 
   const options = definition.argument
   if (!options.startsWith("{") || !options.endsWith("}")) {
     unsupported(definition.start, "Schedule discovery requires an options object literal.")
   }
-  let allowRuntimeSchedules = false
   let manual = false
   for (const entry of splitTopLevel(options.slice(1, -1))) {
     const property = stripBoundaryComments(entry)
     const names = readObjectPropertyNames(`{${property}}`)
     if (names.includes(undefined)) {
-      unsupported(definition.start, "Schedule discovery cannot resolve spread, computed, or escaped option keys. Declare manual and allowRuntimeSchedules with unescaped literal keys and literal true or false values.")
+      unsupported(definition.start, "Schedule discovery cannot resolve spread, computed, or escaped option keys. Declare manual with an unescaped literal key and a literal true or false value.")
     }
-    const value = readObjectProperty(`{${property}}`, "allowRuntimeSchedules")
     const manualValue = readObjectProperty(`{${property}}`, "manual")
     if (manualValue === "true" || manualValue === "false") manual = manualValue === "true"
     else if (names.includes("manual")) unsupported(definition.start, "Schedule discovery requires manual to be a literal true or false; it cannot evaluate this expression.")
-    if (value === "true" || value === "false") {
-      allowRuntimeSchedules = value === "true"
-    }
-    else if (names.includes("allowRuntimeSchedules")) {
-      unsupported(definition.start, "Schedule discovery requires allowRuntimeSchedules to be a literal true or false; it cannot evaluate this expression.")
-    }
   }
-  return { allowRuntimeSchedules, manual }
+  return { manual }
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {

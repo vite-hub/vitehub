@@ -65,10 +65,6 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
     throw scheduleErrorDiagnostics.SCHEDULE_C0005({ message: "`defineSchedule()` requires a schedule handler." })
   }
 
-  if (typeof input.allowRuntimeSchedules !== "undefined" && typeof input.allowRuntimeSchedules !== "boolean") {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` allowRuntimeSchedules must be a boolean." })
-  }
-
   if (input.manual !== undefined && input.manual !== true && input.manual !== false) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` manual must be a boolean." })
   }
@@ -88,32 +84,7 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
     definition.options = { allowRuntimeSchedules: input.allowRuntimeSchedules }
   }
   if (input.manual !== undefined) {
-    definition.options = { ...definition.options, manual: input.manual }
+    definition.options = { manual: input.manual }
   }
   return definition
-}
-
-export function defineScheduleTarget<TInput = unknown, TResult = unknown>(input: ScheduleTargetDefinitionInput<TInput, TResult>): ScheduleTargetDefinition<TInput, TResult> {
-  if (!isPlainObject(input)) {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0007({ message: "`defineScheduleTarget()` expects an object with `handler`." })
-  }
-
-  if (!Object.hasOwn(input, "handler")) {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0007({ message: "`defineScheduleTarget()` expects an object with `handler`." })
-  }
-  assertOwnDefinitionFields(input, scheduleTargetDefinitionKeys, "`defineScheduleTarget()` does not accept inherited options.", scheduleErrorDiagnostics.SCHEDULE_C0008)
-
-  const unknownKey = Object.keys(input).find(key => !scheduleTargetDefinitionKeys.has(key))
-  if (unknownKey) {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0008({ message: `\`defineScheduleTarget()\` does not support the "${unknownKey}" option.` })
-  }
-
-  if (typeof input.handler !== "function") {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0009({ message: "`defineScheduleTarget()` requires a schedule handler." })
-  }
-
-  return {
-    handler: input.handler,
-    options: { allowRuntimeSchedules: true },
-  }
 }

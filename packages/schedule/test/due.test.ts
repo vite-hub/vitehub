@@ -49,6 +49,12 @@ describe("cron evaluation in a time zone", () => {
     expect(nextRuntimeScheduleRunAt(repeated, new Date("2026-10-25T00:30:00Z"))).toEqual(new Date("2026-10-26T01:30:00Z"))
   })
 
+  it("runs a fixed local time once across a historical 23-hour rollback", () => {
+    const repeated = schedule("30 1 * * *", "Kwajalein")
+    expect(dueMinutes(repeated, "1969-09-30T13:00:00Z", "1969-10-01T00:00:00Z")).toEqual([])
+    expect(nextRuntimeScheduleRunAt(repeated, new Date("1969-09-30T12:30:00Z"))).toEqual(new Date("1969-10-01T13:30:00Z"))
+  })
+
   it("runs a cron with a wildcard hour in both occurrences of the repeated hour", () => {
     const hourly = schedule("30 * * * *", "Europe/Madrid")
     expect(dueMinutes(hourly, "2026-10-25T00:00:00Z", "2026-10-25T02:00:00Z")).toEqual(["2026-10-25T00:30:00.000Z", "2026-10-25T01:30:00.000Z"])

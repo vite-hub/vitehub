@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { defineSchedule, defineScheduleTarget } from "../src/definition.ts"
+import { defineSchedule } from "../src/definition.ts"
 
 describe("defineSchedule", () => {
   it("creates a cron Schedule Definition", () => {
@@ -15,8 +15,8 @@ describe("defineSchedule", () => {
   it("creates a positional definition and preserves options", () => {
     const handler = () => "ok"
     expect(defineSchedule("0 9 * * *", handler)).toEqual({ cron: "0 9 * * *", handler })
-    expect(defineSchedule("0 9 * * *", handler, { manual: true, allowRuntimeSchedules: true }))
-      .toEqual({ cron: "0 9 * * *", handler, options: { manual: true, allowRuntimeSchedules: true } })
+    expect(defineSchedule("0 9 * * *", handler, { manual: true }))
+      .toEqual({ cron: "0 9 * * *", handler, options: { manual: true } })
     expect(() => defineSchedule("0 9 * * *", handler, { manual: "yes" } as never)).toThrow(/manual must be a boolean/)
     expect(() => defineSchedule("0 9 * * *", handler, null as never)).toThrow(/options must be an object/)
   })
