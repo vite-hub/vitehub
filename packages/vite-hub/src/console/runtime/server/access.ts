@@ -55,6 +55,10 @@ const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-man
 const objectToString = Object.prototype.toString
 const invalidAuthorizationResponse = Symbol("invalid authorization response")
 
+function isRuntimeResponse(value: ConsoleAccess | Response): value is Response {
+  return value instanceof Response
+}
+
 async function authorizationResponse(value: unknown): Promise<Response | typeof invalidAuthorizationResponse | undefined> {
   try {
     if (value instanceof Response) return value
@@ -410,7 +414,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   if (policy.mode === "local") {
     if (!developmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   } else if (policy.mode === "host-managed") {
-    if (!policy.authorize) return rejection(500, "CONSOLE_AUTHORIZE_REQUIRED")
+    if (!policy.authorize) return rejection(500, "CONSOLE_AUTH_NOT_CONFIGURED")
     authorizeResult = await policy.authorize({ request: consoleRequest(event) })
     authorizeResultReady = true
   } else if (policy.mode === "auth" || policy.mode === "cloudflare-access") {
@@ -418,8 +422,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     const response = await policy.check(event)
     if (response) {
       const normalized = await authorizationResponse(response)
-      if (normalized === invalidAuthorizationResponse) return rejection(403, "Forbidden.")
-      return normalized ?? rejection(403, "Forbidden.")
+      if (normalized === invalidAuthorizationResponse) return rejection(403, "CONSOLE_REQUEST_FAILED", "Forbidden.")
+      return normalized ?? rejection(403, "CONSOLE_REQUEST_FAILED", "Forbidden.")
     }
     if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
@@ -428,12 +432,12 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     const request = consoleRequest(event)
     const result: unknown = authorizeResultReady ? authorizeResult : await policy.authorize(user ? { request, user } : { request })
     const response = await authorizationResponse(result)
-    if (response === invalidAuthorizationResponse) return rejection(403, "Forbidden.")
+    if (response === invalidAuthorizationResponse) return rejection(403, "CONSOLE_REQUEST_FAILED", "Forbidden.")
     if (response) return response
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
     if (result !== true) {
       const allowed = authorizedSections(result)
-      if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED")
+      if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")
       if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
       sections = allowed
     }
