@@ -106,22 +106,18 @@ async function loadSandboxDefinition(name: string): Promise<SandboxRegistryEntry
   const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
   if (!entry)
     return undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry entries intentionally support generated lazy loader functions and resolved definitions.
   return typeof entry === 'function' ? (await entry()).default : entry
 }
 
 function hasValidSandboxBundle(definition: SandboxRegistryEntry) {
   return !!definition.bundle
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Bundles come from generated registry data and require runtime shape validation.
     && typeof definition.bundle === 'object'
     && typeof definition.bundle.entry === 'string'
     && definition.bundle.entry.length > 0
     && !!definition.bundle.modules
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Bundles come from generated registry data and require runtime shape validation.
     && typeof definition.bundle.modules === 'object'
     && (Object.hasOwn(definition.bundle.modules, definition.bundle.entry)
       || (!!definition.bundle.project?.files
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Bundles come from generated registry data and require runtime shape validation.
         && typeof definition.bundle.project.files === 'object'
         && Object.hasOwn(definition.bundle.project.files, definition.bundle.entry)))
 }

@@ -5,6 +5,7 @@ import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
+import ConsoleState from "./console-state.vue";
 import { matchesWorkspaceFile } from "./console-workspace-file";
 import { useConsoleWordWrap } from "./console-wrap";
 import { requestConsole } from "../client/request";
@@ -35,7 +36,7 @@ const openViews = defineModel<InspectorTab[]>("openViews", { default: () => [] }
 const openPaths = defineModel<string[]>("openPaths", { default: () => [] });
 const selectedPath = defineModel<string | undefined>("selectedPath");
 const workspace = ref<WorkspaceDescriptor>();
-const workspaceError = ref<string>();
+const workspaceError = ref<unknown>();
 const workspaceLoading = ref(false);
 const file = ref<WorkspaceFile>();
 const fileError = ref<string>();
@@ -382,7 +383,7 @@ async function requestWorkspace() {
     if (selectedPath.value) void loadFile(selectedPath.value);
   } catch (error) {
     if (!controller.signal.aborted) {
-      workspaceError.value = message(error);
+      workspaceError.value = error;
     }
   } finally {
     if (workspaceRequest === controller) {
@@ -479,12 +480,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function stringValue(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace responses are untrusted JSON, so strings are validated at the host boundary.
   return typeof value === "string" ? value : undefined;
 }
 
 function numericValue(value: unknown): number | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace responses are untrusted JSON, so numbers are validated at the host boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
@@ -701,13 +700,11 @@ function message(error: unknown) {
       <div v-if="workspaceLoading && !selectedPath" class="session-inspector__state">
         <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading Workspace…
       </div>
-      <UEmpty
-        :ui="{ root: 'border-0' }"
+      <ConsoleState
         v-else-if="workspaceError && !selectedPath"
-        icon="i-lucide-folder-x"
+        :error="workspaceError"
         title="Workspace unavailable"
-        :description="workspaceError"
-        :actions="[{ label: 'Try again', onClick: loadWorkspace }]"
+        :retry="loadWorkspace"
       />
       <template v-else-if="workspace || selectedPath">
         <div class="session-inspector__workspace-body" :data-tree-open="treeOpen && !!workspace">

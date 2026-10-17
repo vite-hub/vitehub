@@ -27,8 +27,8 @@ it.each([
       'export default defineQueue<{ email: string }>(job => job.payload.email)',
     ].join("\n"))
     await writeFile(join(root, "src/report.schedule.ts"), [
-      'import { defineScheduleTarget } from "vite-hub/schedule"',
-      'export default defineScheduleTarget<{ prompt: string }>({ handler: context => context.input?.prompt })',
+      'import { defineSchedule } from "vite-hub/schedule"',
+      'export default defineSchedule({ cron: "0 9 * * *", handler: context => context.scheduledAt.toISOString() })',
     ].join("\n"))
     const options = {
       agent: false, auth: false, blob: false, database: false,
@@ -50,21 +50,17 @@ it.each([
     else {
       await resolveConfig({ configFile: false, root, plugins: vitehub(options) }, "build")
     }
-    for (const primitive of ["queue", "schedule"]) {
-      const contents = await readFile(join(root, `.vitehub/${primitive}.d.ts`), "utf8")
-      expect(contents).toContain(`declare module "vite-hub/${primitive}"`)
-      expect(contents).not.toContain("_internal")
-    }
+    const contents = await readFile(join(root, ".vitehub/queue.d.ts"), "utf8")
+    expect(contents).toContain(`declare module "vite-hub/queue"`)
+    expect(contents).not.toContain("_internal")
+    // Static Schedules need no generated type map.
+    await expect(readFile(join(root, ".vitehub/schedule.d.ts"), "utf8")).rejects.toThrow()
     await writeFile(join(root, "consumer.mts"), [
       'import { runQueue, getQueue } from "vite-hub/queue"',
-      'import { schedules } from "vite-hub/schedule/runtime"',
       'await runQueue("welcome", { email: "ada@example.test" })',
       'await (await getQueue("welcome")).send({ email: "ada@example.test" })',
       '// @ts-expect-error Queue payload comes from the generated public map.',
       'await runQueue("welcome", { count: 1 })',
-      'await schedules.create({ target: "report", cron: "0 9 * * *", input: { prompt: "hello" } })',
-      '// @ts-expect-error The public map reaches the Schedule runtime subpath.',
-      'await schedules.create({ target: "report", cron: "0 9 * * *", input: { count: 1 } })',
     ].join("\n"))
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({
       compilerOptions: {

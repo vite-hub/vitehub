@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-terminal-square
 ---
 
+::agent-only{skill="sandbox"}
+Use Sandbox to run a named project in an isolated Cloudflare or Vercel environment. A Sandbox Run is an execution boundary, not a general-purpose local shell.
+
+Read [Get started](/docs/sandbox/get-started), [Configure](/docs/sandbox/configure), [Server API](/docs/sandbox/server-api), [Agent Capability](/docs/sandbox/agent-capability), or [Hosts](/docs/sandbox/hosts).
+
+Keep images, mounts, network access, timeouts, and resource bounds explicit. Pass only the files and secrets the run needs.
+
+Prove successful execution, cancellation, timeout, and cleanup on the selected provider. Verify result-size limits only when the provider documents them. Inspect generated bindings and provider output.
+::
+
 ::product-hero{tagline="Run a named package project in an isolated Box, on Cloudflare or Vercel Sandbox chosen in config." hosts="Vercel, Cloudflare"}
   :::code-group
   ```ts [Definition and route]

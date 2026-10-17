@@ -6,6 +6,7 @@
     "database",
     "db",
     "drizzle",
+    "postgres",
     "sqlite",
     "vite",
     "vitehub"
@@ -36,26 +37,115 @@
     "#vitehub/database/schema": "./dist/runtime/virtual-schema.js"
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./cli": "./dist/cli.js",
-    "./config": "./dist/config.js",
-    "./drizzle": "./dist/drizzle.js",
-    "./nuxt": "./dist/nuxt.js",
-    "./runtime/agent": "./dist/runtime/agent.js",
-    "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
-    "./runtime/d1": "./dist/runtime/d1.js",
-    "./runtime/hosted": "./dist/runtime/hosted.js",
-    "./runtime/state": "./dist/runtime/state.js",
-    "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
-    "./runtime/virtual-databases": "./dist/runtime/virtual-databases.js",
-    "./runtime/virtual-schema": "./dist/runtime/virtual-schema.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "require": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js",
+      "require": "./dist/config.js",
+      "default": "./dist/config.js"
+    },
+    "./drizzle": {
+      "types": "./dist/drizzle.d.ts",
+      "import": "./dist/drizzle.js",
+      "require": "./dist/drizzle.js",
+      "default": "./dist/drizzle.js"
+    },
+    "./nuxt": {
+      "types": "./dist/nuxt.d.ts",
+      "import": "./dist/nuxt.js",
+      "require": "./dist/nuxt.js",
+      "default": "./dist/nuxt.js"
+    },
+    "./runtime/agent": {
+      "types": "./dist/runtime/agent.d.ts",
+      "import": "./dist/runtime/agent.js",
+      "require": "./dist/runtime/agent.js",
+      "default": "./dist/runtime/agent.js"
+    },
+    "./runtime/cloudflare-vite": {
+      "types": "./dist/runtime/cloudflare-vite.d.ts",
+      "import": "./dist/runtime/cloudflare-vite.js",
+      "require": "./dist/runtime/cloudflare-vite.js",
+      "default": "./dist/runtime/cloudflare-vite.js"
+    },
+    "./runtime/d1": {
+      "types": "./dist/runtime/d1.d.ts",
+      "import": "./dist/runtime/d1.js",
+      "require": "./dist/runtime/d1.js",
+      "default": "./dist/runtime/d1.js"
+    },
+    "./runtime/default-database": {
+      "types": "./dist/runtime/default-database.d.ts",
+      "import": "./dist/runtime/default-database.js",
+      "require": "./dist/runtime/default-database.js",
+      "default": "./dist/runtime/default-database.js"
+    },
+    "./runtime/hosted": {
+      "types": "./dist/runtime/hosted.d.ts",
+      "import": "./dist/runtime/hosted.js",
+      "require": "./dist/runtime/hosted.js",
+      "default": "./dist/runtime/hosted.js"
+    },
+    "./runtime/state": {
+      "types": "./dist/runtime/state.d.ts",
+      "import": "./dist/runtime/state.js",
+      "require": "./dist/runtime/state.js",
+      "default": "./dist/runtime/state.js"
+    },
+    "./runtime/vercel-vite": {
+      "types": "./dist/runtime/vercel-vite.d.ts",
+      "import": "./dist/runtime/vercel-vite.js",
+      "require": "./dist/runtime/vercel-vite.js",
+      "default": "./dist/runtime/vercel-vite.js"
+    },
+    "./runtime/virtual-databases": {
+      "types": "./dist/runtime/virtual-databases.d.ts",
+      "import": "./dist/runtime/virtual-databases.js",
+      "require": "./dist/runtime/virtual-databases.js",
+      "default": "./dist/runtime/virtual-databases.js"
+    },
+    "./runtime/virtual-schema": {
+      "types": "./dist/runtime/virtual-schema.d.ts",
+      "import": "./dist/runtime/virtual-schema.js",
+      "require": "./dist/runtime/virtual-schema.js",
+      "default": "./dist/runtime/virtual-schema.js"
+    },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
-      "import": "./dist/virtual.js"
+      "import": "./dist/virtual.js",
+      "require": "./dist/virtual.js",
+      "default": "./dist/virtual.js"
     },
-    "./vite": "./dist/vite.js",
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
     "./package.json": "./package.json",
-    "./runtime/cloudflare-env": "./dist/runtime/state.js"
+    "./runtime/cloudflare-env": {
+      "types": "./dist/runtime/state.d.ts",
+      "import": "./dist/runtime/state.js",
+      "require": "./dist/runtime/state.js",
+      "default": "./dist/runtime/state.js"
+    },
+    "./runtime/postgres": {
+      "types": "./dist/runtime/postgres.d.ts",
+      "import": "./dist/runtime/postgres.js",
+      "require": "./dist/runtime/postgres.js",
+      "default": "./dist/runtime/postgres.js"
+    }
   },
   "scripts": {
     "build": "vp pack",
@@ -67,6 +157,7 @@
     "@libsql/client": "catalog:database",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
+    "jiti": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },
@@ -78,7 +169,8 @@
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "postgres": "catalog:database"
   },
   "peerDependencies": {
     "drizzle-kit": "catalog:database",

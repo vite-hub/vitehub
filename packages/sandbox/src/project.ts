@@ -5,9 +5,9 @@ import { parse as parseYaml } from 'yaml'
 import type { SandboxProjectOptions } from './module-types'
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
-export type SandboxPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
+type SandboxPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
 
-export interface SandboxProjectFile {
+interface SandboxProjectFile {
   contents: string
   encoding: 'base64'
   mode?: number
@@ -156,7 +156,7 @@ function pnpmPatchPaths(manifest: PackageManifest) {
   return Object.values(manifest.pnpm.patchedDependencies).filter((value): value is string => typeof value === 'string')
 }
 
-export function parsePnpmWorkspacePatchPaths(source: string) {
+function parsePnpmWorkspacePatchPaths(source: string) {
   const workspace: unknown = parseYaml(source)
   const patchedDependencies = isPlainObject(workspace) ? Reflect.get(workspace, 'patchedDependencies') : undefined
   if (!isPlainObject(patchedDependencies)) return []

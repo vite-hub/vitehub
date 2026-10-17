@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { Plugin } from "vite"
 import { describe, expect, it, vi } from "vitest"
-import { consoleD1Binding, resolveConsoleJournal, withDataDir } from "../src/storage-config.ts"
+import { consoleD1Binding, resolveConsoleJournal, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
 import { vitehub } from "../src/index.ts"
 
 import type { ViteHubOptions } from "../src/index.ts"
@@ -109,6 +109,14 @@ describe("Node storage defaults", () => {
     expect(() => vitehub({ preset: "node", dataDir: "  " })).toThrow("non-empty")
   })
 
+  it("rejects malformed dataDir values with the configuration diagnostic", () => {
+    for (const preset of ["node", "cloudflare", "vercel", "netlify", "deno"] as const) {
+      for (const dataDir of [null, 1, {}, [], "", "  "]) {
+        expect(() => vitehub({ preset, dataDir } as unknown as ViteHubOptions)).toThrow("non-empty directory path")
+      }
+    }
+  })
+
   it("keeps existing defaults when no directory is supplied", () => {
     const options = { preset: "node" as const, agent: true }
     expect(withDataDir(options)).toBe(options)
@@ -130,6 +138,17 @@ describe("Console journal host defaults", () => {
     expect(plugin).toContain(`d1: { binding: "APP_DB",`)
     const withoutDefinition = await generatedConsolePlugin({ ...cloudflare, database: true }, "build")
     expect(withoutDefinition.plugin).not.toContain("cloudflare:workers")
+  })
+
+  it("reads the D1 binding from the only named Database and skips ambiguous ones", async () => {
+    const named = (name: string, binding: string) => `export default defineDatabase({ name: "${name}", cloudflare: { binding: "${binding}", databaseName: "${name}" }, schema: {} })\n`
+    const only = await generatedConsolePlugin({ ...cloudflare, database: true }, "build", { "server/databases/app/config.ts": named("app", "APP_DB") })
+    expect(only.plugin).toContain('d1: { binding: "APP_DB",')
+    const ambiguous = await generatedConsolePlugin({ ...cloudflare, database: true }, "build", {
+      "server/databases/app/config.ts": named("app", "APP_DB"),
+      "server/databases/audit/config.ts": named("audit", "AUDIT_DB"),
+    })
+    expect(ambiguous.plugin).not.toContain("cloudflare:workers")
   })
 
   it("reads the D1 binding from the Database project root", async () => {
@@ -176,5 +195,36 @@ describe("Console journal host defaults", () => {
     expect(resolveConsoleJournal("file:journal.sqlite", "DB", true)).toEqual({ databaseUrl: "file:journal.sqlite" })
     expect(resolveConsoleJournal(undefined, "DB", true)).toEqual({ d1Binding: "DB" })
     expect(resolveConsoleJournal(undefined, "DB", false)).toBeUndefined()
+  })
+})
+
+describe("Connections database default", () => {
+  // SAFETY: vitehub() returns a flat list of concrete plugins in these tests.
+  const pluginNames = (options: ViteHubOptions) => (vitehub(options) as Plugin[]).map(plugin => plugin.name)
+
+  it("enables database when connections is set and database is unset", () => {
+    expect(withConnectionsDatabase({ connections: true, preset: "node" }).database).toBe(true)
+    expect(pluginNames({ connections: true, preset: "node" })).toEqual(expect.arrayContaining(["@vite-hub/connections/vite", "@vite-hub/database/vite"]))
+  })
+
+  it("keeps configured database options", () => {
+    const database = { connection: { url: "file:/data/database/sqlite.db" } }
+    expect(withConnectionsDatabase({ connections: true, database, preset: "node" }).database).toBe(database)
+    expect(withConnectionsDatabase({ preset: "node" }).database).toBeUndefined()
+  })
+
+  it("fails when connections is set and database is false", () => {
+    expect(() => vitehub({ connections: true, database: false, preset: "node" })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0124" }))
+  })
+
+  it("reads the D1 binding of the implicit default Database on Cloudflare", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-connections-d1-"))
+    try {
+      const database = { binding: "APP_DB", databaseId: "app-id", databaseName: "app", driver: "d1" as const }
+      expect(consoleD1Binding("cloudflare", database, { implicitDefault: true, root })).toBe("APP_DB")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 })

@@ -34,7 +34,7 @@ function safeRepository(repo: unknown): string | undefined {
   return isRuntimeString(repo) && githubRepositoryPattern.test(repo) ? repo : undefined
 }
 
-export function safeGitRef(ref: unknown): string | undefined {
+function safeGitRef(ref: unknown): string | undefined {
   if (!isRuntimeString(ref) || !ref || ref.length > 250) return
   if (!gitRefPattern.test(ref) || ref.includes("..") || ref.includes("//") || ref.includes("@{") || ref.endsWith(".lock") || ref.endsWith("/") || ref.startsWith("/") || ref.startsWith("-")) return
   return ref
@@ -47,7 +47,7 @@ function safeGitSha(sha: unknown): string | undefined {
 }
 
 /** Normalize a Workspace-relative mount. Returns undefined for paths that leave the Workspace. */
-export function safeWorkspaceMount(path: unknown, allowRoot = false): string | undefined {
+function safeWorkspaceMount(path: unknown, allowRoot = false): string | undefined {
   if (!isRuntimeString(path)) return
   const stripped = path.replace(/\\/g, "/").replace(/^\/workspace(?:\/|$)/, "")
   const parts = stripped.split("/").filter(Boolean)

@@ -5,7 +5,6 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
-import { createScheduleTargetsContents } from "../src/targets-module.ts"
 
 const directories: string[] = []
 
@@ -33,8 +32,8 @@ describe("Schedule JSX discovery", () => {
     "<T extends Email>(value: T): Email => value",
     "<const T extends Email>(value: T) => value",
   ])("reads metadata after a server TSX generic arrow: %s", async (arrow) => {
-    const { discover } = await fixture(`const first = ${arrow};\nexport default defineSchedule({ cron: '0 9 * * *', handler() {}, manual: true, allowRuntimeSchedules: true });\nconst text = "</T></const>";`, true, ".tsx")
-    expect(discover()).toMatchObject([{ name: "daily", manual: true, allowRuntimeSchedules: true }])
+    const { discover } = await fixture(`const first = ${arrow};\nexport default defineSchedule({ cron: '0 9 * * *', handler() {}, manual: true });\nconst text = "</T></const>";`, true, ".tsx")
+    expect(discover()).toMatchObject([{ name: "daily", manual: true }])
   })
 
   it.each([
@@ -60,8 +59,8 @@ describe("Schedule JSX discovery", () => {
     "<Email></Email>*/a/*value*/b/",
     "<Email></Email>*/a/*value + 1 /* after */",
   ])("reads literal metadata from a server .tsx definition: %s", async (jsx) => {
-    const { discover } = await fixture(`export default defineSchedule({ cron: '0 9 * * *', handler: () => ${jsx}, manual: true, allowRuntimeSchedules: true })`, true, ".tsx")
-    expect(discover()).toMatchObject([{ name: "daily", manual: true, allowRuntimeSchedules: true }])
+    const { discover } = await fixture(`export default defineSchedule({ cron: '0 9 * * *', handler: () => ${jsx}, manual: true })`, true, ".tsx")
+    expect(discover()).toMatchObject([{ name: "daily", manual: true }])
   })
 })
 
@@ -74,63 +73,51 @@ describe.each([false, true])("Schedule option discovery, server=%s", (server) =>
     "count!++ / total",
     "count!-- / total",
   ])("reads metadata after an update expression: %s", async (value) => {
-    const { discover } = await fixture(`export default defineSchedule({ cron: '0 9 * * *', handler: () => ${value}, manual: true, allowRuntimeSchedules: true })`, server)
-    expect(discover()).toMatchObject([{ name: "daily", manual: true, allowRuntimeSchedules: true }])
+    const { discover } = await fixture(`export default defineSchedule({ cron: '0 9 * * *', handler: () => ${value}, manual: true })`, server)
+    expect(discover()).toMatchObject([{ name: "daily", manual: true }])
   })
 
   it.each(['const text = "</Email>";', "/* </Email> */", "/* </Email> */ /* after */", "/* </Email> */ /* after; */", '/* </Email> */ /* after" */', "/* </Email> */ / /;", "/* </Email> */\nconst pattern = /Email/;"])("reads metadata after a TypeScript assertion with a later closing tag: %s", async (after) => {
-    const { discover } = await fixture(`const first = <Email>value;\nexport default defineSchedule({ cron: '0 9 * * *', handler() {}, manual: true, allowRuntimeSchedules: true });\n${after}`, server)
-    expect(discover()).toMatchObject([{ name: "daily", manual: true, allowRuntimeSchedules: true }])
+    const { discover } = await fixture(`const first = <Email>value;\nexport default defineSchedule({ cron: '0 9 * * *', handler() {}, manual: true });\n${after}`, server)
+    expect(discover()).toMatchObject([{ name: "daily", manual: true }])
   })
 
   it.each(["function task<T>() {}", "class Task<T> {}"])("reads metadata after a generic declaration: %s", async (declaration) => {
-    const { discover } = await fixture(`${declaration}\n/['"]/u.test(value);\nexport default defineSchedule({ cron: '0 9 * * *', handler() {}, manual: true, allowRuntimeSchedules: true });`, server)
-    expect(discover()).toMatchObject([{ name: "daily", manual: true, allowRuntimeSchedules: true }])
+    const { discover } = await fixture(`${declaration}\n/['"]/u.test(value);\nexport default defineSchedule({ cron: '0 9 * * *', handler() {}, manual: true });`, server)
+    expect(discover()).toMatchObject([{ name: "daily", manual: true }])
   })
 
-  it("rejects positional runtime targets during discovery", async () => {
-    const { discover } = await fixture('export default defineScheduleTarget("not-an-object", () => {})', server)
-    expect(discover).toThrow(/literal options/)
-  })
-
-  it("discovers object-form runtime targets", async () => {
-    const { discover } = await fixture("export default defineScheduleTarget({ handler() {} })", server)
-    expect(discover()).toMatchObject([{ name: "daily", allowRuntimeSchedules: true, runtimeOnly: true }])
-  })
-
-  it.each([false, true])("discovers positional options %s without executing the handler", async (allowed) => {
-    const { discover } = await fixture(`export default defineSchedule('0 9 * * *', () => { throw new Error('never execute') }, { manual: true, allowRuntimeSchedules: ${allowed} })`, server)
-    expect(discover()).toMatchObject([{ name: "daily", allowRuntimeSchedules: allowed }])
+  it.each([false, true])("discovers positional options %s without executing the handler", async (manual) => {
+    const { discover } = await fixture(`export default defineSchedule('0 9 * * *', () => { throw new Error('never execute') }, { manual: ${manual} })`, server)
+    expect(discover()).toMatchObject([{ name: "daily", manual }])
   })
 
   it("discovers positional schedules without options", async () => {
     const { discover } = await fixture("export default defineSchedule('0 9 * * *', () => {})", server)
-    expect(discover()).toMatchObject([{ name: "daily", allowRuntimeSchedules: false }])
+    expect(discover()).toMatchObject([{ name: "daily", manual: false }])
   })
 
-  it.each(["é", "𐐀", "a\u0301", "manualé", "manual\u200C", "allowRuntimeSchedules\u200D"])("accepts an unrelated Unicode option key: %s", async (name) => {
+  it.each(["é", "𐐀", "a\u0301", "manualé", "manual\u200C", "manual\u200D"])("accepts an unrelated Unicode option key: %s", async (name) => {
     for (const source of [
       `export default defineSchedule({ ${name}: true, cron: '0 9 * * *', handler() {} })`,
       `export default defineSchedule('0 9 * * *', () => {}, { ${name}: true })`,
     ]) {
       const { discover } = await fixture(source, server)
-      expect(discover()).toMatchObject([{ name: "daily", manual: false, allowRuntimeSchedules: false }])
+      expect(discover()).toMatchObject([{ name: "daily", manual: false }])
     }
   })
 
   it.each(["0x2a", "1e2", "1_000", ".5", "1.5", "1e+2", "1e-2", "1.", "1_000.5_2", "0b1010", "0o52", "42n"])("accepts an unrelated numeric option key: %s", async (name) => {
-    const { discover } = await fixture(`export default defineSchedule('0 9 * * *', () => {}, { ${name}: true, manual: true, allowRuntimeSchedules: true })`, server)
-    expect(discover()).toMatchObject([{ name: "daily", manual: true, allowRuntimeSchedules: true }])
+    const { discover } = await fixture(`export default defineSchedule('0 9 * * *', () => {}, { ${name}: true, manual: true })`, server)
+    expect(discover()).toMatchObject([{ name: "daily", manual: true }])
   })
 
   it.each([
-    "(({ manual: true, allowRuntimeSchedules: true }))",
-    "{ manual: true, allowRuntimeSchedules: true } as const",
+    "(({ manual: true }))",
+    "{ manual: true } as const",
   ])("discovers normalized positional literal options: %s", async (options) => {
     const { discover } = await fixture(`export default defineSchedule('0 9 * * *', () => {}, ${options})`, server)
-    const definitions = discover()
-    expect(definitions).toMatchObject([{ name: "daily", manual: true, allowRuntimeSchedules: true }])
-    expect(createScheduleTargetsContents(definitions)).toContain('["daily"]')
+    expect(discover()).toMatchObject([{ name: "daily", manual: true }])
   })
 
   it.each([
@@ -142,22 +129,21 @@ describe.each([false, true])("Schedule option discovery, server=%s", (server) =>
   })
 
   it.each([
-    "const allowed = true;\nexport default defineSchedule({ cron: '0 9 * * *', handler() {}, allowRuntimeSchedules: allowed })",
-    "const options = { allowRuntimeSchedules: true };\nexport default defineSchedule({ ...options, cron: '0 9 * * *', handler() {} })",
-    "const key = 'allowRuntimeSchedules';\nexport default defineSchedule({ [key]: true, cron: '0 9 * * *', handler() {} })",
-    "const allowRuntimeSchedules = true;\nexport default defineSchedule({ allowRuntimeSchedules, cron: '0 9 * * *', handler() {} })",
-    "export default defineSchedule({ get allowRuntimeSchedules() { return true }, cron: '0 9 * * *', handler() {} })",
-  ])("rejects unsupported options instead of silently omitting a target", async (source) => {
+    "const allowed = true;\nexport default defineSchedule({ cron: '0 9 * * *', handler() {}, manual: allowed })",
+    "const options = { manual: true };\nexport default defineSchedule({ ...options, cron: '0 9 * * *', handler() {} })",
+    "const key = 'manual';\nexport default defineSchedule({ [key]: true, cron: '0 9 * * *', handler() {} })",
+    "const manual = true;\nexport default defineSchedule({ manual, cron: '0 9 * * *', handler() {} })",
+    "export default defineSchedule({ get manual() { return true }, cron: '0 9 * * *', handler() {} })",
+  ])("rejects unsupported options instead of silently omitting manual runs", async (source) => {
     const { file, discover } = await fixture(source, server)
     expect(discover).toThrow(file)
-    expect(discover).toThrow(/allowRuntimeSchedules.*literal|literal.*allowRuntimeSchedules/)
+    expect(discover).toThrow(/manual.*literal|literal.*manual/)
   })
 
   it.each([
     "get 'manual'() { return true }",
     '"manual"() { return true }',
-    "get /* option */ 'allowRuntimeSchedules'() { return true }",
-    '"allowRuntimeSchedules"() { return true }',
+    "get /* option */ 'manual'() { return true }",
   ])("rejects quoted metadata getters and methods: %s", async (property) => {
     for (const source of [
       `export default defineSchedule({ cron: '0 9 * * *', handler() {}, ${property} })`,
@@ -170,19 +156,17 @@ describe.each([false, true])("Schedule option discovery, server=%s", (server) =>
   })
 
   it("identifies an indirect default export at the definition call", async () => {
-    const { file, discover } = await fixture("\nconst daily = defineScheduleTarget({ handler() {} }); export default daily", server)
+    const { file, discover } = await fixture("\nconst daily = defineSchedule({ cron: '0 9 * * *', handler() {} }); export default daily", server)
     expect(discover).toThrow(`${file}:2:`)
     expect(discover).toThrow(/direct default export/)
   })
 
-  it.each([true, false])("preserves literal opt-in %s in generated targets", async (allowed) => {
+  it.each([true, false])("preserves literal manual %s with a nested spread in the handler", async (manual) => {
     const { discover } = await fixture(`export default defineSchedule({
       cron: '0 9 * * *',
-      handler() { const nested = { ...{ allowRuntimeSchedules: !${allowed} } }; return nested },
-      'allowRuntimeSchedules': ${allowed} /* explicit build option */,
+      handler() { const nested = { ...{ manual: !${manual} } }; return nested },
+      'manual': ${manual} /* explicit build option */,
     })`, server)
-    const definitions = discover()
-    expect(definitions).toMatchObject([{ name: "daily", allowRuntimeSchedules: allowed }])
-    expect(createScheduleTargetsContents(definitions)).toContain(allowed ? '["daily"]' : '[]')
+    expect(discover()).toMatchObject([{ name: "daily", manual }])
   })
 })
