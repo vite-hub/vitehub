@@ -59,12 +59,14 @@ function rejection(status: number, code: ConsoleDiagnosticCode, message?: string
   })
 }
 
-function prototypeMethod(value: object, key: "status" | "clone" | "arrayBuffer"): ((...args: never[]) => unknown) | undefined {
+function responsePrototype(value: object): { prototype: object, status: () => unknown, clone: (...args: never[]) => unknown } | undefined {
   let prototype: object | null = value
   while (prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-    const method = descriptor?.get ?? descriptor?.value
-    if (typeof method === "function") return method as (...args: never[]) => unknown
+    const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get
+    const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+    if (typeof status === "function" && typeof clone === "function") {
+      return { prototype, status: status as () => unknown, clone: clone as (...args: never[]) => unknown }
+    }
     prototype = Object.getPrototypeOf(prototype)
   }
 }
@@ -73,19 +75,19 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
   if (value instanceof Response) return value
   if ((typeof value !== "object" && typeof value !== "function") || value === null) return
   try {
-    const nativeStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-    if (typeof nativeStatus !== "function") return
-    Reflect.apply(nativeStatus, value, [])
+    const response = responsePrototype(value)
+    if (!response) return
+    Reflect.apply(response.status, value, [])
     const headers = Reflect.get(value, "headers")
     const status = Reflect.get(value, "status")
     const statusText = Reflect.get(value, "statusText")
     if (typeof status !== "number" || typeof statusText !== "string" || !headers || typeof headers !== "object") return
     const bodyUsed = Reflect.get(value, "bodyUsed")
     if (typeof bodyUsed !== "boolean") return
-    const nativeClone = Response.prototype.clone
-    const cloned = Reflect.apply(nativeClone, value, [])
+    const cloned = Reflect.apply(response.clone, value, [])
     if ((typeof cloned !== "object" && typeof cloned !== "function") || cloned === null || cloned === value) return
-    Reflect.apply(nativeStatus, cloned, [])
+    if (Object.getPrototypeOf(cloned) !== response.prototype) return
+    Reflect.apply(response.status, cloned, [])
     const init = { headers: new Headers(headers as Headers), status, statusText }
     if (bodyUsed) return
     const body = Reflect.get(value, "body")
