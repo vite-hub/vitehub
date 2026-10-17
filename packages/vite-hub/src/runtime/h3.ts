@@ -59,6 +59,9 @@ function isRequest(value: unknown): value is Request {
           const constructorDescriptor = descriptors.constructor
           if (!constructorDescriptor || constructorDescriptor.enumerable || !constructorDescriptor.configurable
             || constructorDescriptor.writable !== true) return false
+          const tagDescriptor = descriptors[Symbol.toStringTag]
+          if (!tagDescriptor || tagDescriptor.value !== "Request" || tagDescriptor.enumerable
+            || tagDescriptor.writable !== false || !tagDescriptor.configurable) return false
           const accessorNames = ["body", "headers", "method", "url", "signal"] as const
           if (accessorNames.some(name => {
             const descriptor = descriptors[name]
