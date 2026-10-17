@@ -2703,9 +2703,10 @@ function teamsAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
     const env = await channelEnv("teams", context)
     const adapterConfig: Record<string, unknown> = { ...options }
     if (hasRuntimeType(options.appId, "function")) {
-      adapterConfig.appId = await options.appId(context)
+      adapterConfig.appId = options.appId
     }
     for (const field of ["apiUrl", "appId", "appPassword", "appTenantId"] as const) {
+      if (field === "appId" && hasRuntimeType(options.appId, "function")) continue
       const value = cleanSecret(options[field] ?? env[field])
       if (value) adapterConfig[field] = value
       else delete adapterConfig[field]
