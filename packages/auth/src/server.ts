@@ -356,8 +356,9 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
     // intrinsic stream brand check before Fetch can coerce them during Response
     // construction. This also validates the reader methods without dispatching
     // any shadowed properties from the candidate stream.
-    if (Object.getOwnPropertyDescriptor(body, "getReader")) return false
-    const getReader = responsePropertyDescriptor(body, "getReader")?.value
+    const streamDescriptors = getNativeAuthorizationStreamDescriptors(body)
+    if (!streamDescriptors) return false
+    const getReader = streamDescriptors.getReader
     if (typeof getReader !== "function") return false
     const reader = Reflect.apply(getReader, body, [])
     const methods = getNativeAuthorizationReaderMethods(reader)
@@ -375,9 +376,32 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = responsePropertyDescriptor(body, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  return !Object.getOwnPropertyDescriptor(body, "getReader")
+  const streamDescriptors = getNativeAuthorizationStreamDescriptors(body)
+  if (!streamDescriptors || Reflect.apply(streamDescriptors.locked, body, [])) return false
+  return true
+}
+
+function getNativeAuthorizationStreamDescriptors(body: object) {
+  try {
+    let current: object | null = body
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) return
+      seen.add(current)
+      const getReader = Object.getOwnPropertyDescriptor(current, "getReader")
+      const locked = Object.getOwnPropertyDescriptor(current, "locked")
+      // The first stream carrier in the chain must own both native members.
+      // An interposed prototype that replaces either member is caller-controlled.
+      if (getReader || locked) {
+        if (typeof getReader?.value !== "function" || typeof locked?.get !== "function") return
+        return { getReader: getReader.value as (this: object) => ReadableStreamDefaultReader<Uint8Array>, locked: locked.get as (this: object) => boolean }
+      }
+      current = Object.getPrototypeOf(current)
+    }
+  }
+  catch {
+    return
+  }
 }
 
 function getNativeAuthorizationReaderMethods(reader: object) {
