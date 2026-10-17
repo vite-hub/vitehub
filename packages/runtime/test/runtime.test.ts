@@ -309,6 +309,46 @@ describe("@vite-hub/runtime", () => {
     expect(() => getCapability(context, "kv")).toThrow('Capability "kv" was not found')
   })
 
+  it("preserves structural handles supplied by an external host", () => {
+    const implementation = { query: vi.fn() }
+    const handle = { kind: "db", value: implementation }
+    const context = createExecutionContext({
+      capabilities: { db: handle },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(getCapability(context, "db")).toBe(handle)
+    expect(getCapability(context, "db").value).toBe(implementation)
+  })
+
+  it("does not invoke accessor capability fields", () => {
+    const readKind = vi.fn(() => "spoofed")
+    const raw = Object.defineProperty({ value: "unexpected" }, "kind", { enumerable: true, get: readKind })
+    const context = createExecutionContext({
+      capabilities: { raw },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(getCapability(context, "raw").value).toBe(raw)
+    expect(readKind).not.toHaveBeenCalled()
+  })
+
+  it("wraps capability values when proxy ownership inspection throws", () => {
+    const raw = new Proxy({}, { ownKeys() { throw new Error("unavailable") } })
+    const context = createExecutionContext({
+      capabilities: { raw },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(getCapability(context, "raw").value).toBe(raw)
+  })
+
   it("wraps raw capability values as handles", () => {
     const context = createExecutionContext({
       capabilities: { queue: { send: vi.fn() } },
@@ -322,6 +362,99 @@ describe("@vite-hub/runtime", () => {
       name: "queue",
       value: { send: expect.any(Function) },
     })
+  })
+
+  it("does not treat inherited capability fields as a handle", () => {
+    const raw = Object.create({ kind: "spoofed", value: "unexpected" }) as { ready: boolean }
+    raw.ready = true
+    const context = createExecutionContext({
+      capabilities: { raw },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(getCapability(context, "raw")).toEqual({
+      kind: "raw",
+      name: "raw",
+      value: raw,
+    })
+  })
+
+  it("does not treat proxy-fabricated capability fields as a handle", () => {
+    const target = Object.create(null)
+    const raw = new Proxy(target, {
+      ownKeys() {
+        return ["kind", "value"]
+      },
+      getOwnPropertyDescriptor(_target, property) {
+        if (property === "kind") return { configurable: true, enumerable: true, value: "spoofed", writable: true }
+        if (property === "value") return { configurable: true, enumerable: true, value: "unexpected", writable: true }
+        return undefined
+      },
+    })
+    const context = createExecutionContext({
+      capabilities: { raw },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+
+    expect(getCapability(context, "raw")).toEqual({
+      kind: "raw",
+      name: "raw",
+      value: raw,
+    })
+  })
+
+  it("fails closed for null-prototype proxy handles without a proxy detector", () => {
+    const target = Object.create(null)
+    const raw = new Proxy(target, {
+      ownKeys: () => ["kind", "value"],
+      getOwnPropertyDescriptor: (_target, property) => {
+        if (property === "kind") return { configurable: true, enumerable: true, value: "spoofed", writable: true }
+        if (property === "value") return { configurable: true, enumerable: true, value: "unexpected", writable: true }
+        return undefined
+      },
+      getPrototypeOf: () => null,
+    })
+    const context = createExecutionContext({
+      capabilities: { raw },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+    const processObject = globalThis.process
+    const detector = Object.getOwnPropertyDescriptor(processObject, "getBuiltinModule")
+    Object.defineProperty(processObject, "getBuiltinModule", { configurable: true, value: undefined })
+    try {
+      expect(getCapability(context, "raw").value).toBe(raw)
+    }
+    finally {
+      if (detector) Object.defineProperty(processObject, "getBuiltinModule", detector)
+      else delete (processObject as { getBuiltinModule?: unknown }).getBuiltinModule
+    }
+  })
+
+  it("preserves external structural handles without a proxy detector", () => {
+    const implementation = { query: vi.fn() }
+    const handle = { kind: "db", value: implementation }
+    const context = createExecutionContext({
+      capabilities: { db: handle },
+      memo: vi.fn(),
+      runtime: "vite",
+      waitUntil: vi.fn(),
+    })
+    const processObject = globalThis.process
+    const detector = Object.getOwnPropertyDescriptor(processObject, "getBuiltinModule")
+    Object.defineProperty(processObject, "getBuiltinModule", { configurable: true, value: undefined })
+    try {
+      expect(getCapability(context, "db")).toBe(handle)
+    }
+    finally {
+      if (detector) Object.defineProperty(processObject, "getBuiltinModule", detector)
+      else delete (processObject as { getBuiltinModule?: unknown }).getBuiltinModule
+    }
   })
 
   it("resolves only capabilities registered as own properties", () => {

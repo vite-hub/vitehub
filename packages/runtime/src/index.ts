@@ -1366,11 +1366,13 @@ export function defineCapability<TKind extends string, TValue>(
   value: TValue,
   options: { name?: string } = {},
 ): CapabilityHandle<TKind, TValue> {
-  return {
+  const handle = {
     kind,
     name: options.name,
     value,
   }
+  capabilityHandles.add(handle)
+  return handle
 }
 
 export function createRuntimeWaitUntilController(options: {
@@ -1413,13 +1415,61 @@ export function createRuntimeWaitUntilController(options: {
   }
 }
 
+const capabilityHandles = new WeakSet<object>()
+
+function isProxy(value: object): boolean | undefined {
+  try {
+    const getBuiltinModule = (globalThis as {
+      process?: { getBuiltinModule?: (name: string) => { types?: { isProxy?: (value: object) => boolean } } | undefined }
+    }).process?.getBuiltinModule
+    const detector = getBuiltinModule?.("node:util")?.types?.isProxy
+    return detector ? detector(value) : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
 function isCapabilityHandle(value: unknown): value is CapabilityHandle {
-  return hasRuntimeType(value, "object")
-    && value !== null
-    && "kind" in value
-    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
-    && hasRuntimeType((value as { kind?: unknown }).kind, "string")
-    && "value" in value
+  if (!hasRuntimeType(value, "object") || value === null) return false
+  if (capabilityHandles.has(value)) return true
+  // Node can identify proxies without invoking their traps. Structural checks
+  // cannot distinguish a proxy's fabricated descriptors from target-owned data.
+  const proxy = isProxy(value)
+  if (proxy === true) return false
+  try {
+    // Enumerate own keys before inspecting fields so inherited fields and
+    // descriptors fabricated for keys absent from the object are not handles.
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const kind = descriptors.kind
+    const implementation = descriptors.value
+    if (!kind || !Object.hasOwn(kind, "value") || !hasRuntimeType(kind.value, "string")
+      || !implementation || !Object.hasOwn(implementation, "value")) {
+      return false
+    }
+
+    // A null prototype cannot establish ownership when proxy detection is
+    // unavailable: a proxy can fabricate both descriptors and its prototype.
+    // Fail closed for this ambiguous shape while preserving ordinary external
+    // structural handles (which use the normal object prototype).
+    if (Object.getPrototypeOf(value) === null) return false
+
+    // A proxy can fabricate own descriptors for fields that are actually
+    // inherited by its target. Reject that shape while keeping structural
+    // handles supplied by other runtime copies compatible.
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype !== null) {
+      if (Object.getOwnPropertyDescriptor(prototype, "kind")
+        || Object.getOwnPropertyDescriptor(prototype, "value")) {
+        return false
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 export function hasCapability(context: RuntimeHostContext, name: string): boolean {
