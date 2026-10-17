@@ -2,12 +2,9 @@ import { expectTypeOf, it } from "vitest"
 
 import { defineSchedule } from "../src/index.ts"
 import { executeStaticSchedule } from "../src/runtime.ts"
-import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { hubSchedule } from "../src/vite.ts"
 import "../src/runtime.ts"
 import registry from "#vitehub/schedule/registry"
-import type { ProcessScheduleRuntimeOptions, ScheduleRuntimeController } from "../src/runtime/process.ts"
-import type { ScheduleProcessRuntimeOptions } from "../src/vite.ts"
 import type { ScheduleDefinitionRegistry, ScheduleRunStore } from "../src/types.ts"
 
 import type { ScheduleRunContext } from "../src/index.ts"
@@ -67,30 +64,3 @@ it("types the generated schedule registry module", () => {
   expectTypeOf(registry).toEqualTypeOf({} as ScheduleDefinitionRegistry)
 })
 
-it("types the Process Schedule Runtime", () => {
-  expectTypeOf<ProcessScheduleRuntimeOptions>().toEqualTypeOf<{
-    catchUpMs?: number
-    concurrency?: number
-    intervalMs?: number
-    now?: () => Date
-    onError?: (error: unknown) => void
-    registry: ScheduleDefinitionRegistry
-    scheduleRunStore: ScheduleRunStore
-  }>()
-  expectTypeOf(installProcessScheduleRuntime).parameter(0).toEqualTypeOf<ProcessScheduleRuntimeOptions>()
-  expectTypeOf(installProcessScheduleRuntime).returns.toEqualTypeOf<Promise<ScheduleRuntimeController>>()
-})
-
-it("types generated Nitro Process Runtime options", () => {
-  expectTypeOf<ScheduleProcessRuntimeOptions>().toEqualTypeOf<{
-    catchUpMs?: number
-    concurrency?: number
-    driver: "process"
-    intervalMs?: number
-    prefix?: string
-  }>()
-  hubSchedule({ runtime: { catchUpMs: 0, concurrency: 2, driver: "process", intervalMs: 5_000, prefix: "app:schedule" } })
-
-  // @ts-expect-error Generated Process Runtime does not serialize test clocks.
-  hubSchedule({ runtime: { driver: "process", now: () => new Date() } })
-})

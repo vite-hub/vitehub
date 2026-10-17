@@ -31,8 +31,7 @@ instead of generated files.
 | `.vitehub/agent/discord-gateway-plugin.ts` | Agent Package | Generated Nitro process lifecycle for Discord Gateway listeners on the Node preset. |
 | `.vitehub/agent/discord-gateway-route.ts` | Agent Package | Generated Nitro route handler that wakes the Discord Gateway listener for discovered Discord Agents. |
 | `.vitehub/agent/deno-server.ts` | Agent Package | Standalone Deno server for Agent chat and webhook routes. Written only when the Agent integration sets `runtime: 'deno'`. The `deno` preset serves Agent routes from the Nitro server instead. |
-| `.vitehub/schedule/deno-cron.mjs` | Schedule Package | Deno `Deno.cron` wake output for Static Schedule Definitions. |
-| `.vitehub/nitro/schedule/*` | Schedule Package | Narrow Nitro bridge for Schedule Provider Wake. |
+| `.vitehub/nitro/schedule/*` | Schedule Package | Schedule registry and the Nitro task, Netlify route, and Deno Deploy `Deno.cron` plugin that run Static Schedules. |
 | `.vitehub/provision.json` | ViteHub CLI | Non-secret Provision State read by Vite Integrations. |
 | `.output/server/index.mjs` | Provider Output | Server entry for the `node`, `cloudflare`, and `deno` presets. |
 | `.output/server/wrangler.json` | Provider Output | Cloudflare Worker config written by a `cloudflare` preset build. |

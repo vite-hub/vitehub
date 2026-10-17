@@ -5,7 +5,7 @@ import type { ScheduleDefinitionRegistry, ScheduleErrorCode, ScheduleErrorDetail
 import { defineSchedule } from "@vite-hub/schedule"
 import { createKVScheduleRunStore, createMemoryScheduleRunStore, executeSchedule } from "@vite-hub/schedule/runtime"
 import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"
-import { installProcessScheduleRuntime } from "@vite-hub/schedule/runtime/process"
+import { getScheduleTaskName, runScheduleTask } from "@vite-hub/schedule/runtime/static"
 
 createKVScheduleRunStore({ kvStore: scheduleKVStorage })
 // @ts-expect-error KV storage must be selected explicitly.
@@ -24,8 +24,8 @@ void discoverScheduleDefinitions
 void rootExecuteSchedule
 void schedules
 
-const controller = await installProcessScheduleRuntime({ registry, scheduleRunStore: createMemoryScheduleRunStore() })
-await controller.close()
+const { result } = await runScheduleTask({ name: getScheduleTaskName("proof") }, registry)
+result.status satisfies string
 
 await executeSchedule({
   definition: defineSchedule({ cron: "0 9 * * *", handler: () => "ok" }),

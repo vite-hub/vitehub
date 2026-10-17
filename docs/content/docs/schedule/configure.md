@@ -1,6 +1,6 @@
 ---
 title: Schedule configuration
-description: Configure the Schedule Vite Integration, the Process Runtime, Schedule Definitions, and storage.
+description: Configure the Schedule Vite Integration, Schedule Definitions, and storage.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -10,33 +10,22 @@ icon: i-lucide-sliders-horizontal
 
 ```ts [vite.config.ts]
 import { hubSchedule } from '@vite-hub/schedule/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
-    hubSchedule({
-      runtime: {
-        driver: 'process',
-        prefix: 'my-app:schedule',
-      },
-    }),
+    hubSchedule(),
+    nitro(),
   ],
 })
 ```
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `providerOutput` | `ScheduleVitePluginOptions['providerOutput']` | `auto` | Controls generated provider cron output. Values: `auto`, `standalone`, `nitro`, `false`. |
 | `projectRoot` | `string` | ViteHub project root | Resolves discovered schedule files and generated registry output from a custom project root. |
-| `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Explicitly installs the generated Nitro Process Runtime. Accepts `driver: 'process'`, plus optional `prefix` (default `vitehub:schedule`), `intervalMs` (default `60_000`), and `concurrency` (default `1`). |
 
-Use `createScheduleNitroConfig()` when a Nitro integration owns config merging and needs Schedule to return Nitro-ready provider output.
-
-The Process Runtime imports the discovered registry and runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKv()` under the Schedule prefix, reports errors through Nitro, and stops during Nitro shutdown. It scans once per minute with one concurrent run unless configured otherwise, and `intervalMs` cannot exceed the one-minute cron resolution. Each scan checks every minute since the previous scan, so a late timer does not skip a minute. After a restart, the runtime runs the due minutes that no process checked, such as a minute during a deploy, for each Schedule that already has a run. It looks back at most one hour (`installProcessScheduleRuntime({ catchUpMs })`, `0` disables it). Run ids are deterministic, so a minute that already ran does not run again. This setting is orthogonal to `providerOutput`; selecting one does not infer the other.
-
-::warning
-The Process Runtime requires exactly one long-lived process or replica. The KV run store records occurrences but does not provide distributed leader election or locking. Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
-::
+Use `createScheduleNitroConfig()` when a Nitro integration owns config merging. It returns the Nitro config with the Schedule Nitro module that registers each Static Schedule as a Nitro scheduled task. Read [Schedule hosts](/docs/schedule/hosts) for how each host fires the tasks.
 
 ## Define a static schedule
 
@@ -81,7 +70,7 @@ Write `manual` as a literal `true` or `false` value in the directly exported def
 
 `ScheduleRunContext` includes `id`, `scheduledAt`, `waitUntil`, optional `attemptId`, optional `runId`, optional `scheduleId`, and optional `target`, the name of the Schedule Definition that runs.
 
-Use `waitUntil(promise)` for consequential work that can outlive the handler body. Direct and local execution settles registered work before recording the Schedule Run result; a rejection fails the run with the same diagnostics as a handler rejection. The Process Runtime instead retains registered work after the handler returns, reports rejection through its `onError` hook, and drains outstanding work when the runtime closes.
+Use `waitUntil(promise)` for consequential work that can outlive the handler body. Direct and local execution settles registered work before recording the Schedule Run result; a rejection fails the run with the same diagnostics as a handler rejection. A Nitro scheduled task passes the host `waitUntil` when the host provides one, such as Cloudflare or Vercel. The host then keeps the registered work after the handler returns.
 
 ## Contribute Schedules from a package
 
@@ -128,7 +117,7 @@ The build reads the cron and the `manual` option from source without running the
 
 `vitehub.schedules` accepts an array or a factory. The factory receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root, and can be async. The Schedule plugin can read contributions before your plugin's `config` hook runs, so compute them in the factory, not in your own hooks. The factory runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
 
-A contributed Schedule behaves like a `server/schedules/` file on every host. Its cron is added to Cloudflare Cron Triggers, Vercel cron config, Netlify Scheduled Functions, and the Nitro wake plugin. The Node Process Runtime runs it. It is in the registry that `vitehub schedule run` loads, `vitehub inspect definitions`, and the Console Schedules section. Inspection shows the contributing plugin and its reason. With `providerOutput: 'auto'`, contributed Schedules take the same delivery path as `server/schedules/` files.
+A contributed Schedule behaves like a `server/schedules/` file on every host. It becomes a Nitro scheduled task. It is in the registry that `vitehub schedule run` loads, `vitehub inspect definitions`, and the Console Schedules section. Inspection shows the contributing plugin and its reason.
 
 Each Schedule name has one Definition. If a contribution reuses the name of a discovered file or of another plugin's contribution, the build fails with `SCHEDULE_B0006`, and the message names both sources or both plugins. An invalid entry fails with `SCHEDULE_B0007`, which is also used when the Definition module does not exist. A module without a default export of `defineSchedule()` fails with `SCHEDULE_B0005`.
 
@@ -136,7 +125,7 @@ Each Schedule name has one Definition. If a contribution reuses the name of a di
 
 ## Storage
 
-Schedule Runs record manual runs and Process Runtime runs. Provider cron output runs the handler without a run record.
+Schedule Runs record manual runs and the runs that Nitro scheduled tasks start. The default store keeps runs in memory, so each server instance has its own history.
 
 | Store | Configure with | Nuance |
 | --- | --- | --- |
@@ -153,4 +142,3 @@ import { scheduleKVStorage } from "vite-hub/schedule/runtime/kv"
 const scheduleRunStore = createKVScheduleRunStore({ kvStore: scheduleKVStorage })
 ```
 
-Generated Process Runtime wiring selects the adapter automatically.

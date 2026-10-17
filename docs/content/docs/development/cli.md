@@ -376,7 +376,7 @@ The command requires HTTPS for remote URLs and does not follow redirects. A `401
 
 ## Run and inspect Schedules
 
-Start the app's Vite Development Server, then run `vitehub schedule` from another terminal. `runs` and `attempts` read the Schedule Run store of that server runtime, so they show the runs that the running app recorded: manual runs and Process Runtime runs.
+Start the app's Vite Development Server, then run `vitehub schedule` from another terminal. `runs` and `attempts` read the Schedule Run store of that server runtime, so they show the runs that the running app recorded: manual runs and the runs that Nitro scheduled tasks start.
 
 ```bash [Terminal]
 pnpm vitehub schedule runs digest --limit 5

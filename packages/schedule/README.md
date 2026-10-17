@@ -32,7 +32,7 @@ Install the owner package directly when a library or custom integration needs Sc
 pnpm add @vite-hub/schedule
 ```
 
-Direct integrations use `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, and `@vite-hub/schedule/vite`. Add Vite when the project uses `hubSchedule()`. Add `@vite-hub/kv` when using the KV-backed Schedule Run store or the generated Process Runtime. Static Schedule Definitions, memory stores, and custom `ScheduleKVStorage` implementations do not require KV.
+Direct integrations use `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, and `@vite-hub/schedule/vite`. Add Vite when the project uses `hubSchedule()`. Add `@vite-hub/kv` when using the KV-backed Schedule Run store. Static Schedule Definitions, memory stores, and custom `ScheduleKVStorage` implementations do not require KV.
 
 Both packages require Node.js 24.15 or newer.
 
@@ -66,7 +66,7 @@ Report scheduled for 2026-08-27T08:00:00.000Z
 succeeded
 ```
 
-The example uses the default in-memory Schedule Run store. It proves the handler and run bookkeeping, but it does not install a recurring wake or generate Provider Output.
+The example uses the default in-memory Schedule Run store. It proves the handler and run bookkeeping, but it does not install a recurring wake.
 
 ## Discover a static schedule
 
@@ -97,10 +97,9 @@ export default defineSchedule({
 });
 ```
 
-Static Schedule Definitions use five-field UTC cron expressions. They cannot set `timeZone`. The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, and Nitro's Cloudflare schedule hook. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
+Static Schedule Definitions use five-field UTC cron expressions. They cannot set `timeZone`. `vite build` with `nitro()` registers each Definition as a Nitro task in `scheduledTasks`. Nitro fires it with Cloudflare Cron Triggers, Vercel Cron Jobs, or an in-process `croner` timer on Node. ViteHub adds a Netlify Scheduled Function and a Deno Deploy `Deno.cron()` plugin, because Nitro has no scheduler for those presets. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
 
-Applications that use the framework distribution register Schedule through `vitehub({ preset, schedule: true })` and import the definition helper from `vite-hub/schedule`. The Deno framework preset currently rejects Schedule because standalone Deno cron output sits outside its generated Nitro entrypoint. Use the direct Schedule integration for that output.
-
+Applications that use the framework distribution register Schedule through `vitehub({ preset, schedule: true })` and import the definition helper from `vite-hub/schedule`. 
 Direct Nuxt projects can register `@vite-hub/schedule/nuxt` instead of `hubSchedule()`. The module installs the Vite integration and merges Schedule output into Nitro config.
 
 Packages can contribute a Schedule from their own Vite plugin with `vitehub.schedules`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`:
@@ -118,43 +117,19 @@ const plugin = {
 }
 ```
 
-The module must be an absolute file path or `file:` URL, and the export must be `default`. The module follows the file rules: `export default defineSchedule({ cron: "...", handler })` with literal options, because the build reads it from source. Contributed Schedules get the same provider output, Process Runtime registration, `vitehub schedule run` support, inspection, and Console records as `server/schedules/` files. A name used by both a file and a contribution fails the build with `SCHEDULE_B0006`.
+The module must be an absolute file path or `file:` URL, and the export must be `default`. The module follows the file rules: `export default defineSchedule({ cron: "...", handler })` with literal options, because the build reads it from source. Contributed Schedules get the same Nitro task, `vitehub schedule run` support, inspection, and Console records as `server/schedules/` files. A name used by both a file and a contribution fails the build with `SCHEDULE_B0006`.
 
-## Run Static Schedules in one Node process
+## Run Static Schedules on Node
 
-Hosts without a native cron, such as a self-hosted Node server or Docker, use the generated Process Runtime. It scans inside the Node.js process once per minute and runs each discovered Static Schedule Definition when its cron is due. It records Schedule Runs in the default KV store configured by `hubKv()`. Configure it only for one long-lived replica:
-
-```ts
-import { hubKv } from "@vite-hub/kv/vite";
-import { hubSchedule } from "@vite-hub/schedule/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [
-    hubKv(),
-    hubSchedule({
-      runtime: {
-        driver: "process",
-        prefix: "my-app:schedule",
-      },
-    }),
-  ],
-});
-```
-
-Its defaults are prefix `vitehub:schedule`, scan interval `60_000` milliseconds, and concurrency `1`. The interval cannot exceed one minute. `concurrency` limits runs only inside that process. The KV run store records occurrences but does not provide distributed leader election or locking, so multiple replicas can execute the same work. After a restart the runtime runs the minutes that no process checked, within one hour, for each Schedule that already has a run. Request-scoped and serverless hosts must not use the Process Runtime because the process may stop between requests.
-
-With the Process Runtime, the default `providerOutput: "auto"` emits no host Provider Output, so the process owns Static Schedule wakes. Set `providerOutput: "standalone"` or `"nitro"` to move Static Schedule wakes to that Provider Output. `providerOutput: false` records the same wake ownership as `"auto"` in this configuration.
-
-A custom long-running host calls `installProcessScheduleRuntime({ registry, scheduleRunStore })` from `@vite-hub/schedule/runtime/process`, then awaits `controller.close()` during shutdown. Closing stops new runs, drains active runs and `waitUntil()` work, and stops the timer. The generated Nitro Process Runtime connects the same close operation to Nitro shutdown and process termination signals.
+A self-hosted Node server or Docker container runs the built Nitro server. Nitro starts one `croner` timer per cron in that process and runs the Schedule task when it is due. Run one replica, or each replica runs every Schedule. A restart does not run the minutes that the process missed.
 
 ## Understand time zones
 
-Static Schedule Definitions and their Provider Output always use UTC.
+Static Schedule Definitions and their host crons always use UTC.
 
 ## Choose storage
 
-Schedule Runs record manual runs and Process Runtime runs. The memory store is the default for direct calls. It is process-local and loses run history on restart. Use `createKVScheduleRunStore({ kvStore })` when runs must survive a restart. The factory requires an explicit `ScheduleKVStorage`. Static schedules, memory stores, and custom storage do not require `@vite-hub/kv`.
+Schedule Runs record manual runs and the runs that Nitro scheduled tasks start. The memory store is the default for direct calls. It is process-local and loses run history on restart. Use `createKVScheduleRunStore({ kvStore })` when runs must survive a restart. The factory requires an explicit `ScheduleKVStorage`. Static schedules, memory stores, and custom storage do not require `@vite-hub/kv`.
 
 To use ViteHub KV, install `@vite-hub/kv` and import the adapter explicitly:
 
@@ -165,7 +140,7 @@ import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"
 const scheduleRunStore = createKVScheduleRunStore({ kvStore: scheduleKVStorage })
 ```
 
-Generated Process Runtime wiring selects this adapter automatically. Applications using the framework can import it from `vite-hub/schedule/runtime/kv`.
+Applications using the framework can import it from `vite-hub/schedule/runtime/kv`.
 
 ## Run and inspect Schedules
 
@@ -190,4 +165,3 @@ The main `@vite-hub/schedule` entry exports `defineSchedule` and public types. I
 - Check [runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) for current proof and host qualifications.
 - Report package problems in the [ViteHub issue tracker](https://github.com/vite-hub/vitehub/issues).
 
-Cron parsing uses [`cron-schedule`](https://github.com/P4sca1/cron-schedule).

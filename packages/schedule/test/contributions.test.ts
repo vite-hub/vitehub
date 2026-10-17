@@ -5,13 +5,11 @@ import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { collectScheduleContributions } from "../src/contributions.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
 import { inspectScheduleDefinitions } from "../src/inspect.ts"
-import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
+import { hubSchedule } from "../src/vite.ts"
 
 import type { CollectedScheduleContribution, ScheduleContributingPlugin } from "../src/vite.ts"
 
@@ -60,15 +58,9 @@ function collected(name: string, module: string, plugin = contentPlugin): Collec
 
 type ConfigHook = (config: Record<PropertyKey, unknown>, env: { command: "build" | "serve", mode: string }) => unknown
 
-async function runProviderOutputHooks(plugin: ReturnType<typeof hubSchedule>) {
-  await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
-  await (plugin.closeBundle as { handler: (this: never) => Promise<void> }).handler.call({} as never)
-}
-
 async function resolvePlugin(plugin: ReturnType<typeof hubSchedule>, root: string, plugins: unknown[]) {
   await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
-    build: { outDir: "dist/client" },
-    command: "build",
+    command: "serve",
     plugins,
     resolve: { alias: [] },
     root,
@@ -215,76 +207,21 @@ describe("discoverScheduleDefinitions contributions", () => {
 })
 
 describe("contributed Schedules on every host", () => {
-  it("adds contributed crons to Cloudflare Cron Triggers through the generated Nitro wake plugin", async () => {
+  it("registers contributed Schedules as Nitro scheduled tasks", async () => {
     const { definition, root } = await createRoot()
-    const userConfig: Record<PropertyKey, unknown> = {
-      [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-      nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 0 * * *"] } } } },
-      plugins: [[publishContributor(definition)]],
-      root,
-    }
+    const userConfig: Record<PropertyKey, unknown> = { plugins: [[publishContributor(definition)]], root }
 
     await (hubSchedule().config as ConfigHook)(userConfig, { command: "build", mode: "production" })
 
-    expect(userConfig).toMatchObject({
-      nitro: {
-        cloudflare: { wrangler: { triggers: { crons: ["0 0 * * *", "*/5 * * * *", "0 9 * * *"] } } },
-        plugins: [join(root, ".vitehub/nitro/schedule/plugin.ts")],
-      },
-    })
-    const registry = await readFile(join(root, ".vitehub", "nitro", "schedule", "provider-registry.js"), "utf8")
+    // SAFETY: Schedule adds its Nitro module object to the `modules` array.
+    const module = ((userConfig.nitro as { modules: Array<{ name: string, setup: (nitro: unknown) => void }> }).modules)
+      .find(entry => entry.name === "vitehub:schedule")!
+    const options: Record<string, unknown> = { experimental: {}, handlers: [], plugins: [], preset: "cloudflare-module", rootDir: root }
+    module.setup({ hooks: { hook: () => undefined }, options })
+    expect(options.scheduledTasks).toEqual({ "*/5 * * * *": ["vitehub:schedule:content/publish"], "0 9 * * *": ["vitehub:schedule:report"] })
+    const registry = await readFile(join(root, ".vitehub", "nitro", "schedule", "registry.js"), "utf8")
     expect(registry).toContain("[\"content/publish\"]: async () => import(\"../../content/publish-schedule.ts\")")
     expect(registry).toContain("[\"report\"]: async () => import(")
-    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("[\"content/publish\",\"report\"]")
-  })
-
-  it("adds contributed crons to the Vercel cron config", async () => {
-    const { definition, root } = await createRoot()
-
-    const nitro = await createScheduleNitroConfig({
-      command: "build",
-      nitro: { preset: "vercel" },
-      plugins: [publishContributor(definition)],
-      providerOutput: "standalone",
-      root,
-    })
-
-    expect(nitro).toMatchObject({
-      vercel: {
-        config: {
-          crons: [
-            { path: "/api/vitehub/schedules/vercel/content/publish", schedule: "*/5 * * * *" },
-            { path: "/api/vitehub/schedules/vercel/report", schedule: "0 9 * * *" },
-          ],
-        },
-      },
-    })
-  })
-
-  it("emits contributed Schedules in standalone Cloudflare, Vercel, and Netlify output", async () => {
-    const { definition, root } = await createRoot({ file: false })
-    const plugins = [publishContributor(definition)]
-    const plugin = hubSchedule({ projectRoot: root, providerOutput: "standalone" })
-
-    await (plugin.config as ConfigHook)({ plugins, root }, { command: "build", mode: "production" })
-    await resolvePlugin(plugin, root, plugins)
-    await runProviderOutputHooks(plugin)
-
-    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain("\"*/5 * * * *\"")
-    await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-content_publish.mjs"), "utf8")).resolves.toContain("schedule: \"*/5 * * * *\"")
-    const vercel = JSON.parse(await readFile(join(root, ".vercel", "output", "config.json"), "utf8"))
-    expect(vercel.crons).toContainEqual({ path: "/api/vitehub/schedules/vercel/content/publish", schedule: "*/5 * * * *" })
-  })
-
-  it("registers contributed Schedules in the Node Process Runtime registry", async () => {
-    const { definition, root } = await createRoot()
-    const userConfig: Record<PropertyKey, unknown> = { plugins: [publishContributor(definition)], root }
-
-    await (hubSchedule({ providerOutput: false, runtime: { driver: "process" } }).config as ConfigHook)(userConfig, { command: "build", mode: "production" })
-
-    const contents = await readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")
-    expect(contents).toContain("[\"content/publish\"]: async () => import(\"../../content/publish-schedule.ts\")")
-    expect(contents).toContain("[\"report\"]: async () => import(")
   })
 
   it("installs contributed Schedules through the Nuxt module", async () => {
@@ -302,10 +239,8 @@ describe("contributed Schedules on every host", () => {
     const nitroConfig: Record<string, unknown> = {}
     await nitroConfigHook?.(nitroConfig)
 
-    expect(nitroConfig).toMatchObject({
-      cloudflare: { wrangler: { triggers: { crons: ["*/5 * * * *"] } } },
-      plugins: [join(root, ".vitehub/nitro/schedule/plugin.ts")],
-    })
+    expect(nitroConfig.modules).toEqual([expect.objectContaining({ name: "vitehub:schedule" })])
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "registry.js"), "utf8")).resolves.toContain("content/publish")
   })
 
   it("serves contributed Schedules from the registry that `vitehub schedule run` loads", async () => {
@@ -317,7 +252,7 @@ describe("contributed Schedules on every host", () => {
       ].join("\n"),
     })
     const plugins = [publishContributor(definition)]
-    const plugin = hubSchedule({ providerOutput: false })
+    const plugin = hubSchedule()
     await (plugin.config as ConfigHook)({ plugins, root }, { command: "serve", mode: "development" })
     await resolvePlugin(plugin, root, plugins)
 
@@ -329,7 +264,7 @@ describe("contributed Schedules on every host", () => {
   it("invalidates the registry when a contributed Definition module changes", async () => {
     const { definition, root } = await createRoot()
     const plugins = [publishContributor(definition)]
-    const plugin = hubSchedule({ providerOutput: false })
+    const plugin = hubSchedule()
     await (plugin.config as ConfigHook)({ plugins, root }, { command: "serve", mode: "development" })
     await resolvePlugin(plugin, root, plugins)
     const registry = {}

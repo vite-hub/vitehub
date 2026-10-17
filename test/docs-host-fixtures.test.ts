@@ -13,7 +13,7 @@ const vpExecutable = join(repoRoot, "node_modules", ".bin", process.platform ===
 const hostFixtures = ["cloudflare", "vercel", "netlify", "deno", "node-self-hosted"] as const
 const hostArtifacts: Record<(typeof hostFixtures)[number], string[]> = {
   cloudflare: [".output/server/wrangler.json"],
-  deno: [".output/server/index.mjs", ".output/main.ts", ".output/schedule/deno-cron.mjs"],
+  deno: [".output/server/index.mjs"],
   netlify: [
     ".netlify/v1/functions/vitehub-agent.mjs",
     ".netlify/v1/functions/vitehub-schedule-heartbeat.mjs",
@@ -137,7 +137,7 @@ async function expectDenoLauncherToStart(appRoot: string, context: FixtureTestCo
     "--allow-env",
     "--allow-read=.output",
     `--allow-net=0.0.0.0:${port}`,
-    ".output/main.ts",
+    ".output/server/index.mjs",
   ], {
     cwd: appRoot,
     detached: process.platform !== "win32",

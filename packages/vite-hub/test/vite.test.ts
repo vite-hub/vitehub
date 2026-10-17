@@ -698,9 +698,6 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/schedule",
-      providerImportAliases: {
-        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
-      },
       runtimeImport: "vite-hub/_internal/schedule/runtime/static",
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
@@ -841,8 +838,8 @@ describe("vitehub", () => {
 
     vitehub({ preset: "vercel", schedule: true, workflow: true })
 
-    expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.objectContaining({
-      providerOutput: "standalone",
+    expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.not.objectContaining({
+      providerOutput: expect.anything(),
     }))
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       hosting: "vercel",
@@ -1749,7 +1746,7 @@ describe("vitehub", () => {
   })
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {
-    expect(() => vitehub({ preset: "deno", schedule: true })).toThrow("cannot provide Schedule")
+    expect(() => vitehub({ preset: "deno", schedule: true })).not.toThrow()
     expect(() => vitehub({ preset: "deno", agent: { runtime: "deno" } })).toThrow("cannot deploy the Agent Deno runtime")
 
     // SAFETY: The explicit Deno preset installs the named deployment plugin.

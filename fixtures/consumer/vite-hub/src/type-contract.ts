@@ -15,7 +15,6 @@ import { resolveSandbox } from "vite-hub/sandbox"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import { requireRateLimit } from "vite-hub/rate-limit"
-import * as scheduleProcess from "vite-hub/schedule/runtime/process"
 import * as justBashShell from "vite-hub/shell/providers/just-bash"
 import { defineWorkflow } from "vite-hub/workflow"
 import { defineWorkspace } from "vite-hub/workspace"
@@ -38,7 +37,6 @@ export const contract = {
     agentSqliteState,
     authAgent,
     markdownTemplate,
-    scheduleProcess,
     justBashShell,
     cloudflareWorkspace,
     workspaceLoader,

@@ -36,7 +36,7 @@ Memory stores lose their contents when the process exits. Filesystem and file-ba
 
 For Agents, [Chat History and sessions](/docs/agents/chat-history-sessions#partition-transcripts) explains Agent State selection, and [Invocations](/docs/agents/invocations#observe-the-outcome) explains journals. Configuring one does not replace the other. Retaining a transcript also does not make a running model call resumable after a crash.
 
-[Schedule stores](/docs/schedule/configure#storage) persist records and run history. A KV store does not elect one Process Runtime or make its deduplication work across replicas. Run one scheduler for that store, or supply coordination in the host and make target side effects safe to repeat.
+[Schedule stores](/docs/schedule/configure#storage) persist records and run history. A KV store does not elect one scheduler or make its deduplication work across replicas. On Node, each replica runs every Static Schedule. Run one scheduler for that store, or supply coordination in the host and make target side effects safe to repeat.
 
 Before rollout, write representative data, replace the process or container, and read the data again. Test backup restoration separately. Set retention and deletion rules for customer data, traces, uploaded attachments, and provider session files.
 
