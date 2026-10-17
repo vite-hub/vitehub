@@ -217,6 +217,17 @@ describe("Postgres build configuration", () => {
     expect(code).not.toContain("runtime/hosted")
   })
 
+  it("rejects a contribution with another dialect in Definition inspection, as the build does", async () => {
+    const rootDir = await createTempProject()
+    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    const plugins = [{ name: "history-owner/vite", vitehub: { databases: [{ definition: { module: "history-tables/schema" }, dialect: "sqlite", name: "history" }] } }]
+
+    await expect(inspectDatabaseDefinitions({ plugins, projectRoot: rootDir, rootDir })).rejects.toMatchObject({
+      code: "DATABASE_B0011",
+      message: expect.stringContaining("use the \"sqlite\" dialect, but Database \"default\" uses \"postgresql\""),
+    })
+  })
+
   it("lists the Postgres dialect in Definition inspection", async () => {
     const rootDir = await createTempProject()
     await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])

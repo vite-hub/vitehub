@@ -46,12 +46,14 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
     root: options.viteRoot ?? options.rootDir,
     serverDirs: options.serverDirs,
   })
-  const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions)
+  const dialects = Object.fromEntries(definitions.map(definition => [definition.name, readDatabaseDefinitionDialect(definition.handler)]))
+  // The build checks contribution dialects, so inspection does too.
+  const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions, dialects)
   return await Promise.all(definitions.map(async definition => ({
     fields: [
       { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },
       // SQLite is the default and stays implicit.
-      ...(readDatabaseDefinitionDialect(definition.handler) === "postgresql" ? [{ label: "Dialect", value: "PostgreSQL" }] : []),
+      ...(dialects[definition.name] === "postgresql" ? [{ label: "Dialect", value: "PostgreSQL" }] : []),
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
       ...definition.schemaSources.length > 1
         ? [{ label: "Schema sources", value: definition.schemaSources.map(source => relativeDefinitionFile(options.projectRoot, source.handler)).join(", ") }]
