@@ -136,10 +136,14 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
   const value = event.req?.url ?? event.node?.req?.url ?? "/"
-  const headers = event.req?.headers ?? event.headers
   const header = (name: string) => {
-    const raw = headers?.get(name) ?? event.node?.req?.headers?.[name]
-    return (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
+    for (const source of [event.req?.headers, event.headers, event.node?.req?.headers]) {
+      if (!source) continue
+      let raw: string | string[] | undefined | null
+      if ("get" in source && typeof source.get === "function") raw = source.get(name)
+      else if (typeof source === "object") raw = (source as Record<string, string | string[] | undefined>)[name]
+      if (raw !== undefined && raw !== null) return (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
+    }
   }
   const url = value instanceof URL ? new URL(value) : new URL(value, "http://localhost")
   const host = header("x-forwarded-host") ?? header("host")
