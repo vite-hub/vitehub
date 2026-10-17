@@ -103,40 +103,36 @@ function isRequest(value: unknown): value is Request {
                 // bodyUsed-only prototype from being accepted.
                 const accessors = ["bodyUsed", "headers", "url", "method"] as const
                 const currentRealmRequest = new Request("https://example.test")
+                // Probe with opaque receivers created after inspecting the
+                // candidate. A caller-controlled accessor can distinguish a
+                // few known probe objects, but it cannot make those objects
+                // genuine Request receivers. Requiring the Web IDL failure
+                // for both shapes keeps the fallback fail-closed.
+                const unrelatedReceivers = [Object.create(null), Object.create(Object.prototype)]
                 for (const name of accessors) {
                   const accessor = Object.getOwnPropertyDescriptor(prototype, name)?.get
                   if (typeof accessor !== "function") {
                     valid = false
                     break
                   }
-                  try {
-                    // Web IDL accessors must reject an unrelated receiver,
-                    // then accept both a request constructed by that realm
-                    // and the candidate itself. Keep every invocation inside
-                    // the guard: copied native accessors throw for forged
-                    // receivers and must be treated as a normal rejection.
-                    accessor.call({})
-                    valid = false
-                    break
-                  } catch {
+                  // Web IDL accessors reject unrelated receivers, then
+                  // accept requests from their own realm and the candidate.
+                  for (const receiver of [{}, ...unrelatedReceivers, currentRealmRequest]) {
                     try {
-                      // A foreign Request accessor must reject a genuine
-                      // current-realm Request as well. Caller-controlled
-                      // getters that merely special-case `{}` and their
-                      // candidate are rejected by this independent receiver
-                      // check before their return values can be trusted.
-                      accessor.call(currentRealmRequest)
+                      accessor.call(receiver)
                       valid = false
                       break
                     } catch {
-                      try {
-                        accessor.call(probe)
-                        accessor.call(value)
-                      } catch {
-                        valid = false
-                        break
-                      }
+                      // Expected for unrelated and cross-realm receivers.
                     }
+                  }
+                  if (!valid) break
+                  try {
+                    accessor.call(probe)
+                    accessor.call(value)
+                  } catch {
+                    valid = false
+                    break
                   }
                 }
                 if (valid) {
