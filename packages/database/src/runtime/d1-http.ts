@@ -67,7 +67,7 @@ function isD1HttpPayload(value: unknown): value is D1HttpPayload {
 }
 
 function isD1HttpResult(value: unknown): value is D1HttpResult {
-  return isRecord(value) && (value.success === true || value.success === false)
+  return isRecord(value) && (value.success === undefined || typeof value.success === "boolean")
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -137,7 +137,7 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
 
     return payload.result.map((result, index) => {
       const query = queries[index]!
-      if (result.success !== true) {
+      if (result.success === false) {
         throw cloudflareD1HttpError(response, `query ${index + 1}`, result, payload)
       }
       if (query.method === "run" && result.results === undefined) return []
