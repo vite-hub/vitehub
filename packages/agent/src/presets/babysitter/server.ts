@@ -1424,6 +1424,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 // Run metadata and retry backoff can outlive a sibling admission
                 // block. Check each Box dispatch immediately before runAgent.
                 if (workerSettings.box && await parkBlockedModelWork()) throw new DOMException("Provider dispatch is waiting for admission.", "AbortError");
+                abortSignal.throwIfAborted();
                 modelDispatched = true;
                 return await runAgent(
                   agent,
