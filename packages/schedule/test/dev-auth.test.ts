@@ -22,7 +22,7 @@ async function startDevServer(root: string, viteRoot: string) {
   await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({ build: { outDir: "dist" }, command: "serve", resolve: { alias: [] }, root: viteRoot })
   const handler = config.nitro!.handlers![0]!.handler
   const handlerSource = await readFile(handler, "utf8")
-  const devContext: { rootDir: string, serverId?: string } = JSON.parse(handlerSource.match(/handleViteHubDevRequest\(event.req, (\{.*\})\)/)![1]!)
+  const devContext: { rootDir: string, serverId?: string } = JSON.parse(handlerSource.match(/handleViteHubDevRequest\(event.req, \{ \.\.\.(\{.*?\}), "registry": viteHubDevContext0 \}\)/)![1]!)
   const middleware: ((req: IncomingMessage, res: ServerResponse, next: () => void) => void)[] = []
   const httpServer = createServer((req, res) => {
     middleware[0]!(req, res, () => {

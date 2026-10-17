@@ -82,7 +82,7 @@ describe("docs product navigation", () => {
       expect(templateTitles, sectionId).toContain("Server API");
       // Template pages keep their order when related topic pages sit between them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
-      expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
+      expect(templateTitles.every((title, index) => titles.indexOf(title) === pages.findIndex(page => page.title === title)), sectionId).toBe(true);
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -167,7 +167,7 @@ describe("docs product navigation", () => {
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/getting-started/concepts/runtime-policy-approvals-and-traces")?.title)
+    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle)
       .toBe("Runtime policy, approvals, and traces");
   });
 

@@ -811,6 +811,38 @@ describe("contentSource", () => {
 
     await expect(contentSource(useSource("unsafe" as any)).keys()).rejects.toThrow("Content Source path escapes the source root")
   })
+
+  it("reports malformed source paths with the content diagnostic", async () => {
+    const malformed = contentSource({
+      items: async () => [{ key: 42, content: "# Invalid" }],
+    } as never)
+
+    await expect(malformed.keys()).rejects.toMatchObject({ code: "CONTENT_R0001" })
+  })
+
+  it("reports an explicitly malformed path even when the key is valid", async () => {
+    const malformed = contentSource({
+      items: async () => [{ key: "valid.md", path: 0, content: "# Invalid" }],
+    } as never)
+
+    await expect(malformed.keys()).rejects.toMatchObject({ code: "CONTENT_R0001" })
+  })
+
+  it("honors an inherited source path", async () => {
+    const prototype = { path: "declared.md" }
+    const item = Object.assign(Object.create(prototype), { key: "fallback.md", content: "# Declared" })
+    const source = contentSource({ items: async () => [item] } as never)
+
+    await expect(source.keys()).resolves.toEqual(["declared.md"])
+  })
+
+  it("falls back to the key when the optional path is undefined", async () => {
+    const source = contentSource({
+      items: async () => [{ key: "fallback.md", path: undefined, content: "# Fallback" }],
+    } as never)
+
+    await expect(source.keys()).resolves.toEqual(["fallback.md"])
+  })
 })
 
 describe("defineContentHandler", () => {

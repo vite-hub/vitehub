@@ -274,7 +274,8 @@ function assertEvent(event: unknown, method: string): asserts event is ContentPr
 }
 
 interface Scope<T> { getStore(): T | undefined; run<R>(value: T, callback: () => R): R | Promise<R> }
-function createScope<T>(): Scope<T> {
+function createScope<T>(enabled: boolean): Scope<T> {
+  if (!enabled) return { getStore: () => undefined, run: (_value, callback) => callback() }
   const runtimeGlobal = globalThis as {
     AsyncLocalStorage?: new <V>() => Scope<V>
     process?: { getBuiltinModule?: (name: string) => { AsyncLocalStorage?: new <V>() => Scope<V> } | undefined }
@@ -293,7 +294,7 @@ function createScope<T>(): Scope<T> {
 export function createContentPreview(options: { enabled: boolean }): ContentPreview {
   // Proof that one request carried a valid token. Only this runtime issues and checks it.
   const previewGrant = defineGrant("vitehub.content.preview", (expires: number) => expires)
-  const scope = createScope<ReturnType<typeof previewGrant.issue>>()
+  const scope = createScope<ReturnType<typeof previewGrant.issue>>(options.enabled)
   const resolved = new WeakMap<object, Promise<ReturnType<typeof previewGrant.issue> | undefined>>()
 
   function requireEnabled(method: string): void {

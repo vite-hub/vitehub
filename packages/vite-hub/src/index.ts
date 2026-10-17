@@ -184,7 +184,7 @@ function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
 const frameworkProviderImportAliases = Object.fromEntries(
   Object.entries(frameworkPackageManifest.exports)
     .filter(([subpath, target]) => subpath.startsWith("./") && packageExportImportTarget(target)?.endsWith(".js"))
-    .map(([subpath]): [string, string] => {
+    .map(([subpath]) => {
       const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
       return [specifier, fileURLToPath(import.meta.resolve(specifier))]
     })
@@ -591,7 +591,9 @@ function deploymentPlugins(
             ...cloneRecord(options.rateLimit === true ? undefined : options.rateLimit),
             ...cloneRecord((config as { rateLimit?: unknown }).rateLimit),
             namespace: name,
-            provider: plan.services.rateLimit.adapter,
+            // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
+            // default for `serve`: one in-memory limiter.
+            provider: building ? plan.services.rateLimit.adapter : "memory",
           }
         }
         if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {

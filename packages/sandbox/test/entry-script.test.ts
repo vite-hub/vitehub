@@ -166,6 +166,20 @@ describe("package entry result transport", () => {
     expect(Uint8Array.from(await execution.readOutputFile(0))).toEqual(Uint8Array.from([1, 2, 3]))
   })
 
+  it("does not treat a spoofed typed-array tag as a byte array", async () => {
+    const execution = await executePackageEntry([
+      `export default async function () {`,
+      `  const value = new Uint16Array([513])`,
+      `  Object.defineProperty(value, Symbol.toStringTag, { value: 'Uint8Array' })`,
+      `  return value`,
+      `}`,
+      ``,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: { 0: 513 } })
+  })
+
   it("revives and extracts nested binary sidecars", async () => {
     const binary = (id: number, kind: "blob" | "uint8array", type?: string) => ({
       [SANDBOX_VALUE_MARKER]: { id, kind, ...(type ? { type } : {}), tag: "binary" },

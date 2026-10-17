@@ -4,34 +4,46 @@ import { getDocsSectionForPath, isDocsLandingPath } from "~~/modules/vitehub-doc
 
 const route = useRoute();
 const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
-// The catalog and every product Overview are landing pages: one full-width column without a table of contents.
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
-// The rail is on every docs page. The page panel opens next to it inside a section, including its Overview.
-// The support matrix keeps the full width for its table.
-const hasPanel = computed(
-  () => !isSupportMatrix.value && Boolean(getDocsSectionForPath(docsManifest.sections, route.path)),
-);
+const docsShellUi = {
+  root: "lg:!flex lg:!flex-row lg:!items-start lg:!gap-0",
+  left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
+  center: "lg:!flex-1 lg:!min-w-0",
+};
 </script>
 
 <template>
-  <UMain class="vh-docs-shell">
-    <DocsSidebars class="vh-docs-desktop-nav" :panel="hasPanel" />
-
-    <div class="vh-docs-content">
-      <UContainer v-if="isSupportMatrix">
-        <AnnouncementBanner />
-        <slot />
-      </UContainer>
-
-      <slot v-else-if="isLanding" />
-
-      <template v-else>
-        <AnnouncementBanner />
-        <slot />
+  <UMain>
+    <UPage v-if="isSupportMatrix" :ui="docsShellUi">
+      <template #left>
+        <UPageAside class="vh-docs-aside hidden lg:block">
+          <DocsSidebars :panel="false" />
+        </UPageAside>
       </template>
+      <div class="vh-docs-main vh-docs-support-matrix">
+        <AnnouncementBanner />
+        <slot />
+        <AppFooter class="vh-docs-footer" />
+      </div>
+    </UPage>
 
+    <div v-else-if="isLanding" class="vh-docs-landing">
+      <slot />
       <AppFooter class="vh-docs-footer" />
     </div>
+
+    <UPage v-else :ui="docsShellUi">
+      <template #left>
+        <UPageAside class="vh-docs-aside hidden lg:block">
+          <DocsSidebars panel />
+        </UPageAside>
+      </template>
+      <div class="vh-docs-main">
+        <AnnouncementBanner />
+        <slot />
+        <AppFooter class="vh-docs-footer" />
+      </div>
+    </UPage>
   </UMain>
 </template>
 
@@ -52,8 +64,13 @@ const hasPanel = computed(
   flex-direction: column;
 }
 
-.vh-docs-footer {
-  margin-top: auto;
+.vh-docs-support-matrix {
+  max-width: none;
+  width: 100%;
+}
+
+.vh-docs-landing {
+  max-width: var(--vh-landing-width);
 }
 
 /* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */

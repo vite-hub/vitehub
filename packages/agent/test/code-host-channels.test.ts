@@ -12,7 +12,7 @@ import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import { codeHostActivityComments, codeHostDeliveryEffects } from "../src/internal/code-host-channel.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
-import { codeHostProvider } from "../src/internal/code-host.ts"
+import { forgeProvider } from "@vite-hub/forge"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 
 const fixtures: Array<{ directory: string, state: ReturnType<typeof createLibsqlAgentState> }> = []
@@ -364,7 +364,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
   it.each(kinds)("looks up an owned %s activity comment by its host path", async kind => {
     const path = kind === "gitlab" ? `${notes(kind)}/7` : `${project(kind)}/issues/comments/7`
     const fixture = fixtureFetch([], { [`GET ${api[kind]}${path}`]: { status: 200, body: { id: 7, body: "owned" } } })
-    const provider = await codeHostProvider({ host: kind, baseUrl: baseUrl[kind], token: "token", fetch: fixture.fetch as typeof fetch })
+    const provider = await forgeProvider({ forge: kind, baseUrl: baseUrl[kind], token: "token", fetch: fixture.fetch as typeof fetch })
     const comments = codeHostActivityComments(provider, { host: kind, instance: provider.instance, repository: repository[kind], number: 42 }, 100)
     expect((await comments.get(7))?.body).toBe("owned")
     expect(fixture.calls).toHaveLength(1)
@@ -406,7 +406,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
       [page(1)]: { status: 200, body: Array.from({ length: 100 }, (_, index) => ({ id: 700 - index, body: `note ${700 - index}` })) },
       [page(2)]: { status: 200, body: Array.from({ length: 100 }, (_, index) => ({ id: 600 - index, body: `note ${600 - index}` })) },
     })
-    const provider = await codeHostProvider({ host: "gitlab", baseUrl: baseUrl.gitlab, token: "token", fetch: fixture.fetch as typeof fetch })
+    const provider = await forgeProvider({ forge: "gitlab", baseUrl: baseUrl.gitlab, token: "token", fetch: fixture.fetch as typeof fetch })
     const comments = await codeHostActivityComments(provider, { host: "gitlab", instance: provider.instance, repository: repository.gitlab, number: 42 }, 150).list()
     expect(comments).toHaveLength(150)
     expect(comments[0]?.body).toBe("note 700")
@@ -425,7 +425,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
       [url("limit=100")]: { status: 200, body: page(1), headers: headers(20) },
       ...Object.fromEntries([20, 19, 18].map(number => [url(`limit=100&page=${number}`), { status: 200, body: page(number) }])),
     })
-    const provider = await codeHostProvider({ host: "forgejo", baseUrl: baseUrl.forgejo, token: "token", fetch: fixture.fetch as typeof fetch })
+    const provider = await forgeProvider({ forge: "forgejo", baseUrl: baseUrl.forgejo, token: "token", fetch: fixture.fetch as typeof fetch })
     const comments = await codeHostActivityComments(provider, { host: "forgejo", instance: provider.instance, repository: repository.forgejo, number: 42 }, 120).list()
     expect(comments).toHaveLength(120)
     expect(comments[0]?.body).toBe("comment 1000")
@@ -439,7 +439,7 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
       [`GET ${api.gitlab}/user`]: { status: 200, body: { id: 2, username: "review-bot" } },
       [`POST ${api.gitlab}${notes("gitlab")}`]: { status: 201, body: { id: 8, body: "Looks good", author: { username: "review-bot" } } },
     })
-    const provider = await codeHostProvider({ host: "gitlab", baseUrl: baseUrl.gitlab, token: "token", fetch: fixture.fetch as typeof fetch })
+    const provider = await forgeProvider({ forge: "gitlab", baseUrl: baseUrl.gitlab, token: "token", fetch: fixture.fetch as typeof fetch })
     const effects = codeHostDeliveryEffects({ provider: async () => provider, target: () => ({ host: "gitlab", instance: provider.instance, repository: repository.gitlab, number: 42 }), statusContext: "Agent", reactions: "content" })
     if (typeof effects.review !== "function") throw new Error("Missing review effect.")
     // SAFETY: These fixtures supply all callback fields that the review effect uses.
