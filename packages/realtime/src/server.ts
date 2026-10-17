@@ -674,27 +674,27 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (!storageDescriptor || !("value" in storageDescriptor)) return undefined
     const storage = storageDescriptor.value
     if (!storage || typeof storage !== "object") return undefined
-    const descriptor = Object.getOwnPropertyDescriptor(storage, "sql")
-    if (descriptor) {
-      if (!("value" in descriptor)) return undefined
-      return hasCloudflareSqlExec(descriptor.value) ? descriptor.value : undefined
+    const readNativeSql = (descriptor: PropertyDescriptor): RealtimeRoomSql | undefined => {
+      if ("value" in descriptor) return hasCloudflareSqlExec(descriptor.value) ? descriptor.value : undefined
+      const getter = descriptor.get
+      if (typeof getter !== "function") return undefined
+      const source = Function.prototype.toString.call(getter)
+      if (!/^function\s+get\s+sql\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
+      try {
+        const sql = Reflect.get(storage, "sql")
+        return hasCloudflareSqlExec(sql) ? sql : undefined
+      }
+      catch {
+        return undefined
+      }
     }
+    const descriptor = Object.getOwnPropertyDescriptor(storage, "sql")
+    if (descriptor) return readNativeSql(descriptor)
     let prototype = Object.getPrototypeOf(storage)
     while (prototype && prototype !== Object.prototype) {
       const sqlDescriptor = Object.getOwnPropertyDescriptor(prototype, "sql")
       if (sqlDescriptor) {
-        if ("value" in sqlDescriptor) return undefined
-        const getter = sqlDescriptor.get
-        if (typeof getter !== "function") return undefined
-        const source = Function.prototype.toString.call(getter)
-        if (!/^function\s+get\s+sql\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
-        try {
-          const sql = Reflect.get(storage, "sql")
-          return hasCloudflareSqlExec(sql) ? sql : undefined
-        }
-        catch {
-          return undefined
-        }
+        return readNativeSql(sqlDescriptor)
       }
       prototype = Object.getPrototypeOf(prototype)
     }

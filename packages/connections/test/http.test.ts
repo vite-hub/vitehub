@@ -25,6 +25,11 @@ function streamedPost(body: ReadableStream<Uint8Array>): Request {
 }
 
 describe("createConnectionsHandler", () => {
+  it.each(["", "   ", "/", "//", "connections", "  /  ", "/portal?x", "/portal#section"])("rejects invalid base path %s during setup", (basePath) => {
+    expect(() => createConnectionsHandler({ actor: () => "user:local", basePath, runtime: () => createTestRuntime().runtime }))
+      .toThrow("Connections basePath")
+  })
+
   it.each([
     () => undefined,
     () => "agent:worker",
