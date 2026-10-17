@@ -914,7 +914,7 @@ function isResponseLike(value: unknown): value is Response {
     // The foreign implementation owns its getters. Require the full Response
     // accessor contract before accepting an output as a byte stream.
     const read = (key: string): unknown => {
-      let prototype: object | null = Object.getPrototypeOf(value) as object | null
+      let prototype: object | null = value
       while (prototype) {
         const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
         if (descriptor) return descriptor.get ? descriptor.get.call(value) : descriptor.value
@@ -925,13 +925,13 @@ function isResponseLike(value: unknown): value is Response {
     // that surface keeps objects with caller-controlled own body fields out of
     // the Response branch even when the field happens to contain a real stream.
     let bodyAccessor = false
-    let bodyPrototype: object | null = Object.getPrototypeOf(value) as object | null
+    let bodyPrototype: object | null = ownResponseTag ? value : Object.getPrototypeOf(value) as object | null
     const visitedBodyPrototypes = new Set<object>()
     while (bodyPrototype && !visitedBodyPrototypes.has(bodyPrototype)) {
       visitedBodyPrototypes.add(bodyPrototype)
       const descriptor = Object.getOwnPropertyDescriptor(bodyPrototype, "body")
       if (descriptor) {
-        bodyAccessor = hasRuntimeType(descriptor.get, "function")
+        bodyAccessor = hasRuntimeType(descriptor.get, "function") || (ownResponseTag && "value" in descriptor)
         break
       }
       bodyPrototype = Object.getPrototypeOf(bodyPrototype) as object | null
