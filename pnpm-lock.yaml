@@ -1084,6 +1084,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.2(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0)
+      nitro:
+        specifier: catalog:unjs
+        version: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@1.3.0
         version: '@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)'
