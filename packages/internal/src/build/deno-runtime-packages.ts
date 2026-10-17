@@ -479,7 +479,7 @@ function maskInertImportText(module: ScannedModule, packageCallNames: ReadonlySe
   })
   walk(module.program, (node) => {
     if (node.type === "TemplateLiteral") {
-      if (specifiers.has(node) && node.expressions.length === 0) return false
+      const staticModuleSpecifier = specifiers.has(node) && node.expressions.length === 0
       // Keep the `${` and `}` delimiters and the code between them. The closing backtick reads as an operand.
       for (const quasi of node.quasis) {
         const textStart = quasi.start + 1
@@ -488,7 +488,9 @@ function maskInertImportText(module: ScannedModule, packageCallNames: ReadonlySe
         mask(textStart, textEnd, false)
         if (quasi.tail) output[quasi.end - 1] = "0"
       }
-      return
+      // A static module template is complete. Dynamic templates still need
+      // their expression children visited so nested literals are masked too.
+      return staticModuleSpecifier ? false : undefined
     }
     if (node.type === "Literal" && (typeof node.value === "string" || "regex" in node) && !specifiers.has(node)) mask(node.start, node.end, true)
   })
