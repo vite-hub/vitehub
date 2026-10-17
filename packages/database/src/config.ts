@@ -13,7 +13,7 @@ import { findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/inte
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { createRuntimeEnvConfigValue, resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
-import { cloudflareOptions, mergeCloudflareConfig, resolveCloudflareD1Binding, resolveCloudflareD1BindingName } from "./internal/cloudflare.ts"
+import { cloudflareOptions, mergeCloudflareConfig, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareHyperdriveBindingName } from "./internal/cloudflare.ts"
 
 import type {
   CloudflareD1BindingConfig,
@@ -21,9 +21,11 @@ import type {
   CloudflareD1HttpConfig,
   DatabaseConfigValue,
   DatabaseConnectionConfig,
+  DatabaseDialect,
   DBModulePublicOptions,
   DiscoveredDatabaseDefinition,
   ResolvedCloudflareD1BindingConfig,
+  ResolvedCloudflareHyperdriveConfig,
   ResolvedDBViteConfig,
   ResolvedDrizzleDatabaseConfig,
 } from "./types.ts"
@@ -299,6 +301,23 @@ function readDefinitionConnectionConfig(file: string) {
     url: readConfigValue(body, "url"),
   }
   return Object.values(value).some(item => typeof item !== "undefined") ? value : undefined
+}
+
+/** Reads the static `dialect` of a Database Definition. A Definition without one uses SQLite. */
+export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
+  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "dialect")?.trim()
+  if (expression === undefined) return "sqlite"
+  const dialect = readStaticStringLiteral(expression)
+  if (dialect === "sqlite" || dialect === "postgresql") return dialect
+  throw databaseErrorDiagnostics.DATABASE_C0011({ message: `[vitehub] Database definition "${file}" must set \`dialect\` to the string literal "sqlite" or "postgresql".` })
+}
+
+function readDefinitionHyperdriveConfig(file: string, name: string): ResolvedCloudflareHyperdriveConfig {
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
+  const config: ResolvedCloudflareHyperdriveConfig = { binding: resolveCloudflareHyperdriveBindingName(name, readStringValue(body, "binding")) }
+  const hyperdriveId = readConfigValue(body, "hyperdriveId")
+  if (hyperdriveId !== undefined) config.hyperdriveId = hyperdriveId
+  return config
 }
 
 type FoundDatabaseDefinition = Omit<DiscoveredDatabaseDefinition, "schemaSources">
@@ -584,12 +603,28 @@ export function resolveDBViteConfig(
   const provisionState = readProvisionStateSync(context.provisionRoot ?? rootDir)
   for (const definition of definitions) {
     const migrationsDir = getDefaultMigrationsDir(rootDir, definition, context.serverDirs)
-    const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
-    const projection: CloudflareD1Projection = { resource: definitionCloudflare.resource }
-    cloudflareProjections[definition.name] = projection
     const generatedSchemaFile = createGeneratedSchemaFile(rootDir, definition.name)
     generatedDrizzleConfigFilesByDatabase[definition.name] = createGeneratedDrizzleConfigFile(rootDir, definition.name)
     generatedSchemaFilesByDatabase[definition.name] = generatedSchemaFile
+    // Postgres Definitions own their connection. SQLite, libSQL, and D1 integration defaults do not apply.
+    if (readDatabaseDefinitionDialect(definition.handler) === "postgresql") {
+      const url = readDefinitionConnectionConfig(definition.handler)?.url
+      databases[definition.name] = {
+        connection: url === undefined ? {} : { url },
+        dialect: "postgresql",
+        drizzle: {},
+        generatedSchemaFile,
+        hyperdrive: readDefinitionHyperdriveConfig(definition.handler, definition.name),
+        migrationsDir,
+        mode: definition.mode,
+        name: definition.name,
+        orm: "drizzle",
+      }
+      continue
+    }
+    const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
+    const projection: CloudflareD1Projection = { resource: definitionCloudflare.resource }
+    cloudflareProjections[definition.name] = projection
     const cloudflare = normalizeCloudflareConfig(mergeCloudflareConfig(cloudflareOptions(options), definitionCloudflare.value), definition.name, migrationsDir)
     if (cloudflare) {
       if (definitionCloudflare.resource !== "opaque" && definition.name !== "default" && !definitionCloudflare.value?.binding) {

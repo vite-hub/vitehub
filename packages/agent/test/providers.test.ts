@@ -2911,7 +2911,7 @@ export default defineAgent({
         const hooks = new Map<string, () => void>()
         let startup: (() => void) | undefined
         // Execute the generated plugin with an earlier process start and a deferred timer.
-        const install = new Function("resumeWebhookQueues", "performance", "setTimeout", "process", `${queuePlugin.replace(/^import .*\n/m, "").replace("export default ", "return ").replace("import.meta.prerender", "false")}`)(
+        const install = new Function("resumeWebhookQueues", "performance", "setTimeout", "process", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
           resumeWebhookQueues,
           { timeOrigin: Date.now() - 60_000 },
           (callback: () => void) => { startup = callback },
@@ -2933,7 +2933,9 @@ export default defineAgent({
         expect(queuePlugin).toContain("nitroApp.hooks.hook('close', shutdownWebhookQueues)")
         expect(queuePlugin).toContain("shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listeners(signal).some(listener => listener.name === 'shutdown'))")
         expect(queuePlugin).toContain("nodeProcess?.prependOnceListener(signal, shutdownWebhookQueues)")
+        // The Agent shutdown drain owns the exit through its runtime, not a direct process.exit().
         expect(queuePlugin).not.toContain("process.exit")
+        expect(queuePlugin).toContain("installAgentShutdownDrain({ chat: drainInlineChatInvocations, queues }, nitroApp, undefined, nodeProcess)")
         expect(webhookRoute).toContain(
           "return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })",
         )

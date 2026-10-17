@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
@@ -14,10 +15,10 @@ import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/buil
 
 import { createDbCliContributor } from "./cli.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
-import { cloudflareOptions, mergeCloudflareD1Bindings, resolveCloudflareD1Bindings } from "./internal/cloudflare.ts"
+import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { renderDatabaseConfigExpression } from "./internal/runtime-config-expression.ts"
+import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, generateProviderOutputs, prepareProviderOutputs, shouldCreateCloudflareOutput, shouldCreateVercelOutput } from "./internal/vite-build.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions } from "./inspect.ts"
@@ -55,6 +56,7 @@ const RESOLVED_DB_VIRTUAL_SCHEMA_ID = `\0${DB_VIRTUAL_SCHEMA_ID}`
 const RESOLVED_DB_VIRTUAL_DATABASES_ID = `\0${DB_VIRTUAL_DATABASES_ID}`
 const RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID = `\0${DB_VIRTUAL_DEFINITION_DEFAULTS_ID}`
 const NITRO_MIGRATIONS_DIR = ".vitehub/database/migrations"
+const NITRO_REQUEST_SCOPE_MIDDLEWARE = ".vitehub/nitro/database/request-scope.mjs"
 const DB_DRIZZLE_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist\/drizzle\.js$/
 
 export interface DBVitePluginAPI {
@@ -74,7 +76,8 @@ interface DBCliContributingPlugin {
 interface DatabaseNitroHost {
   hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
   options: {
-    cloudflare?: { wrangler?: { d1_databases?: unknown } }
+    cloudflare?: { wrangler?: { d1_databases?: unknown, hyperdrive?: unknown } }
+    handlers?: Array<{ handler: string, middleware?: boolean, route?: string }>
     output: { serverDir: string }
     preset?: string
   }
@@ -126,13 +129,17 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
   ].join("\n"))
   const entries = config.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
-    `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
+    config.databases[definition.name]?.dialect === "postgresql"
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, config, `definition_${index}`)},`
+      : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
 
   return [
-    `import { resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/hosted"))}`,
+    // A Postgres-only app must not bundle the libSQL client that `runtime/hosted` imports.
+    ...(usesSqlite(config) ? [`import { resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/hosted"))}`] : []),
+    ...(usesPostgres(config) ? [`import { createPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/postgres"))}`] : []),
     ...imports,
     "",
     "export const databases = {",
@@ -143,6 +150,18 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
   ].join("\n")
 }
 
+function renderNitroRequestScopeMiddleware() {
+  return [
+    `import { runWithActiveCloudflareEnv, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
+    "",
+    "export default (event, next) => {",
+    "  const env = event?.env ?? event?.req?.runtime?.cloudflare?.env ?? event?.context?.cloudflare?.env ?? event?.context?._platform?.cloudflare?.env ?? globalThis.__env__",
+    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, next)",
+    "  setActiveCloudflareEnv(env)",
+    "}",
+    "",
+  ].join("\n")
+}
 
 function normalizeModulePath(id: string) {
   return normalize(id.split("?", 1)[0]!)
@@ -248,10 +267,15 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     return runtimeConfig
   }
 
-  // Nitro writes `wrangler.json` from its own options, so a Cloudflare Nitro build needs the D1 bindings there.
+  // Nitro writes `wrangler.json` from its own options, so a Cloudflare Nitro build needs the D1 and Hyperdrive bindings there.
   // Wrangler resolves `migrations_dir` from that file, so migration SQL is copied beside it.
   function mergeNitroCloudflareD1Bindings() {
     if (!nitroOptions || !runtimeConfig || getHostingProvider(nitroOptions.preset) !== "cloudflare") return
+    const hyperdrive = resolveCloudflareHyperdriveBindings(runtimeConfig)
+    if (hyperdrive.length) {
+      const wrangler = (nitroOptions.cloudflare ??= {}).wrangler ??= {}
+      wrangler.hyperdrive = mergeCloudflareHyperdriveBindings(wrangler.hyperdrive, hyperdrive)
+    }
     const { d1Databases } = resolveCloudflareD1Bindings(runtimeConfig, { provisionState: readProvisionStateSync(resolved?.root ?? process.cwd()) })
     if (!d1Databases.length) return
     const bindings = d1Databases.map(binding => binding.migrations_dir
@@ -262,6 +286,17 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       : [])
     const wrangler = (nitroOptions.cloudflare ??= {}).wrangler ??= {}
     wrangler.d1_databases = mergeCloudflareD1Bindings(wrangler.d1_databases, bindings)
+  }
+
+  // Workers reuse the env object across requests. This middleware gives each request its own scope,
+  // so the Postgres runtime creates one client per request.
+  function installNitroPostgresRequestScope() {
+    if (!nitroOptions || !runtimeConfig || !usesPostgres(runtimeConfig) || getHostingProvider(nitroOptions.preset) !== "cloudflare") return
+    const handler = resolve(databaseRoot(), NITRO_REQUEST_SCOPE_MIDDLEWARE)
+    mkdirSync(dirname(handler), { recursive: true })
+    writeFileSync(handler, renderNitroRequestScopeMiddleware())
+    const handlers = nitroOptions.handlers ??= []
+    if (!handlers.some(item => item.handler === handler)) handlers.unshift({ handler, middleware: true })
   }
 
   async function copyNitroMigrations(serverDir: string) {
@@ -293,6 +328,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       setup(nitro) {
         nitroOptions = nitro.options
         mergeNitroCloudflareD1Bindings()
+        installNitroPostgresRequestScope()
         nitro.hooks.hook("compiled", () => copyNitroMigrations(nitro.options.output.serverDir))
       },
     },
@@ -358,6 +394,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
       await refreshRuntimeConfig()
       mergeNitroCloudflareD1Bindings()
+      installNitroPostgresRequestScope()
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

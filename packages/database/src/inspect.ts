@@ -3,7 +3,7 @@ import { join } from "pathe"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
-import { discoverDatabaseDefinitions, readStaticDatabaseSchema } from "./config.ts"
+import { discoverDatabaseDefinitions, readDatabaseDefinitionDialect, readStaticDatabaseSchema } from "./config.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
@@ -36,7 +36,7 @@ async function describeContributedTables(contribution: ResolvedDatabaseContribut
 }
 
 /**
- * Lists Database Definitions with their mode, the tables their source declares, and the tables Vite plugins
+ * Lists Database Definitions with their mode, non-default dialect, the tables their source declares, and the tables Vite plugins
  * contribute. Definitions are read from source without loading them.
  */
 export async function inspectDatabaseDefinitions(options: DatabaseInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
@@ -46,10 +46,14 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
     root: options.viteRoot ?? options.rootDir,
     serverDirs: options.serverDirs,
   })
-  const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions)
+  const dialects = Object.fromEntries(definitions.map(definition => [definition.name, readDatabaseDefinitionDialect(definition.handler)]))
+  // The build checks contribution dialects, so inspection does too.
+  const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions, dialects)
   return await Promise.all(definitions.map(async definition => ({
     fields: [
       { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },
+      // SQLite is the default and stays implicit.
+      ...(dialects[definition.name] === "postgresql" ? [{ label: "Dialect", value: "PostgreSQL" }] : []),
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
       ...definition.schemaSources.length > 1
         ? [{ label: "Schema sources", value: definition.schemaSources.map(source => relativeDefinitionFile(options.projectRoot, source.handler)).join(", ") }]

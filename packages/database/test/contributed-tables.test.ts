@@ -110,7 +110,7 @@ describe("collectDatabaseContributions", () => {
     [{ databases: [{ definition: { module: "" }, name: "history" }] }, "`definition.module` of Database tables \"history\" must be a non-empty string"],
     [{ databases: [{ definition: { export: "", module: "pkg" }, name: "history" }] }, "`definition.export`"],
     [{ databases: [{ database: " default ", definition: { module: "pkg" }, name: "history" }] }, "`database`"],
-    [{ databases: [{ definition: { module: "pkg" }, dialect: "mysql", name: "history" }] }, "`dialect` of \"history\" must be one of \"sqlite\""],
+    [{ databases: [{ definition: { module: "pkg" }, dialect: "mysql", name: "history" }] }, "`dialect` of \"history\" must be one of \"sqlite\", \"postgresql\""],
     [{ databases: [{ module: "pkg", name: "history" }] }, "needs `definition: { module, export? }`"],
   ])("rejects invalid contributions %#", async (vitehub, message) => {
     await expect(collectDatabaseContributions([{ name: "broken/vite", vitehub }], context)).rejects.toMatchObject({
@@ -128,13 +128,12 @@ describe("contribution targets", () => {
   })
 
   it("fails when the target Database uses another dialect", () => {
-    // SAFETY: Only one dialect exists today, so the test widens the type to cover the check.
-    const postgres = "postgresql" as unknown as "sqlite"
-    expect(() => resolveDatabaseContributionTargets(["default"], contributions({ ...historyContribution, dialect: postgres }), { default: "sqlite" })).toThrow(expect.objectContaining({
+    expect(() => resolveDatabaseContributionTargets(["default"], contributions({ ...historyContribution, dialect: "postgresql" }), { default: "sqlite" })).toThrow(expect.objectContaining({
       code: "DATABASE_B0011",
       message: expect.stringContaining("use the \"postgresql\" dialect, but Database \"default\" uses \"sqlite\""),
     }))
     expect(resolveDatabaseContributionTargets(["default"], contributions({ ...historyContribution, dialect: "sqlite" }), { default: "sqlite" }).default).toHaveLength(1)
+    expect(resolveDatabaseContributionTargets(["default"], contributions({ ...historyContribution, dialect: "postgresql" }), { default: "postgresql" }).default).toHaveLength(1)
   })
 
   it.each([

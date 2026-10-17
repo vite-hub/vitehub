@@ -61,6 +61,18 @@ export function getActiveCloudflareEnv(): CloudflareWorkerEnv | undefined {
   return scoped ? scoped.env : activeEnv ?? (globalThis as { __env__?: CloudflareWorkerEnv }).__env__
 }
 
+/**
+ * Identifies the active Cloudflare request. `runWithActiveCloudflareEnv()` creates one scope per call.
+ * Without that wrapper, the scope is the env object last installed with `setActiveCloudflareEnv()`.
+ * Workers reuse the host env object across requests, so the host's `globalThis.__env__` is never a scope.
+ * Returns undefined outside a Cloudflare request.
+ */
+export function getActiveCloudflareRequestScope(): object | undefined {
+  const scoped = activeEnvStorage.getStore()
+  if (scoped) return scoped.env ? scoped : undefined
+  return activeEnv
+}
+
 export function getActiveCloudflareBinding<T>(name: string): T | undefined {
   const env = getActiveCloudflareEnv()
   // SAFETY: The caller chooses T, and the binding name is an own property of the environment.

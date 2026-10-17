@@ -50,6 +50,44 @@ export default defineSchedule({
 
 Capabilities attach through the Agent Definition, so the Schedule extends the Agent. Invocation `tools` passed to `runAgent()` can run next to the Capability.
 
+## Select the recipient per Agent Invocation
+
+`options` can be a function of the Capability context. It runs once per Agent Invocation, before the Driver runs, and can return a promise. Use it when one Agent Definition sends to a recipient that the Agent Invocation input selects:
+
+```ts
+channelDelivery({
+  channel: useChannel('teams'),
+  options(context) {
+    const thread = context.invocation.input.get().context?.thread
+    if (typeof thread !== 'string') throw new Error('Send a thread ID in the invocation context.')
+    return { recipient: thread }
+  },
+})
+```
+
+- A throw or a rejected promise fails the Agent Invocation with `CHANNEL_DELIVERY_OPTIONS` before the Driver runs. The original error is the `cause`. The model never sees it, and no send attempt is counted.
+- The function also runs in a dry run, so a dry run shows the same configuration error as a real run. Keep it free of side effects.
+- All sends in one Agent Invocation use the resolved options.
+
+## Act after each delivery
+
+`onDelivered(message, receipt, context)` runs after each successful send and after each send that a dry run records. `message` is the model's message. `receipt` is `{ deliveryId, dryRun, text }`, where `text` is the Channel text after `format`. Use it to record what was sent:
+
+```ts
+channelDelivery({
+  channel: useChannel('teams'),
+  options: { recipient: 'user:7b0bff9d' },
+  onDelivered(message, receipt) {
+    console.info(`Sent ${receipt.deliveryId}${receipt.dryRun ? ' (dry run)' : ''}: ${receipt.text.length} characters`)
+  },
+})
+```
+
+- One Agent Definition serves many Agent Invocations. Keep state from `onDelivered` per Agent Invocation, not in a shared module variable.
+
+- The tool waits for `onDelivered` before it returns the receipt to the model. The delivery Trace Event is recorded before `onDelivered` runs.
+- When `onDelivered` throws, the delivery still counts. It satisfies `required`, and the model still receives the receipt, so it does not send the message again. The Agent Invocation then fails with `CHANNEL_DELIVERY_HOOK_FAILED` when it finishes. The error `details` include `deliveryId`, `dryRun`, and `tool`, and the original error is the `cause`. When several calls fail, the first error is kept.
+
 ## Agent-visible tool contract
 
 The tool accepts one field, `message`, a non-empty string. On success, it returns `{ deliveryId, sent: true }`.
@@ -60,6 +98,7 @@ Without `description`, the tool description names the Channel and states how man
 - The tool trims the message. `validate` can throw to reject it. The model receives the error and can retry. A rejected message does not count as a call.
 - `format` builds the Channel text from the message. It receives the Capability context, so it can read the Agent Invocation input context. A formatter failure, or formatted text that is empty, does not count as a send attempt.
 - The tool calls `channel.send(text, options)`. A send error is thrown to the model.
+- In a dry run, the tool does not call `channel.send()`. It records the delivery as a Trace Event and returns a `dry-run:<uuid>` delivery ID.
 - The tool counts each send attempt before it sends. After `maxCalls` attempts, the tool returns `CHANNEL_DELIVERY_LIMIT` before validation or formatting. A failed send also counts, because it can still reach the recipient.
 - With `required: true`, the Agent Invocation fails with `CHANNEL_DELIVERY_REQUIRED` when the Agent finishes without a successful send. The requirement also applies when an input Capability handles the Agent Invocation before the Driver runs, regardless of Capability order. Streams and `Response` bodies are checked when they finish normally. When the Agent Invocation fails with another error or is cancelled, delivery is not required.
 - Counters are per Agent Invocation. One definition can serve many Agent Invocations.
@@ -104,7 +143,7 @@ channelDelivery({
 
 ## Security and approval
 
-- The model controls only `message`. The application fixes the Channel and the send `options`, such as the recipient. The model cannot change them.
+- The model controls only `message`. The application fixes the Channel and the send `options`, such as the recipient. The model cannot change them. An `options` function reads the Agent Invocation input, so treat that input as trusted only when the caller is trusted.
 - The message text leaves the application through the Channel provider.
 - `validate` and `format` are the application checks on the message. `maxCalls` limits the number of send attempts for each Agent Invocation.
 - `channelDelivery()` has no `policy` option. A valid call sends at once, without approval.
@@ -130,7 +169,7 @@ channelDelivery({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `channel` | `{ name?: string, send(text, options) }` | required | The Channel client, for example `useChannel('teams')`. |
-| `options` | send options | required | Options passed to `send()`, such as the recipient. The model cannot change them. |
+| `options` | send options \| `(context) => options \| Promise<options>` | required | Options passed to `send()`, such as the recipient. The model cannot change them. A function resolves them once per Agent Invocation. See [Select the recipient per Agent Invocation](#select-the-recipient-per-agent-invocation). |
 | `name` | `string` | `"send_message"` | Tool name. The Capability ID is `channel-delivery.<name>`. |
 | `description` | `string` | generated | Tool description for the model. |
 | `required` | `boolean` | `false` | Fail the Agent Invocation without a successful send. |
@@ -138,6 +177,7 @@ channelDelivery({
 | `maxCalls` | `number` | `1` | Maximum send attempts per Agent Invocation, across all turns. |
 | `format` | `(message, context) => string \| Promise<string>` | none | Build the Channel text from the message. |
 | `validate` | `(message) => void \| Promise<void>` | none | Throw to reject a message. |
+| `onDelivered` | `(message, receipt, context) => void \| Promise<void>` | none | Runs after each successful or dry-run send. See [Act after each delivery](#act-after-each-delivery). |
 
 ## Related pages
 

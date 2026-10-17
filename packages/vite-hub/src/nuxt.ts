@@ -11,6 +11,7 @@ import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { resolveBlobViteConfig } from "@vite-hub/blob/vite"
+import { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } from "@vite-hub/database/config"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
@@ -973,10 +974,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       ...(viteDatabaseRoot !== undefined ? { projectRoot: viteDatabaseRoot } : {}),
       ...(options.database === true ? {} : options.database),
     }
-    await hubDatabaseNuxt({
-      ...(options.preset === "cloudflare" && !("driver" in databaseOptions) ? { driver: "d1" as const } : {}),
-      ...databaseOptions,
-    })(undefined, nuxt)
+    // Cloudflare apps default to a D1 host resource unless every Database Definition uses Postgres.
+    const defaultD1 = options.preset === "cloudflare" && !("driver" in databaseOptions) && !usesOnlyPostgresDatabases(
+      resolveViteHubProjectRoot(rootDir, { projectRoot: databaseOptions.projectRoot }),
+      databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+    )
+    await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
   const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
@@ -1432,3 +1435,8 @@ viteHubNuxtModule.getMeta = () => ({
 })
 
 export default viteHubNuxtModule
+
+function usesOnlyPostgresDatabases(rootDir: string, serverDirs: string[] | undefined) {
+  const definitions = discoverDatabaseDefinitions(rootDir, { serverDirs })
+  return definitions.length > 0 && definitions.every(definition => readDatabaseDefinitionDialect(definition.handler) === "postgresql")
+}

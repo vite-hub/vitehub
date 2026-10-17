@@ -185,6 +185,8 @@ On the `cloudflare` preset, production builds store the fallback journal in the 
 
 The D1 journal supports Drizzle queries and atomic writes through `console.resolve(context).invocations.db.batch()`. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. Use `db.batch()` to group D1 writes.
 
+`inputCommands({ debug: true })` from `vite-hub/agent/capabilities` adds a `/debug` input command. It replies with the Console URL of the previous Invocation of the same Agent. When the current Invocation has a Channel thread, it uses the previous Invocation in that thread. The Agent Driver does not run. `/debug` needs `vitehub({ console })`; without it, the command replies that the Console is not enabled. A `debug` entry in `commands` replaces the built-in command.
+
 ## Console images
 
 The Console accepts up to ten PNG, JPEG, WebP, or GIF images per message, within a combined 10 MiB limit. Configure durable Blob storage to keep the bytes, and content-enabled Invocation storage to keep message references. Agents can return published Blob image URLs in Markdown. See [Console usage](https://vitehub.dev/docs/development/console#image-upload-boundaries).

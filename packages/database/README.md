@@ -138,6 +138,32 @@ Credential refresh is therefore a lifecycle boundary: await outstanding database
 work before changing the credential, because libSQL closes can abort operations
 that are still in flight.
 
+## Postgres
+
+Set `dialect: "postgresql"`, declare tables with `drizzle-orm/pg-core`, and install `postgres` in the app.
+
+```ts
+// server/databases/config.ts
+import { defineDatabase } from "@vite-hub/database"
+import { pgTable, serial, text } from "drizzle-orm/pg-core"
+
+export default defineDatabase({
+  dialect: "postgresql",
+  cloudflare: { hyperdriveId: process.env.CLOUDFLARE_HYPERDRIVE_ID },
+  connection: { url: process.env.DATABASE_URL },
+  schema: {
+    notes: pgTable("notes", {
+      id: serial("id").primaryKey(),
+      title: text("title").notNull(),
+    }),
+  },
+})
+```
+
+ViteHub queries Postgres with postgres.js through Drizzle. A Cloudflare Hyperdrive binding (`HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a Named Database) takes precedence over `connection.url`. Inside a Cloudflare request, each request gets its own client, because Workers cannot reuse a socket across requests. On other hosts, one client pool serves the process. When `cloudflare.hyperdriveId` resolves at build time, Cloudflare output and Nitro Wrangler config get the `hyperdrive` binding.
+
+`vitehub db generate` writes Drizzle Kit migrations with `dialect: "postgresql"`. `vitehub db migrate` applies them with `connection.url`. Query a Postgres Definition through `useDatabase()`; `defineDatabase()` returns only the Definition.
+
 ## Nuxt D1 host wiring
 
 Nuxt apps can declare one D1 database resource and let the Database Nuxt bridge wire framework consumers and Cloudflare output.
@@ -157,6 +183,6 @@ Run `vitehub provision run --provider cloudflare` once to create or resolve the 
 
 A Definition that owns a different D1 resource must use a binding that differs from the Nuxt host's `database.binding`. Nuxt rejects native bindings that would point Content and the Definition at different resources through the same binding. One Definition with statically fixed database ID and name values that match the host can share that binding. Generated binding names must remain distinct between Definitions. Env declarations require a distinct binding, including declarations with a provisioned default.
 
-Built on [Drizzle ORM](https://orm.drizzle.team/), [Drizzle Kit](https://orm.drizzle.team/docs/kit-overview), [libSQL](https://www.npmjs.com/package/%40libsql/client), and Cloudflare [D1](https://developers.cloudflare.com/d1/) bindings when deployed to Cloudflare.
+Built on [Drizzle ORM](https://orm.drizzle.team/), [Drizzle Kit](https://orm.drizzle.team/docs/kit-overview), [libSQL](https://www.npmjs.com/package/%40libsql/client), [postgres.js](https://github.com/porsager/postgres), and Cloudflare [D1](https://developers.cloudflare.com/d1/) and [Hyperdrive](https://developers.cloudflare.com/hyperdrive/) bindings when deployed to Cloudflare.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

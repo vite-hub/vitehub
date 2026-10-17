@@ -6,6 +6,7 @@
     "database",
     "db",
     "drizzle",
+    "postgres",
     "sqlite",
     "vite",
     "vitehub"
@@ -132,6 +133,12 @@
       "import": "./dist/runtime/state.js",
       "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
+    },
+    "./runtime/postgres": {
+      "types": "./dist/runtime/postgres.d.ts",
+      "import": "./dist/runtime/postgres.js",
+      "require": "./dist/runtime/postgres.js",
+      "default": "./dist/runtime/postgres.js"
     }
   },
   "scripts": {
@@ -156,7 +163,8 @@
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "postgres": "catalog:database"
   },
   "peerDependencies": {
     "drizzle-kit": "catalog:database",
