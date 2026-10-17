@@ -87,30 +87,35 @@ function isRequest(value: unknown): value is Request {
                 // receiver. This guards against a caller-supplied getter
                 // that simply returns a boolean while its headers getter
                 // returns a genuine Headers instance.
-                try {
-                  getter.call({})
-                  valid = false
-                } catch {
-                  // Expected: the receiver has no Request internal slots.
+                // Check the complete set of Request accessors from this
+                // prototype. Every native Web IDL accessor rejects an
+                // unrelated receiver; checking several prevents a forged
+                // bodyUsed-only prototype from being accepted.
+                const accessors = ["bodyUsed", "headers", "url", "method"] as const
+                for (const name of accessors) {
+                  const accessor = Object.getOwnPropertyDescriptor(prototype, name)?.get
+                  if (typeof accessor !== "function") {
+                    valid = false
+                    break
+                  }
+                  try {
+                    accessor.call({})
+                    valid = false
+                    break
+                  } catch {
+                    accessor.call(probe)
+                    accessor.call(value)
+                  }
                 }
                 if (valid) {
-                  getter.call(probe)
-                  getter.call(value)
-                  // Validate another Fetch-owned accessor from the same realm.
-                  // A forged bodyUsed getter alone must not establish identity.
-                  const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
-                  if (typeof headersGetter !== "function") {
+                  const headers = Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
+                  const headersPrototype = headers && Object.getPrototypeOf(headers)
+                  const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
+                  if (typeof headersGet !== "function") {
                     valid = false
                   } else {
-                    const headers = headersGetter.call(value)
-                    const headersPrototype = Object.getPrototypeOf(headers)
-                    const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
-                    if (typeof headersGet !== "function") {
-                      valid = false
-                    } else {
-                      headersGet.call(headers, "x-vite-hub-brand")
-                      branded = true
-                    }
+                    headersGet.call(headers, "x-vite-hub-brand")
+                    branded = true
                   }
                 }
               }
