@@ -59,43 +59,20 @@ function rejection(status: number, code: ConsoleDiagnosticCode, message?: string
   })
 }
 
-function responsePrototype(value: object): { prototype: object, status: () => unknown, clone: (...args: never[]) => unknown } | undefined {
-  let prototype: object | null = value
-  while (prototype) {
-    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-    if (typeof constructor !== "function" || constructor.prototype !== prototype || constructor.name !== "Response") {
-      prototype = Object.getPrototypeOf(prototype)
-      continue
-    }
-    const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get
-    const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
-    if (typeof status === "function" && typeof clone === "function") {
-      return { prototype, status: status as () => unknown, clone: clone as (...args: never[]) => unknown }
-    }
-    prototype = Object.getPrototypeOf(prototype)
-  }
-}
-
 async function authorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value instanceof Response) return value
   if ((typeof value !== "object" && typeof value !== "function") || value === null) return
   try {
-    const response = responsePrototype(value)
-    if (!response) return
-    Reflect.apply(response.status, value, [])
-    const headers = Reflect.get(value, "headers")
-    const status = Reflect.get(value, "status")
-    const statusText = Reflect.get(value, "statusText")
-    if (typeof status !== "number" || typeof statusText !== "string" || !headers || typeof headers !== "object") return
-    const bodyUsed = Reflect.get(value, "bodyUsed")
-    if (typeof bodyUsed !== "boolean") return
-    const cloned = Reflect.apply(response.clone, value, [])
-    if ((typeof cloned !== "object" && typeof cloned !== "function") || cloned === null || cloned === value) return
-    if (Object.getPrototypeOf(cloned) !== response.prototype) return
-    Reflect.apply(response.status, cloned, [])
-    const init = { headers: new Headers(headers as Headers), status, statusText }
+    // Fetch accessors perform the native internal-slot brand check.
+    const status = Response.prototype.status.call(value)
+    const statusText = Response.prototype.statusText.call(value)
+    const headers = Response.prototype.headers.call(value)
+    const bodyUsed = Response.prototype.bodyUsed.call(value)
+    Response.prototype.clone.call(value)
+    if (typeof status !== "number" || typeof statusText !== "string" || !(headers instanceof Object) || typeof bodyUsed !== "boolean") return
     if (bodyUsed) return
-    const body = Reflect.get(value, "body")
+    const body = Response.prototype.body.call(value)
+    const init = { headers: new Headers(headers), status, statusText }
     if (body === null) return new Response(null, init)
     return new Response(body as BodyInit, init)
   }
