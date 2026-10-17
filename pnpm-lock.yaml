@@ -1990,6 +1990,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -2221,12 +2224,18 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      drizzle-orm:
+        specifier: catalog:database
+        version: 0.45.3(@cloudflare/workers-types@5.20261003.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.2)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
       effect:
         specifier: catalog:effect
         version: 4.0.0-rc.112
       mrmime:
         specifier: catalog:workspace
         version: 2.0.1
+      nitro:
+        specifier: catalog:unjs
+        version: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
       ocache:
         specifier: catalog:unjs
         version: 0.3.0

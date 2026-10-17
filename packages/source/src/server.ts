@@ -7,6 +7,9 @@ import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
+export { cachedSource } from "./cached-source.ts"
+export type { SourceReaderCacheOptions } from "./cached-source.ts"
+
 export interface CollectionHandler {
   (event: unknown): Promise<unknown>
   fetch(input: Request | URL | string): Promise<Response>
