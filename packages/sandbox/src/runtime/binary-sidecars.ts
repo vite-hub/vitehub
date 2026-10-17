@@ -34,10 +34,9 @@ function isUint8Array(value: unknown): value is Uint8Array {
 
 function unboxJsonPrimitive(value: unknown): { value: unknown } | undefined {
   for (const unbox of [Boolean.prototype.valueOf, Number.prototype.valueOf, String.prototype.valueOf, BigInt.prototype.valueOf]) {
-    try {
-      return { value: Reflect.apply(unbox, value, []) }
-    }
-    catch {}
+    try { Reflect.apply(unbox, value, []) }
+    catch { continue }
+    return { value: Reflect.apply((value as { valueOf: Function }).valueOf, value, []) }
   }
   return undefined
 }
@@ -98,9 +97,11 @@ export async function encodeSandboxValue(
       })
     }
 
-    if (isObjectRecord(entry) && applyToJSON && typeof entry.toJSON === 'function') {
+    if (isObjectRecord(entry) && applyToJSON) {
       try {
-        return await encode(Reflect.apply(entry.toJSON, entry, [key]), ancestors, key, false)
+        const toJSON = entry.toJSON
+        if (typeof toJSON === 'function')
+          return await encode(Reflect.apply(toJSON, entry, [key]), ancestors, key, false)
       }
       catch (error) {
         if (isSandboxError(error)) throw error
@@ -116,7 +117,13 @@ export async function encodeSandboxValue(
     }
 
     if (!isObjectRecord(entry)) return entry
-    const boxed = unboxJsonPrimitive(entry)
+    let boxed: { value: unknown } | undefined
+    try {
+      boxed = unboxJsonPrimitive(entry)
+    }
+    catch (error) {
+      throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label }, error)
+    }
     if (boxed) return await encode(boxed.value, ancestors, key, false)
     if (ancestors.has(entry))
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })

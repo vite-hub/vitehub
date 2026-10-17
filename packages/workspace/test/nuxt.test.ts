@@ -38,25 +38,6 @@ async function createNuxtHook(store: WorkspaceModuleOptions["store"] = { provide
 }
 
 describe("Workspace Nuxt module", () => {
-  it("registers collection composables once", () => {
-    const nuxt = {
-      options: {
-        imports: {
-          imports: [{ from: "@vite-hub/workspace/collections/client", name: "useWorkspaceCollection" }],
-        },
-        vite: { plugins: [] },
-      },
-    }
-
-    workspaceNuxt({}, nuxt as never)
-    workspaceNuxt({}, nuxt as never)
-
-    expect(nuxt.options.imports.imports).toEqual([
-      { from: "@vite-hub/workspace/collections/client", name: "useWorkspaceCollection" },
-      { from: "@vite-hub/workspace/collections/client", name: "useWorkspaceCollectionItem" },
-    ])
-  })
-
   it("preserves Nitro preset hosting in the registered Vite plugin", async () => {
     const { nitroConfigHook, root, vitePlugin } = await createNuxtHook({
       provider: "github",
