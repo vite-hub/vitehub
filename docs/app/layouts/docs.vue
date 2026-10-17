@@ -38,12 +38,16 @@ const docsShellUi = {
         <slot />
       </div>
     </UPage>
-
-    <AppFooter class="vh-docs-footer" />
   </UMain>
+  <AppFooter />
 </template>
 
 <style scoped>
+.vh-docs-aside {
+  display: none;
+  overflow: visible;
+}
+
 .vh-docs-main,
 .vh-docs-landing {
   margin: 0 auto;
@@ -83,18 +87,6 @@ const docsShellUi = {
     overflow: hidden;
     border-right: 1px solid var(--ui-border);
   }
-    position: sticky;
-    top: var(--ui-header-height);
-    display: flex;
-    height: calc(100dvh - var(--ui-header-height));
-    max-height: calc(100dvh - var(--ui-header-height));
-    min-height: calc(100dvh - var(--ui-header-height));
-    flex: 0 0 auto;
-    flex-direction: column;
-    overflow: hidden;
-    border-right: 1px solid var(--ui-border);
-  }
-
   :deep(.vh-docs-sidebars) {
     overflow: visible;
   }

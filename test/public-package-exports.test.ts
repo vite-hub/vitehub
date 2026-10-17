@@ -50,14 +50,12 @@ describe("public package export contracts", () => {
       ["@vite-hub/schedule/runtime/kv", "@vite-hub/kv"],
       ["@vite-hub/source/client", "vue"],
       ["@vite-hub/ui/vite", "vite"],
-      ["@vite-hub/workspace/collections/client", "vue"],
       ["vite-hub", "vite"],
       ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
       ["vite-hub/ui", "vue"],
       ["vite-hub/ui/headless", "vue"],
       ["vite-hub/ui/vite", "vite"],
-      ["vite-hub/workspace/collections/client", "vue"],
     ])
 
     for (const [specifier, peer] of eagerPeerExports) {
