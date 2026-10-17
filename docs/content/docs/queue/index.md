@@ -6,6 +6,19 @@ navigation.order: 1
 icon: i-lucide-list-ordered
 ---
 
+::agent-only{skill="queue"}
+Use Queue to send work to a consumer that can run after the request ends. Queue Definitions own consumer code, retries, and concurrency.
+
+Read [Get started](/docs/queue/get-started), [Configure](/docs/queue/configure), [Server API](/docs/queue/server-api), or [Hosts](/docs/queue/hosts).
+
+Treat enqueue as a handoff. Make the job idempotent, keep payloads bounded, and choose retry behavior for the side effect. Queue configuration does not make a job exactly once.
+
+Use a Queue for independent background work, a Schedule for when work starts,
+and a Workflow when several durable steps must be inspected together.
+
+Prove enqueue, consumer execution, retry, and a poison or invalid payload. Inspect provider output for the target host.
+::
+
 ::product-hero{tagline="One runQueue() call sends a job to Cloudflare Queues or Vercel Queues, and the request returns before it runs." hosts="Cloudflare, Vercel"}
   :::code-group
   ```ts [server/api/signup.post.ts]

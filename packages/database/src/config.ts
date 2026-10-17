@@ -11,9 +11,10 @@ import {
 } from "@vite-hub/internal/definition-catalog"
 import { findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
+import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
 import { createRuntimeEnvConfigValue, resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
-import { cloudflareOptions, mergeCloudflareConfig, resolveCloudflareD1Binding, resolveCloudflareD1BindingName } from "./internal/cloudflare.ts"
+import { cloudflareOptions, mergeCloudflareConfig, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareHyperdriveBindingName } from "./internal/cloudflare.ts"
 
 import type {
   CloudflareD1BindingConfig,
@@ -21,9 +22,11 @@ import type {
   CloudflareD1HttpConfig,
   DatabaseConfigValue,
   DatabaseConnectionConfig,
+  DatabaseDialect,
   DBModulePublicOptions,
   DiscoveredDatabaseDefinition,
   ResolvedCloudflareD1BindingConfig,
+  ResolvedCloudflareHyperdriveConfig,
   ResolvedDBViteConfig,
   ResolvedDrizzleDatabaseConfig,
 } from "./types.ts"
@@ -301,6 +304,23 @@ function readDefinitionConnectionConfig(file: string) {
   return Object.values(value).some(item => typeof item !== "undefined") ? value : undefined
 }
 
+/** Reads the static `dialect` of a Database Definition. A Definition without one uses SQLite. */
+export function readDatabaseDefinitionDialect(file: string): DatabaseDialect {
+  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "dialect")?.trim()
+  if (expression === undefined) return "sqlite"
+  const dialect = readStaticStringLiteral(expression)
+  if (dialect === "sqlite" || dialect === "postgresql") return dialect
+  throw databaseErrorDiagnostics.DATABASE_C0011({ message: `[vitehub] Database definition "${file}" must set \`dialect\` to the string literal "sqlite" or "postgresql".` })
+}
+
+function readDefinitionHyperdriveConfig(file: string, name: string): ResolvedCloudflareHyperdriveConfig {
+  const body = objectLiteralBody(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
+  const config: ResolvedCloudflareHyperdriveConfig = { binding: resolveCloudflareHyperdriveBindingName(name, readStringValue(body, "binding")) }
+  const hyperdriveId = readConfigValue(body, "hyperdriveId")
+  if (hyperdriveId !== undefined) config.hyperdriveId = hyperdriveId
+  return config
+}
+
 type FoundDatabaseDefinition = Omit<DiscoveredDatabaseDefinition, "schemaSources">
 
 function createDatabaseDefinition(source: string, file: string, name: string, mode: "default" | "named"): FoundDatabaseDefinition {
@@ -460,7 +480,37 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   }
 }
 
-export function discoverDatabaseDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
+const implicitDefaultSource = "implicit-default"
+
+/**
+ * The empty default Database of an app that enables `database` without a Database Definition, for example for the
+ * tables of Connections. It is `defineDatabase({ schema: {} })` from a module that this package ships.
+ */
+function implicitDefaultDatabase(): DiscoveredDatabaseDefinition {
+  const handler = resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/default-database")
+  return { handler, mode: "default", name: "default", schemaSources: [{ handler, tableNames: [] }], source: implicitDefaultSource, tableNames: [] }
+}
+
+/** Reports whether a discovered Definition is the implicit default Database, which the app does not own. */
+export function isImplicitDefaultDatabase(definition: Pick<DiscoveredDatabaseDefinition, "source">): boolean {
+  return definition.source === implicitDefaultSource
+}
+
+export interface DatabaseDiscoveryOptions {
+  /**
+   * Without a Database Definition, return the implicit default Database. The Vite plugin sets it: an enabled
+   * database always has a default Database.
+   */
+  implicitDefault?: boolean
+  serverDirs?: string[]
+}
+
+export function discoverDatabaseDefinitions(rootDir: string, options: DatabaseDiscoveryOptions = {}): DiscoveredDatabaseDefinition[] {
+  const definitions = discoverAppDatabaseDefinitions(rootDir, options)
+  return definitions.length || !options.implicitDefault ? definitions : [implicitDefaultDatabase()]
+}
+
+function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscoveryOptions): DiscoveredDatabaseDefinition[] {
   const serverDirs = options.serverDirs ?? [resolve(rootDir, "server")]
   const found = [
     ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
@@ -489,9 +539,13 @@ function isWithinDirectory(directory: string, file: string) {
   return Boolean(path) && !path.startsWith("..") && !isAbsolute(path)
 }
 
-/** Keeps migrations in the application, also when a Nuxt layer owns the database options. */
+/**
+ * Keeps migrations in the application, also when a Nuxt layer owns the database options. The implicit default
+ * Database uses the directory that `server/databases/config.ts` would use.
+ */
 function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
   const [appServerDir, ...layerServerDirs] = serverDirs ?? []
+  if (isImplicitDefaultDatabase(definition)) return relative(rootDir, resolve(appServerDir ?? resolve(rootDir, "server"), "databases", "migrations"))
   const ownedByLayer = appServerDir !== undefined && !isWithinDirectory(appServerDir, definition.handler)
     && layerServerDirs.some(directory => isWithinDirectory(directory, definition.handler))
   const directory = ownedByLayer
@@ -564,6 +618,8 @@ export function resolveDBViteConfig(
   context: {
     /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
     contributions?: readonly CollectedDatabaseContribution[]
+    /** Without a Database Definition, resolve the implicit default Database. See `discoverDatabaseDefinitions()`. */
+    implicitDefault?: boolean
     provisionRoot?: string
     serverDirs?: string[]
   } = {},
@@ -584,12 +640,28 @@ export function resolveDBViteConfig(
   const provisionState = readProvisionStateSync(context.provisionRoot ?? rootDir)
   for (const definition of definitions) {
     const migrationsDir = getDefaultMigrationsDir(rootDir, definition, context.serverDirs)
-    const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
-    const projection: CloudflareD1Projection = { resource: definitionCloudflare.resource }
-    cloudflareProjections[definition.name] = projection
     const generatedSchemaFile = createGeneratedSchemaFile(rootDir, definition.name)
     generatedDrizzleConfigFilesByDatabase[definition.name] = createGeneratedDrizzleConfigFile(rootDir, definition.name)
     generatedSchemaFilesByDatabase[definition.name] = generatedSchemaFile
+    // Postgres Definitions own their connection. SQLite, libSQL, and D1 integration defaults do not apply.
+    if (readDatabaseDefinitionDialect(definition.handler) === "postgresql") {
+      const url = readDefinitionConnectionConfig(definition.handler)?.url
+      databases[definition.name] = {
+        connection: url === undefined ? {} : { url },
+        dialect: "postgresql",
+        drizzle: {},
+        generatedSchemaFile,
+        hyperdrive: readDefinitionHyperdriveConfig(definition.handler, definition.name),
+        migrationsDir,
+        mode: definition.mode,
+        name: definition.name,
+        orm: "drizzle",
+      }
+      continue
+    }
+    const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
+    const projection: CloudflareD1Projection = { resource: definitionCloudflare.resource }
+    cloudflareProjections[definition.name] = projection
     const cloudflare = normalizeCloudflareConfig(mergeCloudflareConfig(cloudflareOptions(options), definitionCloudflare.value), definition.name, migrationsDir)
     if (cloudflare) {
       if (definitionCloudflare.resource !== "opaque" && definition.name !== "default" && !definitionCloudflare.value?.binding) {

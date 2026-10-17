@@ -667,7 +667,6 @@ describe("vitehub", () => {
         email: "vite-hub/email/server",
         kv: "vite-hub/_internal/kv",
       },
-      scheduleRuntimeImport: "vite-hub/_internal/schedule/runtime",
       workflowImportBase: "vite-hub/_internal/workflow",
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
@@ -700,7 +699,6 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/schedule",
-      typesImportBase: "vite-hub/schedule",
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },

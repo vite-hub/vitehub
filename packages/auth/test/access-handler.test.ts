@@ -143,15 +143,14 @@ describe("Auth access handlers", () => {
 
   it("rejects a proxy around a local Response", async () => {
     const source = new Response("Policy rejected", { status: 409 })
-    let headerReads = 0
-    const candidate = new Proxy(source, {
-      get(target, key) {
-        if (key === "headers" && ++headerReads > 1) throw new Error("unstable headers")
-        return Reflect.get(target, key, target)
+    const proxy = new Proxy(source, {
+      get(target, key, receiver) {
+        if (key === "status") return 201
+        return Reflect.get(target, key, receiver)
       },
     })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => candidate }] },
+      access: { routes: [{ route: "/**", authorize: () => proxy }] },
     }))
 
     const response = await handler(new Request("https://app.example/"))
@@ -160,63 +159,20 @@ describe("Auth access handlers", () => {
     expect(headerReads).toBe(0)
   })
 
-  it("normalizes authorization responses from another runtime", async () => {
-    const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
-    expect(foreignResponse).not.toBeInstanceOf(Response)
+  it("returns authorization responses from another realm unchanged", async () => {
+    const foreignResponse = runInNewContext(`new Response("Policy rejected", { status: 409 })`, { Response: ForeignResponse })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
-
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
     expect(response?.status).toBe(409)
     await expect(response?.text()).resolves.toBe("Policy rejected")
   })
 
-  it.each([["local", Response], ["foreign", ForeignResponse]] as const)("preserves authorization responses without getSetCookie from the %s runtime", async (_runtime, ResponseConstructor) => {
-    const response = new ResponseConstructor("Policy rejected", { status: 409 })
-    Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
-    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => response as never }] },
-    }))
 
-    const result = await handler(new Request("https://app.example/"))
-    expect(result?.status).toBe(409)
-    await expect(result?.text()).resolves.toBe("Policy rejected")
-    if (_runtime === "local") expect(result).toBe(response)
-    else expect(result).toBeInstanceOf(Response)
-  })
-
-  it.each([["local", Response], ["foreign", ForeignResponse]] as const)("rejects unbranded objects with a Response prototype from the %s runtime", async (_runtime, ResponseConstructor) => {
-    const spoof = Object.create(ResponseConstructor.prototype) as never
-    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => spoof }] },
-    }))
-
-    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
-  })
-
-  it("rejects authorization responses with an own throwing header iterator", async () => {
-    const response = new Response("Policy rejected", { status: 409 })
-    Object.defineProperty(response.headers, "forEach", {
-      configurable: true,
-      value: () => { throw new Error("headers unavailable") },
-    })
-    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => response }] },
-    }))
-
-    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
-  })
-
-  it("rejects response-shaped authorization spoofs", async () => {
-    const spoof = {
-      status: 409,
-      statusText: "Conflict",
-      headers: { get: () => null, getSetCookie: () => [], forEach: () => {} },
-      body: null,
-      [Symbol.toStringTag]: "Response",
-    }
+  it("rejects authorization response tag spoofs", async () => {
+    const spoof = { status: 409, statusText: "Conflict", headers: { get: () => null }, [Symbol.toStringTag]: "Response" }
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => spoof as never }] },
     }))

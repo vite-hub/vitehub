@@ -4,6 +4,7 @@ export default defineConfig({
   pack: {
     dts: true,
     entry: [
+      "src/abort.ts",
       "src/agent-workflow.ts",
       "src/arrays.ts",
       "src/cli.ts",
@@ -14,7 +15,6 @@ export default defineConfig({
       "src/dev-endpoint.ts",
       "src/dev-token.ts",
       "src/env.ts",
-      "src/effect.ts",
       "src/http-request.ts",
       "src/inspect.ts",
       "src/object.ts",

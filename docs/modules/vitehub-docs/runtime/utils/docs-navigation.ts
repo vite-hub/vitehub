@@ -123,3 +123,15 @@ export function isDocsLandingPath(sections: DocsSection[], path: string) {
 export function getDocsSectionSubpages(section: DocsSection) {
   return section.pages.filter(page => page.navigation !== false && page.id !== "index");
 }
+
+/** Platform topics stay reachable from Get started and the catalog, without product rail entries. */
+export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
+  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
+}
+
+export function getDocsSectionKind(section: DocsSection): string {
+  if (section.id === docsRootSectionId) return "Get started";
+  if (section.id === "ui") return "UI components";
+  if (primitiveCategories.has(section.category || "")) return "Server Primitive";
+  return section.category || "Platform";
+}

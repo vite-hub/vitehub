@@ -82,12 +82,6 @@
       "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
-    "./publish": {
-      "types": "./dist/publish.d.ts",
-      "import": "./dist/publish.js",
-      "require": "./dist/publish.js",
-      "default": "./dist/publish.js"
-    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
@@ -179,7 +173,7 @@
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",

@@ -12,9 +12,10 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
-import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./internal/cloudflare.ts"
+import { mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Binding, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
+import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
 import { renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDatabaseSchema, mergeLoadedSchemas } from "./internal/schema-tables.ts"
@@ -253,6 +254,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
             }
           }
+          if (provider === "cloudflare" && runtime) mergeNitroConfigHyperdriveBindings(config, resolveCloudflareHyperdriveBindings(runtime))
           mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
@@ -388,9 +390,11 @@ async function installNitroLocalDatabaseRuntime(
   })
   const entries = runtime.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
-    merged(index)
-      ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
-      : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
+    runtime.databases[definition.name]?.dialect === "postgresql"
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, merged(index) ? `{ ...definition_${index}, schema: schema_${index} }` : `definition_${index}`)},`
+      : merged(index)
+        ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
+        : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
     `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
     "  },",
   ].join("\n"))
@@ -399,6 +403,7 @@ async function installNitroLocalDatabaseRuntime(
     databaseEntries: entries,
     imports: [
       `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
+      ...(usesPostgres(runtime) ? [`import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`] : []),
       ...imports,
       "",
       `const definitionDefaults = ${serializeGeneratedRegistry(runtime.definitionDefaults)}`,
@@ -557,24 +562,28 @@ function resolveNitroHostingProvider(config: Record<string, unknown>, nuxtOption
 
 async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, root: string) {
   const kit = createNitroServerKit(config)
-  kit.addHandler({ handler: generatedNitroDatabaseMiddleware, middleware: true, route: "/**" }, "start")
+  // No route: Nitro 2 mounts middleware by path prefix, so "/**" would never match. Both Nitro versions run route-less middleware for every request.
+  kit.addHandler({ handler: generatedNitroDatabaseMiddleware, middleware: true }, "start")
   config.handlers = kit.config.handlers
   const rollupConfig = isRecord(config.rollupConfig) ? { ...config.rollupConfig } : {}
   rollupConfig.external = mergeNitroExternal(rollupConfig.external, "cloudflare:workers")
   config.rollupConfig = rollupConfig
   await writeFileIfChanged(resolve(root, generatedNitroDatabaseMiddleware), [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
-    "import { setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
+    "import { runWithActiveCloudflareEnv, setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
     "",
     "const nativeEnv = (globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ ?? vitehubEnv",
     "",
-    "export default (event: unknown) => {",
+    "// h3 v2 passes next(). Running it inside the env scope gives each request its own database clients.",
+    "export default (event: unknown, next?: () => unknown) => {",
     "  const target = event as { env?: Record<string, unknown>, context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }, req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }",
     "  const mergedEnv = Object.assign({}, nativeEnv, target.req?.runtime?.cloudflare?.env, target.context?._platform?.cloudflare?.env, target.context?.cloudflare?.env, target.env)",
     "  for (const property of Reflect.ownKeys(nativeEnv)) {",
     "    if (!Object.hasOwn(mergedEnv, property)) Object.defineProperty(mergedEnv, property, { configurable: true, get: () => Reflect.get(nativeEnv as object, property) })",
     "  }",
-    "  setActiveCloudflareEnv(new Proxy(mergedEnv, { get: (target, property, receiver) => Reflect.has(target, property) ? Reflect.get(target, property, receiver) : undefined }))",
+    "  const env = new Proxy(mergedEnv, { get: (target, property, receiver) => Reflect.has(target, property) ? Reflect.get(target, property, receiver) : undefined })",
+    "  setActiveCloudflareEnv(env)",
+    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, next)",
     "}",
     "",
   ].join("\n"))
@@ -618,6 +627,12 @@ function mergeNitroCloudflareConfig(config: Record<string, unknown>, d1: Resolve
   const cloudflare = ensureRecord(nitro, "cloudflare")
   const wrangler = ensureRecord(cloudflare, "wrangler")
   wrangler.d1_databases = mergeCloudflareD1Bindings(wrangler.d1_databases, [d1.d1Database])
+}
+
+function mergeNitroConfigHyperdriveBindings(config: Record<string, unknown>, bindings: ReturnType<typeof resolveCloudflareHyperdriveBindings>) {
+  if (!bindings.length) return
+  const wrangler = ensureRecord(ensureRecord(config, "cloudflare"), "wrangler")
+  wrangler.hyperdrive = mergeCloudflareHyperdriveBindings(wrangler.hyperdrive, bindings)
 }
 
 function mergeNitroConfigCloudflareConfig(config: Record<string, unknown>, d1: ResolvedDatabaseNuxtD1Options) {

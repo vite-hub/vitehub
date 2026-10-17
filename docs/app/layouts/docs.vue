@@ -102,6 +102,8 @@ const docsShellUi = {
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;
+    align-items: flex-start;
+    overflow-x: clip;
   }
 
   .vh-docs-shell > .vh-docs-desktop-nav {

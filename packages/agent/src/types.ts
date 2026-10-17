@@ -11,6 +11,8 @@ import type {
   MaybePromise,
   MaybeResolvable,
   ExecutionAuthority,
+  ExecutionBudget,
+  ExecutionBudgetOptions,
   Resolvable,
   RuntimeCapabilities,
   RuntimeCapabilityHandle,
@@ -20,6 +22,7 @@ import type {
   OpenTelemetryLogRecordView,
   OpenTelemetrySpanView,
 } from "@vite-hub/runtime"
+
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
@@ -41,6 +44,8 @@ import type {
 } from "./channels.ts"
 
 export type {
+  ExecutionBudget,
+  ExecutionBudgetOptions,
   MaybePromise,
   MaybeResolvable,
   Resolvable,
@@ -143,13 +148,10 @@ export interface AgentAccessInvocationContextValue<TScopeName extends string = s
 
 declare global {
   interface ViteHubAgentInvocationContextValues {
-    "agent.channels": string[]
     "agent.colocatedSkills": Record<string, WorkspaceSourceInput>
     "agent.invocation.traceId": string
-    "agent.name": string
     "agent.output.eventObserver": (event: StreamEvent) => void
     "agent.output.progressSummary": boolean
-    "agent.schedule.turn": boolean
     "agent.trigger": { channelId?: string, id?: string, name?: string, source?: "capability" | "channel" }
     "channel.delivery.titleDelivered": boolean
     "chat.channelState": { keyPrefix: string, state: StateAdapter }
@@ -234,6 +236,8 @@ export interface AgentRunInput<
   TData = unknown,
 > {
   abortSignal?: AbortSignal
+  /** Invocation-owned execution limits. The runtime creates one shared budget for the run. */
+  executionBudget?: Omit<ExecutionBudgetOptions, "signal">
   context?: TContext
   /**
    * Structured Invocation input. `defineAgent({ data })` validates it before Capabilities, hooks, and the Driver run.
@@ -449,6 +453,7 @@ export type AgentChannelDeliveryEventType =
   | "received"
   | "rejected"
   | "retrying"
+  | "superseded"
 
 export interface AgentChannelDeliveryEventInput {
   attempt?: number
@@ -622,6 +627,11 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
 interface AgentWebhookInvocationOwnershipBase {
   concurrencyGroup?: string
   concurrencyTtlMs?: number
+  /**
+   * Waits `delayMs` before the queued delivery runs. A later delivery with the same `key` replaces a
+   * queued one that has not started, and its own wait starts again. Not available with `busy: "steer"`.
+   */
+  debounce?: { delayMs: number, key: string }
   /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
   deliveryId: string
 }
@@ -1109,7 +1119,7 @@ export interface AgentCapabilityCliExecutionResult<TOutput = unknown> {
 }
 
 export interface AgentCapabilityRequirement {
-  primitive?: "workspace-shell" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "schedule" | "skills" | "workspace" | (string & {})
+  primitive?: "workspace-shell" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "skills" | "workspace" | (string & {})
   workspace?: {
     mode?: AgentCapabilityMode
     paths?: string[]
@@ -1122,6 +1132,8 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   abortSignal?: AbortSignal
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   invocation?: { input: AgentCapabilityInputContext, kind?: "run" | "stream" }
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
@@ -2133,7 +2145,13 @@ export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
 }
 
-export type AgentChatTriggerHistory = "none" | { maxAgeMs?: number, maxMessages: number, source: "thread" }
+export type AgentChatTriggerHistory = "none" | {
+  maxAgeMs?: number
+  /** Send this many of the newest history images to the model again. Only images sent within `maxAgeMs` of the current message count. Defaults to 0. */
+  maxImages?: number
+  maxMessages: number
+  source: "thread"
+}
 
 export interface AgentChatSessionOptions {
   idleTimeoutMs?: number
@@ -2300,6 +2318,8 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   streamingUpdateIntervalMs?: number
   threadHistory?: unknown
   timeout?: number
+  /** IANA time zone for the send time in each message header that the model reads. Defaults to `"UTC"`. An invalid value uses UTC. */
+  timeZone?: string
   transcripts?: TranscriptsConfig
   triggerHistory?: AgentChatTriggerHistory
   userName?: string
@@ -2883,6 +2903,7 @@ export interface AgentAdapterRunContext<
   context: AgentInvocationContextStore
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
+  executionBudget?: ExecutionBudget
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string

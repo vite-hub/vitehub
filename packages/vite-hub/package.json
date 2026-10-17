@@ -201,23 +201,11 @@
       "require": "./dist/_internal/schedule/runtime.js",
       "default": "./dist/_internal/schedule/runtime.js"
     },
-    "./_internal/schedule/runtime/console": {
-      "types": "./dist/_internal/schedule/runtime/console.d.ts",
-      "import": "./dist/_internal/schedule/runtime/console.js",
-      "require": "./dist/_internal/schedule/runtime/console.js",
-      "default": "./dist/_internal/schedule/runtime/console.js"
-    },
     "./_internal/schedule/runtime/dev": {
       "types": "./dist/_internal/schedule/runtime/dev.d.ts",
       "import": "./dist/_internal/schedule/runtime/dev.js",
       "require": "./dist/_internal/schedule/runtime/dev.js",
       "default": "./dist/_internal/schedule/runtime/dev.js"
-    },
-    "./_internal/schedule/runtime/driver": {
-      "types": "./dist/_internal/schedule/runtime/driver.d.ts",
-      "import": "./dist/_internal/schedule/runtime/driver.js",
-      "require": "./dist/_internal/schedule/runtime/driver.js",
-      "default": "./dist/_internal/schedule/runtime/driver.js"
     },
     "./_internal/schedule/runtime/kv": {
       "types": "./dist/_internal/schedule/runtime/kv.d.ts",
@@ -813,12 +801,6 @@
       "require": "./dist/schedule/runtime.js",
       "default": "./dist/schedule/runtime.js"
     },
-    "./schedule/runtime/driver": {
-      "types": "./dist/schedule/runtime/driver.d.ts",
-      "import": "./dist/schedule/runtime/driver.js",
-      "require": "./dist/schedule/runtime/driver.js",
-      "default": "./dist/schedule/runtime/driver.js"
-    },
     "./schedule/runtime/kv": {
       "types": "./dist/schedule/runtime/kv.d.ts",
       "import": "./dist/schedule/runtime/kv.js",
@@ -836,12 +818,6 @@
       "import": "./dist/shell.js",
       "require": "./dist/shell.js",
       "default": "./dist/shell.js"
-    },
-    "./shell/providers/cloudflare": {
-      "types": "./dist/shell/providers/cloudflare.d.ts",
-      "import": "./dist/shell/providers/cloudflare.js",
-      "require": "./dist/shell/providers/cloudflare.js",
-      "default": "./dist/shell/providers/cloudflare.js"
     },
     "./shell/providers/just-bash": {
       "types": "./dist/shell/providers/just-bash.d.ts",
@@ -963,12 +939,6 @@
       "require": "./dist/workspace/loader.js",
       "default": "./dist/workspace/loader.js"
     },
-    "./workspace/publish": {
-      "types": "./dist/workspace/publish.d.ts",
-      "import": "./dist/workspace/publish.js",
-      "require": "./dist/workspace/publish.js",
-      "default": "./dist/workspace/publish.js"
-    },
     "./workspace/runtime": {
       "types": "./dist/workspace/runtime.d.ts",
       "import": "./dist/workspace/runtime.js",
@@ -1046,20 +1016,10 @@
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "catalog:storage",
-    "@aws-sdk/lib-storage": "catalog:storage",
-    "@aws-sdk/s3-presigned-post": "catalog:storage",
-    "@aws-sdk/s3-request-presigner": "catalog:storage",
-    "@azure/identity": "catalog:storage",
-    "@azure/storage-blob": "catalog:storage",
     "@cloudflare/sandbox": "catalog:sandbox",
-    "@cloudflare/workers-types": "^5.20261003.1",
-    "@google-cloud/storage": "catalog:storage",
-    "@googleapis/drive": "catalog:storage",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "@libsql/client": "catalog:database",
-    "@microsoft/microsoft-graph-client": "catalog:storage",
     "@standard-schema/spec": "catalog:runtime",
-    "@supabase/storage-js": "catalog:storage",
     "@types/node": "catalog:tooling",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
@@ -1089,72 +1049,134 @@
     "@vite-hub/workspace": "workspace:*",
     "@workflow/builders": "catalog:workflow",
     "ai": "catalog:ai-v6",
-    "box-typescript-sdk-gen": "catalog:storage",
-    "devframe": "catalog:runtime",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
-    "dropbox": "catalog:storage",
     "esbuild": "catalog:tooling",
-    "google-auth-library": "catalog:storage",
     "h3": "catalog:unjs",
     "jose": "catalog:auth",
-    "katex": "^0.17.0",
+    "katex": "^0.19.0",
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",
     "semver": "^7.8.5",
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
-    "uploadthing": "catalog:storage",
     "valibot": "catalog:runtime",
     "workflow": "catalog:workflow"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "catalog:storage",
+    "@aws-sdk/lib-storage": "catalog:storage",
+    "@aws-sdk/s3-presigned-post": "catalog:storage",
+    "@aws-sdk/s3-request-presigner": "catalog:storage",
+    "@azure/identity": "catalog:storage",
+    "@azure/storage-blob": "catalog:storage",
+    "@google-cloud/storage": "catalog:storage",
+    "@googleapis/drive": "catalog:storage",
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/ph": "catalog:ui",
     "@iconify/vue": "catalog:ui",
+    "@microsoft/microsoft-graph-client": "catalog:storage",
     "@nuxt/ui": "catalog:nuxt",
+    "@supabase/storage-js": "catalog:storage",
+    "box-typescript-sdk-gen": "catalog:storage",
+    "dropbox": "catalog:storage",
+    "google-auth-library": "catalog:storage",
     "nuxt": "catalog:nuxt",
     "@vite-hub/internal": "workspace:*",
-    "@vitejs/plugin-vue": "^6.0.9",
+    "@vitejs/plugin-vue": "^6.0.10",
     "h3-v1": "npm:h3@^1.15.11",
-    "happy-dom": "20.14.5",
+    "happy-dom": "21.0.3",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "reka-ui": "^2.10.5",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
+    "uploadthing": "catalog:storage",
     "vite": "catalog:vite",
     "vite-doctor": "catalog:",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "vue-router": "^5.3.1"
+    "vue-router": "^5.4.0"
   },
   "peerDependencies": {
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/lib-storage": "^3.700.0",
+    "@aws-sdk/s3-presigned-post": "^3.700.0",
+    "@aws-sdk/s3-request-presigner": "^3.700.0",
+    "@azure/identity": "catalog:storage",
+    "@azure/storage-blob": "catalog:storage",
+    "@google-cloud/storage": "catalog:storage",
+    "@googleapis/drive": "catalog:storage",
+    "@microsoft/microsoft-graph-client": "catalog:storage",
     "@nuxt/ui": "^4.11.0",
+    "@supabase/storage-js": "catalog:storage",
+    "box-typescript-sdk-gen": "catalog:storage",
     "comark-content": "catalog:markdown",
+    "dropbox": "catalog:storage",
     "evalite": "catalog:ai",
     "evlog": "^2.28.1",
+    "google-auth-library": "catalog:storage",
     "playwright-core": "catalog:browser",
     "posthog-node": "^5.51.6",
     "reka-ui": "^2.10.5",
+    "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat",
     "vite-doctor": "*",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
+    "@aws-sdk/client-s3": {
+      "optional": true
+    },
+    "@aws-sdk/lib-storage": {
+      "optional": true
+    },
+    "@aws-sdk/s3-presigned-post": {
+      "optional": true
+    },
+    "@aws-sdk/s3-request-presigner": {
+      "optional": true
+    },
+    "@azure/identity": {
+      "optional": true
+    },
+    "@azure/storage-blob": {
+      "optional": true
+    },
+    "@google-cloud/storage": {
+      "optional": true
+    },
+    "@googleapis/drive": {
+      "optional": true
+    },
+    "@microsoft/microsoft-graph-client": {
+      "optional": true
+    },
     "@nuxt/ui": {
       "optional": true
     },
+    "@supabase/storage-js": {
+      "optional": true
+    },
+    "box-typescript-sdk-gen": {
+      "optional": true
+    },
     "comark-content": {
+      "optional": true
+    },
+    "dropbox": {
       "optional": true
     },
     "evalite": {
       "optional": true
     },
     "evlog": {
+      "optional": true
+    },
+    "google-auth-library": {
       "optional": true
     },
     "playwright-core": {
@@ -1164,6 +1186,9 @@
       "optional": true
     },
     "reka-ui": {
+      "optional": true
+    },
+    "uploadthing": {
       "optional": true
     },
     "vite": {
