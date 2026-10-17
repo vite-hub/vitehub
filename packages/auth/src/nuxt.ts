@@ -2,6 +2,7 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
+import { resolveNuxtServerDirs, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth } from "./vite.ts"
 
@@ -19,7 +20,11 @@ export interface AuthNuxtModuleOptions {
 type NuxtLike = {
   hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>) => void
   options: {
+    _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
+    app?: {
+      baseURL?: string
+    }
     imports?: {
       imports?: Array<{ from: string, name: string }>
     }
@@ -31,6 +36,7 @@ type NuxtLike = {
     serverDir?: string
     vite?: {
       auth?: AuthModuleOptions
+      define?: Record<string, unknown>
       plugins?: unknown[]
       root?: string
     }
@@ -57,6 +63,11 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   if (options.env !== false && !existingEnvPlugin) {
     nuxt.options.vite.plugins.push(envPlugin!)
   }
+  // The default Vue Auth client sends requests below Nuxt `app.baseURL`. Nitro server code receives the same value from the Auth Nitro config.
+  nuxt.options.vite.define = {
+    ...nuxt.options.vite.define,
+    __VITEHUB_AUTH_APP_BASE_URL__: JSON.stringify(nuxt.options.app?.baseURL || "/"),
+  }
   const authPlugin = vitePlugins.find(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME) || hubAuth(options.auth)
   if (!vitePlugins.some(plugin => plugin?.name === AUTH_VITE_PLUGIN_NAME)) nuxt.options.vite.plugins.push(authPlugin)
 
@@ -66,7 +77,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       Object.assign(nitroConfig, createAuthNitroConfig(authPlugin as ReturnType<typeof hubAuth>, {
         nitro: nitroConfig,
         projectRoot: viteRoot,
-        serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+        serverDirs: resolveNuxtServerDirs(nuxt.options),
         viteAuth: nuxt.options.vite?.auth,
       }))
     })

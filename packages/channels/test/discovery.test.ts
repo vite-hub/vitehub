@@ -52,4 +52,29 @@ describe("discoverChannelDefinitions", () => {
       { handler: join(root, "server/channels/alerts.channel.ts"), name: "alerts", source: "server-channels" },
     ])
   })
+
+  it("treats a folder with an index module as one channel and its other files as helpers", async () => {
+    const root = await createTempProject()
+    await touch(root, "server/channels/alerts.ts")
+    await touch(root, "server/channels/teams/index.ts")
+    await touch(root, "server/channels/teams/client.ts")
+    await touch(root, "server/channels/teams/cards/index.ts")
+    await touch(root, "server/channels/ops/pager.ts")
+
+    const expected = [
+      { handler: join(root, "server/channels/alerts.ts"), name: "alerts", source: "server-channels" },
+      { handler: join(root, "server/channels/ops/pager.ts"), name: "ops/pager", source: "server-channels" },
+      { handler: join(root, "server/channels/teams/index.ts"), name: "teams", source: "server-channels" },
+    ]
+    expect(discoverChannelDefinitions({ rootDir: root })).toEqual(expected)
+    expect(discoverChannelDefinitions({ mode: "server-channels", scanDirs: [join(root, "server")] })).toEqual(expected)
+  })
+
+  it("keeps a root index module as a channel named index", async () => {
+    const root = await createTempProject()
+    await touch(root, "server/channels/index.ts")
+    await touch(root, "server/channels/alerts.ts")
+
+    expect(discoverChannelDefinitions({ rootDir: root }).map(definition => definition.name)).toEqual(["alerts", "index"])
+  })
 })

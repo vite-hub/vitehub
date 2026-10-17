@@ -16,7 +16,7 @@ Treat command text, working directory, environment, and network access as author
 Prove a permitted command, a rejected command, timeout, cancellation, output limit, and cleanup.
 ::
 
-::product-hero{tagline="Run Unix-like commands from server code through Just Bash, Cloudflare, or a custom Execution Provider." hosts="Node, Docker, Cloudflare"}
+::product-hero{tagline="Run Unix-like commands from server code through Just Bash or a custom Execution Provider." hosts="Node, Docker, Cloudflare"}
   :::code-group
   ```ts [Runtime]
   import { createShellRuntime } from '@vite-hub/shell'

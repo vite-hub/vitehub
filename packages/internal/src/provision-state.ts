@@ -46,7 +46,12 @@ export function redactProvisionState(state: ProvisionState): ProvisionState {
 
 // Reads a single provisioned identifier, e.g. ("cloudflare", "d1", "primary").
 export function readProvisionedId(state: ProvisionState, provider: keyof ProvisionState, category: string, key: string): string | undefined {
-  return state[provider]?.[category]?.[key]
+  if (!Object.hasOwn(state, provider)) return
+  const categories = state[provider]
+  if (!categories || !Object.hasOwn(categories, category)) return
+  const ids = categories[category]
+  if (!ids || !Object.hasOwn(ids, key)) return
+  return ids[key]
 }
 
 export async function writeProvisionState(rootDir: string, next: ProvisionState): Promise<void> {
@@ -63,7 +68,8 @@ export function mergeProvisionState(base: ProvisionState, next: ProvisionState):
     if (!categories) continue
     const target = (merged[provider] ??= {})
     for (const [category, ids] of Object.entries(categories)) {
-      target[category] = { ...target[category], ...ids }
+      const existing = Object.hasOwn(target, category) ? target[category] : undefined
+      setOwn(target, category, { ...(existing ?? undefined), ...ids })
     }
   }
   return merged
@@ -82,14 +88,17 @@ function parseProvisionState(raw: string): ProvisionState {
       if (!isPlainObject(ids)) continue
       const validIds: Record<string, string> = {}
       for (const [key, id] of Object.entries(ids)) {
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provisioned identifiers are untrusted JSON strings at the file boundary.
-        if (typeof id === "string") validIds[key] = id
+        if (typeof id === "string") setOwn(validIds, key, id)
       }
-      if (Object.keys(validIds).length) validCategories[category] = validIds
+      if (Object.keys(validIds).length) setOwn(validCategories, category, validIds)
     }
     if (Object.keys(validCategories).length) state[provider] = validCategories
   }
   return state
+}
+
+function setOwn<T>(target: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(target, key, { configurable: true, enumerable: true, value, writable: true })
 }
 
 function sortState(state: ProvisionState): ProvisionState {

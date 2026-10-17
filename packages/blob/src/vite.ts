@@ -33,6 +33,7 @@ import type { BlobModuleOptions, BlobServeConfig } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import { findMissingFilesSdkPeers } from "./internal/files-sdk-peers.ts"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 
@@ -367,6 +368,26 @@ async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConf
   await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase, authorizeModule))
 }
 
+function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCloudflareR2 = false) {
+  if (!blob) return
+  const stores = Object.values(blob.stores ?? { default: blob.store })
+  // The native module is selected only when every configured R2 store has a
+  // binding. Keep the SDK check for mixed configurations that still import
+  // the HTTP/S3 implementation.
+  const cloudflareR2Stores = stores.filter(store => store.driver === "cloudflare-r2")
+  const nativeR2 = nativeCloudflareR2
+    && cloudflareR2Stores.length > 0
+    && cloudflareR2Stores.every(store => Boolean(store.bucketName))
+  const skipDrivers = nativeR2
+    ? ["cloudflare-r2" as const]
+    : []
+  const missing = findMissingFilesSdkPeers(stores.map(store => store.driver), undefined, skipDrivers)
+  if (!missing.length) return
+  const lines = missing.map(({ driver, peers }) => `The "${driver}" blob driver requires ${peers.join(", ")}.`)
+  const install = [...new Set(missing.flatMap(({ peers }) => peers))].join(" ")
+  throw blobErrorDiagnostics.BLOB_B0004({ message: `[vitehub] ${lines.join(" ")} Install it in your app with: pnpm add ${install}` })
+}
+
 export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
   const importBase = internalOptions.importBase ?? blobPackageName
   const nitroOwned = internalOptions.nitroOwned === true
@@ -447,7 +468,9 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       providerOutput = useProviderOutputCatalog(config)
       runtimeConfig = blobConfig
       const hosting = getNitroHostingProvider(configuredNitro)
+        ?? blobConfig.hosting
         ?? (resolveNitroVercelFunctionName(config, "blob") ? "vercel" : undefined)
+      if (config.command === "build") assertDriverSdksInstalled(blobConfig.blob, cloudflareOwnedByNitro)
       await refreshBlobGeneratedFiles(
         rootDir,
         runtimeConfig.blob,

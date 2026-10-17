@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
+import { H3 } from "h3"
+import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
 import { handleAuthRequest, requireAuthAccessRoutes, withAuth, withAuthorization } from "../src/server.ts"
@@ -311,6 +313,19 @@ describe("server authentication provider boundaries", () => {
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
       await expect(withAuthorization(() => denied, protectedAction, definition)(request)).resolves.toBe(denied)
+      expect(protectedAction).not.toHaveBeenCalled()
+    })
+
+    it("normalizes a genuine foreign runtime authorization response", async () => {
+      const denied = new ForeignResponse("Not your photo", { status: 404 })
+      expect(denied).not.toBeInstanceOf(Response)
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      const response = await withAuthorization(() => denied as never, protectedAction, definition)(request)
+      expect(response).toBeInstanceOf(Response)
+      if (!(response instanceof Response)) throw new Error("Expected an authorization Response")
+      expect(response.status).toBe(404)
+      await expect(response.text()).resolves.toBe("Not your photo")
       expect(protectedAction).not.toHaveBeenCalled()
     })
 

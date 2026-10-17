@@ -16,7 +16,7 @@ Import `useDatabase` from `vite-hub/database/drizzle` and select the discovered 
 Prove a migration, a typed read, a write, and a restart or remote-host read. Inspect generated schema and provisioning output before deployment.
 ::
 
-::product-hero{tagline="Relational tables defined with Drizzle and queried through one typed client on local SQLite, hosted libSQL, and Cloudflare D1." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+::product-hero{tagline="Relational tables defined with Drizzle and queried through one typed client on local SQLite, hosted libSQL, Cloudflare D1, and Postgres." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-group
   ```ts [Route]
   import { useDatabase } from '@vite-hub/database/drizzle'
@@ -88,7 +88,7 @@ Prove a migration, a typed read, a write, and a restart or remote-host read. Ins
   :::
 
   :::product-feature-item{title="Change the connection, keep the route" icon="i-lucide-cloud-cog" to="/docs/database/hosts"}
-  Local SQLite, hosted libSQL, or Cloudflare D1, with the same imports.
+  Local SQLite, hosted libSQL, Cloudflare D1, or Postgres through Hyperdrive, with the same imports.
   :::
 
   :::product-feature-item{title="Queries return typed rows" icon="i-lucide-table-2" to="/docs/database/server-api"}

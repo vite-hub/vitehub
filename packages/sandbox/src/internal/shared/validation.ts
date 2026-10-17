@@ -1,13 +1,13 @@
 import { sandboxError } from '../../sandbox/errors'
 
-export const VALIDATION_FAILED = 'Validation failed'
+const VALIDATION_FAILED = 'Validation failed'
 
-export interface ValidationIssue {
+interface ValidationIssue {
   message: string
   path?: readonly unknown[]
 }
 
-export type StandardSchemaValidationResult<TOutput = unknown> = {
+type StandardSchemaValidationResult<TOutput = unknown> = {
   value: TOutput
   issues?: undefined
 } | {
@@ -25,13 +25,13 @@ export type ValidationFunction<TInput = unknown, TResult = TInput> = (input: TIn
 export type ValidationResult<TInput, TResult>
   = TResult extends false | true | null | undefined ? TInput : TResult
 
-export interface ValidationErrorData {
+interface ValidationErrorData {
   issues?: readonly ValidationIssue[]
   message: string
   [key: string]: unknown
 }
 
-export interface ValidationErrorLike {
+interface ValidationErrorLike {
   status?: number
   statusCode?: number
   statusText?: string
@@ -42,7 +42,7 @@ export interface ValidationErrorLike {
   [key: string]: unknown
 }
 
-export interface ValidationErrorContext<TValue = unknown> {
+interface ValidationErrorContext<TValue = unknown> {
   value?: TValue
   issues?: readonly ValidationIssue[]
 }
@@ -63,7 +63,6 @@ function hasStandardValidator<TInput, TOutput>(
 
   // Lazy schema getters can create the own marker when first read.
   const standard = value['~standard']
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Standard Schema validators cross the public boundary and must expose a callable validate method.
   return Object.hasOwn(value, '~standard') && isObject(standard) && typeof standard.validate === 'function'
 }
 
@@ -166,7 +165,13 @@ export async function readValidatedPayload<TInput>(
   options?: ValidationOptions<TInput>,
 ): Promise<unknown> {
   if (hasStandardValidator<TInput, unknown>(validate)) {
-    const result = await validate['~standard'].validate(payload)
+    let result: StandardSchemaValidationResult<unknown>
+    try {
+      result = await validate['~standard'].validate(payload)
+    }
+    catch (error) {
+      throw createValidationError(error)
+    }
     if (result.issues !== undefined) {
       throw createValidationError(options?.onError?.({
         issues: result.issues,
