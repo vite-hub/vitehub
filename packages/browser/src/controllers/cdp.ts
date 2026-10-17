@@ -24,17 +24,14 @@ type CDPMessage =
   | { kind: "response", error?: { message: string }, id: number, result?: unknown, sessionId?: string }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CDP JSON is unknown until its object envelope is validated.
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function isString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CDP JSON fields are unknown until their protocol type is validated.
   return typeof value === "string"
 }
 
 function isSafeInteger(value: unknown): value is number {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CDP response ids are unknown JSON values until their numeric type is validated.
   return typeof value === "number" && Number.isSafeInteger(value)
 }
 
@@ -122,8 +119,26 @@ async function localSocket(
   }
   const socket = new WebSocket(connection.endpoint)
   await new Promise<void>((resolve, reject) => {
-    socket.addEventListener("open", () => resolve(), { once: true })
-    socket.addEventListener("error", () => reject(browserProviderError("cdp", "connect to the browser")), { once: true })
+    const cleanup = () => {
+      socket.removeEventListener("open", onOpen)
+      socket.removeEventListener("error", onError)
+      socket.removeEventListener("close", onClose)
+    }
+    const onOpen = () => {
+      cleanup()
+      resolve()
+    }
+    const onError = () => {
+      cleanup()
+      reject(browserProviderError("cdp", "connect to the browser"))
+    }
+    const onClose = () => {
+      cleanup()
+      reject(browserProviderError("cdp", "connect to the browser"))
+    }
+    socket.addEventListener("open", onOpen, { once: true })
+    socket.addEventListener("error", onError, { once: true })
+    socket.addEventListener("close", onClose, { once: true })
   })
   return socket
 }

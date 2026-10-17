@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
@@ -5,6 +6,7 @@ import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-
 import { synthesizedAgentOutputSymbol } from "../src/internal/synthesized-agent-output.ts"
 import {
   agentToolStreamDefaults,
+  agentStreamErrorSymbol,
   finalTextFromAgentOutput,
   streamAgentOutputToEvents,
   toAgentRunResult,
@@ -554,6 +556,147 @@ describe("agent output helpers", () => {
     })
   })
 
+  it.each([undefined, null])("preserves genuine errors when Error.isError is %s", (isError) => {
+    const errorConstructor = Error as ErrorConstructor & { isError?: unknown }
+    const nativeIsError = errorConstructor.isError
+    try {
+      errorConstructor.isError = isError
+      for (const error of [new Error("boom"), Object.assign(new Error("tagged"), { [Symbol.toStringTag]: "ProviderError" }), new Error(), runInNewContext("new Error('boom')")]) {
+        const event = toAgentStreamEvent({ error, type: "error" })
+        expect(event).toMatchObject({ error: error.message, type: "error" })
+        expect(Reflect.get(event!, agentStreamErrorSymbol)).toBe(error)
+      }
+      const forged = Object.create(Error.prototype)
+      Object.defineProperties(forged, {
+        message: { value: "forged" },
+        stack: { value: "Error: forged\n    at provider (provider.js:1:1)", configurable: true, writable: true },
+      })
+      const event = toAgentStreamEvent({ error: forged, type: "error" })
+      expect(event).toMatchObject({ error: "Error: forged", type: "error" })
+      expect(Object.getOwnPropertySymbols(event!)).not.toContain(agentStreamErrorSymbol)
+    }
+    finally {
+      errorConstructor.isError = nativeIsError
+    }
+  })
+
+  it("preserves messages from cross-realm stream errors", () => {
+    const error = runInNewContext("new Error('cross-realm boom')")
+    expect(error).not.toBeInstanceOf(Error)
+    expect(toAgentStreamEvent({ error, recoverable: true, type: "error" })).toEqual({
+      error: "cross-realm boom",
+      recoverable: true,
+      type: "error",
+    })
+  })
+
+  it("preserves empty messages from cross-realm stream errors", () => {
+    const error = runInNewContext("new Error()")
+    expect(toAgentStreamEvent({ error, type: "error" })).toEqual({
+      error: "",
+      type: "error",
+    })
+  })
+
+  it("preserves tagged cross-realm errors without native brand checks", () => {
+    const errorConstructor = Error as ErrorConstructor & { isError?: unknown }
+    const nativeIsError = errorConstructor.isError
+    const processValue = (globalThis as typeof globalThis & { process?: { getBuiltinModule?: unknown } }).process
+    const mutableProcess = processValue as { getBuiltinModule?: unknown } | undefined
+    const nativeGetBuiltinModule = mutableProcess?.getBuiltinModule
+    try {
+      errorConstructor.isError = undefined
+      if (mutableProcess) mutableProcess.getBuiltinModule = undefined
+      const error = runInNewContext("new Error('tagged cross-realm boom')")
+      Object.defineProperty(error, Symbol.toStringTag, { value: "ProviderError" })
+      const event = toAgentStreamEvent({ error, type: "error" })
+      expect(event).toMatchObject({ error: "tagged cross-realm boom", type: "error" })
+      expect(Reflect.get(event!, agentStreamErrorSymbol)).toBe(error)
+
+      const spoofed = { message: "spoofed", [Symbol.toStringTag]: "Error" }
+      const spoofedEvent = toAgentStreamEvent({ error: spoofed, type: "error" })
+      expect(Object.getOwnPropertySymbols(spoofedEvent!)).not.toContain(agentStreamErrorSymbol)
+
+      const proxySpoof = new Proxy(Object.create(Error.prototype), {
+        get(target, property, receiver) {
+          return property === Symbol.toStringTag ? "Error" : Reflect.get(target, property, receiver)
+        },
+        has(target, property) {
+          return property === Symbol.toStringTag ? false : Reflect.has(target, property)
+        },
+      })
+      const proxyEvent = toAgentStreamEvent({ error: proxySpoof, type: "error" })
+      expect(Object.getOwnPropertySymbols(proxyEvent!)).not.toContain(agentStreamErrorSymbol)
+
+      // Source text containing the native marker must not forge a constructor brand.
+      const forgedConstructor = function Error() { return "[native code]" }
+      const forgedPrototype = Object.create(Error.prototype)
+      Object.defineProperty(forgedConstructor, "prototype", { value: forgedPrototype })
+      Object.defineProperty(forgedPrototype, "constructor", { value: forgedConstructor })
+      const forgedCustom = Object.create(forgedPrototype)
+      Object.defineProperty(forgedCustom, Symbol.toStringTag, { value: "ProviderError" })
+      Object.defineProperty(forgedCustom, "stack", { get: () => "Error: forged", configurable: true })
+      const forgedCustomEvent = toAgentStreamEvent({ error: forgedCustom, type: "error" })
+      expect(Object.getOwnPropertySymbols(forgedCustomEvent!)).not.toContain(agentStreamErrorSymbol)
+
+      const nativeStructuredClone = (globalThis as typeof globalThis & { structuredClone?: unknown }).structuredClone
+      Object.defineProperty(globalThis, "structuredClone", { value: () => { throw new Error("clone disabled") }, configurable: true })
+      try {
+        const sameRealm = new Error("clone fallback boom")
+        const sameRealmEvent = toAgentStreamEvent({ error: sameRealm, type: "error" })
+        expect(sameRealmEvent).toMatchObject({ error: "clone fallback boom", type: "error" })
+        expect(Object.getOwnPropertySymbols(sameRealmEvent!)).not.toContain(agentStreamErrorSymbol)
+
+        const forgedCloneFailure = Object.create(Error.prototype)
+        Object.defineProperties(forgedCloneFailure, {
+          stack: { value: "Error: forged clone failure", configurable: true, writable: true },
+          uncloneable: { value: () => undefined },
+        })
+        const forgedCloneFailureEvent = toAgentStreamEvent({ error: forgedCloneFailure, type: "error" })
+        expect(Object.getOwnPropertySymbols(forgedCloneFailureEvent!)).not.toContain(agentStreamErrorSymbol)
+
+        const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
+        const copiedGetter = Object.create(Error.prototype)
+        Object.defineProperties(copiedGetter, {
+          message: { value: "forged copied getter" },
+          stack: { get: nativeStackGetter, configurable: true },
+          uncloneable: { value: () => undefined },
+        })
+        const copiedGetterEvent = toAgentStreamEvent({ error: copiedGetter, type: "error" })
+        expect(Object.getOwnPropertySymbols(copiedGetterEvent!)).not.toContain(agentStreamErrorSymbol)
+      }
+      finally {
+        Object.defineProperty(globalThis, "structuredClone", { value: nativeStructuredClone, configurable: true })
+      }
+
+    }
+    finally {
+      errorConstructor.isError = nativeIsError
+      if (mutableProcess) mutableProcess.getBuiltinModule = nativeGetBuiltinModule
+    }
+  })
+
+  it("does not treat spoofed or hostile values as stream errors", () => {
+    const spoofed = { message: "spoofed", [Symbol.toStringTag]: "Error" }
+    const spoofedEvent = toAgentStreamEvent({ error: spoofed, type: "error" })
+    expect(spoofedEvent).toMatchObject({ error: "[object Error]", type: "error" })
+    expect(Object.getOwnPropertySymbols(spoofedEvent!)).not.toContain(agentStreamErrorSymbol)
+
+    const forged = Object.create(Error.prototype)
+    Object.defineProperties(forged, {
+      message: { value: "forged" },
+      stack: { value: "Error: forged\n    at provider (provider.js:1:1)", configurable: true, writable: true },
+    })
+    const forgedEvent = toAgentStreamEvent({ error: forged, type: "error" })
+    expect(forgedEvent).toMatchObject({ error: "Error: forged", type: "error" })
+    expect(Object.getOwnPropertySymbols(forgedEvent!)).not.toContain(agentStreamErrorSymbol)
+
+    const hostile = Object.defineProperty({}, Symbol.toStringTag, { get() { throw new Error("hostile tag") } })
+    Object.defineProperty(hostile, "message", { get() { throw new Error("hostile message") } })
+    expect(() => toAgentStreamEvent({ error: hostile, type: "error" })).not.toThrow()
+    expect(toAgentStreamEvent({ error: hostile, type: "error" })).toMatchObject({ error: "Unknown error", type: "error" })
+  })
+
   it("keeps approval events when converting normalized streams", async () => {
     const output = (async function* () {
       yield { id: "approval-1", input: { command: "write" }, messageId: "message-1", name: "workspace_write", reason: "Needs approval.", type: "approval-request" }
@@ -644,6 +787,78 @@ describe("agent output helpers", () => {
     }
     await expect(read()).rejects.toThrow("terminal failure")
     expect(events).toEqual([{ type: "usage", usageRecord }])
+  })
+
+  it("stops at a fatal stream error before reading result promises or fallback text", async () => {
+    let usageReads = 0
+    let textReads = 0
+    let continued = false
+    const output = {
+      fullStream: (async function* () {
+        yield { type: "error", error: "terminal failure" }
+        continued = true
+        yield { type: "finish" }
+      })(),
+      get usage() {
+        usageReads++
+        throw new Error("Rejected final usage")
+      },
+      get textStream() {
+        textReads++
+        return (async function* () { yield "must not be replayed" })()
+      },
+    }
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) events.push(event)
+
+    expect(events).toEqual([{ type: "error", error: "terminal failure" }])
+    expect(continued).toBe(false)
+    expect(usageReads).toBe(0)
+    expect(textReads).toBe(0)
+  })
+
+  it("does not evaluate deferred response metadata while measuring streamed usage", () => {
+    const reads: string[] = []
+    const output = {
+      fullStream: (async function* () {})(),
+      modelId: "model",
+      provider: "test",
+      get response() {
+        reads.push("response")
+        throw new Error("Deferred response")
+      },
+      get providerMetadata() {
+        reads.push("providerMetadata")
+        throw new Error("Deferred provider metadata")
+      },
+    }
+
+    expect(usageRecordFromStreamChunk({ type: "finish", usage: { inputTokens: 1 } }, output)).toEqual({
+      model: "test/model", provider: "test", usage: { inputTokens: 1 },
+    })
+    expect(reads).toEqual([])
+  })
+
+  it.each(["cycle", "fresh", "throws"] as const)("bounds %s proxy traversal while measuring streamed usage", mode => {
+    let prototypeReads = 0
+    const stream = (async function* () {})()
+    let carrier: object
+    const handler: ProxyHandler<object> = {
+      getOwnPropertyDescriptor(target, key) {
+        if (mode === "throws" && key === "response") throw new Error("Descriptor unavailable")
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+      getPrototypeOf() {
+        prototypeReads++
+        return mode === "fresh" ? new Proxy({}, handler) : carrier
+      },
+    }
+    carrier = new Proxy({ fullStream: stream, modelId: "model", provider: "test" }, handler)
+
+    expect(usageRecordFromStreamChunk({ type: "finish", usage: { inputTokens: 1 } }, carrier)).toEqual({
+      model: "test/model", provider: "test", usage: { inputTokens: 1 },
+    })
+    expect(prototypeReads).toBeLessThanOrEqual(400)
   })
 
   it("preserves measured usage when fallback text throws", async () => {
@@ -772,6 +987,16 @@ describe("agent output helpers", () => {
       },
       { type: "finish" },
     ])
+  })
+
+  it("preserves response timestamps from another realm", () => {
+    const timestamp = runInNewContext('new Date("2026-06-22T20:00:00.000Z")') as Date
+
+    expect(timestamp instanceof Date).toBe(false)
+    expect(toAgentRunResult({
+      response: { id: "resp_1", timestamp },
+      usage: { inputTokens: 1 },
+    }).usageRecord?.response).toEqual({ id: "resp_1", timestamp })
   })
 
   it("includes model metadata in derived raw-result usage records", async () => {

@@ -82,7 +82,7 @@ function createBudgetNode(parent?: BudgetNode): BudgetNode {
     // timers or listeners. Its cleanup registration below runs immediately.
     disposed: parent?.disposed ?? false,
   }
-  parent?.children.add(node)
+  if (!parent?.disposed) parent?.children.add(node)
   return node
 }
 

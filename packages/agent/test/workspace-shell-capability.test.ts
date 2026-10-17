@@ -139,22 +139,22 @@ describe("workspaceShell capability", () => {
 
   it("runs arbitrary structured commands in the Workspace Session", async () => {
     const capability = workspaceShell({ commands: "all", mode: "write", timeout: 5_000 })
-    const boxRuntime = await capabilityTools(capability)
-    await expect(boxRuntime.tools.workspace_exec!.execute?.({
+    const sandboxRuntime = await capabilityTools(capability)
+    await expect(sandboxRuntime.tools.workspace_exec!.execute?.({
       args: ["issue", "list"],
       command: "gh",
     })).resolves.toMatchObject({ exitCode: 0 })
-    expect(boxRuntime.session.exec).toHaveBeenCalledWith("gh", ["issue", "list"], {
+    expect(sandboxRuntime.session.exec).toHaveBeenCalledWith("gh", ["issue", "list"], {
       cwd: "/workspace",
       env: undefined,
       timeout: 5_000,
     })
 
-    await expect(boxRuntime.tools.workspace_exec!.execute?.({
+    await expect(sandboxRuntime.tools.workspace_exec!.execute?.({
       args: ["-lc", "git status && mktemp"],
       command: "sh",
     })).resolves.toMatchObject({ exitCode: 0 })
-    await expect(boxRuntime.tools.workspace_exec!.execute?.({ command: "pnpm test" })).rejects.toThrow(
+    await expect(sandboxRuntime.tools.workspace_exec!.execute?.({ command: "pnpm test" })).rejects.toThrow(
       "without whitespace/control characters",
     )
   })

@@ -368,7 +368,6 @@ function activityId(observation: Observation) {
 
 function operationName(observation: Observation, attributes: Record<string, unknown>) {
   const explicit = attributes["gen_ai.operation.name"];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
   if (typeof explicit === "string" && explicit) return explicit;
   if (observation.name.startsWith("agent.invocation.")) return "invoke_agent";
   if (observation.name.startsWith("agent.tool.")) return "execute_tool";
@@ -391,7 +390,6 @@ function operationTarget(
         : ["gen_ai.request.model", "model.id", "agent.name"];
   for (const key of keys) {
     const value = attributes[key];
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
     if (typeof value === "string" && value) return value;
   }
 }
@@ -416,7 +414,6 @@ function spanStatus(
   const rawOutput = record(attributes["tool.output"]);
   const output = record(rawOutput?.item) ?? rawOutput;
   const exitCode = numeric(output?.exitCode);
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate the error field before classifying the span.
   return (exitCode !== undefined && exitCode !== 0) ||
     typeof attributes["error.message"] === "string"
     ? "failed"
@@ -427,10 +424,8 @@ function spanDescription(attributes: Record<string, unknown>) {
   const rawInput = record(attributes["tool.input"]);
   const input = record(rawInput?.item) ?? rawInput;
   const command = input?.command;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
   if (typeof command === "string") return compact(command, 90);
   const path = attributes["tool.path"];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
   return typeof path === "string" ? path : undefined;
 }
 
@@ -463,12 +458,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
 
 function stringAttribute(observation: Observation | undefined, key: string) {
   const value = observation?.attributes?.[key];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate strings at the display boundary.
   return typeof value === "string" ? value : undefined;
 }
 
 function numeric(value: unknown) {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so validate finite numbers at the display boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
@@ -521,7 +514,6 @@ function searchable(value: unknown) {
 }
 
 function displayValue(value: unknown) {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Observation attributes are untrusted persisted telemetry, so preserve string quoting in the inspector.
   if (typeof value === "string") return JSON.stringify(value);
   if (value === undefined) return "undefined";
   try {

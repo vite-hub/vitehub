@@ -1,7 +1,8 @@
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { executeHttpRequest, parseStandardSchema } from "@vite-hub/internal/http-request"
 import { posix } from "node:path"
 
-import { normalizeSafeWorkspacePath } from "../core/path.ts"
+import { isWorkspaceBytes, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
 import { requestJsonEqual } from "./request-json.ts"
 import {
@@ -22,25 +23,25 @@ import type {
 } from "../core/types.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
-export type FetchSourceMethod = "GET" | "HEAD" | "POST"
-export type FetchSourceResponseType = "json" | "text"
+type FetchSourceMethod = "GET" | "HEAD" | "POST"
+type FetchSourceResponseType = "json" | "text"
 
-export interface FetchSourceStandardSchemaResultSuccess<T = unknown> {
+interface FetchSourceStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
   value: T
 }
 
-export interface FetchSourceStandardSchemaResultFailure {
+interface FetchSourceStandardSchemaResultFailure {
   issues: readonly unknown[]
 }
 
-export interface FetchSourceStandardSchemaV1<T = unknown> {
+interface FetchSourceStandardSchemaV1<T = unknown> {
   "~standard": {
     validate: (input: unknown) => FetchSourceStandardSchemaResultSuccess<T> | FetchSourceStandardSchemaResultFailure | Promise<FetchSourceStandardSchemaResultSuccess<T> | FetchSourceStandardSchemaResultFailure>
   }
 }
 
-export interface FetchSourceStandardJsonSchemaV1<T = unknown> extends FetchSourceStandardSchemaV1<T> {
+interface FetchSourceStandardJsonSchemaV1<T = unknown> extends FetchSourceStandardSchemaV1<T> {
   "~standard": FetchSourceStandardSchemaV1<T>["~standard"] & {
     jsonSchema: {
       input: (options?: { target?: string }) => Record<string, unknown>
@@ -51,7 +52,7 @@ export interface FetchSourceStandardJsonSchemaV1<T = unknown> extends FetchSourc
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "probeKeys" | "sync">
 type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 
-export interface FetchSourceCredentialOptions {
+interface FetchSourceCredentialOptions {
   cookies?: Record<string, string>
   headers?: Record<string, string>
   maxResponseBytes?: number
@@ -60,7 +61,7 @@ export interface FetchSourceCredentialOptions {
 
 export type FetchSourceRequestOptions = FetchSourceCredentialOptions
 
-export interface FetchSourceRequestCallbackContext {
+interface FetchSourceRequestCallbackContext {
   request: {
     body?: unknown
     hasBody: boolean
@@ -224,9 +225,14 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 }
 
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
-  const normalized = (method || "GET").toUpperCase()
+  const normalized = method === undefined
+    ? "GET"
+    : hasRuntimeType(method, "string")
+      ? method.toUpperCase()
+      : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${normalized}" is not supported in v1. Use GET, HEAD, or POST.` })
+    const label = hasRuntimeType(method, "string") ? method : typeof method
+    throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }
   return normalized
 }
@@ -312,12 +318,16 @@ async function defaultFetchSourceRequest(
   ctx: SourceContext,
   overrides: { body?: unknown, query?: Record<string, unknown> } = {},
 ) {
-  const defaultQuery = options.query !== undefined || concreteQueryFromOptions(options)
-    ? concreteQueryFromOptions(options)
-    : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
-  const defaultBody = options.body !== undefined
-    ? options.body
-    : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
+  const defaultQuery = overrides.query !== undefined
+    ? undefined
+    : options.query !== undefined || concreteQueryFromOptions(options)
+      ? concreteQueryFromOptions(options)
+      : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
+  const defaultBody = overrides.body !== undefined
+    ? undefined
+    : options.body !== undefined
+      ? options.body
+      : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
   const query = overrides.query ?? defaultQuery
   const body = typeof overrides.body === "undefined" ? defaultBody : overrides.body
   const context = sourceRequestContext(options, method, { body, query }, ctx)
@@ -428,7 +438,7 @@ async function validateFetchRequestBody(
   body: unknown,
 ): Promise<unknown> {
   if (options.bodySchema) {
-    return await parseStandardSchema(options.bodySchema, body ?? {}, "HTTP request body")
+    return await parseStandardSchema(options.bodySchema, typeof body === "undefined" ? {} : body, "HTTP request body")
   }
   if (typeof options.body !== "undefined") {
     if (typeof body !== "undefined" && !requestJsonEqual(body, options.body)) {
@@ -467,7 +477,7 @@ function serializedQuery(query: Record<string, unknown> | undefined): Record<str
 }
 
 function serializeFetchSourceContent(value: unknown, responseType: FetchSourceResponseType): WorkspaceContent {
-  if (value instanceof Uint8Array) return value
+  if (isWorkspaceBytes(value)) return value instanceof Uint8Array ? value : Uint8Array.from(value)
   if (responseType === "json") return JSON.stringify(value, null, 2) ?? "null"
   if (typeof value === "string") return value
   return typeof value === "undefined" ? "" : String(value)

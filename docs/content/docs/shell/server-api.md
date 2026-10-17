@@ -13,7 +13,6 @@ icon: i-lucide-code-2
 | `createShellRuntime` from `@vite-hub/shell` | Create a Shell Runtime from an Execution Provider. |
 | `analyzeShellCommand` from `@vite-hub/shell` | Parse a command and return static command facts. |
 | `createJustBashProvider` from `@vite-hub/shell/providers/just-bash` | Run Bash-compatible commands in the `just-bash` runtime. |
-| `createCloudflareShellProvider` from `@vite-hub/shell/providers/cloudflare` | Adapt a Cloudflare execution client to Shell. |
 | `createReadonlyWorkspaceFs`, `createWritableWorkspaceFs`, `workspaceMountPoint` from `@vite-hub/shell/workspace` | Mount Workspace file access into Shell providers at `/workspace`. |
 | `runWorkspaceInspectionCommand` from `@vite-hub/shell/workspace` | Run a preflighted read-only Workspace inspection command. |
 | `cleanWorkspaceShellPath`, `cleanWorkspaceMutationPath` from `@vite-hub/shell/workspace` | Normalize Workspace paths for shell-facing behavior. |
@@ -31,6 +30,8 @@ Custom providers can return Shell Processes as class instances. Sessions read th
 Writable Workspace filesystems create absent files on append. A read failure for an existing file fails the append before changing its content.
 
 Custom providers can return Shell Observations as class instances. Sessions preserve every declared observation field, including fields exposed through getters.
+
+`runtime.boundary.execution` identifies the provider execution model (`in_process`, `process`, or `provider_managed`) and `model` (`virtual`, `host`, or `unknown`). `runtime.boundary.resources.output` identifies whether output limits are enforced by the provider, the Shell runtime, or are unsupported before buffering.
 
 ## Use Shell sessions
 
@@ -89,6 +90,8 @@ Analysis is not sandbox enforcement. The Execution Provider and caller policy co
 | `outputTruncated` | `boolean` | Whether `maxOutputLength` truncated output. |
 | `timedOut` | `boolean` | Whether timeout ended command execution. |
 | `workspaceGuardrail` | `object` | Workspace inspection feedback: `broad_search`, `missing_path`, `no_match`, or `timeout`. |
+
+Pass `signal` to `runtime.exec()` or `session.exec()` to cancel provider work. A controlled `curl` request forwards that signal to its Source Request executor.
 
 ## Workspace filesystem
 

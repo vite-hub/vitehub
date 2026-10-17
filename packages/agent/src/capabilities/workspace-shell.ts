@@ -48,6 +48,7 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
         throw agentDiagnostics.AGENT_R0298({ message: "[vitehub] workspaceShell({ commands }) is available only to provider Drivers. Use sandbox() for model-backed command tools." })
       }
       return {
+        // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Provider Drivers do not expose model Workspace tools.
         ...(driver?.kind === "provider"
           ? {}
           : mode === "write" && hasWritableTools(workspace)

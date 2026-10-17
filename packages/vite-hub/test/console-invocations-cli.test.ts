@@ -22,9 +22,9 @@ function stream() {
   }
 }
 
-// The deployed host authorizes each Console request with its own check, as `exposure: "host-managed"` does.
-installConsoleAccess({ authorize: ({ request }) => request.headers.get("authorization") === token, mode: "host-managed" })
-afterAll(() => installConsoleAccess({ mode: "local" }))
+// The deployed host authorizes each Console request with its own check, as `console: { auth: false, authorize }` does.
+installConsoleAccess({ authorize: ({ request }) => request.headers.get("authorization") === token, mode: "open" })
+afterAll(() => installConsoleAccess({ mode: "open" }))
 
 function setup() {
   let release!: () => void

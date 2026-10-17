@@ -20,7 +20,7 @@ interface WorkspaceCommandInput {
 }
 
 type WorkspaceCommandWorkspace = {
-  startSession: () => Promise<WorkspaceSession>
+  startSession: (options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>
 }
 
 export interface WorkspaceCommandEntry {
@@ -38,7 +38,7 @@ interface WorkspaceCommandToolOptions {
   executionBudget?: ExecutionBudget
 }
 
-interface BoxCommandOptions {
+interface SandboxCommandOptions {
   abortSignal?: AbortSignal
   check?: boolean
   commitMessage?: string
@@ -56,7 +56,7 @@ const blockedEnvKeys = new Set([
 ])
 const defaultWorkspaceCommandTimeout = 60_000
 
-export function normalizeWorkspaceCommandEntries(commands: unknown, label = "workspaceShell({ commands })"): WorkspaceCommandEntry[] {
+function normalizeWorkspaceCommandEntries(commands: unknown, label = "workspaceShell({ commands })"): WorkspaceCommandEntry[] {
   if (!Array.isArray(commands) || !commands.length) {
     throw agentDiagnostics.AGENT_R0277({ message: `[vitehub] ${label} requires at least one command.` })
   }
@@ -155,7 +155,7 @@ export async function executeWorkspaceCommand(
   workspace: unknown,
   command: string,
   args: string[] = [],
-  options: BoxCommandOptions = {},
+  options: SandboxCommandOptions = {},
   context?: AgentInvocationContextStore,
 ): Promise<Awaited<ReturnType<WorkspaceSession["exec"]>>> {
   const activeExecute = context && activeAgentWorkspaceCommands(context)
@@ -173,12 +173,12 @@ export async function executeWorkspaceCommand(
     })
     options.executionBudget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
     if (options.check && result.exitCode !== 0) {
-      throw Object.assign(agentDiagnostics.AGENT_R0292({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), result, { name: "BoxCommandError" })
+      throw Object.assign(agentDiagnostics.AGENT_R0292({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), result, { name: "SandboxCommandError" })
     }
     return result
   }
   assertWorkspace(workspace, "[vitehub] Capability command execution requires an execution-capable Workspace Session.")
-  const session = await workspace.startSession()
+  const session = await workspace.startSession({ abortSignal: signal })
   if (session.executionAuthority?.processes === "none") {
     await session.close()
     throw agentDiagnostics.AGENT_R0293({ message: "[vitehub] Capability command execution requires a Workspace Session host that permits processes." })
@@ -197,7 +197,7 @@ export async function executeWorkspaceCommand(
       throw Object.assign(agentDiagnostics.AGENT_R0294({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), {
         command,
         exitCode: result.exitCode,
-        name: "BoxCommandError",
+        name: "SandboxCommandError",
         stderr: result.stderr,
         stdout: result.stdout,
       })
@@ -253,7 +253,6 @@ export function workspaceCommandTools(
       name: toolName,
       async execute(input: unknown, execution?: AgentToolExecutionContext) {
         const value = input as WorkspaceCommandInput
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input must contain a string command before command policy validation.
         if (!value || typeof value.command !== "string") throw agentDiagnostics.AGENT_R0295({ message: `[vitehub] ${toolName} requires a command.` })
         if (unrestricted) normalizeWorkspaceCommandEntries([value.command], `${toolName} command`)
         else if (!commandNames.includes(value.command)) throw agentDiagnostics.AGENT_R0296({ message: `[vitehub] Workspace command "${value.command}" is not allowed.` })
