@@ -42,8 +42,46 @@ export function installProcessHostStop(
   app.hooks.hook("close", () => host.close());
   const signals: ProcessHostStopSignal[] = ["SIGTERM", "SIGINT"];
   const existing = new Map(signals.map((signal) => [signal, new Set(runtime.listeners(signal))]));
+  const serverListeners: [ProcessHostStopSignal, (signal: ProcessHostStopSignal) => unknown][] = [];
+  let resolveSetup!: () => void;
+  const setup = new Promise<void>((resolve) => { resolveSetup = resolve });
+  const shutdown = (runtime.__vitehubShutdown ??= { drains: new Set(), exited: false });
+  let stopping: Promise<void> | undefined;
+  const stop = (signal: ProcessHostStopSignal) => {
+    if (stopping) return;
+    stopping = (async () => {
+      await setup;
+      console.info("[vitehub]", JSON.stringify({ event: "process.stop.draining", signal, timestamp: new Date().toISOString() }));
+      try {
+        await host.close();
+      } catch (error) {
+        console.error("[vitehub]", error);
+      }
+      const closeServer = Promise.all(
+        serverListeners
+          .filter(([name]) => name === signal)
+          .map(([, listener]) => Promise.resolve().then(() => listener(signal))),
+      );
+      await Promise.race([
+        closeServer.catch((error: unknown) => console.error("[vitehub]", error)),
+        new Promise((resolve) => setTimeout(resolve, 10_000).unref()),
+      ]);
+    })();
+    shutdown.drains.add(stopping);
+    void (async () => {
+      let settled = -1;
+      while (settled !== shutdown.drains.size) {
+        settled = shutdown.drains.size;
+        await Promise.allSettled(shutdown.drains);
+      }
+      if (shutdown.exited) return;
+      shutdown.exited = true;
+      console.info("[vitehub]", JSON.stringify({ event: "process.stop.exited", signal, timestamp: new Date().toISOString() }));
+      runtime.exit(0);
+    })();
+  };
+  for (const signal of signals) runtime.on(signal, stop);
   setImmediate(() => {
-    const serverListeners: [ProcessHostStopSignal, (signal: ProcessHostStopSignal) => unknown][] = [];
     for (const signal of signals) {
       for (const listener of runtime.listeners(signal)) {
         // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Signal listeners come from the Node process and are untyped at this boundary.
@@ -54,41 +92,7 @@ export function installProcessHostStop(
         serverListeners.push([signal, handler]);
       }
     }
-    const shutdown = (runtime.__vitehubShutdown ??= { drains: new Set(), exited: false });
-    let stopping: Promise<void> | undefined;
-    const stop = (signal: ProcessHostStopSignal) => {
-      if (stopping) return;
-      stopping = (async () => {
-        console.info("[vitehub]", JSON.stringify({ event: "process.stop.draining", signal, timestamp: new Date().toISOString() }));
-        try {
-          await host.close();
-        } catch (error) {
-          console.error("[vitehub]", error);
-        }
-        const closeServer = Promise.all(
-          serverListeners
-            .filter(([name]) => name === signal)
-            .map(([, listener]) => Promise.resolve().then(() => listener(signal))),
-        );
-        await Promise.race([
-          closeServer.catch((error: unknown) => console.error("[vitehub]", error)),
-          new Promise((resolve) => setTimeout(resolve, 10_000).unref()),
-        ]);
-      })();
-      shutdown.drains.add(stopping);
-      void (async () => {
-        let settled = -1;
-        while (settled !== shutdown.drains.size) {
-          settled = shutdown.drains.size;
-          await Promise.allSettled(shutdown.drains);
-        }
-        if (shutdown.exited) return;
-        shutdown.exited = true;
-        console.info("[vitehub]", JSON.stringify({ event: "process.stop.exited", signal, timestamp: new Date().toISOString() }));
-        runtime.exit(0);
-      })();
-    };
-    for (const signal of signals) runtime.on(signal, stop);
+    resolveSetup();
   });
 }
 
