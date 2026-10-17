@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm"
 import { createClient } from "@libsql/client"
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
-import { sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { Miniflare } from "miniflare"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -801,6 +801,11 @@ describe("retained history Blob prefix", () => {
     const store = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "legacy-doc" })
     await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "legacy" }) })
     expect(uploads.mock.calls[0]?.[0]).toMatch(new RegExp(`^${legacy.replaceAll("/", "\\/")}/sha256/`))
+    const [current] = await database.select().from(workspaceHistorySchema.workspaceHistoryWorkspaces)
+      .where(eq(workspaceHistorySchema.workspaceHistoryWorkspaces.workspace, `_vitehub/workspace-history/${digest}`))
+    expect(current).toBeUndefined()
+    const restarted = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "legacy-doc" })
+    expect(await restarted.history.head()).toMatchObject({ id: expect.any(String) })
   })
 
   it("nests a custom prefix under the ViteHub-owned history root", async () => {

@@ -118,7 +118,15 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       // atomically claims the owned identity for new workspaces.
       this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[0]!)),
       this.options.database.select({ workspace: workspaces.workspace }).from(workspaces).where(eq(workspaces.workspace, candidates[1] ?? candidates[0]!)),
-      this.options.database.insert(workspaces).values({ workspace: candidates[0]! }).onConflictDoNothing(),
+      // Claim the owned identity only when no legacy identity exists. Keeping
+      // this condition in the atomic batch avoids leaving an empty current row
+      // that would shadow legacy history on the next process restart.
+      this.options.database.insert(workspaces).select(sql`
+        select ${candidates[0]!}
+        where not exists (
+          select 1 from ${workspaces} where ${workspaces.workspace} = ${candidates[1] ?? candidates[0]!}
+        )
+      `).onConflictDoNothing(),
     ]).then((results: [Array<{ workspace: string }>, Array<{ workspace: string }>, unknown]) => {
       const [current, legacy] = results
       return current[0]?.workspace ?? legacy[0]?.workspace ?? candidates[0]!
