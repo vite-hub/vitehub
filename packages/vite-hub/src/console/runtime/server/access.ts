@@ -81,6 +81,8 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     // check. Retry with the accessors belonging to the value's Response.
   }
   try {
+    const isNative = (candidate: unknown): candidate is (...args: never[]) => unknown =>
+      typeof candidate === "function" && Function.prototype.toString.call(candidate).includes("[native code]")
     // Fetch accessors perform the native internal-slot brand check. For a
     // foreign realm, use that realm's native accessors instead of applying
     // this realm's brand checks to the value.
@@ -93,23 +95,24 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
       const bodyUsedGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
       const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
       const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
+      const arrayBuffer = Object.getOwnPropertyDescriptor(prototype, "arrayBuffer")?.value
       if (typeof constructor === "function" && constructor.prototype === prototype
         && constructor !== Response
         && constructor.name === "Response"
-        && typeof statusGetter === "function" && typeof statusTextGetter === "function"
-        && typeof headersGetter === "function" && typeof bodyUsedGetter === "function"
-        && typeof bodyGetter === "function" && typeof clone === "function") {
+        && isNative(statusGetter) && isNative(statusTextGetter)
+        && isNative(headersGetter) && isNative(bodyUsedGetter)
+        && isNative(bodyGetter) && isNative(clone) && isNative(arrayBuffer)) {
         const status = Reflect.apply(statusGetter, value, [])
         const statusText = Reflect.apply(statusTextGetter, value, [])
         const headers = Reflect.apply(headersGetter, value, [])
         const bodyUsed = Reflect.apply(bodyUsedGetter, value, [])
-        Reflect.apply(clone, value, [])
+        const cloned = Reflect.apply(clone, value, [])
         if (typeof status !== "number" || typeof statusText !== "string" || headers === null || (typeof headers !== "object" && typeof headers !== "function") || typeof bodyUsed !== "boolean") return
         if (bodyUsed) return
-        const body = Reflect.apply(bodyGetter, value, [])
         const init = { headers: new Headers(headers as Headers), status, statusText }
-        if (body === null) return new Response(null, init)
-        return new Response(body as BodyInit, init)
+        if (Reflect.apply(bodyGetter, value, []) === null) return new Response(null, init)
+        const bytes = await Reflect.apply(arrayBuffer, cloned, []) as ArrayBuffer
+        return new Response(bytes, init)
       }
       prototype = Object.getPrototypeOf(prototype)
     }
