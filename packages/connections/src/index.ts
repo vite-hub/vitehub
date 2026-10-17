@@ -32,6 +32,7 @@ export type {
   ConnectionMethodSignature,
   ConnectionOAuthDefinition,
   ConnectionProvider,
+  ConnectionRequestPolicy,
   ConnectionStatus,
   ConnectionTokenResponse,
   ConnectionValue,
