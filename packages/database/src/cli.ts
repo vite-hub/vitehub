@@ -1,12 +1,17 @@
+import { mkdir } from "node:fs/promises"
 import { delimiter, join } from "node:path"
 
 import type { DBModulePublicOptions } from "./types.ts"
-import type { ResolvedDBViteConfig } from "./types.ts"
+import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 import type { ViteHubCliContributor as SharedViteHubCliContributor } from "@vite-hub/internal/cli"
 
-import { isAbsolute, relative } from "pathe"
+import { dirname, isAbsolute, relative, resolve } from "pathe"
 
-type ResolvedDBViteConfigProvider = () => MaybePromise<ResolvedDBViteConfig | undefined>
+import { resolveConfigValue } from "./config-value.ts"
+import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
+
+/** Refreshes generated artifacts. `strict` fails when a Database Definition cannot load to list its tables. */
+type ResolvedDBViteConfigProvider = (options: { strict: boolean }) => MaybePromise<ResolvedDBViteConfig | undefined>
 type MaybePromise<T> = Promise<T> | T
 
 interface ViteHubCliContext {
@@ -76,16 +81,42 @@ async function runDrizzleKit(
   context: ViteHubCliContext,
   getConfig?: ResolvedDBViteConfigProvider,
 ): Promise<number> {
-  const config = await getConfig?.()
-  const configFiles = config && config.databaseNames.length > 1
-    ? config.databaseNames.map(name => config.generatedDrizzleConfigFilesByDatabase[name]!)
-    : [config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts"]
+  const config = await getConfig?.({ strict: feature === "generate" })
+  const runs = config && config.databaseNames.length > 1
+    ? config.databaseNames.map(name => ({ configFile: config.generatedDrizzleConfigFilesByDatabase[name]!, database: config.databases?.[name] }))
+    : [{ configFile: config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts", database: config?.databases?.[config.databaseNames[0]!] }]
 
-  for (const configFile of configFiles) {
+  for (const { configFile, database } of runs) {
+    if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, context)
     const result = await runDrizzleKitWithConfig(feature, args, context, toConfigPath(context.rootDir, configFile))
     if (result !== 0) return result
   }
   return 0
+}
+
+/** libSQL does not create parent directories, so the first `db migrate` needs the local data directory to exist. */
+async function ensureLocalSqliteDirectory(database: ResolvedDrizzleDatabaseConfig, context: ViteHubCliContext) {
+  if (database.cloudflare?.http && database.cloudflare.databaseId) return
+  const url = resolveConfigValue(database.connection?.url, context.env ?? process.env)
+  if (!url || url === ":memory:" || /^(?:libsql:|https?:|wss?:)/i.test(url)) return
+  const path = resolveLocalSqlitePath(url)
+  if (!path || path === ":memory:") return
+  await mkdir(dirname(resolve(context.rootDir, path)), { recursive: true })
+}
+
+// drizzle-kit generate catches schema load and diff errors, logs them with console.error, and exits 0.
+// This preload turns a logged Error into a non-zero exit code so `vitehub db generate` cannot report success.
+const drizzleKitFailOnLoggedError = [
+  "const logError = console.error",
+  "console.error = function (...args) {",
+  "  if (args.some(arg => arg instanceof Error)) process.exitCode = 1",
+  "  return logError.apply(this, args)",
+  "}",
+].join("\n")
+
+function withDrizzleKitErrorExit(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const preload = `--import=data:text/javascript,${encodeURIComponent(drizzleKitFailOnLoggedError)}`
+  return { ...env, NODE_OPTIONS: [env.NODE_OPTIONS, preload].filter(Boolean).join(" ") }
 }
 
 async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: string[], context: ViteHubCliContext, configFile: string): Promise<number> {
@@ -95,13 +126,18 @@ async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: st
     configFile,
     ...forwardDrizzleArgs(args),
   ]
+  const env = withProjectBinPath(context.rootDir, context.env)
   const result = await context.spawn("drizzle-kit", drizzleArgs, {
     cwd: context.rootDir,
-    env: withProjectBinPath(context.rootDir, context.env),
+    env: feature === "generate" ? withDrizzleKitErrorExit(env) : env,
     stderr: "inherit",
     stdout: "inherit",
   })
-  return result.exitCode ?? 1
+  const exitCode = result.exitCode ?? 1
+  if (exitCode !== 0) {
+    context.stderr.write(`[vitehub] drizzle-kit ${feature} failed for ${configFile} (exit code ${exitCode}). See the drizzle-kit output above.\n`)
+  }
+  return exitCode
 }
 
 export function createDbCliContributor(
