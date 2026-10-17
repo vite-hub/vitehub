@@ -152,6 +152,10 @@ export async function forgeGitEnvironment(
   const env: Record<string, string> = {
     GH_TOKEN: token,
     GITHUB_TOKEN: token,
+    // Ignore ambient system and global Git configuration. The scoped entries
+    // above are the only credentials a run is allowed to use.
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_COUNT: String(entries.length),
     GIT_TERMINAL_PROMPT: "0",
   }
