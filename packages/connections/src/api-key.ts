@@ -1,4 +1,4 @@
-import { ConnectionError } from "./errors.ts"
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ConnectionApiCatalog, ConnectionApiKeyProvider, ConnectionApiKeyVerification, ConnectionApiKeyVerifyContext, ConnectionDefinition } from "./types.ts"
 
@@ -111,8 +111,11 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
       return false
     }
   })
+  // `new URL()` accepts `*` in a host name, but a request origin never equals it. Reject it, so the key goes only to exact origins.
+  const wildcard = options.origins.find(origin => typeof origin === "string" && origin.includes("*"))
+  if (wildcard !== undefined) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({ origin: wildcard })
   if (!/^\S+$/.test(id) || origins.includes(undefined) || !catalogsSafe || !isValidApiKeyProvider(provider)) {
-    throw new ConnectionError("invalid", "The API key provider needs a token header name, a token scheme, and HTTPS or loopback origins without a path.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({})
   }
   return provider
 }

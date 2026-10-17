@@ -1,90 +1,56 @@
-import { getViteHubErrorShape, isViteHubError, ViteHubError } from "@vite-hub/runtime"
+import { isViteHubError } from "@vite-hub/runtime"
 
-export type ConnectionErrorReason = "approval_required" | "denied" | "execution_unknown" | "invalid" | "provider" | "reauth_required"
-export type ConnectionErrorCode = `CONNECTION_${Uppercase<ConnectionErrorReason>}`
+import type { Result, ResultError } from "@vite-hub/runtime"
 
-export interface ConnectionErrorDetails {
-  [key: string]: string | number | undefined
-  action?: string
-  connection?: string
-  /** HTTP status from the provider. Set only for `CONNECTION_PROVIDER`. */
-  status?: number
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
+
+/** Codes that a Connection client call returns in the `[error, data]` tuple. Config errors throw instead. */
+export type ConnectionsErrorCode =
+  | "CONNECTIONS_APPROVAL_REQUIRED"
+  | "CONNECTIONS_DENIED"
+  | "CONNECTIONS_INVALID_INPUT"
+  | "CONNECTIONS_NEEDS_RECONNECT"
+  | "CONNECTIONS_NOT_CONNECTED"
+  | "CONNECTIONS_ORIGIN_NOT_ALLOWED"
+  | "CONNECTIONS_PROVIDER_FAILED"
+  | "CONNECTIONS_UNAVAILABLE"
+
+/** Every code in the Connections catalog, including config and management route codes. */
+export type ConnectionsCatalogCode = keyof typeof connectionsErrorDiagnostics
+
+const returnedCodes = [
+  "CONNECTIONS_APPROVAL_REQUIRED",
+  "CONNECTIONS_DENIED",
+  "CONNECTIONS_INVALID_INPUT",
+  "CONNECTIONS_NEEDS_RECONNECT",
+  "CONNECTIONS_NOT_CONNECTED",
+  "CONNECTIONS_ORIGIN_NOT_ALLOWED",
+  "CONNECTIONS_PROVIDER_FAILED",
+  "CONNECTIONS_UNAVAILABLE",
+] as const satisfies readonly ConnectionsErrorCode[]
+
+/**
+ * Returns `true` for an error from the Connections catalog. Pass `codes` to accept only some codes.
+ * It reads `code`, so it also accepts an error from another copy of the package.
+ */
+export function isConnectionError<TCode extends ConnectionsCatalogCode = ConnectionsCatalogCode>(error: unknown, codes?: readonly TCode[]): error is ResultError<TCode> {
+  if (!(error instanceof Error)) return false
+  const code: unknown = Reflect.get(error, "code")
+  if (typeof code !== "string" || !Object.hasOwn(connectionsErrorDiagnostics, code)) return false
+  return !codes || codes.some(candidate => candidate === code)
 }
 
-const errorCodes = {
-  approval_required: "CONNECTION_APPROVAL_REQUIRED",
-  denied: "CONNECTION_DENIED",
-  execution_unknown: "CONNECTION_EXECUTION_UNKNOWN",
-  invalid: "CONNECTION_INVALID",
-  provider: "CONNECTION_PROVIDER",
-  reauth_required: "CONNECTION_REAUTH_REQUIRED",
-} as const satisfies Record<ConnectionErrorReason, ConnectionErrorCode>
-
-/** A Connection failure. The message and details never contain token values. */
-export class ConnectionError extends ViteHubError<ConnectionErrorCode, ConnectionErrorDetails> {
-  readonly reason: ConnectionErrorReason
-
-  constructor(reason: ConnectionErrorReason, message: string, options: { details?: ConnectionErrorDetails, requestId?: string } = {}) {
-    super(errorCodes[reason], message, options)
-    this.reason = reason
-  }
-
-  /** HTTP status from the provider, when the provider rejected the call. */
-  get status(): number | undefined {
-    return this.details?.status
-  }
-}
-
-export function isConnectionError(error: unknown): error is ConnectionError {
-  return error instanceof ConnectionError
-}
-
-/** Normalize a ConnectionError thrown by another ViteHub package instance. */
-export function normalizeConnectionError(error: unknown): ConnectionError | undefined {
+/**
+ * Runs one Connection client call and returns `[error, data]`.
+ * A runtime Connections error is returned. Config errors and other failures throw.
+ */
+export async function connectionResult<TData>(run: () => Promise<TData>): Promise<Result<TData, ConnectionsErrorCode>> {
   try {
-    if (error instanceof ConnectionError) return error
-    let shape = getViteHubErrorShape(error)
-    if (!shape && typeof error === "object" && error !== null) {
-      const read = (key: string): unknown => {
-        const descriptor = Object.getOwnPropertyDescriptor(error, key)
-        return descriptor && "value" in descriptor ? descriptor.value : undefined
-      }
-      if (read("name") === "ViteHubError") {
-        const code = read("code")
-        const message = read("message")
-        if (typeof code === "string" && typeof message === "string") {
-          const rawDetails = read("details")
-          const details: Record<string, string | number | undefined> = {}
-          if (typeof rawDetails === "object" && rawDetails !== null) {
-            for (const key of Reflect.ownKeys(rawDetails)) {
-              if (typeof key !== "string") continue
-              const descriptor = Object.getOwnPropertyDescriptor(rawDetails, key)
-              const value = descriptor && "value" in descriptor ? descriptor.value : undefined
-              if (typeof value === "string" || typeof value === "number" || value === undefined) details[key] = value
-            }
-          }
-          const requestId = read("requestId")
-          if (requestId !== undefined && (typeof requestId !== "string" || requestId.length === 0 || requestId.length > 256)) return undefined
-          shape = { code, message, details, name: "ViteHubError", requestId }
-        }
-      }
-    }
-    if (!shape) return undefined
-    // SAFETY: errorCodes is a complete mapping of every ConnectionErrorReason to its public code.
-    const entry = (Object.entries(errorCodes) as [ConnectionErrorReason, ConnectionErrorCode][]).find(([, code]) => code === shape.code)
-    if (!entry) return undefined
-    const details: ConnectionErrorDetails = {}
-    for (const [key, value] of Object.entries(shape.details ?? {})) {
-      if (typeof value === "string" || typeof value === "number" || value === undefined) details[key] = value
-    }
-    return new ConnectionError(entry[0], shape.message, {
-      details,
-      // SAFETY: shape is validated by getViteHubErrorShape or the bounded foreign-shape checks above.
-      requestId: shape.requestId,
-    })
+    return [undefined, await run()]
   }
-  catch {
-    return undefined
+  catch (error) {
+    if (isConnectionError(error, returnedCodes)) return [error, undefined]
+    throw error
   }
 }
 

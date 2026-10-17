@@ -4,6 +4,7 @@ import { agentEnvAccess } from "../../env/test/agent-access.ts"
 import { isConnectionError } from "../src/errors.ts"
 import { createConnectionsRuntime } from "../src/runtime.ts"
 import { ACCESS_TOKEN, CLIENT_SECRET, connect, createStore, createTestRuntime, mailConnection, REFRESH_TOKEN, testProvider } from "./helpers.ts"
+import { approvalIdOf } from "./helpers.ts"
 
 import type { ConnectionEffect, UseConnectionOptions } from "../src/types.ts"
 
@@ -26,7 +27,7 @@ describe("connect", () => {
     const test = createTestRuntime()
     const name = "n".repeat(502)
     const runtime = createConnectionsRuntime({ definitions: { [name]: mailConnection() }, fetch: test.provider.fetch, store: test.store })
-    expect(await rejection(runtime.authorize({ name, redirectUri: "http://localhost/callback" }))).toMatchObject({ code: "CONNECTION_INVALID" })
+    expect(await rejection(runtime.authorize({ name, redirectUri: "http://localhost/callback" }))).toMatchObject({ code: "CONNECTIONS_INVALID_NAME" })
     expect(test.provider.calls).toHaveLength(0)
   })
 
@@ -68,7 +69,7 @@ describe("connect", () => {
     expect(challenge).toBe(authorization.searchParams.get("code_challenge"))
 
     // A state is single use.
-    expect(await rejection(test.runtime.complete({ code: "code-1", state }))).toMatchObject({ code: "CONNECTION_INVALID" })
+    expect(await rejection(test.runtime.complete({ code: "code-1", state }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
   })
 
   it("rejects an authorization callback at its exact expiry timestamp", async () => {
@@ -76,13 +77,13 @@ describe("connect", () => {
     const { state } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
 
     test.now.value += 10 * 60_000
-    await expect(test.runtime.complete({ code: "expired", state })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(test.runtime.complete({ code: "expired", state })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
     expect(test.provider.calls).toHaveLength(0)
   })
 
   it("rejects redirect URIs that are not HTTPS or loopback", async () => {
     const test = createTestRuntime()
-    expect(await rejection(test.runtime.authorize({ name: "mail", redirectUri: "http://example.com/callback" }))).toMatchObject({ code: "CONNECTION_INVALID" })
+    expect(await rejection(test.runtime.authorize({ name: "mail", redirectUri: "http://example.com/callback" }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
   })
 
   it("retains the refresh grant when the same account authorizes again", async () => {
@@ -101,11 +102,11 @@ describe("connect", () => {
     await connect(test)
     // Model a provider consuming the existing grant while issuing the rejected account token.
     test.provider.valid.delete(ACCESS_TOKEN)
-    await expect(connect(test, { id_token: undefined, access_token: "unknown-access", refresh_token: "unknown-refresh" })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(connect(test, { id_token: undefined, access_token: "unknown-access", refresh_token: "unknown-refresh" })).rejects.toMatchObject({ code: "CONNECTIONS_STATE_CONFLICT" })
     expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/revoke")).toHaveLength(0)
     expect(await test.runtime.inspect("mail")).toMatchObject({ account: { id: "account-1" }, status: "reauth_required" })
     expect(JSON.parse((await test.store.secrets.read("connection/mail"))!.value)).toMatchObject({ accessToken: ACCESS_TOKEN, accountId: "account-1" })
-    await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   })
 
   it("reports reduced scopes returned during a token refresh", async () => {
@@ -133,7 +134,7 @@ describe("connect", () => {
       return await request(input, init)
     } })
     const call = test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })
-    const failed = expect(call).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    const failed = expect(call).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
     await entered
     const reconnecting = connect(test)
     resume()
@@ -196,7 +197,7 @@ describe("connect", () => {
     await callback
     await revoking
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "revoked" })
-    await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
   })
 
   it("waits for refresh persistence before revoking the replacement token", async () => {
@@ -219,7 +220,7 @@ describe("connect", () => {
     resume()
     await Promise.allSettled([call])
     await revoking
-    await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "revoked" })
   })
 
@@ -227,7 +228,7 @@ describe("connect", () => {
     const definition = mailConnection()
     const test = createTestRuntime({ ...definition, provider: { ...definition.provider, revocationEndpoint: undefined } })
     await connect(test)
-    await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_DEFINITION" })
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
     await test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })
   })
@@ -276,7 +277,7 @@ describe("connect", () => {
     const test = createTestRuntime()
     await connect(test)
     const error = await rejection(connect(test, { access_token: "other-access", id_token: "account-2", refresh_token: "other-refresh" }))
-    expect(error).toMatchObject({ code: "CONNECTION_INVALID" })
+    expect(error).toMatchObject({ code: "CONNECTIONS_STATE_CONFLICT" })
     expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/revoke")).toHaveLength(0)
     expect(await test.runtime.inspect("mail")).toMatchObject({ account: { id: "account-1" } })
   })
@@ -303,11 +304,11 @@ describe("connect", () => {
     const other = connect({ ...test, runtime: second }, { access_token: "other-access", id_token: "account-2", refresh_token: "other-refresh" })
     resume()
     await first
-    await expect(other).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(other).rejects.toMatchObject({ code: "CONNECTIONS_STATE_CONFLICT" })
     expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/revoke")).toHaveLength(revoked ? 1 : 0)
     expect(await test.runtime.inspect("mail")).toMatchObject({ account: { id: "account-1" }, status: "reauth_required" })
     expect(JSON.parse((await test.store.secrets.read("connection/mail"))!.value)).toMatchObject({ accessToken: ACCESS_TOKEN, accountId: "account-1" })
-    await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
   })
 
   it("does not revoke through a bridge that omits the leased revision", async () => {
@@ -337,7 +338,7 @@ describe("connect", () => {
     }
     expect(await test.runtime.revoke({ name: "mail" })).toMatchObject({ status: "revoked" })
     expect(test.provider.calls.at(-1)).toMatchObject({ body: "token=new-refresh", url: "https://auth.example.com/revoke" })
-    await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    await expect(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
     expect((await test.runtime.activity({ name: "mail" })).some(event => event.action === "use" && event.operation === "revoke" && event.outcome === "succeeded" && event.revision)).toBe(true)
   })
 
@@ -354,7 +355,7 @@ describe("connect", () => {
         ? new Response(null, { status })
         : test.provider.fetch(input, init),
     })
-    await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTION_PROVIDER", details: { status } })
+    await expect(test.runtime.revoke({ name: "mail" })).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", details: { status } })
     expect(await test.store.secrets.read("connection/mail")).toEqual(token)
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
     expect(await test.store.refreshLeases.claim({ name: "mail", owner: "another-runtime", revision: token.revision, now: test.now.value, expiresAt: test.now.value + 1000 })).toBe("busy")
@@ -366,7 +367,7 @@ describe("connect", () => {
     expect(await test.runtime.revoke({ name: "mail" })).toMatchObject({ status: "revoked" })
     expect(test.provider.calls.at(-1)).toMatchObject({ body: `token=${REFRESH_TOKEN}`, url: "https://auth.example.com/revoke" })
     const error = await rejection(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))
-    expect(error).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    expect(error).toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
   })
 })
 
@@ -431,7 +432,7 @@ describe("calls", () => {
     const test = createTestRuntime()
     await connect(test)
     const calls = test.provider.calls.length
-    await expect(test.runtime.client("mail", {}).call("mail.unknown", {})).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(test.runtime.client("mail", {}).call("mail.unknown", {})).rejects.toMatchObject({ code: "CONNECTIONS_UNKNOWN_ACTION" })
     await expect(test.runtime.client("mail", {}).call("mail.labels.list", {})).rejects.toThrow('requires "userId"')
     expect(test.provider.calls).toHaveLength(calls)
   })
@@ -481,7 +482,7 @@ describe("calls", () => {
     await connect(test, { expires_in: 1 })
     test.provider.tokenResponses.push({ body: { error }, status })
     const client = test.runtime.client("mail", {})
-    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_PROVIDER", status })
+    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", status })
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
     test.provider.valid = new Set(["access-after-outage"])
     test.provider.tokenResponses.push({ body: { access_token: "access-after-outage", expires_in: 3600 } })
@@ -515,7 +516,7 @@ describe("calls", () => {
     expect(JSON.parse(replacement!.value)).toMatchObject({ accessToken: "replacement-access", refreshToken: "replacement-refresh" })
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "reauth_required" })
     const calls = test.provider.calls.length
-    expect(await rejection(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    expect(await rejection(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
     expect(test.provider.calls).toHaveLength(calls)
   })
 
@@ -524,10 +525,10 @@ describe("calls", () => {
     await connect(test, { expires_in: 1 })
     test.provider.tokenResponses.push({ body: {} })
     const client = test.runtime.client("mail", {})
-    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_PROVIDER" })
+    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "reauth_required" })
     const calls = test.provider.calls.length
-    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
     expect(test.provider.calls).toHaveLength(calls)
   })
 
@@ -545,10 +546,10 @@ describe("calls", () => {
     }
     const runtime = createConnectionsRuntime({ definitions: { mail: mailConnection() }, fetch: providerFetch, now: () => test.now.value, store: test.store })
     const client = runtime.client("mail", {})
-    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_PROVIDER" })
+    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
     expect(await runtime.inspect("mail")).toMatchObject({ status: "reauth_required" })
     const count = test.provider.calls.length
-    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    expect(await rejection(client.call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
     expect(test.provider.calls).toHaveLength(count)
     expect(rotations).toBe(1)
   })
@@ -565,7 +566,7 @@ describe("calls", () => {
       store: test.store,
     })
     await expect(runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))
-      .rejects.toMatchObject({ code: "CONNECTION_PROVIDER", message: "Provider returned invalid JSON." })
+      .rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", message: "Provider returned invalid JSON." })
   })
 
   it("marks the Connection for reauthorization after invalid_grant", async () => {
@@ -574,10 +575,10 @@ describe("calls", () => {
     test.now.value += 3600_000
     test.provider.tokenResponses.push({ body: { error: "invalid_grant" }, status: 400 })
     const error = await rejection(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))
-    expect(error).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    expect(error).toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "reauth_required" })
     const calls = test.provider.calls.length
-    expect(await rejection(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    expect(await rejection(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
     expect(test.provider.calls).toHaveLength(calls)
   })
 
@@ -597,8 +598,8 @@ describe("calls", () => {
     const client = test.runtime.client("mail", { actor })
     const error = await rejection(client.call("mail.labels.list", { userId: "me" }))
     expect(await test.runtime.activity({ name: "mail" })).toEqual(before)
-    expect(error).toMatchObject({ code: "CONNECTION_INVALID" })
-    expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/labels"))).toMatchObject({ code: "CONNECTION_INVALID" })
+    expect(error).toMatchObject({ code: "CONNECTIONS_INVALID_ACTOR" })
+    expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/labels"))).toMatchObject({ code: "CONNECTIONS_INVALID_ACTOR" })
     expect((await test.runtime.approvals({})).approvals).toEqual([])
     expect(test.provider.calls).toHaveLength(calls)
     expect(await test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })).toMatchObject({ labels: [{ id: "INBOX" }] })
@@ -610,7 +611,7 @@ describe("calls", () => {
     test.provider.valid = new Set()
     test.provider.tokenResponses.push({ body: { access_token: "access-2", expires_in: 3600 } })
     const error = await rejection(test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" }))
-    expect(error).toMatchObject({ code: "CONNECTION_PROVIDER", status: 401 })
+    expect(error).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED", status: 401 })
     const activity = await test.runtime.activity({ name: "mail" })
     const serialized = JSON.stringify({ activity, error, message: (error as Error).message, stack: (error as Error).stack })
     for (const secret of [ACCESS_TOKEN, "access-2", REFRESH_TOKEN, CLIENT_SECRET]) expect(serialized).not.toContain(secret)
@@ -650,8 +651,8 @@ describe("calls", () => {
     await connect(test)
     const client = test.runtime.client("mail", {})
     expect((await client.fetch("https://mail.example.com/mail/v1/users/me/labels")).status).toBe(200)
-    expect(await rejection(client.fetch("https://attacker.example.com/"))).toMatchObject({ code: "CONNECTION_INVALID" })
-    expect(await rejection(client.fetch("https://mail.example.com/mail/v1/x", { body: "{}", method: "POST" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(client.fetch("https://attacker.example.com/"))).toMatchObject({ code: "CONNECTIONS_ORIGIN_NOT_ALLOWED" })
+    expect(await rejection(client.fetch("https://mail.example.com/mail/v1/x", { body: "{}", method: "POST" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
   })
 
   it.each([new URLSearchParams("label=INBOX"), new FormData()])("rejects unsupported bodies from untyped callers before dispatch (%s)", async (body) => {
@@ -660,7 +661,7 @@ describe("calls", () => {
     const calls = test.provider.calls.length
     const client = test.runtime.client("mail", {})
     const result = Reflect.apply(client.fetch, client, ["https://mail.example.com/mail/v1/users/me/messages/m1/modify", { body, method: "POST" }])
-    expect(await rejection(result)).toMatchObject({ code: "CONNECTION_INVALID" })
+    expect(await rejection(result)).toMatchObject({ code: "CONNECTIONS_INVALID_INPUT" })
     expect(test.provider.calls).toHaveLength(calls)
   })
 
@@ -704,7 +705,7 @@ describe("policy", () => {
     const test = createTestRuntime()
     await connect(test)
     await expect(test.runtime.client("mail", {}).call("mail.messages.modify", { id: "m1", userId: "me" })).resolves.toEqual({ id: "message-1" })
-    expect(await rejection(test.runtime.client("mail", {}).call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(test.runtime.client("mail", {}).call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     await expect(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.labels.list", { userId: "me" })).resolves.toBeDefined()
     const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.messages.modify", { id: "m1", userId: "me" }))
     expect(isConnectionError(error) && error.reason).toBe("approval_required")
@@ -723,11 +724,11 @@ describe("policy", () => {
       expect(await rejection(test.runtime.client("mail", options).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "ENV_BRIDGE_UNTRUSTED" })
     }
     for (const options of [{ actor: "agent:labeller" }, { access: agentEnvAccess({ name: "labeller" }), actor: "server" }]) {
-      expect(await rejection(test.runtime.client("mail", options).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_INVALID" })
+      expect(await rejection(test.runtime.client("mail", options).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_INVALID_ACTOR" })
     }
     expect(test.provider.calls).toHaveLength(calls)
     expect(await test.runtime.activity({ name: "mail" })).toEqual(before)
-    expect(await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "other" }) }).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "other" }) }).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     await expect(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.labels.list", { userId: "me" })).resolves.toBeDefined()
   })
 
@@ -738,9 +739,9 @@ describe("policy", () => {
     await connect(test)
     const scheduled = test.runtime.client("mail", { actor: "schedule:gmail", traceId: "trace-1" })
     await expect(scheduled.call("mail.messages.modify", { id: "m1", userId: "me" })).resolves.toEqual({ id: "message-1" })
-    expect(await rejection(scheduled.call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(scheduled.call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     const calls = test.provider.calls.length
-    expect(await rejection(test.runtime.client("mail", { actor: "server" }).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(test.runtime.client("mail", { actor: "server" }).call("mail.labels.list", { userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     expect(test.provider.calls).toHaveLength(calls)
     const activity = await test.runtime.activity({ name: "mail" })
     expect(activity.filter(entry => entry.outcome === "denied").map(entry => ({ actor: entry.actor, operation: entry.operation }))).toEqual(expect.arrayContaining([
@@ -756,7 +757,7 @@ describe("policy", () => {
       "schedule:send": { write: ["mail.messages.send"] },
     }))
     await connect(test)
-    expect(await rejection(test.runtime.client("mail", {}).call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(test.runtime.client("mail", {}).call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
     await expect(test.runtime.client("mail", { actor: "schedule:send" }).call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" })).resolves.toEqual({ id: "message-1" })
   })
 })
@@ -770,7 +771,7 @@ describe("dry run", () => {
     await expect(client.call("mail.labels.list", { userId: "me" })).resolves.toEqual({ labels: [{ id: "INBOX" }] })
     const calls = test.provider.calls.length
     await expect(client.call("mail.messages.modify", { id: "m1", requestBody: { addLabelIds: ["L1"] }, userId: "me" })).resolves.toBeUndefined()
-    expect((await client.fetch("https://mail.example.com/x", { body: "{}", method: "POST" }).catch(error => error)).code).toBe("CONNECTION_DENIED")
+    expect((await client.fetch("https://mail.example.com/x", { body: "{}", method: "POST" }).catch(error => error)).code).toBe("CONNECTIONS_DENIED")
     expect(test.provider.calls).toHaveLength(calls)
     expect(effects).toEqual([{
       kind: "mail.messages.modify",
@@ -784,7 +785,7 @@ describe("dry run", () => {
     const test = createTestRuntime()
     await connect(test)
     const client = test.runtime.client("mail", { dryRun: true })
-    expect(await rejection(client.call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" }))).toMatchObject({ code: "CONNECTION_DENIED" })
+    expect(await rejection(client.call("mail.messages.send", { requestBody: { raw: "x" }, userId: "me" }))).toMatchObject({ code: "CONNECTIONS_DENIED" })
   })
 })
 
@@ -806,12 +807,12 @@ describe("approvals", () => {
     }
     const calls = test.provider.calls.length
     const client = test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) })
-    expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
-    expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST" }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
+    expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST" }))).toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
     expect((await test.runtime.approvals({ status: "pending" })).approvals).toEqual([])
     expect(test.provider.calls).toHaveLength(calls)
     await connect(test)
-    expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
+    expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     const [approval] = (await test.runtime.approvals({ status: "pending" })).approvals
     expect(await test.runtime.approve({ id: approval!.id })).toMatchObject({ approval: { status: "executed" } })
   })
@@ -820,8 +821,8 @@ describe("approvals", () => {
     const test = createTestRuntime(mailConnection({ "agent:labeller": { write: ["fetch"] } }))
     await connect(test)
     const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "Egg" }))
-    expect(error).toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
-    const id = isConnectionError(error) ? error.requestId! : ""
+    expect(error).toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
+    const id = approvalIdOf(error)
     expect((await test.runtime.approvals({ status: "pending" })).approvals).toEqual([expect.objectContaining({ input: expect.objectContaining({ method: "Egg" }) })])
     await test.runtime.approve({ id })
     expect(test.provider.calls.at(-1)?.method).toBe("Egg")
@@ -831,8 +832,8 @@ describe("approvals", () => {
     const test = createTestRuntime(mailConnection({ "agent:labeller": { write: ["fetch"] } }))
     await connect(test)
     const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST", body: "{}", headers: { Accept: "application/vnd.example+json" } }))
-    expect(error).toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
-    const id = isConnectionError(error) ? error.requestId! : ""
+    expect(error).toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
+    const id = approvalIdOf(error)
     await test.runtime.approve({ id })
     expect(test.provider.calls.at(-1)!.headers.get("accept")).toBe("application/vnd.example+json")
   })
@@ -841,13 +842,13 @@ describe("approvals", () => {
     const test = createTestRuntime()
     await connect(test)
     const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }), invocationId: "inv-1" }).call("mail.messages.modify", { id: "m1", requestBody: { addLabelIds: ["L1"] }, userId: "me" }))
-    const id = isConnectionError(error) ? error.requestId! : ""
+    const id = approvalIdOf(error)
     expect((await test.runtime.approvals({ status: "pending" })).approvals).toEqual([expect.objectContaining({ action: "mail.messages.modify", actor: "agent:labeller", id, invocationId: "inv-1", name: "mail", status: "pending" })])
     const calls = test.provider.calls.length
     const approved = await test.runtime.approve({ actor: "user:owner", id })
     expect(approved).toMatchObject({ approval: { decidedBy: "user:owner", status: "executed" }, result: { id: "message-1" } })
     expect(test.provider.calls.slice(calls)).toEqual([expect.objectContaining({ body: "{\"addLabelIds\":[\"L1\"]}", method: "POST" })])
-    expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTION_INVALID" })
+    expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
     const activity = await test.runtime.activity({ name: "mail" })
     expect(activity.find(entry => entry.operation === "mail.messages.modify" && entry.outcome === "succeeded")).toMatchObject({ actor: { id: "labeller", kind: "agent" }, invocationId: "inv-1" })
   })
@@ -860,7 +861,7 @@ describe("approvals", () => {
         .client("mail", { access: agentEnvAccess({ name: "labeller" }) })
         .call("mail.messages.modify", { id: "m1", userId: "me" }),
     )
-    const id = isConnectionError(error) ? error.requestId! : ""
+    const id = approvalIdOf(error)
     let finish!: (response: Response) => void
     let started!: () => void
     const dispatched = new Promise<void>((resolve) => {
@@ -897,7 +898,7 @@ describe("approvals", () => {
         ])
       }
       expect(await rejection(inspecting.approve({ id }))).toMatchObject({
-        code: "CONNECTION_INVALID",
+        code: "CONNECTIONS_INVALID_REQUEST",
       })
       finish(Response.json({ id: "message-1" }))
       expect(await replay).toMatchObject({
@@ -928,7 +929,7 @@ describe("approvals", () => {
           .client("mail", { access: agentEnvAccess({ name: "labeller" }) })
           .call("mail.messages.modify", { id: "m1", userId: "me" }),
       )
-      const id = isConnectionError(error) ? error.requestId! : ""
+      const id = approvalIdOf(error)
       await test.store.approvals.transition(id, "pending", "approved", {
         decidedAt: new Date(test.now.value).toISOString(),
         decidedBy: "user:owner",
@@ -953,10 +954,10 @@ describe("approvals", () => {
       ])
       test.now.value += 5 * 60_000
       expect((await restarted.approvals({ status: "failed" })).approvals).toEqual([
-        expect.objectContaining({ error: "CONNECTION_EXECUTION_UNKNOWN", id, status: "failed" }),
+        expect.objectContaining({ error: "CONNECTIONS_EXECUTION_UNKNOWN", id, status: "failed" }),
       ])
       expect(await rejection(restarted.approve({ id }))).toMatchObject({
-        code: "CONNECTION_INVALID",
+        code: "CONNECTIONS_INVALID_REQUEST",
       })
       expect(test.provider.calls).toHaveLength(calls)
     },
@@ -971,7 +972,7 @@ describe("approvals", () => {
     }
     test.now.value += 5 * 60_000
     expect((await test.runtime.approvals({ status: "approved" })).approvals).toEqual([])
-    expect(await test.store.approvals.get("interrupted-0")).toMatchObject({ error: "CONNECTION_EXECUTION_UNKNOWN", status: "failed" })
+    expect(await test.store.approvals.get("interrupted-0")).toMatchObject({ error: "CONNECTIONS_EXECUTION_UNKNOWN", status: "failed" })
     expect(test.provider.calls).toEqual([])
   })
 
@@ -979,20 +980,20 @@ describe("approvals", () => {
     const test = createTestRuntime()
     await connect(test)
     const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.messages.modify", { id: "m1", userId: "me" }))
-    const id = isConnectionError(error) ? error.requestId! : ""
+    const id = approvalIdOf(error)
     const calls = test.provider.calls.length
     expect(await test.runtime.deny({ actor: "user:owner", id })).toMatchObject({ decidedBy: "user:owner", status: "denied" })
     expect(test.provider.calls).toHaveLength(calls)
-    expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTION_INVALID" })
+    expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
   })
 
   it("marks a failed replay", async () => {
     const test = createTestRuntime()
     await connect(test)
     const error = await rejection(test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).call("mail.messages.modify", { id: "m1", userId: "me" }))
-    const id = isConnectionError(error) ? error.requestId! : ""
+    const id = approvalIdOf(error)
     await test.runtime.revoke({ name: "mail" })
-    expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTION_REAUTH_REQUIRED" })
-    expect((await test.runtime.approvals({})).approvals).toEqual([expect.objectContaining({ error: "CONNECTION_REAUTH_REQUIRED", id, status: "failed" })])
+    expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
+    expect((await test.runtime.approvals({})).approvals).toEqual([expect.objectContaining({ error: "CONNECTIONS_NOT_CONNECTED", id, status: "failed" })])
   })
 })

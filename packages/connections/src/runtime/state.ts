@@ -2,7 +2,8 @@ import discoveredRegistry, { database } from "#vitehub/connections/registry"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import * as v from "valibot"
 
-import { ConnectionError } from "../errors.ts"
+import { connectionsErrorDiagnostics } from "../error-diagnostics.ts"
+import { connectionResult } from "../errors.ts"
 import { createConnectionsRuntime } from "../runtime.ts"
 
 import type { ConnectionDefinitionName, ConnectionRegistryClient } from "../registry-types.ts"
@@ -35,14 +36,14 @@ function readEncryptionKey(): Uint8Array {
   const value = (processEnv.success ? processEnv.output.process?.env?.VITEHUB_CONNECTIONS_KEY : undefined) ?? (parsedCloudflareValue.success ? parsedCloudflareValue.output : undefined)
   const key = value ? decodeKey(value.trim()) : undefined
   if (key?.byteLength !== 32) {
-    throw new ConnectionError("invalid", "Connections need VITEHUB_CONNECTIONS_KEY with 32 random bytes as base64 or hex. Create one with `openssl rand -base64 32`.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "key" })
   }
   return key
 }
 
 async function defaultStore(): Promise<ConnectionStore> {
   if (!database) {
-    throw new ConnectionError("invalid", "Connections need the ViteHub Database. Enable `database` in vitehub(), or call setConnectionsRuntime() with a store.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "database" })
   }
   const { createDatabaseConnectionStore } = await import("../store.ts")
   return createDatabaseConnectionStore({ db: await database(), encryptionKey: readEncryptionKey() })
@@ -54,7 +55,7 @@ export function getConnectionsRuntime(): ConnectionsRuntime {
 }
 
 function methodProxy(client: ConnectionRuntimeClient, path: string): unknown {
-  const call = (input?: unknown, options?: { signal?: AbortSignal }) => client.call(path, input, options)
+  const call = (input?: unknown, options?: { signal?: AbortSignal }) => connectionResult(() => client.call(path, input, options))
   return new Proxy(call, {
     get(_target, property) {
       const key = v.safeParse(v.string(), property)
@@ -67,12 +68,13 @@ function methodProxy(client: ConnectionRuntimeClient, path: string): unknown {
 /**
  * Use a Connection. The client calls provider API methods with the stored token,
  * applies the Connection access policy, and records activity.
+ * Each method and `fetch()` return `[error, data]`. Config errors, for example an unknown name, throw.
  */
 export function useConnection<const TName extends ConnectionDefinitionName, const TDryRun extends boolean = false>(name: TName, options?: Omit<UseConnectionOptions, "dryRun"> & { dryRun?: TDryRun }): ConnectionRegistryClient<TName, TDryRun>
 export function useConnection<TName extends string>(name: string extends TName ? TName : never, options?: UseConnectionOptions): ConnectionClient
 export function useConnection(name: string, options: UseConnectionOptions = {}): ConnectionClient {
   const parsedName = v.safeParse(v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace.")), name)
-  if (!parsedName.success) throw new ConnectionError("invalid", "`useConnection()` requires a Connection name of at most 501 characters.")
+  if (!parsedName.success) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_NAME({ problem: "use-connection" })
   name = parsedName.output
   let client: ConnectionRuntimeClient | undefined
   const resolveClient = () => (client ??= getConnectionsRuntime().client(name, options))
@@ -80,7 +82,7 @@ export function useConnection(name: string, options: UseConnectionOptions = {}):
   return new Proxy({ name } as ConnectionClient, {
     get(target, property) {
       if (property === "name") return target.name
-      if (property === "fetch") return (input: string | URL, init?: ConnectionFetchInit) => resolveClient().fetch(input, init)
+      if (property === "fetch") return (input: string | URL, init?: ConnectionFetchInit) => connectionResult(() => resolveClient().fetch(input, init))
       const key = v.safeParse(v.string(), property)
       if (!key.success || key.output === "then" || key.output === "toJSON") return undefined
       return methodProxy({

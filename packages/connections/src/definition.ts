@@ -1,7 +1,7 @@
 import * as v from "valibot"
 
 import { isValidApiKeyProvider } from "./api-key.ts"
-import { ConnectionError } from "./errors.ts"
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import type { ConnectionApiSelection, ConnectionDefinition } from "./types.ts"
 
 const connectionValue = v.union([v.string(), v.function()])
@@ -61,6 +61,6 @@ export function defineConnection<
   const TApis extends object,
   const TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
 >(definition: ConnectionDefinition<TApis, TSelection>): ConnectionDefinition<TApis, TSelection> {
-  if (!isConnectionDefinition(definition)) throw new ConnectionError("invalid", "The Connection Definition is invalid.")
+  if (!isConnectionDefinition(definition)) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "definition" })
   return definition
 }

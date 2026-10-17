@@ -113,3 +113,11 @@ export async function connect(test: TestRuntime, token: Record<string, unknown> 
   })
   await test.runtime.complete({ code: "code-1", state })
 }
+
+/** The approval id that `CONNECTIONS_APPROVAL_REQUIRED` and `CONNECTIONS_EXECUTION_UNKNOWN` name in `why`. */
+export function approvalIdOf(error: unknown): string {
+  const why = error instanceof Error ? String(Reflect.get(error, "why") ?? "") : ""
+  const id = /(?:Request|Approval): (approval_[\w-]+)\./.exec(why)?.[1]
+  if (!id) throw new Error("Expected an approval request")
+  return id
+}

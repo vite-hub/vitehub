@@ -4,7 +4,7 @@ import { agentEnvAccess } from "../../env/test/agent-access.ts"
 import { connect, createTestRuntime, mailConnection } from "./helpers.ts"
 
 async function pending(test: ReturnType<typeof createTestRuntime>): Promise<string> {
-  await expect(test.runtime.client("mail", { access: agentEnvAccess({ name: "writer" }) }).call("mail.messages.modify", { id: "m1", userId: "me" })).rejects.toMatchObject({ code: "CONNECTION_APPROVAL_REQUIRED" })
+  await expect(test.runtime.client("mail", { access: agentEnvAccess({ name: "writer" }) }).call("mail.messages.modify", { id: "m1", userId: "me" })).rejects.toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
   const approvals = (await test.runtime.approvals({ status: "pending" })).approvals
   return approvals[0]!.id
 }
@@ -17,7 +17,7 @@ describe("approval grant binding", () => {
     await connect(test, { access_token: "reauthorized-token", expires_in: 1 })
     test.provider.valid.add("reauthorized-token")
     const before = test.provider.calls.length
-    await expect(test.runtime.approve({ id })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(test.runtime.approve({ id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_APPROVAL" })
     expect(test.provider.calls).toHaveLength(before)
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
     expect(await test.store.approvals.get(id)).toMatchObject({ status: "failed" })
@@ -31,7 +31,7 @@ describe("approval grant binding", () => {
     await connect(test, { id_token: account, access_token: "reconnected-token" })
     test.provider.valid.add("reconnected-token")
     const before = test.provider.calls.length
-    await expect(test.runtime.approve({ id })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(test.runtime.approve({ id })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_APPROVAL" })
     expect(test.provider.calls).toHaveLength(before)
     expect(await test.store.approvals.get(id)).toMatchObject({ status: "failed" })
   })
