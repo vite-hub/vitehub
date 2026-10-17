@@ -144,11 +144,23 @@ function isRequest(value: unknown): value is Request {
                     // prototype chain is temporarily detached. This prevents
                     // prototype metadata from being part of the brand proof.
                     const originalPrototype = Object.getPrototypeOf(value)
+                    const ownDescriptors = Object.getOwnPropertyDescriptors(value)
+                    const removedProperties: PropertyKey[] = []
+                    for (const key of Reflect.ownKeys(ownDescriptors)) {
+                      const descriptor = ownDescriptors[key as keyof typeof ownDescriptors]
+                      if (descriptor?.configurable) {
+                        delete (value as Record<PropertyKey, unknown>)[key]
+                        removedProperties.push(key)
+                      }
+                    }
                     Object.setPrototypeOf(value, null)
                     try {
                       getter.call(value)
                     } finally {
                       Object.setPrototypeOf(value, originalPrototype)
+                      for (const key of removedProperties) {
+                        Object.defineProperty(value, key, ownDescriptors[key as keyof typeof ownDescriptors])
+                      }
                     }
                   } catch {
                     valid = false
