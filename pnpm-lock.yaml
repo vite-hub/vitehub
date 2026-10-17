@@ -89,7 +89,7 @@ catalogs:
       version: 4.1.4
     forges:
       specifier: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
-      version: 0.0.0
+      version: 0.1.0
     proper-lockfile:
       specifier: 4.1.2
       version: 4.1.2
@@ -936,12 +936,12 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
       undici:
         specifier: 7.30.0
         version: 7.30.0
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
+        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
     devDependencies:
       '@types/json-schema':
         specifier: catalog:ai
@@ -1061,12 +1061,12 @@ importers:
       '@vite-hub/netlify-blobs-runtime':
         specifier: npm:@netlify/blobs@11.1.3
         version: '@netlify/blobs@11.1.3(patch_hash=0442d5aa3103362ea084742770306552a43b2047322742af4e5ce9782a3ba6b8)'
-      files-sdk:
-        specifier: catalog:storage
-        version: 2.6.2(0e0126661dfb3a9c78ea630da2c57da4)
       fetch-blob:
         specifier: 3.2.0
         version: 3.2.0
+      files-sdk:
+        specifier: catalog:storage
+        version: 2.6.2(0e0126661dfb3a9c78ea630da2c57da4)
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
@@ -1493,7 +1493,7 @@ importers:
     dependencies:
       '@vite-hub/agent':
         specifier: ^0.0.4
-        version: link:../agent
+        version: 0.0.4(c26b5e2ad5641094043fe7d385113867)
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1737,15 +1737,15 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
+      undici:
+        specifier: 7.30.0
+        version: 7.30.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.27.7)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
       ws:
         specifier: ^8.22.0
         version: 8.22.0
-      undici:
-        specifier: 7.30.0
-        version: 7.30.0
     devDependencies:
       '@types/node':
         specifier: catalog:tooling
@@ -1959,9 +1959,6 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
-      happy-dom:
-        specifier: 20.14.5
-        version: 20.14.5
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -8569,19 +8566,19 @@ packages:
     resolution: {integrity: sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@9978e94f04d69b21a08574724933b0f82c51f041':
-    resolution: {integrity: sha512-cqIoHttz6lHs39bDhvLv0m0gYwqvATawQhUiwP1z8RLDGBE7qCT6vVPtjDLlDRRz3g47bjHtQVakmRnhI/prmA==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@9978e94f04d69b21a08574724933b0f82c51f041}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@9978e94f04d69b21a08574724933b0f82c51f041}
     version: 0.0.37
     peerDependencies:
       effect: 4.0.0-beta.103
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822':
-    resolution: {integrity: sha512-LlFE6bvmv5/lhouvR+rnHr5JIcynqdVhL7xor+UK1wToAuF4ahFKaOB996bLjnhGgRzXbv/d+fLnOm8XZNTVkw==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
     version: 0.0.45
     peerDependencies:
       effect: 4.0.1
 
   '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041':
-    resolution: {integrity: sha512-EWRQubkdu2WuZMPkM1zMyszNTFJ4v0BLu+ZslAdpuwZdoOTM+jUOCz3HeACC3YKbufGpzXLgV1oFwnZhfp3kJQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041}
     version: 0.0.33
     engines: {node: ^22.16 || ^23.11 || >=24.10}
 
