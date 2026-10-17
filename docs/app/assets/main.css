@@ -324,6 +324,11 @@ body {
     display: block;
   }
 
+  /* Nuxt UI can render the icon as a slot element instead of an inline SVG. */
+  .vitehub-content-search-modal button[aria-label="Close"] > span {
+    display: block;
+  }
+
   .vitehub-content-search-modal button[aria-label="Close"]::before {
     content: none;
   }
