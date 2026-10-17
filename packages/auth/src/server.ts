@@ -410,7 +410,7 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     return true
   }
   catch {
-    return
+    return false
   }
 }
 
@@ -641,13 +641,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (status === 0 && (statusText !== "" || body !== null || [...normalizedHeaders].length !== 0)) return
     if (status !== 0) new Response(null, { status, statusText, headers: normalizedHeaders })
 
-    const normalizedBody = await copyAuthorizationBody(body)
-    if (normalizedBody === undefined) return
-
-    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
-      ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
-    if (body === null) return normalizedResponse
+    if (body === null) {
+      return status === 0 && statusText === "" && [...normalizedHeaders].length === 0
+        ? Response.error()
+        : new Response(null, { status, statusText, headers: normalizedHeaders })
+    }
     const bridgedBody = bridgeAuthorizationBody(body)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
