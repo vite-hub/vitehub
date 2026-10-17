@@ -144,6 +144,9 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
 
   return {
     name: pluginName,
+    // Apply after Nitro's config hook so the composed provider output is
+    // retained regardless of plugin registration order.
+    enforce: "post",
     vitehub: {
       cli: async () => {
         const { createRateLimitCliContributor } = await import(/* @vite-ignore */ "./cli.js")
