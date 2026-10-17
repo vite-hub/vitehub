@@ -2,7 +2,7 @@
 title: Sandbox concepts
 description: Understand the boundary between a Sandbox definition, its provider runtime, and the application that starts it.
 navigation.title: Concepts
-navigation.order: 3
+navigation.order: 9
 navigation.group: Concepts
 icon: i-lucide-lightbulb
 ---

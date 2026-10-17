@@ -48,6 +48,7 @@
       "@vite-hub/rate-limit": ["packages/rate-limit/src/index.ts"],
       "@vite-hub/rate-limit/*": ["packages/rate-limit/src/*"],
       "@vite-hub/runtime": ["packages/runtime/src/index.ts"],
+      "@vite-hub/runtime/*": ["packages/runtime/src/*"],
       "@vite-hub/internal/*": ["packages/internal/src/*.ts"],
       "@vite-hub/sandbox": ["packages/sandbox/src/index.ts"],
       "@vite-hub/sandbox/*": ["packages/sandbox/src/*"],

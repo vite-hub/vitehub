@@ -121,7 +121,21 @@ ViteHub is in active development. Breaking changes and removal of unused compati
 
 `docs/content/docs/` has one folder per product. Each Server Primitive folder is one docs section with its own page panel and uses the same task lanes when the product has real content for them: `index.md` (the Overview, rendered as a landing page with a hero and page cards beside the shared navigation), `get-started.md` (the Tutorial), `configure.md` (Guides), `server-api.md` (Reference), `agent-capability.md` when the primitive has an Agent Capability, `hosts.md` (Deploy), and `limits-and-errors.md` (Operate). Create a page only when the product has real content for it. Product-specific pages such as `env/bridge.md` come after the template pages. Sidebar groups combine related tasks under Learn, Build, and Deploy and operate. Each page still follows the Diátaxis model: a Tutorial teaches a first result, a Guide completes one task, Reference describes the contract, and Concepts explain choices. Set `navigation.kind` when a page needs a lane other than the standard page id mapping. `.navigation.yml` declares the section `title`, `icon`, `order`, catalog `category`, and `related` section ids. Every docs page shows the primitive rail; give a new section its rail icon in `docs/app/utils/docs-sidebar-icons.ts`, from the `@vite-hub/ui/primitive-rail` icon family. Agent-only Capabilities live under `agents/capabilities/`. Get started, the shared architecture overview, and AI resources live under `getting-started/`. Detailed concepts live with their owner package. Framework, development, and shared reference sections are reached from Get started and the catalog. When a page moves, add its old path to `docs/modules/vitehub-docs/redirects.ts` and update inbound links; `corepack pnpm exec vp run --filter vitehub-docs test:links` checks every internal link and anchor.
 
+### Content for agents
 
+Agents get each page as raw Markdown at `/raw/<page>.md`, in llms-full.txt, and through the docs MCP server. They get everything a human sees, plus agent-only blocks:
+
+```md
+::agent-only
+Run `pnpm vitehub schedule run-runtime weekday-report` to start the run that the Console button starts.
+::
+```
+
+The site renders nothing for `::agent-only`. Use it only for content that helps a coding agent and distracts a human: CLI or code equivalents of Console or UI steps, host-specific mistakes that agents make, and internals that an agent needs to debug a failure. Add a block when a real agent run or the agent docs eval shows the failure, not before. Put full option lists, edge cases, and long examples in visible content, such as `::collapsible` or a reference page, so that humans review them too. Agents get `::collapsible` content inline.
+
+A block with `skill="<name>"` is also the source of `docs/skills/vitehub/references/primitives/<name>.md`. Edit the block, not the generated file, then run `corepack pnpm --dir docs exec vp test test/agent-resources.test.ts -u`.
+
+Rules that apply to every task belong in `agentDiscovery.llms.details` in `docs/nuxt.config.ts`, which prints them at the top of llms.txt. To measure whether agent-only content helps, run the [agent docs eval](docs/evals/agent-docs/README.md).
 
 ## Downstream patch loop
 

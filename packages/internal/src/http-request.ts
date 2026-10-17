@@ -1,7 +1,6 @@
-import { Data, Effect } from "effect"
 import { Diagnostic } from "nostics"
 
-import { createEffectBoundary, EffectBoundaryFailure } from "./effect.ts"
+import { abortable } from "./abort.ts"
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type HttpRequestMethod = "GET" | "HEAD" | "POST"
@@ -83,10 +82,7 @@ function primitiveRuntimeTag(value: unknown): string | undefined {
     : undefined
 }
 
-const httpEffectBoundary = createEffectBoundary({
-  aggregateMessage: "[vitehub] HTTP request failed.",
-  interruptionMessage: "[vitehub] HTTP request was interrupted.",
-})
+const httpInterruptedMessage = "[vitehub] HTTP request was interrupted."
 
 class HttpStatusError extends Diagnostic {
   constructor(readonly status: number) {
@@ -95,10 +91,9 @@ class HttpStatusError extends Diagnostic {
   }
 }
 
-class HttpAttemptFailure extends Data.TaggedError("HttpAttemptFailure")<{
-  readonly cause: unknown
-  readonly retryable: boolean
-}> {}
+type HttpAttempt =
+  | { data: unknown, failure?: undefined, response: Response }
+  | { failure: { cause: unknown, retryable: boolean } }
 
 export async function executeHttpRequest<TOutput = unknown>(
   definition: HttpRequestDefinition,
@@ -106,9 +101,13 @@ export async function executeHttpRequest<TOutput = unknown>(
 ): Promise<HttpRequestResult<TOutput>> {
   const normalized = normalizeHttpRequest(definition)
   const responseType = options.responseType || "json"
-  const { data, response } = await httpEffectBoundary.run(
-    fetchWithRetry(normalized, responseType, options.schema, options.fetch ?? ((input, init) => fetch(input, init)), options.retryFetchError ?? (() => true)),
-    { signal: options.signal },
+  const { data, response } = await fetchWithRetry(
+    normalized,
+    responseType,
+    options.schema,
+    options.fetch ?? ((input, init) => fetch(input, init)),
+    options.retryFetchError ?? (() => true),
+    options.signal,
   )
   return {
     // SAFETY: A supplied schema validates TOutput; without one, TOutput is the caller-selected decoded response contract.
@@ -119,93 +118,90 @@ export async function executeHttpRequest<TOutput = unknown>(
   }
 }
 
-function fetchWithRetry<TOutput>(
+async function fetchWithRetry<TOutput>(
   definition: NormalizedHttpRequest,
   responseType: InternalHttpResponseType,
   schema: StandardSchemaV1<TOutput> | undefined,
   send: (input: string, init: RequestInit) => Promise<Response>,
   retryFetchError: (error: unknown) => boolean,
-): Effect.Effect<{ data: unknown, response: Response }, EffectBoundaryFailure> {
+  signal: AbortSignal | undefined,
+): Promise<{ data: unknown, response: Response }> {
   const attempts = definition.method === "GET" || definition.method === "HEAD" ? 2 : 1
-  const attempt = fetchOnce(definition, responseType, send, retryFetchError)
-  const timed = Effect.timeoutOrElse(attempt, {
-    duration: definition.timeout,
-    orElse: () => Effect.fail(new HttpAttemptFailure({
-      cause: new DOMException("This operation was aborted", "AbortError"),
-      retryable: true,
-    })),
-  })
-  return Effect.retry(timed, {
-    times: attempts - 1,
-    while: error => error.retryable,
-  }).pipe(
-    Effect.flatMap(({ data, response }) => schema
-      ? Effect.tryPromise({
-          catch: cause => new HttpAttemptFailure({ cause, retryable: false }),
-          try: async () => ({ data: await parseStandardSchema(schema, data, "HTTP response"), response }),
-        })
-      : Effect.succeed({ data, response })),
-    Effect.mapError(error => new EffectBoundaryFailure({ cause: error.cause })),
-  )
+  for (let attempt = 1; ; attempt++) {
+    const result = await fetchOnce(definition, responseType, send, retryFetchError, signal)
+    if (result.failure) {
+      if (result.failure.retryable && attempt < attempts) continue
+      throw result.failure.cause
+    }
+    if (!schema) return result
+    const { response } = result
+    return await abortable(signal, httpInterruptedMessage, async () => ({
+      data: await parseStandardSchema(schema, result.data, "HTTP response"),
+      response,
+    }))
+  }
 }
 
-function fetchOnce(
+/**
+ * Sends one request and reads its body inside the request timeout.
+ * A timeout or a caller abort stops the attempt at once, aborts the fetch, and cancels the body.
+ */
+async function fetchOnce(
   definition: NormalizedHttpRequest,
   responseType: InternalHttpResponseType,
   send: (input: string, init: RequestInit) => Promise<Response>,
   retryFetchError: (error: unknown) => boolean,
-): Effect.Effect<{ data: unknown, response: Response }, HttpAttemptFailure> {
-  return Effect.acquireUseRelease(
-    Effect.sync(() => new AbortController()),
-    controller => Effect.tryPromise({
-      catch: cause => new HttpAttemptFailure({ cause, retryable: retryFetchError(cause) }),
-      try: () => {
+  signal: AbortSignal | undefined,
+): Promise<HttpAttempt> {
+  const controller = new AbortController()
+  const timeout = new AbortController()
+  const timedOut: HttpAttempt = {
+    failure: { cause: new DOMException("This operation was aborted", "AbortError"), retryable: true },
+  }
+  const timer = setTimeout(() => timeout.abort(timedOut), definition.timeout)
+  const stop = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal
+  let response: Response | undefined
+  try {
+    return await abortable(stop, httpInterruptedMessage, async (): Promise<HttpAttempt> => {
+      try {
         const headers = new Headers(definition.headers)
         applyCookies(headers, definition.cookies)
-        return send(urlWithQuery(definition).toString(), {
+        response = await send(urlWithQuery(definition).toString(), {
           body: serializeRequestBody(definition.body, headers),
           headers,
           method: definition.method,
           signal: controller.signal,
         })
-      },
-    }).pipe(
-      Effect.flatMap((response) => {
-        if (response.ok) return decodeHttpResponse(response, responseType, definition.maxResponseBytes, controller.signal)
+      }
+      catch (cause) {
+        return { failure: { cause, retryable: retryFetchError(cause) } }
+      }
+      if (!response.ok) {
         const cause = new HttpStatusError(response.status)
-        return cancelResponseBody(response).pipe(
-          Effect.andThen(Effect.fail(new HttpAttemptFailure({
-            cause,
-            retryable: cause.status === 408 || cause.status === 429 || cause.status >= 500,
-          }))),
-        )
-      }),
-    ),
-    controller => Effect.sync(() => controller.abort()),
-  )
+        cancelResponseBody(response)
+        return { failure: { cause, retryable: cause.status === 408 || cause.status === 429 || cause.status >= 500 } }
+      }
+      try {
+        return { data: await decodeResponse(response, responseType, definition.maxResponseBytes, controller.signal), response }
+      }
+      catch (cause) {
+        return { failure: { cause, retryable: false } }
+      }
+    })
+  }
+  catch (error) {
+    if (response) cancelResponseBody(response)
+    if (error === timedOut) return timedOut
+    throw error
+  }
+  finally {
+    clearTimeout(timer)
+    controller.abort()
+  }
 }
 
-function cancelResponseBody(response: Response): Effect.Effect<void> {
-  const body = response.body
-  return body
-    ? Effect.sync(() => {
-        void body.cancel().catch(() => {})
-      })
-    : Effect.void
-}
-
-function decodeHttpResponse(
-  response: Response,
-  responseType: InternalHttpResponseType,
-  maxResponseBytes: number,
-  signal: AbortSignal,
-): Effect.Effect<{ data: unknown, response: Response }, HttpAttemptFailure> {
-  return Effect.tryPromise({
-    catch: cause => new HttpAttemptFailure({ cause, retryable: false }),
-    try: async () => ({ data: await decodeResponse(response, responseType, maxResponseBytes, signal), response }),
-  }).pipe(
-    Effect.onInterrupt(() => cancelResponseBody(response)),
-  )
+function cancelResponseBody(response: Response): void {
+  void response.body?.cancel().catch(() => {})
 }
 
 function applyCookies(headers: Headers, cookies: Record<string, string> | undefined): void {

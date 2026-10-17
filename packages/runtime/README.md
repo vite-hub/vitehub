@@ -33,6 +33,13 @@ The package declares Node.js 24 or newer. Import the root entry for portable
 Runtime contracts. When inspected, the `/node` entry reads Node process
 information and, on Linux, `/proc` and cgroup v2 files.
 
+Trace payload inspection relies on the host's platform intrinsics. Load the
+Runtime before application code replaces platform methods. The Runtime captures
+`WebAssembly.Module.exports` at import time to recognize foreign modules even
+when that method is later replaced. It cannot recover the original intrinsic
+if the host replaces it before import; payload inspection is not an isolation
+boundary for code that can modify the host's JavaScript environment.
+
 Long-lived Node services can also use `createProcessReconciler()` from the `/node`
 entry to coalesce event-driven work, run periodic repair, stop admission, and await
 tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
@@ -125,12 +132,28 @@ task. If the task needs its own background-work controller, create a separate
 Runtime Context and flush that context instead.
 
 For H3 1, H3 2, and Nuxt routes, use `getRuntimeContext(event, options?)` from
-`vite-hub/runtime/h3`. This framework entry normalizes event bindings and lifetime
-methods. The Runtime owner package has no H3 dependency.
+`@vite-hub/runtime/h3` or `vite-hub/runtime/h3`. This framework entry normalizes
+event bindings and lifetime methods. It reads the event by shape, so the Runtime
+owner package has no H3 dependency.
 
 `createExecutionContext()` always returns a complete Execution Context. It creates
 fresh empty `capabilities` and `runtimeConfig` objects when the host omits them,
 and preserves the supplied objects when the host provides them.
+
+### Invocation execution budgets
+
+`createExecutionBudget()` gives one Invocation a shared deadline, cancellation
+signal, and counters for tool calls, input bytes, output bytes, and retries.
+`child()` adds stricter limits while sharing usage with its parent. The budget
+returns a serializable `snapshot()` for inspection and throws
+`ExecutionBudgetExceededError` before a counter can exceed its limit.
+
+Agent input accepts `executionBudget` limits. The Agent runtime creates one
+Invocation-owned budget and Workspace Shell tools spend it, so separate tool
+calls cannot bypass the same limit. AI SDK model requests spend serialized prompt
+bytes on each attempt, and responses spend serialized content bytes (or content
+deltas while streaming). Provider retries and repair generations share the retry
+counter. `cancel(reason)` aborts the budget signal and clears its deadline timer.
 
 ## Understand the boundaries
 

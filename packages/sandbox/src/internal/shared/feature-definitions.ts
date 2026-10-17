@@ -218,15 +218,7 @@ export async function loadFeatureDefinitions(options: {
   }
 }
 
-export async function scanDefinitionsFromRoots(scanRoots: string[], subdir: string): Promise<ScannedDefinition[]> {
-  return (await loadFeatureDefinitions({
-    feature: subdir.slice(0, -1) || subdir,
-    scanRoots,
-    subdir,
-  })).definitions
-}
-
-export function assertNoDuplicateDefinitionNames(feature: string, definitions: Pick<ScannedDefinition, 'name' | 'handler' | '_meta'>[]) {
+function assertNoDuplicateDefinitionNames(feature: string, definitions: Pick<ScannedDefinition, 'name' | 'handler' | '_meta'>[]) {
   const seen = new Map<string, string>()
   for (const definition of definitions) {
     const existing = seen.get(definition.name)

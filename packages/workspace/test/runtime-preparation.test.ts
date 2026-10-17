@@ -357,10 +357,8 @@ describe("Workspace runtime preparation", () => {
       await blocked
       await ctx.store.writeFile("ready.md", { content: "# Ready", path: "ready.md" })
     })
-    const publish = vi.fn(async () => {})
     registerWorkspace(name, {
       loaders: [{ name: "shared-loader", load }],
-      publish: [{ name: "shared-publisher", publish }],
       store: { provider: "memory" },
     })
 
@@ -372,16 +370,14 @@ describe("Workspace runtime preparation", () => {
     release()
 
     await expect(Promise.all([firstRead, secondRead])).resolves.toEqual(["# Ready", "# Ready"])
-    expect(publish).toHaveBeenCalledOnce()
     resetWorkspaceRegistry()
   })
 
-  it("retries canceled definition synchronization before publishing", async () => {
+  it("retries canceled definition synchronization before a snapshot", async () => {
     const name = `workspace-preparation-${crypto.randomUUID()}`
     let loading!: () => void
     const loaderStarted = new Promise<void>((resolve) => { loading = resolve })
     let attempts = 0
-    const publish = vi.fn(async () => {})
     registerWorkspace(name, {
       loaders: [{
         name: "cancelable-loader",
@@ -396,7 +392,6 @@ describe("Workspace runtime preparation", () => {
           })
         },
       }],
-      publish: [{ name: "publisher", publish }],
       sources: {
         docs: custom({
           async getItem(key) { return { content: "# Ready", key } },
@@ -411,13 +406,12 @@ describe("Workspace runtime preparation", () => {
 
     const materializing = workspace.materializeSources({ abortSignal: abort.signal })
     await loaderStarted
-    const publishing = workspace.publish()
+    const snapshotting = workspace.snapshot()
     abort.abort(new DOMException("Canceled", "AbortError"))
 
     await expect(materializing).rejects.toThrow("Canceled")
-    await expect(publishing).resolves.toBeUndefined()
+    await expect(snapshotting).resolves.toBeDefined()
     expect(attempts).toBe(2)
-    expect(publish).toHaveBeenCalledTimes(2)
     resetWorkspaceRegistry()
   })
 
@@ -832,58 +826,6 @@ describe("Workspace runtime preparation", () => {
     await expect(restarted).resolves.toMatchObject({ status: "ready" })
     expect(maxActiveSnapshots).toBe(1)
     expect(snapshots).toBe(2)
-    await preparation.stop()
-  })
-
-  it("waits for publisher side effects before restarting preparation", async () => {
-    let releasePublish!: () => void
-    const publishBlocked = new Promise<void>((resolve) => { releasePublish = resolve })
-    let publishStarted!: () => void
-    const publishing = new Promise<void>((resolve) => { publishStarted = resolve })
-    let activePublications = 0
-    let maxActivePublications = 0
-    let publications = 0
-    const name = `workspace-preparation-${crypto.randomUUID()}`
-    registerWorkspace(name, {
-      loaders: [{ name: "startup", async load() {} }],
-      publish: [{
-        name: "blocking-publisher",
-        async publish() {
-          publications++
-          activePublications++
-          maxActivePublications = Math.max(maxActivePublications, activePublications)
-          if (publications === 1) {
-            publishStarted()
-            await publishBlocked
-          }
-          activePublications--
-        },
-      }],
-      sources: {
-        docs: custom({
-          getItem: async key => ({ content: "# Ready", key }),
-          getItems: async () => [{ content: "# Ready", key: "ready.md" }],
-          getKeys: async () => ["ready.md"],
-          materialize: "startup",
-        }),
-      },
-      store: { provider: "memory" },
-    })
-    const preparation = createWorkspacePreparation({ workspace: name })
-
-    const first = preparation.start()
-    await publishing
-    const stopping = preparation.stop()
-    const restarted = preparation.start()
-    await expect(Promise.race([stopping.then(() => "stopped"), Promise.resolve("pending")])).resolves.toBe("pending")
-    await expect(Promise.race([restarted.then(() => "restarted"), Promise.resolve("pending")])).resolves.toBe("pending")
-    expect(publications).toBe(1)
-    releasePublish()
-    await stopping
-    await expect(first).resolves.toMatchObject({ status: "stopped" })
-    await expect(restarted).resolves.toMatchObject({ status: "ready" })
-    expect(maxActivePublications).toBe(1)
-    expect(publications).toBe(2)
     await preparation.stop()
   })
 

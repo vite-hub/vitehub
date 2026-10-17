@@ -23,7 +23,6 @@ function isRuntimeFunction(value: unknown): boolean {
 }
 
 function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Direct SDK clients cross the untyped provider boundary.
   if (value === null || typeof value !== "object") return false
   try {
     if (Array.isArray(value)) return false

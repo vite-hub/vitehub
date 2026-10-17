@@ -8,7 +8,7 @@ import { codeHostChannelFetch, codeHostActivityComments, codeHostDeliveryEffects
 import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 import { createHash, randomUUID } from "node:crypto"
-import { CodeHostResponseError, codeHostErrorStatus, codeHostProvider, githubAppCredentials, readGitHubAppPrivateKey } from "./internal/code-host.ts"
+import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, readGitHubAppPrivateKey } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { defineCapability, trustGitHubPullRequestWorkspaceCapability } from "./capability-runtime.ts"
@@ -73,6 +73,7 @@ import { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
+import { postChannelReply } from "./internal/chat-reply.ts"
 import { getAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import {
   createGmailChannelSyncProvider,
@@ -208,6 +209,7 @@ export interface AgentChannelOptions<
   capabilities?: AgentChannelDefinition<TRuntimeConfig>["capabilities"]
   identity?: AgentChannelDefinition<TRuntimeConfig>["identity"]
   history?: AgentChannelHistory<THistoryItem>
+  instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   message?: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: boolean | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
@@ -637,9 +639,9 @@ export interface CodeHostChannelOptions<TRuntimeConfig extends AgentRuntimeConfi
   activity?: boolean | { publicUrl?: MaybeResolvable<string, AgentCallbackContext<TRuntimeConfig>> }
   /** Default: Server Env, then gitlab.com or codeberg.org. */
   baseUrl?: MaybeResolvable<string | undefined, AgentCallbackContext<TRuntimeConfig>>
-  /** Default: GITLAB_TOKEN or FORGEJO_TOKEN from Server Env. */
+  /** Default: VITEHUB_GITLAB_TOKEN or VITEHUB_FORGEJO_TOKEN from Server Env. */
   token?: MaybeResolvable<string | { unseal: () => string } | undefined, AgentCallbackContext<TRuntimeConfig>>
-  /** Required. Default: GITLAB_WEBHOOK_SECRET or FORGEJO_WEBHOOK_SECRET from Server Env. */
+  /** Required. Default: VITEHUB_GITLAB_WEBHOOK_SECRET or VITEHUB_FORGEJO_WEBHOOK_SECRET from Server Env. */
   webhookSecret?: MaybeResolvable<string | { unseal: () => string } | undefined, AgentCallbackContext<TRuntimeConfig>>
   /** Commit status name. Default: ViteHub Agent. */
   statusContext?: string
@@ -656,7 +658,7 @@ export type ForgejoChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
 
 interface CodeHostChannelServices<TRuntimeConfig extends AgentRuntimeConfig> {
   kind: "gitlab" | "forgejo"
-  provider: (context: AgentCallbackContext<TRuntimeConfig>, fetcher?: typeof fetch) => ReturnType<typeof codeHostProvider>
+  provider: (context: AgentCallbackContext<TRuntimeConfig>, fetcher?: typeof fetch) => ReturnType<typeof forgeProvider>
 }
 
 export interface DiscordAdapterOptions {
@@ -756,7 +758,7 @@ function maybeStrings(value: unknown): string[] | undefined {
 
 function githubUserMetadata(value: unknown): GitHubPullRequestCommentMetadata["user"] | undefined {
   if (!isRecord(value)) return
-  const login = maybeString(value.login)
+  const login = maybeString(value.login) || maybeString(value.username)
   const id = maybeNumber(value.id)
   const type = maybeString(value.type)
   if (!login && !id && !type) return
@@ -771,7 +773,7 @@ function githubCommentMetadata(value: unknown): GitHubPullRequestCommentMetadata
   if (!isRecord(value)) return
   const id = maybeNumber(value.id)
   if (id === undefined) return
-  const user = githubUserMetadata(value.user)
+  const user = githubUserMetadata(value.user || value.author)
   return {
     ...(maybeString(value.author_association) ? { authorAssociation: maybeString(value.author_association) } : {}),
     ...(maybeString(value.body) ? { body: maybeString(value.body) } : {}),
@@ -1210,7 +1212,7 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
     const token = services ? undefined : await githubPullRequestMetadataToken(app, context, command.installationId, command.repository).catch(() => undefined)
     const webhookUrl = new URL(command.pullRequestUrl)
     const baseUrl = appOptions.apiBaseUrl ?? `${webhookUrl.origin}${webhookUrl.pathname.replace(/\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/?$/, "")}`
-    const provider = services ? await services.provider(context) : await codeHostProvider({ host: "github", baseUrl, token, fetch: codeHostChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+    const provider = services ? await services.provider(context) : await forgeProvider({ forge: "github", baseUrl, token, fetch: codeHostChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
     const { thread, comments, files } = services
       ? await codeHostChannelMetadata(provider, { host: services.kind, instance: provider.instance, repository: command.repository, number: command.issueNumber }, { maxComments, maxFiles })
       : await codeHostPullRequestMetadata(provider, githubCodeHostTarget(command), { maxComments, maxFiles, authenticated: Boolean(token) })
@@ -1534,8 +1536,8 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
   env: Record<string, unknown>,
   context: AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ) {
-  const inline = cleanSecret(await githubAppSetting(options, env, "privateKey", "appPrivateKey", context))
-  const path = cleanSecret(await githubAppSetting(options, env, "privateKeyPath", "appPrivateKeyPath", context))
+  const inline = cleanSecret(await githubAppSetting(options, env, "privateKey", "privateKey", context))
+  const path = cleanSecret(await githubAppSetting(options, env, "privateKeyPath", "privateKeyPath", context))
   try {
     const privateKey = await readGitHubAppPrivateKey(inline, path)
     if (privateKey) return privateKey
@@ -1543,7 +1545,7 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
   catch (error) {
     throw agentDiagnostics.AGENT_R0347({ message: `[vitehub] Failed to read GitHub App privateKeyPath: ${path}`, cause: error })
   }
-  throw agentDiagnostics.AGENT_R0348({ message: "[vitehub] Missing GitHub App privateKey. github.app.privateKey, github.app.privateKeyPath, GITHUB_APP_PRIVATE_KEY, or GITHUB_APP_PRIVATE_KEY_PATH is required." })
+  throw agentDiagnostics.AGENT_R0348({ message: "[vitehub] Missing GitHub App privateKey. github.app.privateKey, github.app.privateKeyPath, VITEHUB_GITHUB_PRIVATE_KEY, or VITEHUB_GITHUB_PRIVATE_KEY_PATH is required." })
 }
 
 async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1567,7 +1569,7 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   const installationId = installation
     // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
     ?? ("effect" in context ? githubCommandFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
-    ?? requiredNumber(await githubAppSetting(options, env, "installationId", "appInstallationId", context), "installationId")
+    ?? requiredNumber(await githubAppSetting(options, env, "installationId", "installationId", context), "installationId")
   const credentials = githubAppCredentials({
     appId,
     privateKey: await githubAppPrivateKey(options, env, context),
@@ -1579,9 +1581,9 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     return (await credentials.installationToken(installationId, { signal })).token
   }
   catch (error) {
-    const status = codeHostErrorStatus(error)
+    const status = forgeErrorStatus(error)
     if (status !== undefined) throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
-    if (error instanceof CodeHostResponseError) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
+    if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
     throw error
   }
 }
@@ -1711,15 +1713,15 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
     return { appId: (await credentials.app(signal)).id }
   }
   catch (error) {
-    const status = codeHostErrorStatus(error)
+    const status = forgeErrorStatus(error)
     if (status !== undefined) throw agentDiagnostics.AGENT_R0351({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
-    if (error instanceof CodeHostResponseError) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID.", cause: error })
+    if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID.", cause: error })
     throw error
   }
 }
 
 async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
-  provider: Awaited<ReturnType<typeof codeHostProvider>>,
+  provider: Awaited<ReturnType<typeof forgeProvider>>,
   token: string,
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: GitHubAppContext<TRuntimeConfig>,
@@ -1729,13 +1731,12 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
     return await codeHostIdentity(provider, { kind: "token" })
   }
   catch (error) {
-    if (codeHostErrorStatus(error) === undefined && !(error instanceof Error && "code" in error && error.code === "AGENT_R0356")) throw error
+    if (forgeErrorStatus(error) === undefined && !(error instanceof Error && "code" in error && error.code === "AGENT_R0356")) throw error
   }
   const processEnv = globalThis.process?.env
   if (
+    // The Actions token, passed as VITEHUB_GITHUB_TOKEN, acts as github-actions[bot].
     processEnv?.GITHUB_ACTIONS === "true"
-    && !processEnv.VITEHUB_GITHUB_TOKEN
-    && !processEnv.GH_TOKEN
     && processEnv.GITHUB_TOKEN === token
   ) {
     return { login: "github-actions[bot]" }
@@ -1878,6 +1879,16 @@ function githubActivityAnswer(entry: GitHubActivityHistoryEntry): string | undef
   return githubActivityText(entry.summary, 2_000)
 }
 
+/** The live state of the current run, so an older run's answer is never read as current. */
+function githubActivityStatus(activity: AgentActivityUpdate): string | undefined {
+  const summary = activity.summary?.trim()
+  const detail = summary ? githubActivityText(summary, 2_000) : undefined
+  if (activity.status === "queued") return `Queued\n\n${detail || "Waiting for a worker slot."}`
+  if (activity.status === "running") return `In progress\n\n${detail || "The agent is working. Open the current session for live details."}`
+  if (activity.status === "waiting") return `Next step\n\n${detail || "Waiting for new pull request evidence."}`
+  return undefined
+}
+
 /** Saved PR projections and invocation events can describe the same linked session. */
 function githubActivitySessions(state: GitHubActivityCommentState): GitHubActivityCommentState {
   const sessions: GitHubActivityHistoryEntry[] = []
@@ -1899,14 +1910,19 @@ function renderGithubActivity(
   state = githubActivitySessions(state)
   const sections = [encodeGithubActivityState(state)]
   const current = state.current
-  const sessions = [current, ...state.history].filter((entry): entry is GitHubActivityHistoryEntry => !!entry && (entry.links.length > 0 || entry.status !== "queued"))
+  // Earlier runs without a session link have nothing to open; only the current run may show unlinked.
+  const sessions = [current, ...state.history].filter((entry, index): entry is GitHubActivityHistoryEntry =>
+    !!entry && (entry.links.length > 0 || (index === 0 && entry.status !== "queued")))
   const labels: Record<AgentActivityStatus, string> = {
     queued: "Starting", running: "Running", waiting: "Waiting",
     completed: "Completed", failed: "Failed", cancelled: "Cancelled",
   }
+  const status = githubActivityStatus(activity)
   if (activity.status === "queued" && !current?.links.length) {
-    sections.push(activity.summary ? githubActivityText(activity.summary, 2_000) : "Waiting to start.")
-    if (!sessions.length) return sections.join("\n\n")
+    if (!sessions.length) {
+      if (status) sections.push(status)
+      return sections.join("\n\n")
+    }
   }
   sections.push([
     "| Session | Status | Started | Duration |",
@@ -1916,15 +1932,10 @@ function renderGithubActivity(
       return `| ${links || "Pending"} | ${entry !== current && entry.status === "running" ? "Last seen running" : entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry, entry === current)} |`
     }),
   ].join("\n"))
-  let latestAnswer: string | undefined
-  for (const entry of [current, ...state.history]) {
-    if (!entry) continue
-    latestAnswer = githubActivityAnswer(entry)
-    if (latestAnswer !== undefined) break
-  }
-  if (latestAnswer) {
-    sections.push(`Latest answer\n\n${latestAnswer}`)
-  }
+  if (status) sections.push(status)
+  // Earlier answers stay in "Final answers"; only a finished current run has a latest result.
+  const latestAnswer = current && ["completed", "failed", "cancelled"].includes(current.status ?? "") ? githubActivityAnswer(current) : undefined
+  if (latestAnswer) sections.push(`Latest result\n\n${latestAnswer}`)
   if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"))
   if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1_000)}`)
   const answers = [current, ...state.history]
@@ -2001,7 +2012,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         deadline = githubActivityDeadline(context.abortSignal)
         deadline.throwIfAborted()
         const publication = async () => {
-          const provider = hostProvider || await codeHostProvider({ host: "github", baseUrl: apiBaseUrl, token, fetch: codeHostChannelFetch(fetcher), userAgent: options.userAgent })
+          const provider = hostProvider || await forgeProvider({ forge: "github", baseUrl: apiBaseUrl, token, fetch: codeHostChannelFetch(fetcher), userAgent: options.userAgent })
           const identity = services ? await githubActivityAwait(codeHostIdentity(provider, { kind: "token" }), deadline) : await githubActivityIdentity(provider, token, app, context, deadline)
           const activityKey = `${githubActivityIdentityKey(identity)}\0${commentsTarget}`
           const runId = githubActivityRunId(context.activity.agentName || "", context.activity.runId)
@@ -2207,7 +2218,7 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
       if (adapter.stream && await adapter.stream(threadId, stream) !== null) return
       let body = ""
       for await (const chunk of stream) body += chunk
-      if (body) await adapter.postMessage(threadId, { markdown: body })
+      if (body) await postChannelReply(adapter, threadId, context.run.messageId, { markdown: body })
     }
     return
   }
@@ -2264,7 +2275,7 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     : undefined
   if (adapter && context.run?.threadId) {
     try {
-      await adapter.postMessage(context.run.threadId, message)
+      await postChannelReply(adapter, context.run.threadId, context.run.messageId, message)
     }
     catch (error) {
       if (context.effect.intent === chatFinalReplyIntent) clearChatFinalReplyText(context.context)
@@ -2393,7 +2404,7 @@ async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfi
   body: string | undefined,
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
   command: GitHubPullRequestCommand,
-  provider: Awaited<ReturnType<typeof codeHostProvider>>,
+  provider: Awaited<ReturnType<typeof forgeProvider>>,
 ): Promise<PublishedAgentDeliveryArtifact[]> {
   if (!body || !context.workspace || options.artifacts === false) return []
   const paths = new Set<string>()
@@ -2421,7 +2432,7 @@ async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfi
 }
 
 async function ensureGitHubArtifactBranch(
-  provider: Awaited<ReturnType<typeof codeHostProvider>>,
+  provider: Awaited<ReturnType<typeof forgeProvider>>,
   command: GitHubPullRequestCommand,
   branch: string,
 ): Promise<void> {
@@ -2430,7 +2441,7 @@ async function ensureGitHubArtifactBranch(
     return
   }
   catch (error) {
-    const status = codeHostErrorStatus(error)
+    const status = forgeErrorStatus(error)
     if (status !== 404) {
       if (status !== undefined) throw agentDiagnostics.AGENT_R0361({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
       throw error
@@ -2442,7 +2453,7 @@ async function ensureGitHubArtifactBranch(
     await provider.request("POST", `/repos/${command.repository}/git/refs`, { body: { ref: `refs/heads/${branch}`, sha } })
   }
   catch (error) {
-    const status = codeHostErrorStatus(error)
+    const status = forgeErrorStatus(error)
     if (status === 422) return
     if (status !== undefined) throw agentDiagnostics.AGENT_R0363({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
     throw error
@@ -2450,7 +2461,7 @@ async function ensureGitHubArtifactBranch(
 }
 
 async function publishGitHubArtifact(
-  provider: Awaited<ReturnType<typeof codeHostProvider>>,
+  provider: Awaited<ReturnType<typeof forgeProvider>>,
   command: GitHubPullRequestCommand,
   branch: string,
   input: AgentDeliveryArtifactPublishInput,
@@ -2485,7 +2496,7 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
   body: string | undefined,
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
   command: GitHubPullRequestCommand,
-  provider: Awaited<ReturnType<typeof codeHostProvider>>,
+  provider: Awaited<ReturnType<typeof forgeProvider>>,
 ): Promise<string | undefined> {
   const structuredArtifacts = deliveryArtifacts(context)
   const referencedStructuredPaths = new Set(deliveryArtifactMarkdownReferencePaths(body, structuredArtifacts))
@@ -2531,7 +2542,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
 ): AgentChannelDeliveryEffects<TRuntimeConfig> {
   return codeHostDeliveryEffects({
-    provider: async context => await codeHostProvider({ host: "github", baseUrl: options.apiBaseUrl, token: await resolveEffectOption(options.token, context), fetch: codeHostChannelFetch(options.fetch || fetch), userAgent: options.userAgent }),
+    provider: async context => await forgeProvider({ forge: "github", baseUrl: options.apiBaseUrl, token: await resolveEffectOption(options.token, context), fetch: codeHostChannelFetch(options.fetch || fetch), userAgent: options.userAgent }),
     target: context => {
       const command = githubCommandFromEffect(context)
       return command ? githubCodeHostTarget(command) : undefined
@@ -2817,7 +2828,7 @@ async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntim
       const appOptions = app ? githubAppOptions(app) || {} : {}
       try {
         const token = services ? undefined : await githubPullRequestMetadataToken(app, context, maybeNumber(payload.installation?.id), repository)
-        const provider = services ? await services.provider(context) : await codeHostProvider({ host: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: codeHostChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+        const provider = services ? await services.provider(context) : await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: codeHostChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
         const pullRequest = services ? await codeHostChannelPullRequest(provider, { host: services.kind, instance: provider.instance, repository, number }) : (await codeHostChannelRead(provider, "AGENT_R0351", async () => await codeHostPullRequest(provider, { host: "github", instance: provider.instance, repository, number }))).raw
         if (isRecord(pullRequest)) {
           const hydrated = githubPullRequestFilterContext({ ...payload, pull_request: pullRequest })
@@ -3159,6 +3170,9 @@ export function defineChannel<
   if (!hasRuntimeType(kind, "string") || !kind.trim()) {
     throw agentDiagnostics.AGENT_R0371({ message: "[vitehub] defineChannel() requires a non-empty Channel kind." })
   }
+  if (options.instructions !== undefined && (!hasRuntimeType(options.instructions, "string") || !options.instructions.trim())) {
+    throw agentDiagnostics.AGENT_R0557({ message: `[vitehub] Channel "${kind}" instructions must be a non-empty string.` })
+  }
   validateChannelMessageDefinition(kind, options.message)
   validateChannelHistoryDefinition(kind, options.history, options.triggers)
   const messages: false | AgentMessageChannelSettings<TRuntimeConfig> =
@@ -3284,7 +3298,7 @@ function codeHostChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMeth
   const setting = codeHostChannelSetting(kind, options)
   const services: CodeHostChannelServices<TRuntimeConfig> = {
     kind,
-    provider: async (context, fetcher) => await codeHostProvider({ host: kind, baseUrl: await setting("baseUrl", context), token: await setting("token", context), fetch: codeHostChannelFetch(fetcher || globalThis.fetch) }),
+    provider: async (context, fetcher) => await forgeProvider({ forge: kind, baseUrl: await setting("baseUrl", context), token: await setting("token", context), fetch: codeHostChannelFetch(fetcher || globalThis.fetch) }),
   }
   const secret = async (context: AgentCallbackContext<TRuntimeConfig>) => {
     const value = await setting("webhookSecret", context)
@@ -3428,6 +3442,8 @@ export interface GmailChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   dryRun?: boolean
   /** `fetch` for Google OAuth, certificates, and the Gmail API. Defaults to the global `fetch`. */
   fetch?: typeof fetch
+  /** Instructions added to Invocations started by this Channel. */
+  instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   /**
    * Labels that the Channel manages. `vitehub channels sync` creates and colors them,
    * and message methods create a missing one on first use.
@@ -3499,6 +3515,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
     await modifyGmailMessage(await resolveClient(context), id, input, labels)
   const channel = defineChannel("gmail", {
     ...(options.capabilities ? { capabilities: options.capabilities } : {}),
+    ...(options.instructions !== undefined ? { instructions: options.instructions } : {}),
     history: {
       collection: gmailHistoryCollection(() => resolveClient(), bodyLimit),
       key: message => message.id,
