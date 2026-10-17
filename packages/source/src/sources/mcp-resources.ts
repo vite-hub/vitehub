@@ -483,7 +483,7 @@ async function createEntries<TKey extends string>(
     const key = resourceKey(resolvedResource, options)
     if (!shouldInclude(key, options)) continue
     const existingUri = seen.get(key)
-    if (existingUri) {
+    if (seen.has(key)) {
       throw sourceError(`[vitehub] mcpResources produced duplicate path ${JSON.stringify(key)} for ${JSON.stringify(existingUri)} and ${JSON.stringify(resource.uri)}.`)
     }
     seen.set(key, resource.uri)

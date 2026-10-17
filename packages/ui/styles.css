@@ -4741,7 +4741,8 @@ button.vh-agent-tool-list__count:focus-visible {
     position: absolute;
     transition: background-color 150ms ease;
     transform: translateX(-50%);
-    width: 2rem;
+    min-width: 2rem;
+    padding-inline: 0.5rem;
   }
 
   [data-slot="message-scroller-button"]:hover {

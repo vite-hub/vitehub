@@ -34,8 +34,7 @@ export const CodeBlockCopyButton = defineComponent({
     let timeout: ReturnType<typeof setTimeout> | undefined;
     onBeforeUnmount(() => clearTimeout(timeout));
     const copy = () =>
-      navigator.clipboard
-        .writeText(props.value)
+      (navigator.clipboard?.writeText(props.value) ?? Promise.reject(new Error("Clipboard API unavailable")))
         .then(() => {
           copied.value = true;
           clearTimeout(timeout);
@@ -115,6 +114,7 @@ export const CodeBlockContent = defineComponent({
       return h(
         "pre",
         {
+          "data-allow-mismatch": "children",
           "data-numbered": props.lineNumbers ? "" : undefined,
           "data-slot": "code-block-content",
           "data-wrap": props.wrap ? "" : undefined,

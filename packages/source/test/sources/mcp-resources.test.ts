@@ -136,6 +136,29 @@ describe("mcpResources", () => {
     await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual(["empty/first.txt", "empty/second.txt"])
   })
 
+  it("rejects duplicate paths even when the first resource URI is empty", async () => {
+    const source = mcpResources({
+      path: () => "duplicate.txt",
+      server: {
+        async listResources() {
+          return {
+            resources: [
+              { name: "first", uri: "" },
+              { name: "second", uri: "resource://second" },
+            ],
+          }
+        },
+        async readResource({ uri }) {
+          return { contents: [{ text: uri, uri }] }
+        },
+      },
+    })
+
+    await expect(source.getKeys({ rootDir: "/tmp" })).rejects.toThrow(
+      'mcpResources produced duplicate path "duplicate.txt"',
+    )
+  })
+
   it("reads MCP resource contents and metadata", async () => {
     const source = mcpResources({ server: createClient() })
 

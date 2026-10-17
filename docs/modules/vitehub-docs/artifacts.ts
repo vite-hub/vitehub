@@ -372,6 +372,7 @@ function pagePath(sectionId: string, pageId: string) {
 }
 
 function pageTitleFromMeta(pageId: string, meta: Record<string, unknown>) {
+  if (pageId === "get-started") return "Get started";
   return String(meta["navigation.title"] || meta.title || titleCase(pageId === "index" ? "overview" : pageId));
 }
 

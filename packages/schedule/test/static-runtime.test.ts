@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm"
 
 import { describe, expect, it } from "vitest"
 
-import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, unwrapScheduleDefinition } from "../src/runtime/static.ts"
+import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, normalizeScheduleRuntimeError, unwrapScheduleDefinition } from "../src/runtime/static.ts"
 
 import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
@@ -264,4 +264,100 @@ describe("Static Schedule runtime", () => {
     await expect(execution).rejects.toThrow("handler failed")
     expect(deferredCompleted).toBe(true)
   })
+})
+
+it("preserves errors raised in another runtime realm", async () => {
+  const foreign = runInNewContext("new Error('foreign failure')") as Error
+  expect(normalizeScheduleRuntimeError(foreign)).toBe(foreign)
+})
+
+it("uses the intrinsic Error prototype when Error.isError is unavailable", () => {
+  const errorConstructor = Error as ErrorConstructor & { isError?: (value: unknown) => boolean }
+  const nativeIsError = errorConstructor.isError
+  errorConstructor.isError = undefined
+  try {
+    const taggedForeign = runInNewContext(`(() => {
+      const error = new Error('tagged foreign failure')
+      Object.defineProperty(error, Symbol.toStringTag, { value: 'ProviderError' })
+      return error
+    })()`) as Error
+    const fake = Object.create({ [Symbol.toStringTag]: "Error" })
+    const foreignPrototypeSpoof = runInNewContext("Object.create(Error.prototype)")
+    expect(normalizeScheduleRuntimeError(taggedForeign)).toBe(taggedForeign)
+    expect(normalizeScheduleRuntimeError(fake)).toMatchObject({ code: "SCHEDULE_R0035", cause: fake })
+    expect(normalizeScheduleRuntimeError(foreignPrototypeSpoof)).toMatchObject({
+      code: "SCHEDULE_R0035",
+      cause: foreignPrototypeSpoof,
+    })
+  }
+  finally {
+    errorConstructor.isError = nativeIsError
+  }
+})
+
+it("wraps spoofed and hostile thrown values safely", () => {
+  const spoof = { [Symbol.toStringTag]: "Error" }
+  const customPrototypeSpoof = Object.create({ [Symbol.toStringTag]: "Error" })
+  const hostile = new Proxy({}, {
+    get() {
+      throw new Error("tag access failed")
+    },
+    getPrototypeOf() {
+      throw new Error("prototype access failed")
+    },
+  })
+
+  expect(normalizeScheduleRuntimeError(spoof)).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
+  expect(normalizeScheduleRuntimeError(customPrototypeSpoof)).toMatchObject({ code: "SCHEDULE_R0035", cause: customPrototypeSpoof })
+  const normalizedHostile = normalizeScheduleRuntimeError(hostile)
+  expect(normalizedHostile).toMatchObject({ code: "SCHEDULE_R0035" })
+  expect(normalizedHostile.cause).toBe(hostile)
+})
+
+it("does not trust a replaced Error.isError predicate", () => {
+  const errorConstructor = Error as ErrorConstructor & { isError?: (value: unknown) => boolean }
+  const nativeIsError = errorConstructor.isError
+  errorConstructor.isError = () => true
+  const spoof = { message: "not an Error" }
+  let normalized: Error
+  try {
+    normalized = normalizeScheduleRuntimeError(spoof)
+  }
+  finally {
+    errorConstructor.isError = nativeIsError
+  }
+  expect(normalized).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
+})
+
+it("does not trust a replaced util.types.isNativeError predicate", () => {
+  const processWithBuiltinModule = process as typeof process & {
+    getBuiltinModule?: (name: string) => unknown
+  }
+  const util = processWithBuiltinModule.getBuiltinModule?.("util") as {
+    types?: { isNativeError?: (value: unknown) => boolean }
+  } | undefined
+  if (typeof util?.types?.isNativeError !== "function") return
+
+  const nativeIsNativeError = util.types.isNativeError
+  util.types.isNativeError = () => true
+  const spoof = { message: "not an Error" }
+  let normalized: Error
+  try {
+    normalized = normalizeScheduleRuntimeError(spoof)
+  }
+  finally {
+    util.types.isNativeError = nativeIsNativeError
+  }
+  expect(normalized).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
+})
+
+it("wraps values whose coercion throws the runtime failure message", () => {
+  const thrownValue = {
+    toString() {
+      throw new Error("runtime error coercion failed")
+    },
+  }
+  const normalized = normalizeScheduleRuntimeError(thrownValue)
+  expect(normalized).toMatchObject({ code: "SCHEDULE_R0035" })
+  expect(normalized.cause).toBe(thrownValue)
 })
