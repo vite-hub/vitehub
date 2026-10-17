@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
-import { hasCloudflareSqlExec } from "../src/cloudflare-sql.ts"
+import { hasCloudflareSqlExec, hasNativeCloudflareSql } from "../src/cloudflare-sql.ts"
 
 describe("Cloudflare SQL carrier discovery", () => {
   it("accepts an explicit own data executor", () => {
-    expect(hasCloudflareSqlExec({ exec: () => ({ toArray: () => [] }) })).toBe(true)
+    const adapter = { exec: () => ({ toArray: () => [] }) }
+    expect(hasCloudflareSqlExec(adapter)).toBe(true)
+    expect(hasNativeCloudflareSql(adapter)).toBe(false)
   })
 
   it("does not invoke an own executor getter", () => {

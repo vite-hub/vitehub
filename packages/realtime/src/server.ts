@@ -57,7 +57,7 @@ import {
 import { readRealtimeRequestState } from "./transport.ts"
 import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
-import { hasCloudflareSqlExec } from "./cloudflare-sql.ts"
+import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
 
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
@@ -620,14 +620,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (!storage || typeof storage !== "object") return undefined
     const descriptor = Object.getOwnPropertyDescriptor(storage, "sql")
     if (descriptor) {
-      if ("value" in descriptor) return hasCloudflareSqlExec(descriptor.value) ? descriptor.value : undefined
+      if ("value" in descriptor) return hasNativeCloudflareSql(descriptor.value) ? descriptor.value : undefined
       const getter = descriptor.get
       if (typeof getter !== "function") return undefined
       const source = Function.prototype.toString.call(getter)
       if (!/^function\s+get\s+sql\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
       try {
         const sql = Reflect.get(storage, "sql")
-        return hasCloudflareSqlExec(sql) ? sql : undefined
+        return hasNativeCloudflareSql(sql) ? sql : undefined
       }
       catch {
         return undefined
@@ -644,7 +644,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         if (!/^function\s+get\s+sql\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
         try {
           const sql = Reflect.get(storage, "sql")
-          return hasCloudflareSqlExec(sql) ? sql : undefined
+          return hasNativeCloudflareSql(sql) ? sql : undefined
         }
         catch {
           return undefined

@@ -2,14 +2,13 @@ export interface RealtimeRoomSql {
   exec(query: string, ...bindings: unknown[]): { toArray(): Array<Record<string, unknown>> }
 }
 
-/** Accept explicit adapters and the native workerd SqlStorage receiver. */
-export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
+function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql is RealtimeRoomSql {
   if (sql === null || Object(sql) !== sql) return false
   try {
     const ownExec = Object.getOwnPropertyDescriptor(sql, "exec")
     if (ownExec) {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SQL adapters must provide a callable own data property without invoking accessors.
-      return "value" in ownExec && typeof ownExec.value === "function"
+      return allowOwnExec && "value" in ownExec && typeof ownExec.value === "function"
     }
 
     const prototype = Object.getPrototypeOf(sql)
@@ -69,4 +68,14 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
   catch {
     return false
   }
+}
+
+/** Accept explicit adapters and the native workerd SqlStorage receiver. */
+export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
+  return hasCloudflareSqlExecInternal(sql, true)
+}
+
+/** Accept only the branded workerd SqlStorage receiver, never explicit adapters. */
+export function hasNativeCloudflareSql(sql: unknown): sql is RealtimeRoomSql {
+  return hasCloudflareSqlExecInternal(sql, false)
 }
