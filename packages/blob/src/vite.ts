@@ -368,10 +368,13 @@ async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConf
   await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase, authorizeModule))
 }
 
-function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"]) {
+function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCloudflareR2 = false) {
   if (!blob) return
   const stores = Object.values(blob.stores ?? { default: blob.store })
-  const missing = findMissingFilesSdkPeers(stores.map(store => store.driver))
+  const skipDrivers = nativeCloudflareR2 && stores.some(store => store.driver === "cloudflare-r2" && Boolean(store.bucketName))
+    ? ["cloudflare-r2" as const]
+    : []
+  const missing = findMissingFilesSdkPeers(stores.map(store => store.driver), undefined, skipDrivers)
   if (!missing.length) return
   const lines = missing.map(({ driver, peers }) => `The "${driver}" blob driver requires ${peers.join(", ")}.`)
   const install = [...new Set(missing.flatMap(({ peers }) => peers))].join(" ")
@@ -457,7 +460,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       providerOutput = useProviderOutputCatalog(config)
       runtimeConfig = blobConfig
-      if (config.command === "build") assertDriverSdksInstalled(blobConfig.blob)
+      if (config.command === "build") assertDriverSdksInstalled(blobConfig.blob, cloudflareOwnedByNitro)
       const hosting = getNitroHostingProvider(configuredNitro)
         ?? (resolveNitroVercelFunctionName(config, "blob") ? "vercel" : undefined)
       await refreshBlobGeneratedFiles(

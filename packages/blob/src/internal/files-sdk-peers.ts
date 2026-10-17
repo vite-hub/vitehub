@@ -6,8 +6,7 @@ export const filesSdkDriverPeers = {
   akamai: s3Peers,
   azure: ["@azure/identity", "@azure/storage-blob"],
   box: ["box-typescript-sdk-gen"],
-  // Native Cloudflare R2 uses the Workers binding and does not load the S3 SDK.
-  "cloudflare-r2": [],
+  "cloudflare-r2": s3Peers,
   "digitalocean-spaces": s3Peers,
   dropbox: ["dropbox"],
   fs: [],
@@ -33,9 +32,12 @@ export function getFilesSdkPeerInstall(driver: BlobDriver) {
 export function findMissingFilesSdkPeers(
   drivers: Iterable<BlobDriver>,
   resolvePeer: (id: string) => unknown = id => import.meta.resolve(id),
+  skipDrivers: Iterable<BlobDriver> = [],
 ): Array<{ driver: BlobDriver, peers: string[] }> {
+  const skipped = new Set(skipDrivers)
   const missing: Array<{ driver: BlobDriver, peers: string[] }> = []
   for (const driver of new Set(drivers)) {
+    if (skipped.has(driver)) continue
     const peers = filesSdkDriverPeers[driver].filter(id => !isInstalled(id, resolvePeer))
     if (peers.length) missing.push({ driver, peers })
   }
