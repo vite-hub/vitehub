@@ -38,160 +38,33 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 function isRequest(value: unknown): value is Request {
   try {
     if (value === null || typeof value !== "object") return false
-    // A native accessor performs the Request internal-slot check without
-    // consulting properties supplied by the candidate. This covers the
-    // current realm directly, including subclasses, while rejecting objects
-    // that merely inherit Request.prototype and copy its methods.
-    const bodyUsedGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
-    if (typeof bodyUsedGetter !== "function") return false
+    const nativeGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
+    if (typeof nativeGetter !== "function") return false
     try {
-      bodyUsedGetter.call(value)
+      nativeGetter.call(value)
       return true
     } catch {
-      // Fetch implementations in another realm have their own accessors.
       if (Object.prototype.toString.call(value) !== "[object Request]") return false
-      // Locate that realm's genuine Request prototype and use its native
-      // bodyUsed getter; copied methods on a forged prototype still fail the
-      // internal-slot check.
-      let branded = false
-      let valid = true
-      let reachedObjectPrototype = false
       let prototype: object | null = value
       const visited = new Set<object>()
       while (prototype !== null) {
         if (visited.has(prototype)) return false
         visited.add(prototype)
-        const objectConstructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (typeof objectConstructor === "function" && objectConstructor.name === "Object" && objectConstructor.prototype === prototype) {
-          reachedObjectPrototype = true
-        }
-        const constructor = objectConstructor
-        const getter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
         if (typeof constructor === "function" && constructor.name === "Request"
-          && constructor.prototype === prototype && typeof getter === "function") {
-          try {
-            // A genuine Web IDL accessor performs its receiver brand check
-            // before reading any state. Candidate-owned getters that merely
-            // return a Request-shaped value must not be accepted as proof of
-            // Request identity.
-            try {
-              getter.call({})
-              valid = false
-            } catch {
-              // Expected for an unrelated receiver.
-            }
-            if (!valid) {
-              prototype = Object.getPrototypeOf(prototype)
-              continue
-            }
-            const prototypeDescriptor = Object.getOwnPropertyDescriptor(constructor, "prototype")
-            if (!prototypeDescriptor || prototypeDescriptor.writable || prototypeDescriptor.configurable) {
-              valid = false
-            } else {
-              // Validate that this constructor and accessor belong together.
-              const probe = new constructor("https://example.test")
-              if (Object.getPrototypeOf(probe) !== prototype) {
-                valid = false
-              } else {
-                // A genuine Web IDL accessor must reject an unrelated
-                // receiver. This guards against a caller-supplied getter
-                // that simply returns a boolean while its headers getter
-                // returns a genuine Headers instance.
-                // Check the complete set of Request accessors from this
-                // prototype. Every native Web IDL accessor rejects an
-                // unrelated receiver; checking several prevents a forged
-                // bodyUsed-only prototype from being accepted.
-                const accessors = ["bodyUsed", "headers", "url", "method"] as const
-                // Probe with opaque receivers created after inspecting the
-                // candidate. A caller-controlled accessor can distinguish a
-                // few known probe objects, but it cannot make those objects
-                // genuine Request receivers. Requiring the Web IDL failure
-                // for both shapes keeps the fallback fail-closed.
-                const unrelatedReceivers = [Object.create(null), Object.create(Object.prototype)]
-                for (const name of accessors) {
-                  const accessor = Object.getOwnPropertyDescriptor(prototype, name)?.get
-                  if (typeof accessor !== "function") {
-                    valid = false
-                    break
-                  }
-                  // Web IDL accessors reject unrelated receivers, then accept
-                  // requests from their own realm and the candidate. A
-                  // current-realm Request is deliberately not used as a
-                  // rejection probe: implementations are allowed to expose
-                  // accessors that only recognize their own realm's objects.
-                  for (const receiver of [{}, ...unrelatedReceivers]) {
-                    try {
-                      accessor.call(receiver)
-                      valid = false
-                      break
-                    } catch {
-                      // Expected for unrelated and cross-realm receivers.
-                    }
-                  }
-                  if (!valid) break
-                  try {
-                    accessor.call(probe)
-                    accessor.call(value)
-                  } catch {
-                    valid = false
-                    break
-                  }
-                }
-                if (valid) {
-                  try {
-                    // A genuine Fetch accessor validates internal slots, so it
-                    // remains usable when the candidate's user-controlled
-                    // prototype chain is temporarily detached. This prevents
-                    // prototype metadata from being part of the brand proof.
-                    const originalPrototype = Object.getPrototypeOf(value)
-                    const ownDescriptors = Object.getOwnPropertyDescriptors(value)
-                    const removedProperties: PropertyKey[] = []
-                    for (const key of Reflect.ownKeys(ownDescriptors)) {
-                      const descriptor = ownDescriptors[key as keyof typeof ownDescriptors]
-                      if (descriptor?.configurable) {
-                        delete (value as Record<PropertyKey, unknown>)[key]
-                        removedProperties.push(key)
-                      }
-                    }
-                    Object.setPrototypeOf(value, null)
-                    try {
-                      getter.call(value)
-                    } finally {
-                      Object.setPrototypeOf(value, originalPrototype)
-                      for (const key of removedProperties) {
-                        Object.defineProperty(value, key, ownDescriptors[key as keyof typeof ownDescriptors])
-                      }
-                    }
-                  } catch {
-                    valid = false
-                  }
-                }
-                if (valid) {
-                  const headers = Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
-                  const headersPrototype = headers && Object.getPrototypeOf(headers)
-                  const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
-                  if (typeof headersGet !== "function") {
-                    valid = false
-                  } else {
-                    headersGet.call(headers, "x-vite-hub-brand")
-                    branded = true
-                  }
-                }
-              }
-            }
-          } catch {
-            // Every Request prototype in the chain must accept the receiver.
-            // This rejects a forged accessor layered over a native prototype.
-            valid = false
-          }
+          && constructor.prototype === prototype && typeof bodyGetter === "function") {
+          bodyGetter.call(value)
+          const headers = Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
+          const headersPrototype = headers && Object.getPrototypeOf(headers)
+          const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
+          if (typeof headersGet !== "function") return false
+          headersGet.call(headers, "x-vite-hub-brand")
+          return true
         }
-        try {
-          prototype = Object.getPrototypeOf(prototype)
-        } catch {
-          return false
-        }
+        prototype = Object.getPrototypeOf(prototype)
       }
-      return branded && valid && reachedObjectPrototype
+      return false
     }
   } catch {
     return false
