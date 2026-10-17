@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { executeHttpRequest, parseStandardSchema } from "@vite-hub/internal/http-request"
 import { posix } from "node:path"
 
@@ -226,13 +227,11 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
   const normalized = method === undefined
     ? "GET"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- fetch() accepts untrusted runtime options at its public boundary.
-    : typeof method === "string"
+    : hasRuntimeType(method, "string")
       ? method.toUpperCase()
       : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Preserve a safe diagnostic label for malformed runtime method values.
-    const label = typeof method === "string" ? method : typeof method
+    const label = hasRuntimeType(method, "string") ? method : typeof method
     throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }
   return normalized
@@ -478,9 +477,7 @@ function serializedQuery(query: Record<string, unknown> | undefined): Record<str
 }
 
 function serializeFetchSourceContent(value: unknown, responseType: FetchSourceResponseType): WorkspaceContent {
-  if (isWorkspaceBytes(value)) {
-    return value instanceof Uint8Array ? value : Uint8Array.from(value)
-  }
+  if (isWorkspaceBytes(value)) return value instanceof Uint8Array ? value : Uint8Array.from(value)
   if (responseType === "json") return JSON.stringify(value, null, 2) ?? "null"
   if (typeof value === "string") return value
   return typeof value === "undefined" ? "" : String(value)

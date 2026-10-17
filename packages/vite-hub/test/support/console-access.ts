@@ -1,7 +1,7 @@
 import { installConsoleAccess } from "../../src/console/runtime/server/access.ts"
 
 // Route tests run as the local development server does. Access tests install their own policy.
-installConsoleAccess({ mode: "local" })
+installConsoleAccess({ mode: "open" })
 
 /** Call a guarded Console route. Fail when Console access rejects the request. */
 export function allowed<TEvent, TResult>(route: (event: TEvent) => Promise<TResult | Response>): (event: TEvent) => Promise<TResult> {

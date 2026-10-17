@@ -61,6 +61,7 @@ import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDir
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl, withAgentChatApprovalGrant } from "../internal/chat-approvals.ts"
 import { agentChatInvocationIdHeader } from "../internal/routes.ts"
+import { interruptedChatRetrySuffix, isChatReplyTargetId } from "../internal/chat-reply.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
@@ -743,7 +744,6 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored custom verifier objects require verification independently of shared secrets.
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
   if (registration.secretToken !== undefined) return (await resolveWebhookSecret(registration.secretToken, context)) !== false
   return requireConfiguredSecret && registration.secretHeader !== undefined
@@ -860,27 +860,31 @@ function logChannelListener(event: string, provider: string, listenerId: string,
 }
 
 function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker): Thread {
+  const observe = async <T>(send: () => Promise<T>): Promise<T> => {
+    await recordChannelDeliveryEvidence(delivery, { type: "outbound.started" })
+    try {
+      const message = await send()
+      await recordChannelDeliveryEvidence(delivery, {
+        // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
+        messageId: agentChannelDeliverySourceValue((message as { id?: unknown }).id),
+        type: "outbound.completed",
+      })
+      return message
+    } catch (error) {
+      await recordChannelDeliveryEvidence(delivery, {
+        error: channelDeliveryError(error),
+        type: "outbound.failed",
+      })
+      throw error
+    }
+  }
   return new Proxy(thread, {
     get(target, property) {
       if (property === "post") {
-        return async (...args: Parameters<Thread["post"]>) => {
-          await recordChannelDeliveryEvidence(delivery, { type: "outbound.started" })
-          try {
-            const message = await target.post(...args)
-            await recordChannelDeliveryEvidence(delivery, {
-              // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
-              messageId: agentChannelDeliverySourceValue((message as { id?: unknown }).id),
-              type: "outbound.completed",
-            })
-            return message
-          } catch (error) {
-            await recordChannelDeliveryEvidence(delivery, {
-              error: channelDeliveryError(error),
-              type: "outbound.failed",
-            })
-            throw error
-          }
-        }
+        return async (...args: Parameters<Thread["post"]>) => await observe(() => target.post(...args))
+      }
+      if (property === "reply") {
+        return async (...args: Parameters<Thread["reply"]>) => await observe(() => target.reply(...args))
       }
       const value = Reflect.get(target, property, target)
       return isRuntimeFunction(value) ? value.bind(target) : value
@@ -1070,10 +1074,12 @@ function persistedWebhookRequest(
   body: string,
   webhookId: string,
   ownership: {
+    busy?: string
     concurrencyGroup?: string
     concurrencyKey?: string
     concurrencyLimit: number
     concurrencyTtlMs?: number
+    debounce?: { delayMs: number, key: string }
   },
   scope: string,
   agentName: string,
@@ -1081,6 +1087,7 @@ function persistedWebhookRequest(
   rehydrate?: boolean,
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
+  const debounce = webhookDebounce(ownership)
   const concurrencyGroup = `${encodeURIComponent(agentName)}:${encodeURIComponent(ownership.concurrencyGroup?.trim() || "default")}`
   return {
     channelDeliveryId,
@@ -1089,6 +1096,7 @@ function persistedWebhookRequest(
     concurrencyLimit: ownership.concurrencyLimit,
     deliveryId,
     enqueuedAt,
+    ...(debounce ? { availableAt: enqueuedAt + debounce.delayMs, debounceKey: debounce.key } : {}),
     ...(invocation ? { invocation } : {}),
     leaseTtlMs: positiveWebhookDuration(ownership.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs"),
     ...(rehydrate ? { rehydrate: true as const } : {}),
@@ -1314,6 +1322,26 @@ async function steerQueuedWebhookDelivery(
       await state.releaseLock(lock)
     }
   }
+}
+
+function webhookDebounce(ownership: { busy?: string, debounce?: unknown }): { delayMs: number, key: string } | undefined {
+  const debounce = ownership.debounce
+  if (debounce === undefined) return undefined
+  if (ownership.busy === "steer") {
+    throw agentDiagnostics.AGENT_R0776({ message: "[vitehub] Webhook delivery ownership debounce is not available with busy: \"steer\"." })
+  }
+  if (!isRecord(debounce) || !isRuntimeString(debounce.key) || !debounce.key.trim() || !isRuntimeNumber(debounce.delayMs) || !Number.isSafeInteger(debounce.delayMs) || debounce.delayMs < 0) {
+    throw agentDiagnostics.AGENT_R0776({ message: "[vitehub] Webhook delivery ownership debounce needs a non-empty key and a non-negative integer delayMs." })
+  }
+  return { delayMs: debounce.delayMs, key: debounce.key }
+}
+
+// A debounced delivery is superseded once a later delivery with the same key is queued in its scope.
+async function supersededWebhookDelivery(state: AgentWebhookQueueStateAdapter, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
+  if (!delivery.debounceKey) return false
+  const queued = await state.queuedWebhookDeliveries(delivery.scope)
+  const index = queued.findIndex(item => item.deliveryId === delivery.deliveryId)
+  return index !== -1 && queued.slice(index + 1).some(item => item.debounceKey === delivery.debounceKey)
 }
 
 function positiveWebhookDuration(value: number | undefined, fallback: number, name: string): number {
@@ -1558,6 +1586,13 @@ async function executeQueuedWebhookDelivery(
     const retryAt = Date.now() + defaultWebhookQueueRetryMs
     await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt, { incrementAttempts: false })
     return retryAt
+  }
+  if (await supersededWebhookDelivery(state, delivery)) {
+    if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+      const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
+      await channelDelivery?.event({ type: "superseded" }).catch(() => undefined)
+    }
+    return
   }
   if (delivery.attempts >= maxWebhookQueueAttempts) {
     const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
@@ -4140,11 +4175,15 @@ function createChatSdkConfig(adapterName: string, adapter: Adapter, state: State
   const identity: ChatConfig["identity"] =
     options?.identity ?? (options?.transcripts ? ({ author }) => (author.isBot === true ? null : `${adapterName}:${author.userId}`) : undefined)
   const concurrency = chatSdkOption<ChatConfig["concurrency"] | "parallel" | "serial" | "steer">(options, "concurrency")
+  const debounceMs = chatSdkOption<number>(options, "debounceMs")
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
   return objectWithoutUndefined({
     adapters: { [adapterName]: adapter },
     // Steering must reach the running provider instead of waiting in Chat SDK's queue.
-    concurrency: concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
+    // With debounceMs, a burst of messages first starts one handler with the earlier messages as skipped context.
+    concurrency: concurrency === "steer" && isRuntimeNumber(debounceMs) && Number.isFinite(debounceMs) && debounceMs >= 0
+      ? { debounceMs, strategy: "burst" }
+      : concurrency === "parallel" || concurrency === "steer" ? "concurrent" : concurrency === "serial" ? "queue" : concurrency,
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
     identity,
@@ -4526,7 +4565,7 @@ async function chatTriggerMessages(
     includeReplyAttachmentInput: true,
     rejectOversizedTextAttachments: true,
   })
-  const queued = options?.concurrency === "queue"
+  const queued = options?.concurrency === "queue" || options?.concurrency === "steer"
     ? await Promise.all((messageContext?.skipped ?? []).map(item => chatSdkMessageToUiMessage(item, undefined, {
         includeReplyAttachmentInput: true,
         rejectOversizedTextAttachments: true,
@@ -4711,6 +4750,20 @@ function chatMessageDeliveryArtifacts(message: AgentChatMessage): readonly Publi
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
 }
 
+// Chat SDK keeps the triggering message only on the handler's ThreadImpl. Read it by shape, because an adapter can load another copy of `chat`.
+function chatReplyTargetId(thread: Thread): string | undefined {
+  if (!thread.adapter.reply) return undefined
+  const target: unknown = Reflect.get(thread, "_currentMessage")
+  if (!isRecord(target) || target.threadId !== thread.id || (isRecord(target.author) && (target.author.isMe === true || target.author.isBot === true))) return undefined
+  return isChatReplyTargetId(target.id) ? target.id : undefined
+}
+
+/** Answers the triggering message as a native reply when the adapter supports it. */
+async function postChatReply(thread: Thread, message: AdapterPostableMessage): Promise<unknown> {
+  const targetId = chatReplyTargetId(thread)
+  return targetId ? await thread.reply(targetId, message) : await thread.post(message)
+}
+
 async function postChatMessage(thread: Thread, message: AgentChatMessage, abortSignal?: AbortSignal): Promise<void> {
   message = formatChannelCitationMessage(message)
   if (isAsyncIterable(message)) {
@@ -4729,7 +4782,7 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
   }
   if (!isRuntimeObject(message) || message === null) {
     if (await postDiscordSplitContent(thread, message, abortSignal)) return
-    await removeAbortedChatDelivery(await thread.post(message), abortSignal)
+    await removeAbortedChatDelivery(await postChatReply(thread, message), abortSignal)
     return
   }
 
@@ -4738,12 +4791,12 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     const postable = isTextChatMessage(message) ? message.text : (message as AdapterPostableMessage)
     if (await postDiscordSplitContent(thread, postable, abortSignal)) return
-    await removeAbortedChatDelivery(await thread.post(postable), abortSignal)
+    await removeAbortedChatDelivery(await postChatReply(thread, postable), abortSignal)
     return
   }
 
   if (isTextChatMessage(message)) {
-    await removeAbortedChatDelivery(await thread.post({ attachments, raw: message.text }), abortSignal)
+    await removeAbortedChatDelivery(await postChatReply(thread, { attachments, raw: message.text }), abortSignal)
     return
   }
 
@@ -4755,7 +4808,7 @@ async function postChatMessage(thread: Thread, message: AgentChatMessage, abortS
   }
   await removeAbortedChatDelivery(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    await thread.post({
+    await postChatReply(thread, {
       ...postable,
       // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
       attachments: [...(Array.isArray(postable.attachments) ? (postable.attachments as Attachment[]) : []), ...attachments],
@@ -5320,6 +5373,11 @@ async function admitChatSdkMessage(
   historyThroughCurrent = false,
   inlineKey?: string,
 ) {
+  // The Chat SDK skips the Agent's own messages. Other bots can loop with the Agent, so they need `allowBots`.
+  if (message.author.isBot === true && options?.allowBots !== true) {
+    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    return
+  }
   let input = createChatTriggerInput(
     chatRegistrationOrigin(registration),
     thread,
@@ -5428,7 +5486,6 @@ export interface DrainInlineChatInvocationsResult {
 }
 
 const inlineChatInvocations = new Set<InlineChatInvocation>()
-const interruptedChatRetrySuffix = "#vitehub-retry"
 const interruptedChatRetryNote = "[Retry after interruption] A server restart interrupted the previous attempt at this request. Before creating branches, commits, pull requests, comments, or messages, check whether the previous attempt already did it and reuse its results."
 
 function hostRestartedError(retry: "pending" | "exhausted"): ViteHubError<"HOST_RESTARTED", { retry: "pending" | "exhausted" }> {
@@ -6585,7 +6642,7 @@ async function handleChatSdkMessage(
             await deliverPrimaryChatReply(chatFinish, async () => {
               invocationDeadlineAbort?.signal.throwIfAborted()
               if (!(await postDiscordSplitContent(thread, { markdown: text }, invocationDeadlineAbort?.signal))) {
-                const sent = await thread.post({ markdown: text })
+                const sent = await postChatReply(thread, { markdown: text })
                 if (invocationDeadlineAbort?.signal.aborted) {
                   await deleteManualDeliveryPlaceholder(sent)
                   invocationDeadlineAbort.signal.throwIfAborted()
@@ -7041,19 +7098,6 @@ function historyBytesToBase64(data: Uint8Array): string {
 
 const channelHistoryAttachmentMaxBytes = 25 * 1024 * 1024
 const channelHistoryArchiveMaxBytes = 35 * 1024 * 1024
-
-function isChannelHistoryBlob(value: unknown): { size: number, arrayBuffer: () => Promise<ArrayBuffer> } | undefined {
-  if (!isRuntimeObject(value)) return
-  try {
-    const size = Object.getOwnPropertyDescriptor(Blob.prototype, "size")!.get!.call(value)
-    if (!isRuntimeNumber(size) || !Number.isSafeInteger(size) || size < 0) return
-    const arrayBuffer = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer")!.value
-    if (!isRuntimeFunction(arrayBuffer)) return
-    return { size, arrayBuffer: () => arrayBuffer.call(value) }
-  } catch {
-    return
-  }
-}
 
 function channelHistoryAttachmentBytes(value: unknown): Uint8Array | undefined {
   let bytes: Uint8Array

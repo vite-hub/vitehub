@@ -48,6 +48,14 @@ function trimPrefix(prefix: string): string {
   return prefix.replace(/^\/+|\/+$/g, "")
 }
 
+/**
+ * Decoded trailing segments of a listed key. Some KV stores, such as unstorage, list keys with `:` instead of `/`.
+ * Encoded parts contain neither, so both separators are safe to split on.
+ */
+function keySegments(key: string, count: number): string[] {
+  return key.split(/[/:]/).slice(-count).map(decodeURIComponent)
+}
+
 function joinKey(prefix: string, ...parts: string[]): string {
   const base = trimPrefix(prefix)
   const suffix = parts.map(encodeURIComponent).join("/")
@@ -383,7 +391,7 @@ function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions =
 /** Index keys carry metadata from the stored record, independent of caller-selected run IDs. */
 function runIndexMetadata(key: string): { id: string, scheduleId: string, scheduledAt: number } | undefined {
   try {
-    const parts = key.split("/").slice(-3).map(decodeURIComponent)
+    const parts = keySegments(key, 3)
     const scheduledAt = Date.parse(parts[2]!)
     if (!Number.isFinite(scheduledAt)) return
     return { id: parts[0]!, scheduleId: parts[1]!, scheduledAt }
@@ -442,7 +450,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     for (const key of keys) {
       let id: string
       try {
-        id = decodeURIComponent(key.slice(key.lastIndexOf("/") + 1))
+        id = keySegments(key, 1)[0]!
       }
       catch {
         unknown.push(key)
@@ -552,14 +560,14 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       const runByAttemptId = new Map<string, string>()
       for (const key of indexKeys) {
         try {
-          const parts = key.split("/").slice(-2).map(decodeURIComponent)
+          const parts = keySegments(key, 2)
           runByAttemptId.set(parts[1]!, parts[0]!)
         }
         catch {}
       }
       const selectedKeys = keys.filter((key) => {
         try {
-          const id = decodeURIComponent(key.slice(key.lastIndexOf("/") + 1))
+          const id = keySegments(key, 1)[0]!
           const indexedRunId = runByAttemptId.get(id)
           return indexedRunId === undefined || indexedRunId === runId
         }

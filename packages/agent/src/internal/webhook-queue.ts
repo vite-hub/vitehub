@@ -4,10 +4,14 @@ import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, i
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface AgentWebhookQueueDelivery {
+  /** Earliest time the delivery may run. Defaults to `enqueuedAt`. */
+  availableAt?: number
   concurrencyGroup: string
   concurrencyKey?: string
   concurrencyLimit: number
   channelDeliveryId?: string
+  /** A later queued delivery with the same key in the same scope supersedes this one. */
+  debounceKey?: string
   deliveryId: string
   enqueuedAt: number
   invocation?: {
@@ -46,6 +50,8 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean>
   /** Lists the deliveries in one scope that are not complete, in queue order. */
   webhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]>
+  /** Lists only queued deliveries in one scope, in queue order. */
+  queuedWebhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]>
   webhookDeliveryScopes(): Promise<string[]>
 }
 
@@ -67,6 +73,8 @@ export function parseAgentWebhookQueueDelivery(serialized: string): AgentWebhook
     !isRuntimeString(value.deliveryId) ||
     !("enqueuedAt" in value) ||
     !isRuntimeNumber(value.enqueuedAt) ||
+    ("availableAt" in value && !isRuntimeUndefined(value.availableAt) && !isRuntimeNumber(value.availableAt)) ||
+    ("debounceKey" in value && !isRuntimeUndefined(value.debounceKey) && !isRuntimeString(value.debounceKey)) ||
     !("leaseTtlMs" in value) ||
     !isRuntimeNumber(value.leaseTtlMs) ||
     !("scope" in value) ||
@@ -103,6 +111,7 @@ export function hasAgentWebhookQueue(state: StateAdapter): state is AgentWebhook
     isRuntimeFunction(candidate.extendWebhookDeliveryLease) &&
     isRuntimeFunction(candidate.retryWebhookDelivery) &&
     isRuntimeFunction(candidate.webhookDeliveries) &&
+    isRuntimeFunction(candidate.queuedWebhookDeliveries) &&
     isRuntimeFunction(candidate.webhookDeliveryScopes)
   )
 }

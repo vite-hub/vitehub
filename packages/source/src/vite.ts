@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import {
@@ -10,27 +10,46 @@ import {
 } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { findExportNames } from "mlly"
-import { createSourceScanner } from "@vite-hub/internal/source-scanner"
 
+import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin } from "vite"
-import { encodeCollectionRouteSegment } from "./internal/collection-route.ts"
+import { inspectCollectionDefinitions } from "./inspect.ts"
+import { collectCollectionFiles, discoverCollections } from "./internal/collection-discovery.ts"
+import { collectionRoutePath } from "./internal/collection-route.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
+
+import type { DiscoveredCollection } from "./internal/collection-discovery.ts"
+
+export { inspectCollectionDefinitions, type CollectionInspectionOptions } from "./inspect.ts"
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
 const collectionTypesPackageEntry = ".vitehub/types/source/vitehub-source-registry.d.ts"
 const legacyCollectionTypesEntry = ".vitehub/source/collections.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
+const contentPreviewEntry = ".vitehub/content/preview.mjs"
 // Auth owns this virtual module. Generated routes import it only when Auth is enabled.
 const authServerModuleId = "#vitehub/auth/server"
 const initialHostRefreshRetryDelay = 25
 const maximumHostRefreshRetryDelay = 1_000
 const hostRestartOwnerSettlementTimeout = 30_000
 
-export interface GeneratedSourceHandler {
+/** A file ViteHub generates for Nitro: a route handler, or a Nitro plugin such as the Content preview scope. */
+export type GeneratedSourceHandler = GeneratedSourceRoute | GeneratedSourcePlugin
+
+export interface GeneratedSourceRoute {
   handler: string
   method?: "get"
+  plugin?: never
   route: string
+}
+
+/** A generated Nitro plugin. It registers no route, so it never conflicts with one. */
+export interface GeneratedSourcePlugin {
+  handler: string
+  method?: never
+  plugin: true
+  route?: never
 }
 
 export interface SourceGenerationOptions {
@@ -56,16 +75,10 @@ export interface GeneratedSourceHandlersListenerOptions {
   projectRoot?: string
 }
 
-interface DiscoveredCollection {
-  exportName: string
-  file: string
-  name: string
-  route: boolean
-}
-
 interface NitroGeneratedConfig {
-  handlers?: Array<{ handler: string, method?: string, route?: string }>
+  handlers?: Array<{ handler: string, method?: string, middleware?: boolean, route?: string }>
   modules?: unknown[]
+  plugins?: unknown[]
 }
 
 interface SourceNitroHost extends NitroRouteGuard {
@@ -75,7 +88,7 @@ interface SourceNitroHost extends NitroRouteGuard {
 
 interface NitroRouteGuard {
   hooks: { hook(name: "build:before", callback: () => void): void }
-  scannedHandlers: Array<{ method?: string, route?: string }>
+  scannedHandlers: Array<{ method?: string, middleware?: boolean, route?: string }>
 }
 
 interface SourcePluginConfig {
@@ -93,82 +106,6 @@ interface GeneratedSourceArtifactsSnapshot {
   files: Map<string, string>
 }
 
-function collectionRouteDisabled(source: string, exportName: string, file: string): boolean {
-  const scanner = createSourceScanner(file)
-  const masked = scanner.maskSourceLiterals(source)
-  const escapedExportName = exportName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const identifier = String.raw`[$\p{ID_Start}_][$\p{ID_Continue}]*`
-  // Bind the call to the exported declaration itself. Looking only at the
-  // prefix up to a call can accidentally select an earlier local declaration
-  // with the same name, so first locate the exported initializer and then
-  // inspect calls inside that initializer.
-  const declaration = new RegExp(`(?:^|[;\\n])\\s*export\\s+(?:const|let|var)\\s+${escapedExportName}(?:\\s*:\\s*[^=;]+)?\\s*=`, "g")
-  const calls = scanner.findIdentifierCalls(source, "defineCollection")
-  let call
-  const findDeclarationCall = (initializerStart: number) => {
-    // Scan only this initializer. Matched groups retain nested calls and
-    // semicolons inside IIFEs, while top-level separators end the binding.
-    let end = initializerStart
-    let previous = ""
-    for (; end < masked.length; end++) {
-      const char = masked[end]!
-      if (char === ";" || char === ",") break
-      if (char === "\n" && previous) {
-        const next = masked.slice(end).trimStart()
-        // A newline can continue an expression after an operator or before
-        // a member access/call/operator; otherwise automatic semicolon
-        // insertion ends the initializer before the next statement.
-        if (!/[=?:+\-*/%&|^!<>.]/.test(previous)
-          && !/^(?:[.([?+\-*/%&|^<>=]|as\b|satisfies\b)/.test(next)) break
-      }
-      const close = char === "(" ? ")" : char === "[" ? "]" : char === "{" ? "}" : undefined
-      if (close) {
-        const matched = scanner.findMatching(source, end, char, close)
-        if (matched === undefined) return undefined
-        end = matched
-        previous = close
-      }
-      else if (!/\s/.test(char)) previous = char
-    }
-    return calls.find(candidate => candidate.start >= initializerStart && candidate.closeParen < end)
-  }
-  for (const match of masked.matchAll(declaration)) {
-    const initializerStart = (match.index ?? 0) + match[0].length
-    call = findDeclarationCall(initializerStart)
-    if (call) break
-  }
-  // Named exports may also re-export a local binding (`export { articles }`).
-  // Resolve that binding before inspecting its initializer so route metadata
-  // stays attached to the Collection that discovery imports.
-  if (!call) {
-    const exportList = new RegExp(`\\bexport\\s*\\{([^}]*)\\}`, "g")
-    for (const match of masked.matchAll(exportList)) {
-      const localName = match[1]
-        .split(",")
-        .map(entry => entry.trim().match(new RegExp(`^(${identifier})\\s+as\\s+${escapedExportName}$|^${escapedExportName}$`, "u")))
-        .find(Boolean)?.[1] ?? (match[1].split(",").map(entry => entry.trim()).find(entry => entry === exportName) ? exportName : undefined)
-      if (!localName) continue
-      // The export list may appear before or after the local declaration. Include
-      // `export const` declarations as well, then bind the name to its own
-      // initializer rather than relying on statement order.
-      const escapedLocalName = localName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      const localDeclaration = new RegExp(`(?:^|[;\\n])\\s*(?:export\\s+)?(?:const|let|var)\\s+${escapedLocalName}(?:\\s*:\\s*[^=;]+)?\\s*=`, "g")
-      for (const declarationMatch of masked.matchAll(localDeclaration)) {
-        const initializerStart = (declarationMatch.index ?? 0) + declarationMatch[0].length
-        const candidateCall = findDeclarationCall(initializerStart)
-        if (candidateCall) {
-          call = candidateCall
-          break
-        }
-      }
-      if (call) break
-    }
-  }
-  if (!call) return false
-  const options = call.arguments[1] ?? call.arguments[0]
-  return options !== undefined && scanner.readObjectProperty(options, "route") === "false"
-}
-
 async function snapshotDirectoryFiles(directory: string, files: Map<string, string>): Promise<void> {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name)
@@ -184,6 +121,7 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
     collectionTypesPackageEntry,
     legacyCollectionTypesEntry,
     contentRouteEntry,
+    contentPreviewEntry,
   ]
   for (const entry of fixedEntries) {
     const path = resolve(projectRoot, entry)
@@ -215,6 +153,7 @@ async function restoreGeneratedSourceArtifacts(
     collectionTypesPackageEntry,
     legacyCollectionTypesEntry,
     contentRouteEntry,
+    contentPreviewEntry,
   ]) {
     const path = resolve(projectRoot, entry)
     if (!snapshot.files.has(path)) await rm(path, { force: true })
@@ -229,18 +168,20 @@ function methodsOverlap(left: string | undefined, right: string | undefined): bo
   return !left || !right || left.toLowerCase() === right.toLowerCase()
 }
 
-function generatedRouteOwner(handler: GeneratedSourceHandler): "Collection" | "Content" {
+function generatedRouteOwner(handler: GeneratedSourceRoute): "Collection" | "Content" {
   return handler.route === "/api/content/**" ? "Content" : "Collection"
 }
 
-function generatedRouteDescription(handler: GeneratedSourceHandler): string {
+function generatedRouteDescription(handler: GeneratedSourceRoute): string {
   return handler.method ? `${handler.method.toUpperCase()} handler` : "handler"
 }
 
 function assertGeneratedRoutes(nitro: NitroRouteGuard, generatedHandlers: GeneratedSourceHandler[]): void {
   for (const generatedHandler of generatedHandlers) {
+    if (generatedHandler.plugin) continue
     const duplicate = nitro.scannedHandlers.some(candidate =>
-      candidate.route === generatedHandler.route
+      !candidate.middleware
+      && candidate.route === generatedHandler.route
       && methodsOverlap(candidate.method, generatedHandler.method))
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0001({ message: `[vitehub] Generated ${generatedRouteOwner(generatedHandler)} route ${JSON.stringify(generatedHandler.route)} conflicts with an existing ${generatedRouteDescription(generatedHandler)}. Remove the matching server route.` })
@@ -265,17 +206,21 @@ export function mergeGeneratedSourceNitroConfig(
   if (Object(value) === value && !Array.isArray(value)) Object.assign(nitro, value)
   if (generatedHandlers.length === 0) return nitro
   const kit = createNitroServerKit(nitro)
-  // SAFETY: The kit materializes Nitro handler entries as the generated source handler shape.
-  const handlers = kit.config.handlers as Array<GeneratedSourceHandler>
+  // SAFETY: The kit materializes Nitro handler entries as the generated route shape, plus Nitro's middleware flag.
+  const handlers = kit.config.handlers as Array<GeneratedSourceRoute & { middleware?: boolean }>
 
   for (const handler of generatedHandlers) {
+    if (handler.plugin) {
+      kit.addPlugin(handler.handler)
+      continue
+    }
     const exact = handlers.some(candidate =>
       candidate.handler === handler.handler
       && candidate.route === handler.route
       && candidate.method?.toLowerCase() === handler.method?.toLowerCase())
     if (exact) continue
     const duplicate = handlers.some(candidate =>
-      candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
+      !candidate.middleware && candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
     }
@@ -298,61 +243,6 @@ export function toRuntimeModuleSpecifier(file: string): string {
 
 export function toTypeModuleSpecifier(file: string): string {
   return file.replaceAll("\\", "/")
-}
-
-async function collectCollectionFiles(directory: string): Promise<string[]> {
-  let entries
-  try {
-    entries = await readdir(directory, { withFileTypes: true })
-  }
-  catch (error) {
-    if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return []
-    throw error
-  }
-  const files: string[] = []
-  for (const entry of entries) {
-    const path = join(directory, entry.name)
-    if (entry.isDirectory()) files.push(...await collectCollectionFiles(path))
-    else if (entry.isFile() && /\.(?:[cm]?[jt]s)$/.test(entry.name) && !/\.d\.[cm]?ts$/.test(entry.name)) files.push(path)
-  }
-  return files
-}
-
-async function discoverCollections(options: SourceGenerationOptions): Promise<DiscoveredCollection[]> {
-  const serverDirs = options.serverDirs === undefined
-    ? [resolve(options.projectRoot, "server")]
-    : options.serverDirs.map(directory => resolve(options.projectRoot, directory))
-  const collections = (await Promise.all(serverDirs.map(async (serverDir) => {
-    const directory = resolve(serverDir, "collections")
-    return await Promise.all((await collectCollectionFiles(directory)).sort().map(async (file) => {
-      const extension = extname(file)
-      const exportName = basename(file, extension)
-      if (!/^[A-Z_$][\w$]*$/i.test(exportName)) {
-        throw sourceErrorDiagnostics.SOURCE_B0003({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must use a valid JavaScript identifier as its filename.` })
-      }
-      const name = relative(directory, file).slice(0, -extension.length).replaceAll("\\", "/")
-      if (!findExportNames(await readFile(file, "utf8")).includes(exportName)) {
-        throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
-      }
-      const source = await readFile(file, "utf8")
-      return { exportName, file, name, route: !collectionRouteDisabled(source, exportName, file) }
-    }))
-  }))).flat().sort((left, right) => left.name.localeCompare(right.name))
-
-  const generatedPaths = new Map<string, DiscoveredCollection>()
-  for (const collection of collections) {
-    const generatedPath = `${collection.name}.mjs`.toLowerCase()
-    const previous = generatedPaths.get(generatedPath)
-    if (previous?.name === collection.name) {
-      throw sourceErrorDiagnostics.SOURCE_B0005({ message: `[vitehub] Collection name ${JSON.stringify(collection.name)} is defined in more than one server directory.` })
-    }
-    if (previous) {
-      const [firstName, secondName] = [previous.name, collection.name].sort()
-      throw sourceErrorDiagnostics.SOURCE_B0006({ message: `[vitehub] Collection names ${JSON.stringify(firstName)} and ${JSON.stringify(secondName)} generate the same route module on case-insensitive filesystems.` })
-    }
-    generatedPaths.set(generatedPath, collection)
-  }
-  return collections
 }
 
 async function writeFileIfChanged(path: string, contents: string): Promise<void> {
@@ -417,7 +307,7 @@ async function writeCollectionArtifacts(
     return {
       handler,
       method: "get" as const,
-      route: `/api/${name.split("/").map(encodeCollectionRouteSegment).join("/")}`,
+      route: collectionRoutePath(name),
     }
   }))
 }
@@ -455,18 +345,29 @@ async function writeContentArtifact(
   file: string | undefined,
 ): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, contentRouteEntry)
+  const preview = resolve(options.projectRoot, contentPreviewEntry)
   if (!file) {
-    await rm(output, { force: true })
+    await Promise.all([rm(output, { force: true }), rm(preview, { force: true })])
     return []
   }
+  const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
+  const contentModule = JSON.stringify(toRuntimeModuleSpecifier(file))
   await writeFileIfChanged(output, [
-    `import { defineContentHandler } from ${JSON.stringify(options.contentImportBase ?? "@vite-hub/content")}`,
-    `import { content } from ${JSON.stringify(toRuntimeModuleSpecifier(file))}`,
+    `import { defineContentHandler } from ${importBase}`,
+    `import { content } from ${contentModule}`,
     "",
     "export default defineContentHandler(content)",
     "",
   ].join("\n"))
-  return [{ handler: output, route: "/api/content/**" }]
+  // A Nitro plugin: scopes each request that carries the Content preview cookie to drafts and out of Nitro's cache.
+  await writeFileIfChanged(preview, [
+    `import { defineContentPreviewPlugin } from ${importBase}`,
+    `import { content } from ${contentModule}`,
+    "",
+    "export default defineContentPreviewPlugin(content)",
+    "",
+  ].join("\n"))
+  return [{ handler: preview, plugin: true }, { handler: output, route: "/api/content/**" }]
 }
 
 export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
@@ -477,7 +378,8 @@ export async function prepareSourceGeneration(options: SourceGenerationOptions):
   return [
     ...await writeCollectionArtifacts(options, collections),
     ...await writeContentArtifact(options, content),
-  ].sort((left, right) => left.route.localeCompare(right.route))
+  // Plugins have no route and sort first.
+  ].sort((left, right) => (left.route ?? "").localeCompare(right.route ?? ""))
 }
 
 function applicationBaseURL(base: string | undefined): string {
@@ -503,11 +405,13 @@ function generatedSourceNitroContribution(
   const merged = mergeGeneratedSourceNitroConfig(existing, generatedHandlers)
   const handlers = merged.handlers?.slice(Array.isArray(existing.handlers) ? existing.handlers.length : 0)
   const modules = merged.modules?.slice(Array.isArray(existing.modules) ? existing.modules.length : 0)
-  if (!handlers?.length && !modules?.length) return
-  return {
-    ...(handlers?.length ? { handlers } : {}),
-    ...(modules?.length ? { modules } : {}),
-  }
+  const plugins = merged.plugins?.slice(Array.isArray(existing.plugins) ? existing.plugins.length : 0)
+  if (!handlers?.length && !modules?.length && !plugins?.length) return
+  const contribution: NitroGeneratedConfig = {}
+  if (handlers?.length) contribution.handlers = handlers
+  if (modules?.length) contribution.modules = modules
+  if (plugins?.length) contribution.plugins = plugins
+  return contribution
 }
 
 function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: string[] | undefined): boolean {
@@ -532,6 +436,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     prepareSources: (options: Omit<SourceGenerationOptions, "auth" | "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
   }
   nitro: { name: string, setup(nitro: SourceNitroHost): void }
+  vitehub: ViteHubInspectionPluginMetadata
 } {
   const refreshAuthByRoot = new Map<string, () => unknown>()
   let nitroHost: SourceNitroHost | undefined
@@ -568,7 +473,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const resolvedConfiguredAuth = configuredAuth === undefined
         ? configuredState?.configuredAuth
         : configuredAuth
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Auth option is an untagged boolean-or-callback union; callability selects the callback.
       const auth = typeof options.auth === "function"
         ? options.auth({ configuredAuth: resolvedConfiguredAuth, projectRoot: root, serverDirs: input.serverDirs })
         : options.auth && resolvedConfiguredAuth !== false && Boolean(refreshAuthByRoot.get(root)?.())
@@ -635,12 +539,28 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     if (Array.isArray(nitro.modules) && contributedModules.length > 0) {
       nitro.modules = nitro.modules.filter(module => !contributedModules.includes(module))
     }
+    const contributedPlugins = configuredNitroContribution?.plugins ?? []
+    if (Array.isArray(nitro.plugins) && contributedPlugins.length > 0) {
+      nitro.plugins = nitro.plugins.filter(plugin => !contributedPlugins.includes(plugin))
+    }
     return mergeGeneratedSourceNitroConfig(nitro, handlers)
   }
   return {
     name: "@vite-hub/source/vite",
     enforce: "post",
     api: { onGeneratedHandlersChanged, prepareSources },
+    vitehub: {
+      inspect: () => ({
+        definitions: [{
+          kind: "collection",
+          label: "Collections",
+          list: () => {
+            const projectRoot = latestProjectRoot ?? resolveViteHubProjectRoot(process.cwd())
+            return inspectCollectionDefinitions({ projectRoot, serverDirs: configuredStateByRoot.get(projectRoot)?.serverDirs })
+          },
+        }],
+      }),
+    },
     nitro: {
       name: "@vite-hub/source/generated-routes",
       setup(nitro) {
@@ -733,9 +653,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
           const nitro = replaceConfiguredNitroContribution(nitroHost.options, handlers, nitroHostContribution)
           nitroHostContribution = {
             handlers: nitro.handlers?.filter(handler => handlers.some(generated =>
-              handler.handler === generated.handler && handler.route === generated.route && handler.method === generated.method)),
+              !generated.plugin && handler.handler === generated.handler && handler.route === generated.route && handler.method === generated.method)),
+            plugins: handlers.flatMap(generated => generated.plugin ? [generated.handler] : []),
           }
           nitroHost.options.handlers = nitro.handlers
+          nitroHost.options.plugins = nitro.plugins
           nitroHandlers.splice(0, nitroHandlers.length, ...handlers)
           nitroHost.routing.sync()
         }
