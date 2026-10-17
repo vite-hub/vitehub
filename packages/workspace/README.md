@@ -409,7 +409,7 @@ export default defineWorkspace({
 })
 ```
 
-Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
+Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
 
 GitHub-backed Stores also expose the retained history reader. Repository branches are
 history refs, and GitHub commits are immutable Workspace revisions. Revision metadata

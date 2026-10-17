@@ -1,4 +1,4 @@
-import { forgeArchive, forgeEnv, forgeErrorStatus, forgeProvider } from "@vite-hub/forge"
+import { forgeArchive, forgeEnv, forgeErrorStatus, forgeProvider, readForgeEnv } from "@vite-hub/forge"
 
 import { sourceError } from "../../core/errors.ts"
 
@@ -15,12 +15,7 @@ export interface GitHubClient {
 
 /** The Server Env token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. */
 export function githubEnvToken(): string | undefined {
-  const env = globalThis.process?.env
-  if (!env) return
-  for (const name of forgeEnv.github.token.names) {
-    const value = env[name]?.trim()
-    if (value) return value
-  }
+  return readForgeEnv(forgeEnv.github.token)
 }
 
 /** The HTTP status of the Forge request behind a GitHub Source error. */
