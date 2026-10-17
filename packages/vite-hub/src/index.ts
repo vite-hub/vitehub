@@ -13,6 +13,7 @@ import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
+import { hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
@@ -34,6 +35,7 @@ import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoo
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
+import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
@@ -859,7 +861,12 @@ function doctorPlugin(): Plugin {
   }
 }
 
-export function vitehub(options: ViteHubOptions): PluginOption[] {
+/**
+ * The ViteHub plugin list. When `server/content.ts` selects the Content `cms` preset and `database`, `blob`, or
+ * `workspace` is unset, ViteHub turns that feature on. See `withCmsPresetPlugins()`.
+ */
+/** Builds the ViteHub plugin list for one resolved feature configuration. */
+function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   options = withDataDir({ ...options, console: resolveConsoleOptions(options.console) })
   const plan = resolveDeploymentPlan(options.preset)
@@ -1163,12 +1170,27 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     importBase: "vite-hub/source",
   })
   plugins.push(sourcePlugin)
+  // Reads the Content cms preset and contributes its Workspace, Database tables, and, when the app has none, the
+  // default Database. Inert without the preset.
+  plugins.push(hubContent({
+    imports: {
+      blob: "vite-hub/blob",
+      blobDatabase: "vite-hub/workspace/blob-database",
+      database: "vite-hub/database/drizzle",
+      databaseDefinition: "vite-hub/database",
+      workspace: "vite-hub/workspace",
+    },
+  }))
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,
   }))
   // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.
   return plugins as PluginOption[]
+}
+
+export function vitehub(options: ViteHubOptions): PluginOption[] {
+  return withCmsPresetPlugins(options, resolved => createViteHubPlugins(resolved))
 }
 
 declare module "vite" {

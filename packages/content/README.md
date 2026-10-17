@@ -48,10 +48,11 @@ Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted So
 
 ```ts
 import { defineContent, documents } from "@vite-hub/content"
+import cms from "@vite-hub/content/presets/cms"
 import { z } from "zod"
 
 export const content = defineContent({
-  workspace: "site",
+  extends: cms,
   collections: {
     posts: documents({
       path: "posts/**/*.md",
@@ -70,5 +71,7 @@ await content.publish({ expect: [{ collection: "posts", id: "hello", digest: sav
 await content.revisions("posts", "hello")
 content.collections() // [posts], each with name, path, fields, and schema
 ```
+
+`extends: cms` stores the collections without wiring. `vitehub()` turns on Workspace, Database, and Blob when you leave them unset. At build time `hubContent()` from `@vite-hub/content/vite` (included in `vitehub()`) reads the preset from `server/content.ts`, contributes a `content` Workspace on the Blob + Database Store, and adds `workspaceHistorySchema` to the default or only Database. When the app has no Database Definition, it contributes the `default` Database from `.vitehub/content/database.ts`, with migrations in `server/databases/migrations/`. Pass `[cms, { database, blob, workspace }]` with string literals to choose others. A feature set to `false` fails the build with `CONTENT_B0002`, which names the setting. Without the preset, pass `workspace` with the name of a Workspace you define.
 
 Every save commits to the `draft` history ref; `publish()` copies selected documents to `published`. `/api/content/**` and the collection Comark instances serve only `published`. Content registers a `write:validate` Workspace plugin, so every Workspace writer is validated on the collection paths. Saves of different documents retry over each other; `ifDigest` rejects a save when the same document changed. `publish({ expect })` publishes exactly the reviewed draft digests and throws `WORKSPACE_CONFLICT` when one changed, so confirm and approve flows use it. Listed documents carry `updatedAt`, when each last changed on the ref read. The runtime methods are trusted server API; surfaces such as the Console and Agent Capability check `content.can({ user, actor })` first, where `user` is the Auth user and `actor` is the Agent Actor, if any. Zod date fields project to `date-time` strings in `schema`; wrap Valibot fields in `toStandardJsonSchema()`, and Content warns once for each field whose JSON Schema is empty.

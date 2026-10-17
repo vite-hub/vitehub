@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
-import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { dirname, resolve } from "node:path"
+import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
@@ -40,11 +40,15 @@ export { inspectDatabaseDefinitions, type DatabaseInspectionOptions } from "./in
 export { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "./contributions.ts"
 export type {
   CollectedDatabaseContribution,
+  CollectedDatabaseContributions,
+  CollectedDatabaseDefinitionContribution,
   DatabaseContributingPlugin,
   DatabaseContribution,
   DatabaseContributionContext,
+  DatabaseContributionEntry,
+  DatabaseDefinitionContribution,
   DatabaseContributionFactory,
-  DatabaseContributionFields,
+  DatabaseContributionPluginMetadata,
   DefaultDatabaseResolution,
   ResolvedDatabaseContribution,
 } from "./contributions.ts"
@@ -64,7 +68,7 @@ export interface DBVitePluginAPI {
 }
 
 interface DBCliContributingPlugin {
-  vitehub?: NonNullable<DatabaseContributingPlugin["vitehub"]> & {
+  vitehub?: DatabaseContributionPluginMetadata & {
     cli?: () => Promise<ViteHubCliContributor | undefined>
     inspect?: () => ViteHubInspectionContributor | undefined
   }
@@ -88,7 +92,7 @@ export type DBVitePlugin = Plugin & DBCliContributingPlugin & {
 const mergeNoExternal = createNoExternalAddition(dbPackageName)
 
 function viteStringAliases(alias: ResolvedConfig["resolve"]["alias"] | undefined): Record<string, string> {
-  return Object.fromEntries((alias ?? []).flatMap(entry => String(entry.find) === entry.find ? [[String(entry.find), entry.replacement]] : []))
+  return Object.fromEntries((alias ?? []).flatMap(entry => typeof entry.find === "string" ? [[entry.find, entry.replacement]] : []))
 }
 
 function resolveDatabaseVirtualId(id: string) {
@@ -198,10 +202,8 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
-  let contributions: CollectedDatabaseContribution[] = []
+  let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
   let contributionFiles = new Set<string>()
-  let contributionDependencyFiles = new Set<string>()
-  let contributionDirectories = new Set<string>()
 
   function resolvedOptions() {
     return resolved?.database ?? options
@@ -301,7 +303,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const db = resolvedOptions()
         if (db === false) return
         const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig)
-        const provision = [createDatabaseProvisionStep(databaseRoot, db)]
+        const provision = [createDatabaseProvisionStep(databaseRoot, db, () => ({ contributions, serverDirs: databaseServerDirs() }))]
         return contributor ? { ...contributor, provision } : { namespaces: [], provision }
       },
       inspect: () => {
@@ -335,27 +337,17 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
       contributions = resolvedOptions() === false
-        ? []
-        : await collectDatabaseContributions(config.plugins, { projectRoot: resolveViteHubProjectRoot(config.root), root: config.root, serverDirs: databaseServerDirs() })
+        ? { definitions: [], tables: [] }
+        : await collectDatabaseContributions(config.plugins, { rootDir: databaseRoot(), serverDirs: databaseServerDirs(), plugins: config.plugins })
       const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
-      contributionFiles = new Set(contributions.flatMap(contribution => {
+      contributionFiles = new Set(contributions.tables.flatMap(contribution => {
         try {
-          return [normalize(require.resolve(contribution.definition.module))]
+          return [normalize(require.resolve(contribution.module))]
         }
         catch {
           return []
         }
       }))
-      contributionDependencyFiles = new Set()
-      for (const file of contributionFiles) await collectSourceDependencies(file, require, contributionDependencyFiles)
-      contributionDirectories = new Set()
-      for (const file of contributionFiles) {
-        // Keep the fallback directory check local to the contribution entry.
-        // Transitive imports are covered by the module-graph traversal below;
-        // walking broad ancestors (such as the project root) causes unrelated
-        // edits to regenerate the database during development.
-        contributionDirectories.add(dirname(file))
-      }
       await refreshRuntimeConfig()
       mergeNitroCloudflareD1Bindings()
     },

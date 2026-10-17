@@ -31,7 +31,7 @@ import type {
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveDatabaseContributionTargets } from "./contributions.ts"
 
-import type { CollectedDatabaseContribution } from "./contributions.ts"
+import type { CollectedDatabaseContribution, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
@@ -460,12 +460,31 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   }
 }
 
-export function discoverDatabaseDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
+export function discoverDatabaseDefinitions(rootDir: string, options: { definitions?: readonly CollectedDatabaseDefinitionContribution[], serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
   const serverDirs = options.serverDirs ?? [resolve(rootDir, "server")]
   const found = [
     ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
     ...discoverViteDatabases(rootDir).map(definition => ({ definition, layer: 0 })),
   ].filter((entry, index, all) => all.findIndex(item => item.definition.handler === entry.definition.handler) === index)
+  for (const contribution of options.definitions ?? []) {
+    const existing = found.find(entry => entry.definition.name === contribution.name)
+    if (existing) {
+      throw databaseErrorDiagnostics.DATABASE_B0013({ message: `[vitehub] Database "${contribution.name}" is defined by the app in ${JSON.stringify(existing.definition.handler)}, but is also contributed by ${JSON.stringify(contribution.contributor)}.` })
+    }
+    found.push({
+      definition: {
+        contributor: contribution.contributor,
+        handler: contribution.definition,
+        mode: contribution.name === "default" ? "default" : "named",
+        name: contribution.name,
+        reason: contribution.reason,
+        schemaSources: [{ handler: contribution.definition, tableNames: [] }],
+        source: "vite-plugin-contribution",
+        tableNames: [],
+      } as FoundDatabaseDefinition,
+      layer: 0,
+    })
+  }
   const defaults = found.filter(entry => entry.definition.mode === "default")
   const named = found.filter(entry => entry.definition.mode === "named")
   if (defaults.length && named.length) {
@@ -492,8 +511,12 @@ function isWithinDirectory(directory: string, file: string) {
 /** Keeps migrations in the application, also when a Nuxt layer owns the database options. */
 function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
   const [appServerDir, ...layerServerDirs] = serverDirs ?? []
-  const ownedByLayer = appServerDir !== undefined && !isWithinDirectory(appServerDir, definition.handler)
-    && layerServerDirs.some(directory => isWithinDirectory(directory, definition.handler))
+  const ownedByLayer = appServerDir !== undefined && (
+    definition.source === "vite-plugin-contribution"
+    || definition.handler.replaceAll("\\", "/").endsWith("/.vitehub/content/database.ts")
+    || (!isWithinDirectory(appServerDir, definition.handler)
+      && layerServerDirs.some(directory => isWithinDirectory(directory, definition.handler)))
+  )
   const directory = ownedByLayer
     ? resolve(appServerDir, "databases", ...(definition.mode === "named" ? [definition.name] : []))
     : dirname(definition.handler)
@@ -562,20 +585,17 @@ export function resolveDBViteConfig(
   options?: DBModulePublicOptions,
   rootDir = process.cwd(),
   context: {
-    /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
-    contributions?: readonly CollectedDatabaseContribution[]
+    /** Tables and Database Definitions that Vite plugins contribute. See `collectDatabaseContributions()`. */
+    contributions?: { definitions?: readonly CollectedDatabaseDefinitionContribution[], tables?: readonly CollectedDatabaseContribution[] }
     provisionRoot?: string
     serverDirs?: string[]
   } = {},
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
-  const definitions = discoverDatabaseDefinitions(rootDir, context)
-  if (!definitions.length) {
-    // Contributed tables need a Database, so this fails when a plugin contributes tables.
-    resolveDatabaseContributionTargets([], context.contributions ?? [])
-    return
-  }
+  const definitions = discoverDatabaseDefinitions(rootDir, { definitions: context.contributions?.definitions, serverDirs: context.serverDirs })
+  const tableContributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.tables ?? [])
+  if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
   const cloudflareProjections: Record<string, CloudflareD1Projection> = Object.create(null)

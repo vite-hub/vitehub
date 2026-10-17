@@ -15,10 +15,9 @@ import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./internal/cloudflare.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
-import { renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { resolveSourceImport } from "./internal/source-dependencies.ts"
-import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDatabaseSchema, mergeLoadedSchemas } from "./internal/schema-tables.ts"
-import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
+import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDatabaseSchema } from "./internal/schema-tables.ts"
+import { collectDatabaseContributions } from "./contributions.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
@@ -144,11 +143,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     if (typeof hook === "function") {
       let localNitroConfig: Record<string, unknown> | undefined
       let localRuntimeRefresh = Promise.resolve()
-      let contributions: CollectedDatabaseContribution[] = []
+      let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
-      const contributionWatchers = new Map<string, FSWatcher>()
-      const require = createRequire(pathToFileURL(resolve(root, "package.json")))
       const definitionDirectories = new Set([
         ...(serverDirs ?? [resolve(root, "server")]).map(directory => resolve(directory, "databases")),
         resolve(root, "src"),
@@ -161,37 +158,10 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
           }
-          for (const contribution of contributions) {
-            try {
-              const { module } = contribution.definition
-              const file = isAbsolute(module) ? resolve(module) : require.resolve(module)
-              await collectWatchedModuleFiles(file, require, contributionFiles)
-            }
-            catch {
-              // The runtime loader reports unresolved contributions; there is no file to watch yet.
-            }
+          for (const contribution of contributions.tables) {
+            if (isAbsolute(contribution.module)) contributionFiles.add(contribution.module)
           }
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
-          // Nuxt's builder ignores node_modules, so watch each resolved dependency directly.
-          const installContributionWatcher = (watchedFile: string) => {
-            if (contributionWatchers.has(watchedFile)) return
-            try {
-              const watcher = watchFs(watchedFile, (eventType) => {
-                if (eventType === "rename") {
-                  watcher.close()
-                  contributionWatchers.delete(watchedFile)
-                  // Editors commonly replace files by rename; follow the new inode.
-                  setTimeout(() => installContributionWatcher(watchedFile), 0)
-                }
-                void refreshLocalRuntime()
-              })
-              contributionWatchers.set(watchedFile, watcher)
-            }
-            catch {
-              // The Nuxt watch list remains the fallback when native watching is unavailable.
-            }
-          }
-          for (const watchedFile of contributionFiles) installContributionWatcher(watchedFile)
         }
         const queued = localRuntimeRefresh.then(refresh, refresh)
         localRuntimeRefresh = queued
@@ -207,13 +177,8 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         })
       }
       hook("nitro:config", async (config) => {
-        // Vite plugins in the Nuxt config can contribute tables, as they do through `hubDb()` in a Vite app. Nuxt
-        // modules add them to `nuxt.options.vite.plugins` during setup, so this hook sees them after every module ran.
-        contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, {
-          projectRoot: root,
-          root: resolve(nuxtOptions.srcDir || nuxtOptions.rootDir || root),
-          serverDirs,
-        })
+        // Vite plugins in the Nuxt config can contribute tables and Definitions, as they do through `hubDb()` in a Vite app.
+        contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, { rootDir: root, serverDirs, plugins: nuxtOptions.vite?.plugins })
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         if (!nuxtOptions.dev && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
           if (d1.unresolved.reason === "missing-database-name") {
@@ -311,7 +276,7 @@ async function installNitroLocalDatabaseRuntime(
   options: ResolvedDatabaseNuxtIntegrationOptions,
   serverDirs?: string[],
   d1?: ResolvedDatabaseNuxtD1Options,
-  contributions: readonly CollectedDatabaseContribution[] = [],
+  contributions: CollectedDatabaseContributions = { definitions: [], tables: [] },
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
   const alias = isRecord(config.alias) ? config.alias : undefined
@@ -332,73 +297,35 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
-  // Nitro dev keeps running when a Definition needs Nuxt auto-imports to load; collisions are then checked on literal keys.
-  const tableNameOptions = {
-    alias: isRecord(config.alias)
-      ? Object.fromEntries(Object.entries(config.alias).filter((entry): entry is [string, string] => String(entry[1]) === entry[1]))
-      : undefined,
-    onFallback: (message: string) => console.warn(message),
-  }
-  const loadedContributionsByDatabase = new Map<string, Set<CollectedDatabaseContribution>>()
-  const loadedDefinitionSources = new Map<string, Set<string>>()
-  for (const definition of runtime.definitions) {
-    const sourceSchemas = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, tableNameOptions)))
-    const parts = [{ schema: mergeLoadedSchemas(sourceSchemas), owner: `Database Definition ${definition.handler}` }]
-    const definitionLoaded = sourceSchemas.some((schema, index) =>
-      definition.schemaSources[index]?.handler === definition.handler && schema.loaded)
-    loadedDefinitionSources.set(definition.name, definitionLoaded
-      ? new Set(definition.schemaSources.filter((_, index) => sourceSchemas[index]!.loaded).map(source => source.handler))
-      : new Set())
-    const loadedContributions = new Set<CollectedDatabaseContribution>()
-    for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
-      const schema = await loadContributedDatabaseSchema(contribution, file, tableNameOptions)
-      if (schema.loaded) loadedContributions.add(contribution)
-      parts.push({ schema, owner: `contributed tables ${describeDatabaseContribution(contribution)}` })
-    }
-    loadedContributionsByDatabase.set(definition.name, loadedContributions)
-    assertDistinctLoadedSchemas(definition.name, parts)
-  }
-
-  // Nuxt layers and contributed tables add tables to one database, so the runtime uses the merged schema.
-  const contributedSchemas = runtime.definitions.map((definition, index) =>
-    (runtime.tableContributionsByDatabase[definition.name] ?? []).flatMap((contribution, contributionIndex) =>
-      loadedContributionsByDatabase.get(definition.name)?.has(contribution)
-        ? [{ contribution, variable: `contributedSchema_${index}_${contributionIndex}` }]
-        : []))
-  const layered = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1
-  const merged = (index: number) => layered(runtime.definitions[index]!) || contributedSchemas[index]!.length > 0
-  const imports = runtime.definitions.flatMap((definition, index) => {
-    const loadedSources = loadedDefinitionSources.get(definition.name) ?? new Set<string>()
-    const definitionLoaded = loadedSources.has(definition.handler)
-    if (!definitionLoaded) return []
-    return [
-      `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
-      ...definition.schemaSources.flatMap((source, sourceIndex) => loadedSources.has(source.handler)
-        ? [`import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`]
-        : []),
-      ...contributedSchemas[index]!.map(({ contribution, variable }) => renderContributionImport(file, contribution, variable)),
-    ]
-  })
-  const schemas = runtime.definitions.flatMap((definition, index) => {
-    if (!merged(index) || !(loadedDefinitionSources.get(definition.name)?.has(definition.handler))) return []
-    const loadedSources = loadedDefinitionSources.get(definition.name) ?? new Set<string>()
-    const definitionSchemas = definition.schemaSources
-      .map((source, sourceIndex) => loadedSources.has(source.handler) ? `...schemaSource_${index}_${sourceIndex}.schema` : undefined)
-      .filter((source): source is string => source !== undefined)
-    if (!definitionSchemas.length) definitionSchemas.push(`...definition_${index}.schema`)
-    return [`const schema_${index} = { ${[...definitionSchemas, ...contributedSchemas[index]!.map(({ variable }) => `...${variable}`)].join(", ")} }`]
-  })
-  const entries = runtime.definitions.flatMap((definition, index) => {
-    if (!loadedDefinitionSources.get(definition.name)?.has(definition.handler)) return []
-    return [[
-      `  [${JSON.stringify(definition.name)}]: {`,
-      merged(index)
-        ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
-        : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
-      `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
-      "  },",
-    ].join("\n")]
-  })
+  const contributionsByDatabase = runtime.tableContributionsByDatabase
+  const merged = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1 || (contributionsByDatabase[definition.name]?.length ?? 0) > 0
+  const imports = runtime.definitions.flatMap((definition, index) => [
+    `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
+    ...merged(definition)
+      ? definition.schemaSources.map((source, sourceIndex) =>
+          `import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`)
+      : [],
+    ...(contributionsByDatabase[definition.name] ?? []).map((contribution, contributionIndex) =>
+      contribution.export
+        ? `import { ${contribution.export} as contributedSchema_${index}_${contributionIndex} } from ${JSON.stringify(contribution.module)}`
+        : `import contributedSchema_${index}_${contributionIndex} from ${JSON.stringify(contribution.module)}`),
+  ])
+  // Nuxt layers can add tables to one database, so the runtime uses the merged schema.
+  const schemas = runtime.definitions.flatMap((definition, index) => merged(definition)
+    ? [`const schema_${index} = { ${(
+      definition.schemaSources.length > 1
+        ? definition.schemaSources.map((_, sourceIndex) => `...schemaSource_${index}_${sourceIndex}.schema`)
+        : [`...definition_${index}.schema`]
+    ).concat((contributionsByDatabase[definition.name] ?? []).map((_, contributionIndex) => `...contributedSchema_${index}_${contributionIndex}`)).join(", ")} }`]
+    : [])
+  const entries = runtime.definitions.map((definition, index) => [
+    `  [${JSON.stringify(definition.name)}]: {`,
+    merged(definition)
+      ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
+      : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
+    `    schema: ${merged(definition) ? `schema_${index}` : `definition_${index}.schema`},`,
+    "  },",
+  ].join("\n"))
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,

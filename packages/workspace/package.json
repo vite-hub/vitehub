@@ -51,16 +51,12 @@
     "./blob-database": {
       "types": "./dist/blob-database.d.ts",
       "import": "./dist/blob-database.js",
-      "require": "./dist/blob-database.js",
       "default": "./dist/blob-database.js"
     },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
-      "import": "./dist/cloudflare.js",
-      "require": "./dist/cloudflare.js",
-      "default": "./dist/cloudflare.js"
+      "import": "./dist/cloudflare.js"
     },
-
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js",

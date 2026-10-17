@@ -1,64 +1,17 @@
-import { defineCollection as defineCoreCollection } from "@vite-hub/source"
 import { and, asc, desc, eq, getTableColumns, gt, lt, or } from "drizzle-orm"
 
 import type {
-  Collection,
-  CollectionCursorValue,
-  CollectionLoader,
   CollectionQueryInput,
   CollectionRequestQuery,
+  CollectionSource,
+  CursorCollectionSource,
 } from "@vite-hub/source"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { SQL } from "drizzle-orm"
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
-type ProviderCollectionLoader<TSourceItem, TQuery extends object> = (
-  options: { cursor?: string; limit: number; query: TQuery; signal?: AbortSignal },
-) => Promise<{ items: readonly TSourceItem[]; nextCursor: string | null }>
-
 export * from "@vite-hub/source"
-
-interface CollectionSourceBase<TSourceItem, TQueryInput extends object, TQuery extends object> {
-  get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
-  defaultLimit?: number
-  maxLimit?: number
-  querySchema?: StandardSchemaV1<TQueryInput, TQuery>
-}
-
-interface CursorCollectionSource<
-  TSourceItem,
-  TQuery extends object,
-  TCursorInput extends CollectionCursorValue,
-  TCursorOutput extends CollectionCursorValue = TCursorInput,
-  TQueryInput extends object = TQuery,
-> extends CollectionSourceBase<TSourceItem, TQueryInput, TQuery> {
-  cursor(item: NoInfer<TSourceItem>): Readonly<TCursorInput>
-  cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
-  load: CollectionLoader<TSourceItem, TQuery, TCursorOutput>
-  pagination?: undefined
-}
-
-interface ProviderCollectionSource<
-  TSourceItem,
-  TQuery extends object,
-  TQueryInput extends object = TQuery,
-> extends CollectionSourceBase<TSourceItem, TQueryInput, TQuery> {
-  load: ProviderCollectionLoader<TSourceItem, TQuery>
-  pagination: "provider"
-  cursor?: undefined
-  cursorSchema?: undefined
-}
-
-export type CollectionSource<
-  TSourceItem,
-  TQuery extends object,
-  TCursorInput extends CollectionCursorValue,
-  TCursorOutput extends CollectionCursorValue = TCursorInput,
-  TQueryInput extends object = TQuery,
-> = CursorCollectionSource<TSourceItem, TQuery, TCursorInput, TCursorOutput, TQueryInput>
-  | ProviderCollectionSource<TSourceItem, TQuery, TQueryInput>
 
 interface TableShape {
   readonly _: {

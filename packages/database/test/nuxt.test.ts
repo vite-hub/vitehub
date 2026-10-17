@@ -502,12 +502,9 @@ describe("Database Nuxt integration", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-contributed-"))
     const buildDir = join(rootDir, ".nuxt")
     const definition = join(rootDir, "server/databases/config.ts")
-    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: "history-tables/schema" }, name: "history" }] } }
+    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ export: "historySchema", module: "history-tables/schema" }] } }
     try {
       await mkdir(dirname(definition), { recursive: true })
-      await mkdir(join(rootDir, "node_modules/history-tables"), { recursive: true })
-      await writeFile(join(rootDir, "node_modules/history-tables/package.json"), JSON.stringify({ exports: { "./schema": "./schema.mjs" }, name: "history-tables", type: "module" }))
-      await writeFile(join(rootDir, "node_modules/history-tables/schema.mjs"), "export const historySchema = { historyRefs: {} }\n")
       await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
       const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: { plugins: [contributor] } })
       await hubDb()(undefined, nuxt)
@@ -532,46 +529,11 @@ describe("Database Nuxt integration", () => {
     }
   })
 
-  it("reads tables that a later Nuxt module contributes through nuxt.options.vite.plugins", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-module-contributed-"))
-    const buildDir = join(rootDir, ".nuxt")
-    const definition = join(rootDir, "server/databases/config.ts")
-    try {
-      await mkdir(dirname(definition), { recursive: true })
-      await mkdir(join(rootDir, "node_modules/history-tables"), { recursive: true })
-      await writeFile(join(rootDir, "node_modules/history-tables/package.json"), JSON.stringify({ exports: { "./schema": "./schema.mjs" }, name: "history-tables", type: "module" }))
-      await writeFile(join(rootDir, "node_modules/history-tables/schema.mjs"), "export const historySchema = { historyRefs: {} }\n")
-      await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
-      const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, srcDir: join(rootDir, "app"), vite: {} })
-      await hubDb()(undefined, nuxt)
-      // A Nuxt module that runs after the Database module adds its Vite plugin during setup.
-      const contexts: unknown[] = []
-      const vite = nuxt.options.vite as { plugins: unknown[] }
-      vite.plugins.push({
-        name: "history-owner/nuxt",
-        vitehub: {
-          databases: (context: unknown) => {
-            contexts.push(context)
-            return [{ definition: { export: "historySchema", module: "history-tables/schema" }, name: "history" }]
-          },
-        },
-      })
-      await callHook(hooks, "nitro:config", {})
-
-      const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
-      expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
-      expect(contexts).toEqual([expect.objectContaining({ projectRoot: rootDir, root: join(rootDir, "app") })])
-    }
-    finally {
-      await rm(rootDir, { force: true, recursive: true })
-    }
-  })
-
   it("adds contributed tables to the hosted Nitro schema", async () => {
     const rootDir = await mkdtemp(join(import.meta.dirname, ".nuxt-contributed-"))
     const definition = join(rootDir, "server/databases/config.ts")
     const tables = join(rootDir, "vendor/history.ts")
-    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: tables }, name: "history" }] } }
+    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ export: "historySchema", module: tables }] } }
     try {
       await mkdir(dirname(definition), { recursive: true })
       await mkdir(dirname(tables), { recursive: true })

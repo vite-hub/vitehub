@@ -22,6 +22,7 @@
     "./hosting": "./dist/hosting.js",
     "./integrations/hex": "./dist/integrations/hex.js",
     "./object": "./dist/object.js",
+    "./presets": "./dist/presets.js",
     "./provision": "./dist/provision.js",
     "./provision-state": "./dist/provision-state.js",
     "./source-scanner": "./dist/source-scanner.js",

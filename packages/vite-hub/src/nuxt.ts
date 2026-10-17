@@ -18,6 +18,7 @@ import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@v
 import { mergeConfig } from "vite"
 
 import { vitehub } from "./index.ts"
+import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
@@ -773,17 +774,18 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const envOptions = configuredEnv && typeof configuredEnv === "object"
     ? Object.fromEntries(Object.entries(configuredEnv).filter(([key]) => !["define", "public", "server"].includes(key)))
     : configuredEnv
-  const options = withDataDir({
+  const rootDir = nuxt.options.rootDir || process.cwd()
+  const projectRoot = resolveViteHubProjectRoot(rootDir)
+  // The Content cms preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
+  const options = markCmsPresetFeaturesResolved(withDataDir(resolveCmsPresetFeatures({
     ...moduleOptions,
     console: resolveConsoleOptions(moduleOptions.console),
     env: envOptions,
-  } as Parameters<typeof vitehub>[0])
+  } as Parameters<typeof vitehub>[0], { projectRoot, serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined })))
   if (options.connections && nuxt.options.dev === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] connections is not supported by the Nuxt module yet. Use the Vite plugin." })
   }
   const plan = resolveDeploymentPlan(options.preset)
-  const rootDir = nuxt.options.rootDir || process.cwd()
-  const projectRoot = resolveViteHubProjectRoot(rootDir)
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
     ? {
         ...options,

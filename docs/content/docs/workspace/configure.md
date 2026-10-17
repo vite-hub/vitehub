@@ -49,7 +49,7 @@ Public Workspace paths reserve `.git` at any depth and `.vitehub` at the root, r
 
 ### Blob + Database Store
 
-Use this Store for immutable folder versions on hosts supported by [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts). Include its schema in a Database Definition, then generate and apply migrations through the Database integration.
+Use this Store for immutable folder versions on hosts supported by [Blob](/docs/blob/hosts) and [Database](/docs/database/hosts). Include its schema in a Database Definition, then generate and apply migrations through the Database integration. For Content collections, the [CMS preset](/docs/content/cms-preset) adds this Store and its schema for you.
 
 ```ts [server/databases/history/config.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -132,7 +132,7 @@ Instruction text reads scalar bindings with `{{ data.workspace.<name> }}` and fi
 
 ## Contribute Workspace Definitions from a package
 
-A package can register a Workspace from its own Vite plugin, so applications do not write `server/workspaces/<name>.ts` for it. Add `vitehub.workspaces` to the plugin object. Each entry has a `name` and a `definition` that names the module and export of a `defineWorkspace()` result:
+A package can register a Workspace from its own Vite plugin, so applications do not write `server/workspaces/<name>.ts` for it. Add `vitehub.workspaces` to the plugin object. Each entry names a module and export that hold a `defineWorkspace()` result:
 
 ```ts [my-package/vite.ts]
 import { fileURLToPath } from 'node:url'
@@ -145,11 +145,8 @@ export function myPackage(): Plugin & WorkspaceContributingPlugin {
     vitehub: {
       workspaces: () => [{
         name: 'content',
-        definition: {
-          module: fileURLToPath(new URL('./runtime/workspace.js', import.meta.url)),
-          export: 'contentWorkspace',
-        },
-        reason: 'Stores CMS documents.',
+        module: fileURLToPath(new URL('./runtime/workspace.js', import.meta.url)),
+        export: 'contentWorkspace',
       }],
     },
   }
@@ -165,15 +162,14 @@ export const contentWorkspace = defineWorkspace({ /* store, rules, plugins */ })
 | Field | Type | Description |
 | --- | --- | --- |
 | `name` | `string` | Workspace name for `useWorkspace(name)`. |
-| `definition.module` | `string` | Absolute file path, `file:` URL, or package specifier that the application can import. Relative paths are rejected. |
-| `definition.export` | `string` | Export that holds the Workspace Definition. Defaults to `default`. |
-| `reason` | `string` | Optional. Why the package adds the Workspace. `vitehub inspect definitions` and the Console show it. |
+| `module` | `string` | Absolute file path, or a package specifier that the application can import. Relative paths are rejected. |
+| `export` | `string` | Export that holds the Workspace Definition. Defaults to `default`. |
 
-`vitehub.workspaces` accepts an array or a factory. The factory receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root, and can be async. The Workspace plugin can read contributions before your plugin's `config` hook runs, so compute them in the factory, not in your own hooks. The factory runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
+`vitehub.workspaces` accepts an array or a factory. The factory receives `{ projectRoot, rootDir, serverDirs }` and can be async. The Workspace plugin can read contributions before your plugin's `config` hook runs, so compute them in the factory, not in your own hooks. The factory runs once per discovery pass and must return the same result each time.
 
 A contributed Workspace behaves like a discovered file. It is in the generated Nitro registry, in the `WorkspaceName` types, in `vitehub inspect definitions`, and in the Console Workspaces section. Its definition is loaded at build time for asset bundling and Cloudflare Artifacts, the same as discovered files. The definition must not set `name`.
 
-Each Workspace name has one definition. If a contribution reuses the name of a discovered file or of another contribution, the build fails with `WORKSPACE_B0003`, and the message names both sources or both plugins. An invalid contribution fails with `WORKSPACE_B0004`. If the named export is missing at runtime, the first `useWorkspace(name)` call throws a `TypeError` that names the module, export, and contributing plugin.
+Each Workspace name has one definition. If a contribution reuses the name of a discovered file or of another contribution, the build fails with `WORKSPACE_B0003`. An invalid contribution fails with `WORKSPACE_B0004`. If the named export is missing at runtime, the first `useWorkspace(name)` call throws a `TypeError` that names the module, export, and contributing plugin.
 
 `collectWorkspaceContributions(plugins, context)` from `@vite-hub/workspace/vite` returns the validated contributions. It helps when another build step needs the same list.
 

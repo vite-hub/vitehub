@@ -4,6 +4,7 @@ import { resolveConfigValue } from "./config-value.ts"
 import { resolveDBViteConfig } from "./config.ts"
 
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
+import type { CollectedDatabaseContributions } from "./contributions.ts"
 import type { DBModulePublicOptions } from "./types.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -35,9 +36,15 @@ export function getDatabaseNuxtProvisionStateKey(databaseName: string) {
   return encodeURIComponent(databaseName.trim())
 }
 
+/** Contributions and server directories that the Database plugin resolved, so plans include contributed Definitions. */
+export interface DatabaseProvisionContext {
+  contributions?: CollectedDatabaseContributions
+  serverDirs?: string[]
+}
+
 // Resolves discovered Cloudflare D1 databases keyed by Database Definition name.
-function planDatabases(rootDir: string, options: DatabaseProvisionOptions | undefined): PlannedDatabase[] {
-  const config = resolveDBViteConfig(options, rootDir)
+function planDatabases(rootDir: string, options: DatabaseProvisionOptions | undefined, context: DatabaseProvisionContext = {}): PlannedDatabase[] {
+  const config = resolveDBViteConfig(options, rootDir, { contributions: context.contributions, serverDirs: context.serverDirs })
   const plannedByName = new Map<string, PlannedDatabase>()
   for (const definition of config?.databaseNames ?? []) {
     const cloudflare = config?.databases[definition]?.cloudflare
@@ -58,7 +65,11 @@ function planDatabases(rootDir: string, options: DatabaseProvisionOptions | unde
   return [...plannedByName.values()]
 }
 
-export function createDatabaseProvisionStep(resolveRootDir: () => string, options?: DatabaseProvisionOptions): ProvisionStep {
+export function createDatabaseProvisionStep(
+  resolveRootDir: () => string,
+  options?: DatabaseProvisionOptions,
+  resolveContext?: () => DatabaseProvisionContext,
+): ProvisionStep {
   return {
     id: "database:cloudflare-d1",
     provider: "cloudflare",
@@ -70,7 +81,7 @@ export function createDatabaseProvisionStep(resolveRootDir: () => string, option
         return []
       }
 
-      const planned = planDatabases(resolveRootDir(), options)
+      const planned = planDatabases(resolveRootDir(), options, resolveContext?.())
       if (!planned.length) return []
 
       const request = createCloudflareProvisionClient(config, context.fetch)
