@@ -1423,8 +1423,9 @@ describe("Babysitter preset runtime", () => {
         });
       }
       await f.reconcile();
-      expect(f.passes).toHaveLength(2);
-      expect((await f.runtime.inbox.get("acme/app", 12))?.progressBudget).toMatchObject({ head: f.pr().head.sha, count: 2, exhausted: true });
+      // Two passes exhaust the head. The first later bot review grants one more pass, once per head.
+      expect(f.passes).toHaveLength(3);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.progressBudget).toMatchObject({ head: f.pr().head.sha, count: 2, exhausted: true, grants: ["bot-feedback"] });
     } finally { await f.runtime.inbox.close(); }
   });
 
