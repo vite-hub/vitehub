@@ -349,16 +349,6 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
   const targets = new Set<object>([Response.prototype])
   const UndiciResponse = await getUndiciResponse()
   if (UndiciResponse) targets.add(UndiciResponse.prototype)
-  for (const runtime of ["Deno", "Bun", "Cloudflare"]) {
-    try {
-      const Runtime = (globalThis as Record<string, unknown>)[runtime]
-      const Constructor = Runtime && typeof Runtime === "object"
-        ? (Runtime as Record<string, unknown>).Response
-        : undefined
-      if (typeof Constructor === "function" && Constructor.prototype) targets.add(Constructor.prototype)
-    }
-    catch { /* optional runtime globals may be inaccessible */ }
-  }
   try {
     let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
@@ -419,7 +409,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headers: unknown = Reflect.apply(descriptors.headers, candidate, [])
     const body: unknown = Reflect.apply(descriptors.body, candidate, [])
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
-    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
@@ -451,16 +441,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headerTargets: (typeof Headers)[] = [Headers]
     const UndiciHeaders = await getUndiciHeaders()
     if (UndiciHeaders) headerTargets.push(UndiciHeaders)
-    for (const runtime of ["Deno", "Bun", "Cloudflare"]) {
-      try {
-        const Runtime = (globalThis as Record<string, unknown>)[runtime]
-        const Constructor = Runtime && typeof Runtime === "object"
-          ? (Runtime as Record<string, unknown>).Headers
-          : undefined
-        if (typeof Constructor === "function") headerTargets.push(Constructor as typeof Headers)
-      }
-      catch { /* optional runtime globals may be inaccessible */ }
-    }
     for (const HeaderCtor of headerTargets) {
       try {
         Reflect.apply(Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "get")!.value, headers, ["content-type"])

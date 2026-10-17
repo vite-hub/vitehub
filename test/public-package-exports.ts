@@ -44,6 +44,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
   ["@vite-hub/kv/runtime/upstash-driver", { "@upstash/redis": "both" }],
   ["@vite-hub/source/client", { "vue": "both" }],
+  ["@vite-hub/source/drizzle", { "drizzle-orm": "both" }],
   ["@vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["@vite-hub/workspace/blob-database", { "drizzle-orm": "both" }],
   ["@vite-hub/workspace/nitro", { "vite": "declaration" }],

@@ -1114,6 +1114,7 @@
     "@iconify-json/ph": "catalog:ui",
     "@iconify/vue": "catalog:ui",
     "@nuxt/ui": "catalog:nuxt",
+    "nuxt": "catalog:nuxt",
     "@vite-hub/internal": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.9",
     "h3-v1": "npm:h3@^1.15.11",

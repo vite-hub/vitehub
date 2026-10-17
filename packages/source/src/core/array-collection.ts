@@ -113,15 +113,27 @@ function collectionValueAt(value: unknown, path: string): unknown {
   return visit(value, segments)
 }
 
+// Validated items often carry Dates (`z.coerce.date()`). Treat a valid Date as its ISO string for filters, search,
+// and facets, and as its timestamp for sorting.
+function dateTime(value: unknown): number | undefined {
+  if (Object.prototype.toString.call(value) !== "[object Date]") return
+  const time = Date.prototype.getTime.call(value)
+  return Number.isNaN(time) ? undefined : time
+}
+
 function scalarValues(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(scalarValues)
+  const time = dateTime(value)
+  if (time !== undefined) return [new Date(time).toISOString()]
   if (value === null || value === undefined || Object(value) === value) return []
   return [String(value)]
 }
 
 function firstScalar(value: unknown): unknown {
-  if (!Array.isArray(value)) return value
-  return value.flat(Infinity).find(entry => entry !== null && entry !== undefined && Object(entry) !== entry)
+  const entry = Array.isArray(value)
+    ? value.flat(Infinity).find(item => item !== null && item !== undefined && (Object(item) !== item || dateTime(item) !== undefined))
+    : value
+  return dateTime(entry) ?? entry
 }
 
 function isString(value: unknown): value is string {
@@ -146,8 +158,7 @@ function assertFieldList(label: string, fields: readonly string[] | undefined): 
 
 // Server code may filter on any field path; parseQuery() limits HTTP callers to the declared filters.
 function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQuery {
-  const filters: Record<string, string[]> = Object.create(null) as Record<string, string[]>
-  const normalized: NormalizedQuery = { empty: [], filters, search: "" }
+  const normalized: NormalizedQuery = { empty: [], filters: {}, search: "" }
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null) continue
     if (key === "search") {
@@ -159,9 +170,8 @@ function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQue
       continue
     }
     const values = stringList(value).map(entry => entry.toLocaleLowerCase())
-    if (values.length) filters[key] = [...new Set(values)].sort()
+    if (values.length) normalized.filters[key] = [...new Set(values)].sort()
   }
-  normalized.filters = Object.fromEntries(Object.keys(filters).sort().map(key => [key, filters[key]!]))
   return normalized
 }
 
@@ -248,7 +258,7 @@ export function array<TItem, const TFilter extends string = never>(
   const signatureFields = JSON.stringify({ search: [...searchFields].sort(), sort: options.sort ? { direction: options.sort.direction ?? "asc", field: options.sort.field } : null })
 
   async function snapshot(signal: AbortSignal | undefined): Promise<{ digest: string, items: readonly TItem[] }> {
-    const result = typeof load === "function" ? await load({ signal }) : load
+    const result = load instanceof Function ? await load({ signal }) : load
     signal?.throwIfAborted()
     const items: unknown = Array.isArray(result) ? result : Reflect.get(Object(result), "items")
     if (!Array.isArray(items)) {
@@ -281,7 +291,7 @@ export function array<TItem, const TFilter extends string = never>(
       vendor: "vite-hub",
       validate(value) {
         if (!isRecord(value)) return { issues: [{ message: "Collection query must be an object." }] }
-        const filterValues: { [TKey in TFilter]?: string[] } = Object.create(null) as { [TKey in TFilter]?: string[] }
+        const filterValues: { [TKey in TFilter]?: string[] } = {}
         let empty: TFilter[] | undefined
         let search: string | undefined
         for (const [key, raw] of Object.entries(value)) {

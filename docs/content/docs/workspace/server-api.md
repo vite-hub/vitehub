@@ -170,10 +170,6 @@ A commit waits for Definition synchronization before checking Source ownership. 
 
 Retained history requires access to the complete Workspace. A facade restricted to selected paths or Sources throws `WORKSPACE_R0069` instead of exposing or replacing a complete folder outside that scope.
 
-### Read history from the CLI
-
-During development, `vitehub workspace history`, `refs`, and `show` read the same history from a running Vite + Nitro Development Server. They list revisions with ref, author, message, and time, list refs with their heads, and print a revision or one file at that revision. Add `--json` for machine-readable output. See [Read Workspace history during development](/docs/development/cli#read-workspace-history-during-development).
-
 ## Add plugins to a Workspace
 
 `registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it from a package that owns some paths in a Workspace it does not define, for example to validate documents before every write:

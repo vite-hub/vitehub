@@ -9,8 +9,11 @@ export const envAccessGrant: unique symbol = Symbol("vitehub.env.access-grant");
 export type EnvKeyPermission = EnvPermission | "activity";
 export type EnvAuthority =
   | { readonly kind: "admin" }
-  /** An Agent runtime context. Unlike authenticated Agent tokens, it may establish Agent Connection identity. */
-  | { readonly kind: "agent"; readonly bridge?: EnvBridge; readonly scope?: EnvAccessScope }
+  /**
+   * An Agent runtime context. Unlike authenticated Agent tokens, it may establish Agent Connection identity.
+   * `parents` are the registered Agents that the Agent extends, nearest first.
+   */
+  | { readonly kind: "agent"; readonly bridge?: EnvBridge; readonly scope?: EnvAccessScope; readonly parents?: readonly string[] }
   /** The durable grants of the context actor, with an optional ceiling. A `bridge` limits the context to that bridge. */
   | { readonly kind: "actor"; readonly bridge?: EnvBridge; readonly scope?: EnvAccessScope }
   | { readonly kind: "key"; readonly bridge: EnvBridge; readonly key: string; readonly permissions: readonly EnvKeyPermission[] };
@@ -22,7 +25,9 @@ export interface EnvAttribution {
 const envAccess = defineGrant("vitehub.env.access", (authority: EnvAuthority): EnvAuthority =>
   authority.kind === "key"
     ? Object.freeze({ ...authority, permissions: Object.freeze([...authority.permissions]) })
-    : Object.freeze({ ...authority }));
+    : authority.kind === "agent" && authority.parents
+      ? Object.freeze({ ...authority, parents: Object.freeze([...authority.parents]) })
+      : Object.freeze({ ...authority }));
 
 export function envIdentifier(value: unknown): void {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Bridge identifiers must be primitive strings before length and control-character validation.

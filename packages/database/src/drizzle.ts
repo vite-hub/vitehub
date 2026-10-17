@@ -35,7 +35,7 @@ export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Na
   if (Object.hasOwn(databases, name)) return databases[name]
 
   // SAFETY: missing runtime entries are represented as undefined by the public lookup contract.
-  return undefined as RuntimeDatabaseRegistry[Name]
+  return undefined as unknown as RuntimeDatabaseRegistry[Name]
 }
 
 export const agentDb = createAgentDatabase(databases)

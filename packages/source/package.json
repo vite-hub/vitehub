@@ -40,6 +40,12 @@
       "require": "./dist/client.js",
       "default": "./dist/client.js"
     },
+    "./drizzle": {
+      "types": "./dist/drizzle.d.ts",
+      "import": "./dist/drizzle.js",
+      "require": "./dist/drizzle.js",
+      "default": "./dist/drizzle.js"
+    },
     "./file": {
       "types": "./dist/file.d.ts",
       "import": "./dist/file.js",
@@ -104,8 +110,10 @@
     "@types/node": "catalog:tooling",
     "@types/picomatch": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "drizzle-orm": "catalog:database",
     "effect": "catalog:effect",
     "mrmime": "catalog:workspace",
+    "nitro": "catalog:unjs",
     "ocache": "catalog:unjs",
     "picomatch": "catalog:workspace",
     "publint": "catalog:tooling",
@@ -118,10 +126,18 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
+    "drizzle-orm": "catalog:database",
+    "nitro": "catalog:unjs",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    },
+    "nitro": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     },
