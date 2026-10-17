@@ -3,7 +3,7 @@ import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
 import type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
-import { agentLayerMetadata, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
+import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -522,6 +522,7 @@ export type {
   AgentSandboxProviderOptions,
   AgentSchedulerProviderOptions,
   AgentSettings,
+  AgentShutdownOptions,
   AgentSourceProvenance,
   AgentToolDefinition,
   AgentToolSchema,
@@ -875,11 +876,35 @@ interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding
   discoveryDefault: true
 }
 
+// Every Invocation of an Agent with `github` gets its identity, whichever entry point starts it.
+// A caller that already supplies an identity keeps it.
+function withAgentGitHubIdentity<TContext extends AgentRuntimeContext>(
+  agent: Pick<AgentInput<AgentRuntimeContext>, "github">,
+  context: TContext,
+): TContext {
+  return agent.github && !context.githubIdentity ? { ...context, githubIdentity: agent.github } : context
+}
+
+/**
+ * Names of the Agents that a registered Agent Definition extends, nearest first. Connection access rules
+ * fall back to theirs. An inline Definition that is not discovered under `server/agents/` gets none.
+ */
+function agentParentNames(agent: object, name: string): string[] {
+  if (!readDiscoveredAgentName(agent)) return []
+  const names: string[] = []
+  for (const parent of agentLayerParents(agent)) {
+    const explicitName: unknown = Reflect.get(parent, "name")
+    const parentName = hasRuntimeType(explicitName, "string") && explicitName ? explicitName : readDiscoveredAgentName(parent)
+    if (parentName && parentName !== name && !names.includes(parentName)) names.push(parentName)
+  }
+  return names
+}
+
 function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: IdentityRuntimeContext<TRuntimeConfig>,
 ): IdentityRuntimeContext<TRuntimeConfig> {
-  if (agent.github && !context.githubIdentity) context = { ...context, githubIdentity: agent.github }
+  context = withAgentGitHubIdentity(agent, context)
   // Only reuse identity for the same Definition. An unnamed child cannot inherit its parent's grants.
   const owner = context[agentIdentityOwner]
   if (owner === agent) return context
@@ -888,12 +913,13 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   context = { ...context, [agentWorkflowDiscovery]: discovered }
   const name = agent.name || readDiscoveredAgentName(agent)
   if (!name) return { ...context, agentIdentity: !owner ? context.agentIdentity : undefined, [agentIdentityOwner]: agent, [agentEnvIdentity]: undefined }
-  const envIdentity = createAgentEnvIdentity({ ...(!owner ? context.agentIdentity : {}), name })
+  const parents = agentParentNames(agent, name)
+  const envIdentity = createAgentEnvIdentity({ ...(!owner ? context.agentIdentity : {}), name }, name, parents)
   return {
     ...context,
     // Host identity controls routing and attribution; Env authority belongs to the Definition.
     agentIdentity: !owner && context.agentIdentity
-      ? createAgentEnvIdentity(context.agentIdentity, name)
+      ? createAgentEnvIdentity(context.agentIdentity, name, parents)
       : agent.name ? envIdentity : undefined,
     [agentEnvIdentity]: envIdentity,
     [agentIdentityOwner]: agent,
@@ -6223,11 +6249,18 @@ async function resolveFinishDeliveryEffectIntents<
 ): Promise<AgentChannelDeliveryEffectIntent[]> {
   const intents: AgentChannelDeliveryEffectIntent[] = []
   const finishContext = createFinishDeliveryEffectContext(event, context)
+  let firstError: unknown
   for (const provider of providers) {
-    const intent = hasRuntimeType(provider, "function") ? await provider(finishContext, event) : provider
-    if (!intent) continue
-    appendDeliveryEffectIntent(intents, intent)
+    try {
+      const intent = hasRuntimeType(provider, "function") ? await provider(finishContext, event) : provider
+      if (!intent) continue
+      appendDeliveryEffectIntent(intents, intent)
+    }
+    catch (error) {
+      firstError ??= error
+    }
   }
+  if (firstError !== undefined) throw firstError
   return intents
 }
 
@@ -7081,7 +7114,7 @@ async function executeAgentInvocationWithCapacityLease<
     ?? await createAgentInvocationContextWithWorkflowFailureDelivery(definition, context, input, options.kind, invocationJournal, options.tools)
   invocation.activity = activity
   const shouldHoldInvocationOutput = () => options.holdCapacity === true || shouldWrapInvocationOutput(invocation)
-  const lifecycle = await openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
+  const lifecycle = openAgentInvocationLifecycle<AgentInvocationFinishOutcome>(
     async (outcome) => {
       try {
         await finishAgentInvocation(invocation, outcome)
@@ -8258,6 +8291,8 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  // Streamed runs do not pass through withAgentIdentityOwner(), so attach the GitHub identity here.
+  context = withAgentGitHubIdentity(agent, context)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
   // SAFETY: Replay sets this private boolean marker on its runtime; other runtimes may omit it.

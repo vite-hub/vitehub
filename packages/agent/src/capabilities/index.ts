@@ -32,6 +32,8 @@ export {
 export type {
   ChannelDeliveryClient,
   ChannelDeliveryOptions,
+  ChannelDeliveryOptionsResolver,
+  ChannelDeliveryReceipt,
   ChannelDeliveryReminderOptions,
 } from "./channel-delivery.ts"
 export {

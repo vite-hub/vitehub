@@ -7,11 +7,8 @@ import { normalizeGitHubMentionAllowlist } from "../../server/github-auto-merge.
 const noArguments = { type: "object", properties: {}, additionalProperties: false } as const;
 
 function stringField(input: unknown, key: string, allowEmpty = false): string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability inputs are untyped until this runtime boundary validates them.
   if (!input || typeof input !== "object" || !(key in input)) throw new Error(`Missing ${key}.`);
-  // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The preceding object guard establishes a record-shaped capability input.
   const value = (input as Record<string, unknown>)[key];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability inputs are untyped until this runtime boundary validates them.
   if (typeof value !== "string" || (!allowEmpty && !value.trim()))
     throw new Error(`${key} must be ${allowEmpty ? "a string" : "a non-empty string"}.`);
   return value;
@@ -39,10 +36,8 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
         execute: (input: unknown) => {
           if (
             !input ||
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability inputs are untyped until this runtime boundary validates them.
             typeof input !== "object" ||
             !("runId" in input) ||
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability input is validated at runtime.
             typeof input.runId !== "number"
           )
             throw new Error("Expected a run ID.");
@@ -65,7 +60,6 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           additionalProperties: false,
         },
         execute: (input: unknown) => {
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability input is untyped until this runtime boundary validates it.
           if (!input || typeof input !== "object" || !("runId" in input) || typeof input.runId !== "number") throw new Error("Expected a run ID.");
           return operations.readBaseCheckLogs(input.runId);
         },
@@ -117,7 +111,6 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           return { commented: true };
         },
       },
-      // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- The mention tool is intentionally absent until the application configures recipients.
       ...(allowedMentions.length ? {
         mentionOnPullRequest: {
           name: "mentionOnPullRequest",
@@ -157,7 +150,6 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           additionalProperties: false,
         },
         execute: async (input: unknown) => {
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped capability input at the runtime boundary.
           if (!input || typeof input !== "object") throw new Error("Expected a title or body.");
           const title = "title" in input ? stringField(input, "title") : undefined;
           const body = "body" in input ? stringField(input, "body", true) : undefined;
@@ -167,7 +159,6 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           return { updated: true };
         },
       },
-          // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional capability is intentionally omitted when disabled.
           ...(autoMerge
         ? {
             requestAutoMerge: {

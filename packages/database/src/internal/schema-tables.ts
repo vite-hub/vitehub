@@ -5,7 +5,6 @@ import { readStaticDatabaseSchema } from "../config.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { CollectedDatabaseContribution } from "../contributions.ts"
-import type { DiscoveredDatabaseDefinition } from "../types.ts"
 
 export interface DatabaseTableNameOptions {
   /** Import aliases the host applies to the Database Definition, such as Vite `resolve.alias`. */
@@ -115,14 +114,6 @@ export async function loadDatabaseSchema(handler: string, options: DatabaseTable
   options.onFallback(`${failure.message.replace(/\.?$/, ".")} Using the keys of its literal \`schema: { ... }\` object instead. \`vitehub db generate\` requires the Definition to load.`)
   const { tableNames } = readStaticDatabaseSchema(handler)
   return { keys: tableNames, loaded: false, sqlNames: new Map(), tableNames }
-}
-
-/**
- * Loads every schema source of a Database Definition and merges them as the runtime does: a later source, such as the
- * application over a Nuxt layer, wins a key.
- */
-export async function loadDefinitionSchema(definition: Pick<DiscoveredDatabaseDefinition, "schemaSources">, options: DatabaseTableNameOptions = {}): Promise<LoadedDatabaseSchema> {
-  return mergeLoadedSchemas(await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options))))
 }
 
 /** Merges schema sources in order. A later source wins a key. */

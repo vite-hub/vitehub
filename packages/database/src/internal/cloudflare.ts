@@ -1,3 +1,5 @@
+import { isPlainObject } from "@vite-hub/internal/object"
+
 import { resolveConfigValue, withConfigValueFallback } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -121,16 +123,24 @@ function resolveProvisionedD1Id(provisionState: CloudflareD1ProvisionState | und
   return provisionState?.cloudflare?.d1?.[name]
 }
 
-export function resolveCloudflareD1BindingName(database: string, binding: string | undefined) {
+function resolveBindingName(prefix: string, database: string, binding: string | undefined) {
   const trimmed = typeof binding === "string" ? binding.trim() : ""
   if (trimmed) return trimmed
-  if (database === "default") return "DB"
+  if (database === "default") return prefix
   const suffix = database
     .replace(/[^a-z0-9]+/gi, "_")
     .replace(/^_+|_+$/g, "")
     .replace(/_+/g, "_")
     .toUpperCase()
-  return `DB_${suffix || "DATABASE"}`
+  return `${prefix}_${suffix || "DATABASE"}`
+}
+
+export function resolveCloudflareD1BindingName(database: string, binding: string | undefined) {
+  return resolveBindingName("DB", database, binding)
+}
+
+export function resolveCloudflareHyperdriveBindingName(database: string, binding: string | undefined) {
+  return resolveBindingName("HYPERDRIVE", database, binding)
 }
 
 function resolveDatabaseId(config: ResolvedDBViteConfig, name: string, provisionState: CloudflareD1ProvisionState | undefined): string | undefined {
@@ -262,4 +272,35 @@ function isCloudflareD1WranglerBinding(value: unknown): value is CloudflareD1Wra
   return typeof binding.binding === "string"
     && typeof binding.database_id === "string"
     && typeof binding.database_name === "string"
+}
+
+export interface CloudflareHyperdriveWranglerBinding {
+  binding: string
+  id: string
+}
+
+/** Lists the Wrangler Hyperdrive bindings of Postgres Definitions that resolve a Hyperdrive id at build time. */
+export function resolveCloudflareHyperdriveBindings(config: ResolvedDBViteConfig): CloudflareHyperdriveWranglerBinding[] {
+  const bindings: CloudflareHyperdriveWranglerBinding[] = []
+  const owners = new Map<string, { database: string, id: string }>()
+  for (const name of config.databaseNames) {
+    const hyperdrive = config.databases[name]?.hyperdrive
+    const id = resolveConfigValue(hyperdrive?.hyperdriveId)?.trim()
+    if (!hyperdrive || !id) continue
+    const previous = owners.get(hyperdrive.binding)
+    if (previous?.id === id) continue
+    if (previous) {
+      throw databaseErrorDiagnostics.DATABASE_B0007({ message: `[vitehub] Database Definitions ${JSON.stringify(previous.database)} and ${JSON.stringify(name)} use the same Cloudflare Hyperdrive binding ${JSON.stringify(hyperdrive.binding)} for different Hyperdrive ids. Set cloudflare.binding to a distinct name for each Definition.` })
+    }
+    owners.set(hyperdrive.binding, { database: name, id })
+    bindings.push({ binding: hyperdrive.binding, id })
+  }
+  return bindings
+}
+
+/** Adds generated Hyperdrive bindings to Wrangler config. A generated binding replaces one with the same name. */
+export function mergeCloudflareHyperdriveBindings(current: unknown, generated: CloudflareHyperdriveWranglerBinding[]): unknown[] {
+  const generatedNames = new Set(generated.map(binding => binding.binding))
+  const kept = Array.isArray(current) ? current.filter(binding => !isPlainObject(binding) || !generatedNames.has(String(binding.binding))) : []
+  return [...kept, ...generated]
 }

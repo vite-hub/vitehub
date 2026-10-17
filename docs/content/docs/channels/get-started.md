@@ -21,7 +21,7 @@ Install ViteHub and Nitro. Add the plugins below to your existing Vite config, k
 pnpm add vite-hub nitro h3 vite
 ```
 
-Add the Channels integration to your Vite config. ViteHub then discovers files below `server/channels` and files that end in `.channel.ts`.
+Add the Channels integration to your Vite config. ViteHub then discovers files below `server/channels` and files that end in `.channel.ts`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder. Other files in that folder are helpers that the Channel imports.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'

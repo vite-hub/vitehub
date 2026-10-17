@@ -41,7 +41,6 @@ function parseWait(value: unknown): BabysitterPassWait | undefined {
   if (value.kind === "external" && hasRuntimeType(value.reason, "string") && value.reason.trim()) {
     const wake = parseWake(value.wake);
     const wait = { kind: "external" as const, reason: value.reason.trim() };
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional wake metadata is omitted when no dependency can unblock the wait.
     if (wake) Object.assign(wait, { wake });
     return wait;
   }
@@ -91,7 +90,6 @@ export function createBabysitterPassResultSchema(
         if (value.waitForChecksHead !== undefined && !waitForChecksHead)
           report?.({ code: "invalid-check-head", field: "waitForChecksHead" });
         const normalized: BabysitterPassResult = { disposition: value.disposition, text };
-        // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional provider metadata is omitted when invalid or absent.
         if (wait) normalized.wait = wait;
         if (reviewedHead) normalized.reviewedHead = reviewedHead;
         if (waitForChecksHead) normalized.waitForChecksHead = waitForChecksHead;

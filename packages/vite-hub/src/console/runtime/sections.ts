@@ -219,7 +219,6 @@ const consoleSectionIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
 /** Returns true for a lowercase route segment. Built-in and contributed section ids use this form. */
 export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Section ids come from untrusted JSON and browser storage.
   return typeof value === "string" && consoleSectionIdPattern.test(value)
 }
 
@@ -232,7 +231,6 @@ export function isConsoleConnectionsEnabled(options: { connections?: unknown }, 
   const connections = options.connections
   if (!connections) return false
   if (development) return true
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Options cross the host boundary as unknown values.
   if (typeof connections !== "object" || connections === null) return false
   return Object.hasOwn(connections, "management") && Boolean(Reflect.get(connections, "management"))
 }

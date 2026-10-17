@@ -2,7 +2,7 @@ import { normalizeWorkspacePath } from "./path.ts"
 
 import type { WorkspaceSearchHit, WorkspaceSearchQuery } from "./types.ts"
 
-export function toSearchRegExp(query: WorkspaceSearchQuery): RegExp {
+function toSearchRegExp(query: WorkspaceSearchQuery): RegExp {
   const source = query.regex ? query.pattern : escapeRegExp(query.pattern)
   return new RegExp(source, query.caseSensitive ? "g" : "gi")
 }
