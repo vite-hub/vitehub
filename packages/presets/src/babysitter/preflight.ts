@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import type { AgentHealthDiagnostic } from "../../server/health.ts";
 import type { BabysitterInstall } from "../babysitter.ts";
 import type { BabysitterAdmissionPause } from "./admission.ts";
-import { isRuntimeRecord } from "../../internal/runtime-type.ts";
+import { isRuntimeRecord } from "../internal/runtime-type.ts";
 
 const execute = promisify(execFile);
 

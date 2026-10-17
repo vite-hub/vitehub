@@ -12,12 +12,12 @@ import { createProcessAgentHost } from "../../runtime/process-host.ts";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment } from "../../server/github-host.ts";
 import { createBabysitterPreflight } from "./preflight.ts";
 import { babysitterQueueHealth } from "./queue-health.ts";
-import { agentBuildRevision } from "../../internal/build-revision.ts";
+import { presetsBuildRevision } from "../internal/build-revision.ts";
 import { fileURLToPath } from "node:url";
 import { createBabysitterRuntime } from "./server.ts";
 import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
 
-declare const __VITEHUB_AGENT_BUILD_REVISION__: string;
+declare const __VITEHUB_PRESETS_BUILD_REVISION__: string;
 
 /** Reads a plain or sealed Server Env value. */
 export function envString(value: unknown): string | undefined {
@@ -161,7 +161,7 @@ const agent = context.agent as AgentInput & { options: { filter: unknown; concur
     run: async (reason, run, accepting) => await runtime?.reconcile(reason, run, accepting),
   });
   const preflight = createBabysitterPreflight(agent.options.install ?? true);
-  const buildRevision = typeof __VITEHUB_AGENT_BUILD_REVISION__ === "undefined" ? agentBuildRevision(fileURLToPath(new URL("../../../", import.meta.url))) : __VITEHUB_AGENT_BUILD_REVISION__;
+  const buildRevision = typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__;
   const admission = createBabysitterAdmission({
     invocations: host.invocations,
     limits: resolveBabysitterAdmissionLimits(agent.options.admission),

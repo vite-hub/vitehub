@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBabysitterPreflight } from "../src/presets/babysitter/preflight.ts";
+import { createBabysitterPreflight } from "../src/babysitter/preflight.ts";
 
 afterEach(() => vi.restoreAllMocks());
 
