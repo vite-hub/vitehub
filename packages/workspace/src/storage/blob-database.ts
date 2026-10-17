@@ -122,7 +122,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       // this condition in the atomic batch avoids leaving an empty current row
       // that would shadow legacy history on the next process restart.
       this.options.database.insert(workspaces).select(sql`
-        select ${candidates[0]!}
+        select ${candidates[0]!}, 0
         where not exists (
           select 1 from ${workspaces} where ${workspaces.workspace} = ${candidates[1] ?? candidates[0]!}
         )
