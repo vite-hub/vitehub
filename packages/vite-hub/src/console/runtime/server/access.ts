@@ -280,7 +280,7 @@ export async function consoleConnectionsActor(
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | Response> {
   const access = await checkConsoleAccess(event, { user: true })
-  if (access instanceof Response) return access
+  if (isResponseLike(access)) return access
   if (!consoleAccessAllows(access, "connections")) return rejection(403, "CONSOLE_ACCESS_DENIED")
   if (access.mode === "auth") {
     const actor = sessionActor ? await sessionActor() : (await readConsoleAccessUser(access))?.id
@@ -304,7 +304,8 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
     let access = checkedEvents.get(event)
     if (!access || !consoleAccessGrant.isValid(access)) {
       const checked = await checkConsoleAccess(event)
-      if (checked instanceof Response) return checked
+      // A Response from another realm fails `instanceof`. It is a denial, not an access grant.
+      if (isResponseLike(checked)) return checked
       access = checked
       checkedEvents.set(event, access)
     }
