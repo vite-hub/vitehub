@@ -1101,7 +1101,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // A base branch that only moved forward keeps the prepared merge valid. The repair resolves
               // conflicts up to the prepared commit, and GitHub checks the newer commits after the push.
               const baseAdvanced = async (from: string, to: string) => {
-                const [comparison] = await readRest(`repos/${repository}/compare/${from}...${to}`, "{status, behind_by}", abortSignal);
+                // One page: the status and counts do not need the list of commits between the bases.
+                const { stdout } = await github.command(["api", `repos/${repository}/compare/${from}...${to}?per_page=1`, "--jq", "{status, behind_by} | @json"],
+                  { repository, timeout: 60_000, signal: abortSignal });
+                const comparison: unknown = stdout.trim() ? JSON.parse(stdout) : undefined;
                 return isRuntimeRecord(comparison) && comparison.status === "ahead" && comparison.behind_by === 0;
               };
               const assertRepairBase = async () => {

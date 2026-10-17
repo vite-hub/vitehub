@@ -795,7 +795,9 @@ describe("Babysitter preset runtime", () => {
       await f.reconcile();
       expect(f.passes).toHaveLength(1);
       expect(operation === "commitRepair" ? f.commit : f.push).toHaveBeenCalledOnce();
-      expect(f.command.mock.calls.some(([args]) => args.some(arg => arg.startsWith(`repos/acme/app/compare/${"c".repeat(40)}...${"d".repeat(40)}`)))).toBe(true);
+      const compare = f.command.mock.calls.map(([args]) => args).find(args => args.some(arg => arg.startsWith(`repos/acme/app/compare/${"c".repeat(40)}...${"d".repeat(40)}?per_page=1`)));
+      expect(compare).toBeDefined();
+      expect(compare).not.toContain("--paginate");
     } finally { await f.runtime.inbox.close(); }
   });
 
