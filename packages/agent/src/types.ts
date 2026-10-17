@@ -449,6 +449,7 @@ export type AgentChannelDeliveryEventType =
   | "received"
   | "rejected"
   | "retrying"
+  | "superseded"
 
 export interface AgentChannelDeliveryEventInput {
   attempt?: number
@@ -622,6 +623,11 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
 interface AgentWebhookInvocationOwnershipBase {
   concurrencyGroup?: string
   concurrencyTtlMs?: number
+  /**
+   * Waits `delayMs` before the queued delivery runs. A later delivery with the same `key` replaces a
+   * queued one that has not started, and its own wait starts again. Not available with `busy: "steer"`.
+   */
+  debounce?: { delayMs: number, key: string }
   /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
   deliveryId: string
 }

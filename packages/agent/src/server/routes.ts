@@ -1075,10 +1075,12 @@ function persistedWebhookRequest(
   body: string,
   webhookId: string,
   ownership: {
+    busy?: string
     concurrencyGroup?: string
     concurrencyKey?: string
     concurrencyLimit: number
     concurrencyTtlMs?: number
+    debounce?: { delayMs: number, key: string }
   },
   scope: string,
   agentName: string,
@@ -1086,6 +1088,7 @@ function persistedWebhookRequest(
   rehydrate?: boolean,
 ): AgentWebhookQueueDelivery {
   const enqueuedAt = Date.now()
+  const debounce = webhookDebounce(ownership)
   const concurrencyGroup = `${encodeURIComponent(agentName)}:${encodeURIComponent(ownership.concurrencyGroup?.trim() || "default")}`
   return {
     channelDeliveryId,
@@ -1094,6 +1097,7 @@ function persistedWebhookRequest(
     concurrencyLimit: ownership.concurrencyLimit,
     deliveryId,
     enqueuedAt,
+    ...(debounce ? { availableAt: enqueuedAt + debounce.delayMs, debounceKey: debounce.key } : {}),
     ...(invocation ? { invocation } : {}),
     leaseTtlMs: positiveWebhookDuration(ownership.concurrencyTtlMs, defaultWebhookConcurrencyTtlMs, "concurrencyTtlMs"),
     ...(rehydrate ? { rehydrate: true as const } : {}),
@@ -1319,6 +1323,26 @@ async function steerQueuedWebhookDelivery(
       await state.releaseLock(lock)
     }
   }
+}
+
+function webhookDebounce(ownership: { busy?: string, debounce?: unknown }): { delayMs: number, key: string } | undefined {
+  const debounce = ownership.debounce
+  if (debounce === undefined) return undefined
+  if (ownership.busy === "steer") {
+    throw agentDiagnostics.AGENT_R0776({ message: "[vitehub] Webhook delivery ownership debounce is not available with busy: \"steer\"." })
+  }
+  if (!isRecord(debounce) || !isRuntimeString(debounce.key) || !debounce.key.trim() || !isRuntimeNumber(debounce.delayMs) || !Number.isSafeInteger(debounce.delayMs) || debounce.delayMs < 0) {
+    throw agentDiagnostics.AGENT_R0776({ message: "[vitehub] Webhook delivery ownership debounce needs a non-empty key and a non-negative integer delayMs." })
+  }
+  return { delayMs: debounce.delayMs, key: debounce.key }
+}
+
+// A debounced delivery is superseded once a later delivery with the same key is queued in its scope.
+async function supersededWebhookDelivery(state: AgentWebhookQueueStateAdapter, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
+  if (!delivery.debounceKey) return false
+  const queued = await state.queuedWebhookDeliveries(delivery.scope)
+  const index = queued.findIndex(item => item.deliveryId === delivery.deliveryId)
+  return index !== -1 && queued.slice(index + 1).some(item => item.debounceKey === delivery.debounceKey)
 }
 
 function positiveWebhookDuration(value: number | undefined, fallback: number, name: string): number {
@@ -1563,6 +1587,13 @@ async function executeQueuedWebhookDelivery(
     const retryAt = Date.now() + defaultWebhookQueueRetryMs
     await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt, { incrementAttempts: false })
     return retryAt
+  }
+  if (await supersededWebhookDelivery(state, delivery)) {
+    if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
+      const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
+      await channelDelivery?.event({ type: "superseded" }).catch(() => undefined)
+    }
+    return
   }
   if (delivery.attempts >= maxWebhookQueueAttempts) {
     const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
