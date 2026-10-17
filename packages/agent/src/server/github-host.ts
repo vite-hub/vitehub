@@ -6,12 +6,13 @@ import type { ExecFileOptionsWithStringEncoding } from "node:child_process"
 import { createHash } from "node:crypto"
 import { lstat, mkdtemp, readdir, realpath } from "node:fs/promises"
 import { tmpdir } from "node:os"
+import { setTimeout as sleep } from "node:timers/promises"
 import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 import { Diagnostic } from "nostics"
 
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
-import { CodeHostResponseError, codeHostErrorStatus, codeHostProvider, githubAppCredentials } from "../internal/code-host.ts"
+import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials } from "@vite-hub/forge"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./github-repair.ts"
@@ -187,12 +188,12 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
     async identity(): Promise<{ login: string, email: string }> {
       identity ??= (async () => {
         const { login } = await client.app().catch((error: unknown) => {
-          const status = codeHostErrorStatus(error)
+          const status = forgeErrorStatus(error)
           if (status !== undefined) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App request /app failed with ${status}.`, cause: error })
-          if (error instanceof CodeHostResponseError) throw agentDiagnostics.AGENT_R0757({ message: error.message, cause: error })
+          if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0757({ message: error.message, cause: error })
           throw error
         })
-        const provider = await codeHostProvider({ host: "github", userAgent: app.userAgent })
+        const provider = await forgeProvider({ forge: "github", userAgent: app.userAgent })
         const user = await provider.users.get(login).catch(() => undefined)
         return { login, email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` }
       })()
@@ -234,6 +235,55 @@ function isGraphQLCommand(args: string[]): boolean {
     return argument === "graphql"
   }
   return false
+}
+
+/** A failure that the same request can fix on retry: an HTML gateway page instead of JSON, an HTTP 5xx or a dropped connection. */
+function transientGitHubFailure(error: unknown): boolean {
+  if (rateLimitMessage(error)) return false
+  const stderr = isRuntimeRecord(error) && "stderr" in error ? String(error.stderr) : ""
+  const message = error instanceof Error ? `${error.message}\n${stderr}` : String(error)
+  return /invalid character '<'|HTTP 5\d\d|\b50[234]\b|bad gateway|service unavailable|gateway time-?out|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|connection reset|TLS connection|i\/o timeout|unexpected EOF/i.test(message)
+}
+
+/** `gh api <path>` without a method, fields or input is a REST read, so a retry cannot repeat a write. */
+function isRestRead(args: string[]): boolean {
+  if (args[0] !== "api" || isGraphQLCommand(args)) return false
+  let method: string | undefined
+  let hasWriteArguments = false
+  let hasInput = false
+  for (let index = 1; index < args.length; index += 1) {
+    const argument = args[index]!
+    if (argument === "-X" || argument === "--method") {
+      method = args[++index]?.toUpperCase()
+      if (method !== "GET") return false
+      continue
+    }
+    if (/^(?:-X|--method)=/i.test(argument)) {
+      method = argument.slice(argument.indexOf("=") + 1).toUpperCase()
+      if (method !== "GET") return false
+      continue
+    }
+    if (/^(?:--input)(?:=|$)/.test(argument)) hasInput = true
+    if (/^(?:-f|-F|--field|--raw-field)(?:=|$)/.test(argument) || /^-[fF]./.test(argument)) {
+      hasWriteArguments = true
+    }
+  }
+  return method === "GET" ? !hasInput : !hasWriteArguments
+}
+
+const TRANSIENT_RETRY_DELAYS_MS = [1_000, 3_000]
+
+async function retryTransient<T>(run: () => Promise<T>, signal: AbortSignal, retry: boolean): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run()
+    }
+    catch (error) {
+      const delay = TRANSIENT_RETRY_DELAYS_MS[attempt]
+      if (!retry || delay === undefined || signal.aborted || !transientGitHubFailure(error)) throw error
+      await sleep(delay, undefined, { signal })
+    }
+  }
 }
 
 function abortError(reason?: unknown): Error {
@@ -425,9 +475,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         }
         catch (error) {
           if (input.signal?.aborted) throw abortError(input.signal.reason)
-          const status = codeHostErrorStatus(error)
+          const status = forgeErrorStatus(error)
           if (status !== undefined) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App token request failed with ${status}.`, cause: error })
-          if (error instanceof CodeHostResponseError) throw agentDiagnostics.AGENT_R0758({ message: "GitHub App token response did not include a token.", cause: error })
+          if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0758({ message: "GitHub App token response did not include a token.", cause: error })
           throw error
         }
       }
@@ -477,7 +527,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     const operation = controlledOperation(input)
     let auth: Awaited<ReturnType<typeof scopedAccess>> | undefined
     try {
-      auth = await scopedAccess({ repository: input.repository, signal: operation.signal })
+      // Minting an installation token has no side effect, so a dropped connection is retried for every command.
+      auth = await retryTransient(() => scopedAccess({ repository: input.repository, signal: operation.signal }), operation.signal, true)
       touchBudgetState(auth.rateLimitKey, Date.now())
       commands.set(auth.rateLimitKey, (commands.get(auth.rateLimitKey) ?? 0) + 1)
       const execOptions: ExecFileOptionsWithStringEncoding = {
@@ -487,7 +538,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         signal: operation.signal,
       }
       if (input.cwd) execOptions.cwd = input.cwd
-      return await exec("gh", args, execOptions)
+      return await retryTransient(() => exec("gh", args, execOptions), operation.signal, isRestRead(args))
     }
     catch (error) {
       if (auth && rateLimitMessage(error)

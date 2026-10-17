@@ -146,10 +146,11 @@ await recaps.items() // [{ key: "2026-07", source: "github", identity: ["github"
 
 A combined reader exposes `items()` only when every input implements it.
 
-Use `cachedSource()` to add Nitro caching to a keyed reader:
+Use `cachedSource()` to add Nitro caching to a keyed reader. It loads
+`nitro/cache` on the first `get()`, so the app must run on Nitro:
 
 ```ts
-import { cachedSource } from "vite-hub/source/server"
+import { cachedSource } from "@vite-hub/source/server"
 
 const cachedDocs = cachedSource(createSource(docs), { name: "docs", maxAge: 60 })
 await cachedDocs.get("intro.md")
@@ -216,9 +217,69 @@ origin-specific query. Collection owns limit enforcement, opaque cursor
 transport, response shaping, and the exact item and filter types consumed by
 `useCollection()`.
 
+### Collections over an array
+
+When the whole data set fits in memory, pass `array()` as the Collection source.
+It filters, searches, sorts, counts, and pages the array, and returns `total` and
+`facets` with each page:
+
+```ts
+// server/collections/articles.ts
+import { array, defineCollection } from "@vite-hub/source"
+
+export const articles = defineCollection({
+  source: array(() => loadArticles(), {
+    facets: ["category"],
+    filters: ["category", "authors.name"],
+    key: "slug",
+    search: ["title", "summary"],
+    sort: { field: "title" },
+  }),
+  transform: article => ({ slug: article.slug, title: article.title }),
+})
+```
+
+Clients filter with the declared field paths: `?category=guide` matches without
+case, a repeated key matches any of its values, `?empty=category` matches items
+with no value, and `?search=` matches the `search` fields. Any other key returns
+`400`. Cursors are bound to the data and the query. A cursor from changed data or
+another query returns `409`. `load` runs on every request; return
+`{ items, digest }` when the origin already has a content digest, or ViteHub
+hashes the items. `useCollection()` exposes `total` and `facets` from the latest
+page. `key` adds `collection.get(key)` for server code, and `schema` validates
+every item and types it from the schema output. Use a database `table()`
+from `@vite-hub/source/drizzle` when the data set should not be loaded per
+request. `table()` needs the optional `drizzle-orm` peer. `vite-hub/source`
+exports `table()` too.
+
+`workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
+in a Workspace file.
+
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured
 data and its assets as one logical item.
+
+### Inspect Collections
+
+`vitehub inspect definitions --kind collection` lists each discovered Collection
+with its file, source kind, and the options that it sets: schema, key, sort,
+filters, search, facets, limits, transform, authorize, and route. The
+`hubSource()` plugin contributes this list through `vitehub.inspect`, and
+`inspectCollectionDefinitions({ projectRoot, serverDirs })` from
+`@vite-hub/source/vite` returns the same summaries. Inspection reads the module
+text and does not run it, so a value that is computed at runtime shows as
+`Dynamic`.
+
+```txt
+Collections (collection): 1
+  articles  server/collections/articles.ts  [server-collections]
+    Source: array
+    Key: slug
+    Sort: publishedAt desc
+    Filters: category, authors.name
+    Transform: Yes
+    Route: GET /api/articles
+```
 
 ## Used by
 

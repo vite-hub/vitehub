@@ -24,7 +24,7 @@ export {
 } from "./server/invocation-health.ts"
 
 export { defineAgentRunEvents } from "./run-events.ts"
-export { channelMessageRunId, channelReplayRunId, describeChannelHistory, replayChannel } from "./channel-replay.ts"
+export { channelMessageRunId, describeChannelHistory, replayChannel } from "./channel-replay.ts"
 export type {
   ChannelHistoryDescription,
   ReplayChannelItem,

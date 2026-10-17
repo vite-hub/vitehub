@@ -24,17 +24,14 @@ type CDPMessage =
   | { kind: "response", error?: { message: string }, id: number, result?: unknown, sessionId?: string }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CDP JSON is unknown until its object envelope is validated.
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function isString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CDP JSON fields are unknown until their protocol type is validated.
   return typeof value === "string"
 }
 
 function isSafeInteger(value: unknown): value is number {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CDP response ids are unknown JSON values until their numeric type is validated.
   return typeof value === "number" && Number.isSafeInteger(value)
 }
 

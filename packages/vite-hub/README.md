@@ -68,7 +68,7 @@ vitehub({
   kv: true,
   queue: true,
   rateLimit: true,
-  sandbox: true,
+  sandboxTask: true,
   schedule: true,
   workflow: true,
   workspace: true,
@@ -135,7 +135,7 @@ The root export intentionally contains only the framework configuration API. Fea
 
 Render a local prompt with `renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data })`. File rendering reads only the requested file at runtime; references such as `@./fragment.md` remain literal, so compose any additional Markdown explicitly before rendering. Use `renderMarkdownTemplate(text, { data })` for content already loaded from a Workspace, Source, or application storage.
 
-Built-in Agent Drivers and Box runtimes are selected by literal or tagged values, so they do not need provider-specific ViteHub imports. Install an optional external provider or SDK explicitly when its runtime requires one.
+Built-in Agent Drivers and Sandbox runtimes are selected by literal or tagged values, so they do not need provider-specific ViteHub imports. Install an optional external provider or SDK explicitly when its runtime requires one.
 
 ## Read the reference
 
@@ -147,23 +147,21 @@ Built-in Agent Drivers and Box runtimes are selected by literal or tagged values
 
 ## Record Agent invocations in a Database
 
-Pass an explicit journal to an Agent Definition to record invocations when the Console is disabled:
+Set `invocations` to record invocations when the Console is disabled:
 
 ```ts
 import { defineAgent } from "vite-hub/agent"
-import { createDatabaseAgentInvocationStore } from "vite-hub/agent/invocations/database"
-import { defineAgentInvocations } from "vite-hub/agent/server"
 
 export default defineAgent({
-  invocations: defineAgentInvocations({
-    store: createDatabaseAgentInvocationStore({ database: "default" }),
-  }),
+  invocations: "database",
 })
 ```
 
+Set `agent: { invocations: "database" }` in the `vitehub()` options to give every Agent Definition from `vite-hub/agent` the same journal. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off. `"memory"` keeps records in the server process. The object form, such as `{ store: "database", database: "journal", content: "content" }`, accepts the other `defineAgentInvocations()` options.
+
 The store uses a discovered ViteHub Database and creates its journal tables on first use. It supports local SQLite and hosted libSQL through Drizzle, plus native Cloudflare D1. D1 over HTTP is rejected by a read-only probe before schema creation or writes because its raw query results do not contain column names. The `database` option defaults to `default`.
 
-Retention defaults to 30 days and 10,000 terminal records. Set `maxAgeMs` or `maxRecords` on the store options to change each limit, or set either to `false` to disable it. The Console can inspect an Agent's explicit journal but does not own its retention settings.
+Retention defaults to 30 days and 10,000 terminal records. To change a limit, pass `createDatabaseAgentInvocationStore({ maxAgeMs, maxRecords })` from `vite-hub/agent/invocations/database` to `defineAgentInvocations({ store })` from `vite-hub/agent/server`. Set either limit to `false` to disable it. The Console shows a configured journal but does not own its retention settings.
 
 ## Invoke Agents from the Console
 
@@ -186,6 +184,8 @@ Set `console.observations` to configure the fallback journal's observation count
 On the `cloudflare` preset, production builds store the fallback journal in the D1 binding of the default or only Database Definition. Its Cloudflare config takes precedence over the `driver: "d1"` integration binding. Without a discovered Definition, the Console keeps libSQL. The D1 store creates its table on first use. Development, `console.databaseUrl`, and `VITEHUB_CONSOLE_DATABASE_URL` keep libSQL. See [Cloudflare journal](https://vitehub.dev/docs/development/console#know-what-the-console-stores).
 
 The D1 journal supports Drizzle queries and atomic writes through `console.resolve(context).invocations.db.batch()`. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. Use `db.batch()` to group D1 writes.
+
+`inputCommands({ debug: true })` from `vite-hub/agent/capabilities` adds a `/debug` input command. It replies with the Console URL of the previous Invocation of the same Agent. When the current Invocation has a Channel thread, it uses the previous Invocation in that thread. The Agent Driver does not run. `/debug` needs `vitehub({ console })`; without it, the command replies that the Console is not enabled. A `debug` entry in `commands` replaces the built-in command.
 
 ## Console images
 

@@ -4,17 +4,17 @@ import * as v from "valibot"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { defineCapability, normalizeMode } from "../capability-runtime.ts"
-import { builtInCodeHostEnv } from "../channel-env.ts"
 import { pullRequest } from "../channels.ts"
 import type { CodeHostKind } from "../channels.ts"
 import { readBuiltInEnv } from "../internal/builtin-env.ts"
 import {
-  codeHostErrorStatus,
-  codeHostProvider,
+  forgeEnv,
+  forgeErrorStatus,
+  forgeProvider,
   githubAppCredentials,
   readGitHubAppPrivateKey,
   withSignal,
-} from "../internal/code-host.ts"
+} from "@vite-hub/forge"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { defineInternalTool } from "./internal.ts"
 
@@ -251,22 +251,22 @@ async function connection(
     context.runtimeContext?.githubIdentity
   ) {
     const access = await context.runtimeContext.githubIdentity.access({ repository, signal })
-    if (access.token) return { host, baseUrl, token: access.token }
+    if (access.token) return { forge: host, baseUrl, token: access.token }
   }
-  const specs = builtInCodeHostEnv[host]
+  const specs = forgeEnv[host]
   // Keep the capability context object: Server Env is cached by its identity for one Invocation.
   const env = await withSignal(readBuiltInEnv(host, specs, Object.keys(specs), context), signal)
   const resolvedBaseUrl = baseUrl ?? envString(env.baseUrl)
   if (host === "github") {
     const appId = envString(env.appId)
     const privateKey = appId
-      ? await readGitHubAppPrivateKey(envString(env.appPrivateKey), envString(env.appPrivateKeyPath))
+      ? await readGitHubAppPrivateKey(envString(env.privateKey), envString(env.privateKeyPath))
       : undefined
     if (appId && privateKey) {
       const app = githubAppCredentials({ appId, privateKey, baseUrl: resolvedBaseUrl })
-      const installation = envString(env.appInstallationId) ?? (await app.installation(repository, signal))
+      const installation = envString(env.installationId) ?? (await app.installation(repository, signal))
       return {
-        host,
+        forge: host,
         baseUrl: resolvedBaseUrl,
         token: (await app.installationToken(installation, { signal })).token,
       }
@@ -276,11 +276,11 @@ async function connection(
   if (!token) {
     const names =
       host === "github"
-        ? "GITHUB_APP_ID with GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_PATH; optional GITHUB_APP_INSTALLATION_ID; or VITEHUB_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN"
+        ? "VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY or VITEHUB_GITHUB_PRIVATE_KEY_PATH; optional VITEHUB_GITHUB_INSTALLATION_ID; or VITEHUB_GITHUB_TOKEN. FORGES_GITHUB_* names are also read"
         : specs.token.names.join(", ")
     throw agentDiagnostics.AGENT_R0941({ message: `[vitehub] Code Host requires Server Env credentials: ${names}.` })
   }
-  return { host, baseUrl: resolvedBaseUrl, token }
+  return { forge: host, baseUrl: resolvedBaseUrl, token }
 }
 
 /** Remove host payloads and expose Code Host names in tool results. */
@@ -335,10 +335,10 @@ async function call(
   signal?: AbortSignal,
 ): Promise<unknown> {
   const split = repository.lastIndexOf("/")
-  const origin = { forge: provider.kind, instance: provider.instance }
+  const origin = { forge: provider.forge, instance: provider.instance }
   const repo = { ...origin, owner: repository.slice(0, split), name: repository.slice(split + 1) }
   const thread = (number: number) => ({
-    forge: provider.kind,
+    forge: provider.forge,
     instance: provider.instance,
     repo,
     kind: "pull_request" as const,
@@ -424,7 +424,7 @@ async function call(
     case "rerun_check": {
       const input = v.parse(schemas.rerun_check, value)
       await provider.checks.rerun({
-        forge: provider.kind,
+        forge: provider.forge,
         instance: provider.instance,
         repo,
         id: String(input.check.id),
@@ -563,8 +563,8 @@ export function codeHost(options: CodeHostCapabilityOptions = {}): AgentCapabili
       }
       const allowedRepositories = repositories
       // Capability discovery does not need credentials or a repository request.
-      const support = await codeHostProvider({
-        host,
+      const support = await forgeProvider({
+        forge: host,
         baseUrl,
         token: "capability-discovery",
         readOnly: mode === "read",
@@ -608,7 +608,7 @@ export function codeHost(options: CodeHostCapabilityOptions = {}): AgentCapabili
               const config = await connection(context, host, repository, baseUrl, signal)
               // The pinned client has no signal option on most write verbs. Bind it at the transport.
               const fetcher = globalThis.fetch
-              const provider = await codeHostProvider({
+              const provider = await forgeProvider({
                 ...config,
                 readOnly: mode === "read",
                 fetch: (url, init) => {
@@ -630,7 +630,7 @@ export function codeHost(options: CodeHostCapabilityOptions = {}): AgentCapabili
               if (signal?.aborted) signal.throwIfAborted()
               // Only ViteHub diagnostics pass through. Host and transport errors become AGENT_R0944.
               if (error instanceof Diagnostic) throw error
-              const status = codeHostErrorStatus(error)
+              const status = forgeErrorStatus(error)
               throw agentDiagnostics.AGENT_R0944({
                 message: `[vitehub] Code Host ${operation} failed${status ? ` with HTTP ${status}` : ""}. Check host support and repository access.`,
               })

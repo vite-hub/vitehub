@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-workflow
 ---
 
+::agent-only{skill="workflow"}
+Use Workflows for provider-tracked work that can outlive a request and needs durable state, retries, or steps. A run id is the handle for inspection.
+
+Read [Get started](/docs/workflows/get-started), [Configure](/docs/workflows/configure), [Server API](/docs/workflows/server-api), or [Hosts](/docs/workflows/hosts).
+
+Make each step idempotent and define terminal failure behavior. Keep request handlers small: start the run, return its id, and inspect the run separately.
+
+Prove start, retry or resume, cancellation, and a terminal result. Inspect provider state instead of assuming the request process owns the run.
+::
+
 ::product-hero{tagline="Start long-running work as a tracked run with an id, status, and result on Cloudflare, Vercel, or OpenWorkflow." hosts="Cloudflare, Vercel, Node, Docker"}
   :::code-group
   ```ts [Route]

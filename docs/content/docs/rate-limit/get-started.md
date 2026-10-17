@@ -3,7 +3,7 @@
 title: Guard your first request
 description: Allow two requests per minute and check that the third returns HTTP 429.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---

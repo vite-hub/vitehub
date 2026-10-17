@@ -1,5 +1,6 @@
 import { defineConfig } from "vite-plus";
 import { fileURLToPath } from "node:url";
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 import { agentBuildRevision } from "./src/internal/build-revision.ts";
 
 // These entries resolve only through the "#vitehub/agent/provider-agent" package import, so they are not public exports.
@@ -49,8 +50,6 @@ export default defineConfig({
       "src/cli.ts",
       "src/eval.ts",
       "src/eve.ts",
-      "src/evlog.ts",
-      "src/evlog/posthog.ts",
       "src/gateways.ts",
       "src/observability.ts",
       "src/observability/host.ts",
@@ -79,7 +78,7 @@ export default defineConfig({
     ],
     exports: {
       customExports(exports) {
-        return Object.fromEntries(
+        return normalizePackageExports(Object.fromEntries(
           Object.entries(exports).filter(([key]) => !privateEntryExports.has(key)).map(([key, value]) => {
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [key, value];
@@ -92,7 +91,7 @@ export default defineConfig({
               },
             ];
           }),
-        );
+        ));
       },
       inlinedDependencies: false,
     },
