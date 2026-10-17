@@ -96,6 +96,35 @@ describe("Vite schedule integration", () => {
     expect(invalidateModule).toHaveBeenCalledWith(targets)
   })
 
+  it("invalidates the registry in the Nitro environment graph", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-hmr-env-"))
+    const plugin = hubSchedule()
+    await (plugin.config as (config: Record<PropertyKey, unknown>, env: { command: "serve", mode: string }) => unknown)({ root }, { command: "serve", mode: "development" })
+    await resolvePluginConfig(plugin, root)
+    const nitroRegistry = {}
+    const invalidateNitroModule = vi.fn()
+    const send = vi.fn()
+
+    await (plugin.handleHotUpdate as (context: Record<string, unknown>) => Promise<unknown>)({
+      file: join(root, "server", "schedules", "daily.ts"),
+      server: {
+        config: { root },
+        environments: {
+          client: { config: { consumer: "client" }, hot: { send: vi.fn() }, moduleGraph: { getModuleById: () => undefined, invalidateModule: vi.fn() } },
+          nitro: {
+            config: { consumer: "server" },
+            hot: { send },
+            moduleGraph: { getModuleById: (id: string) => id === "\0#vitehub/schedule/registry" ? nitroRegistry : undefined, invalidateModule: invalidateNitroModule },
+          },
+        },
+        moduleGraph: { getModuleById: () => undefined, invalidateModule: vi.fn() },
+      },
+    })
+
+    expect(invalidateNitroModule).toHaveBeenCalledWith(nitroRegistry)
+    expect(send).toHaveBeenCalledWith({ type: "full-reload" })
+  })
+
   it("registers runtime-only targets without emitting static provider output", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-runtime-target-"))
     const netlifyRoot = createDefaultNetlifyOutputRoot(root)

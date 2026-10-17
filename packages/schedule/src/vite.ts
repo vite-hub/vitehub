@@ -62,20 +62,15 @@ const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.mjs"
 const generatedNitroDevHandlerDirectory = ".vitehub/nitro/schedule/dev-handlers"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
+// The Nitro dev handler imports the registry in Nitro's own environment graph, so invalidate it there too.
 function invalidateScheduleRegistry(server: ViteDevServer): void {
-  const matches = (id: string | null | undefined) => id?.replace(/\\/g, "/") === RESOLVED_SCHEDULE_REGISTRY_ID
-  for (const module of server.moduleGraph.idToModuleMap.values()) {
-    if (matches(module.id)) server.moduleGraph.invalidateModule(module)
-  }
+  const registry = server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
+  if (registry) server.moduleGraph.invalidateModule(registry)
   for (const environment of Object.values(server.environments ?? {})) {
-    let invalidated = false
-    for (const module of environment.moduleGraph.idToModuleMap.values()) {
-      if (matches(module.id)) {
-        environment.moduleGraph.invalidateModule(module)
-        invalidated = true
-      }
-    }
-    if (invalidated && environment.config.consumer === "server") environment.hot.send({ type: "full-reload" })
+    const module = environment.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
+    if (!module) continue
+    environment.moduleGraph.invalidateModule(module)
+    if (environment.config.consumer === "server") environment.hot.send({ type: "full-reload" })
   }
 }
 
