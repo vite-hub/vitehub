@@ -87,4 +87,4 @@ ViteHub checks the actor rule before the operation. A write list can contain exa
 | `encryptionKey` | `env({ secret: true, optional: true, source: env.source('VITEHUB_CONNECTIONS_KEY') })` | Secret Env declaration for the key. It cannot use `env.provider()` or a default. |
 | `projectRoot` | Vite root | Where ViteHub discovers `server/connections/`. |
 
-`vitehub({ connections })` requires `database`. The Nuxt module does not support Connections yet.
+`vitehub({ connections })` enables `database` when it is unset. Without a Database Definition, Connections use the empty Default Database. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module does not support Connections yet.

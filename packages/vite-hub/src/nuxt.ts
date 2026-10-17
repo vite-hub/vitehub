@@ -801,6 +801,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (options.connections && nuxt.options.dev === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] connections is not supported by the Nuxt module yet. Use the Vite plugin." })
   }
+  // Only the Vite plugin enables the implicit default Database for Connections.
+  if (options.connections && !options.database) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections in the Nuxt module requires database and a Database Definition, because grants and activity are stored in the app database." })
+  }
   const plan = resolveDeploymentPlan(options.preset)
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
