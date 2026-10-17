@@ -107,7 +107,7 @@ function resolveCache(install: BabysitterInstall, env: Record<string, string | u
   return {
     directory: configured.directory ?? (env.BABYSITTER_INSTALL_CACHE || join(tmpdir(), "vitehub-install-cache")),
     entries: configured.entries ?? Math.max(1, Math.floor(Number(env.BABYSITTER_INSTALL_CACHE_ENTRIES)) || 8),
-    configured: configured.directory !== undefined,
+    configured: configured.directory !== undefined || env.BABYSITTER_INSTALL_CACHE !== undefined,
   };
 }
 
