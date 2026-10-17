@@ -20,6 +20,7 @@ const trustedResponseStatusGetter = typeof Response === "function"
   : undefined
 
 const validatedResponsePipeThrough = new WeakMap<object, (this: object, ...args: unknown[]) => unknown>()
+const validatedResponseBodies = new WeakMap<object, object | null>()
 
 export function agentResultKind(result: unknown): string {
   if (result === null) return "null"
@@ -973,7 +974,10 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
     // A bodyless response is only trusted when the host brand operation
     // succeeded. An own-tagged object with `body: null` is caller-defined.
-    if (body === null) return trustedResponse
+    if (body === null) {
+      if (trustedResponse) validatedResponseBodies.set(value, null)
+      return trustedResponse
+    }
     if (!isRuntimeObject(body)) return false
     // A stream may already be locked by its caller. In that state acquiring a
     // reader throws even though the value is a genuine Web Stream. Use the
@@ -1032,6 +1036,7 @@ function isResponseLike(value: unknown): value is Response {
     }
     const pipeThrough = getPrototypeMethod(body, "pipeThrough")
     if (!pipeThrough) return false
+    validatedResponseBodies.set(value, body)
     validatedResponsePipeThrough.set(body, pipeThrough as (this: object, ...args: unknown[]) => unknown)
     return true
   }
@@ -1092,7 +1097,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   }
   // Explicit Agent streams take precedence over response-shaped output fields.
   if (isResponseLike(value)) {
-    const body = value.body
+    const body = validatedResponseBodies.get(value)
     if (body) {
       const pipeThrough = validatedResponsePipeThrough.get(body)
       if (!pipeThrough) throw new TypeError("Response body does not expose pipeThrough")
