@@ -56,10 +56,21 @@ function isRequest(value: unknown): value is Request {
         if (typeof constructor === "function" && constructor.name === "Request"
           && constructor.prototype === prototype && typeof bodyGetter === "function") {
           const descriptors = Object.getOwnPropertyDescriptors(prototype)
+          const constructorDescriptor = descriptors.constructor
+          if (!constructorDescriptor || constructorDescriptor.enumerable || !constructorDescriptor.configurable
+            || constructorDescriptor.writable !== true) return false
           const accessorNames = ["body", "headers", "method", "url", "signal"] as const
-          if (accessorNames.some(name => typeof descriptors[name]?.get !== "function")) return false
+          if (accessorNames.some(name => {
+            const descriptor = descriptors[name]
+            return !descriptor || typeof descriptor.get !== "function" || descriptor.enumerable
+              || !descriptor.configurable
+          })) return false
           const methodNames = ["clone", "arrayBuffer", "blob", "formData", "json", "text"] as const
-          if (methodNames.some(name => typeof descriptors[name]?.value !== "function")) return false
+          if (methodNames.some(name => {
+            const descriptor = descriptors[name]
+            return !descriptor || typeof descriptor.value !== "function" || descriptor.enumerable
+              || !descriptor.configurable || descriptor.writable !== true
+          })) return false
           bodyGetter.call(value)
           const headers = descriptors.headers.get?.call(value)
           const headersPrototype = headers && Object.getPrototypeOf(headers)
