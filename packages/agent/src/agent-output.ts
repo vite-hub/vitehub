@@ -757,9 +757,13 @@ function crossRealmStreamError(error: unknown): { message: string; value: object
         // No portable brand signal remains when cloning fails.
       }
     }
-    const branded = cloneBranded || nativeBranded === true
-      || (nativeBranded === undefined && error instanceof Error
-        && Object.prototype.hasOwnProperty.call(error, "message"))
+    const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
+    const stackDescriptor = Object.getOwnPropertyDescriptor(error, "stack")
+    const sameRealmFallback = nativeBranded === undefined
+      && error instanceof Error
+      && Object.prototype.hasOwnProperty.call(error, "message")
+      && stackDescriptor?.get === nativeStackGetter
+    const branded = cloneBranded || nativeBranded === true || sameRealmFallback
     if (!branded) return
     const message = Reflect.get(error, "message")
     return { message: message === undefined ? "" : String(message), value: error }
