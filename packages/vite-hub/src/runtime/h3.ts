@@ -67,29 +67,6 @@ function isRequest(value: unknown): value is Request {
           const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
           if (typeof headersGet !== "function") return false
           headersGet.call(headers, "x-vite-hub-brand")
-          const clone = descriptors.clone?.value
-          if (typeof clone !== "function") return false
-          if (clone === Object.getOwnPropertyDescriptor(Request.prototype, "clone")?.value) return false
-          try {
-            const cloned = clone.call(value)
-            if (cloned === null || typeof cloned !== "object") return false
-            const clonedTag = Object.prototype.toString.call(cloned)
-            if (clonedTag !== "[object Request]") return false
-            const cancel = (cloned as Request).body?.cancel()
-            if (cancel && typeof (cancel as PromiseLike<unknown>).then === "function") {
-              void Promise.resolve(cancel).catch(() => undefined)
-            }
-          } catch {
-            const arrayBuffer = descriptors.arrayBuffer?.value
-            if (valueBodyUsed(value, bodyGetter) !== true || typeof arrayBuffer !== "function") return false
-            try {
-              const result = arrayBuffer.call(value)
-              if (!result || typeof result.then !== "function") return false
-              void Promise.resolve(result).catch(() => undefined)
-            } catch {
-              return false
-            }
-          }
           return true
         }
         prototype = Object.getPrototypeOf(prototype)
