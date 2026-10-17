@@ -3,7 +3,7 @@ import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
 import type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
-import { agentLayerMetadata, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
+import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -884,6 +884,21 @@ function withAgentGitHubIdentity<TContext extends AgentRuntimeContext>(
   return agent.github && !context.githubIdentity ? { ...context, githubIdentity: agent.github } : context
 }
 
+/**
+ * Names of the Agents that a registered Agent Definition extends, nearest first. Connection access rules
+ * fall back to theirs. An inline Definition that is not discovered under `server/agents/` gets none.
+ */
+function agentParentNames(agent: object, name: string): string[] {
+  if (!readDiscoveredAgentName(agent)) return []
+  const names: string[] = []
+  for (const parent of agentLayerParents(agent)) {
+    const explicitName: unknown = Reflect.get(parent, "name")
+    const parentName = hasRuntimeType(explicitName, "string") && explicitName ? explicitName : readDiscoveredAgentName(parent)
+    if (parentName && parentName !== name && !names.includes(parentName)) names.push(parentName)
+  }
+  return names
+}
+
 function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: IdentityRuntimeContext<TRuntimeConfig>,
@@ -897,12 +912,13 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   context = { ...context, [agentWorkflowDiscovery]: discovered }
   const name = agent.name || readDiscoveredAgentName(agent)
   if (!name) return { ...context, agentIdentity: !owner ? context.agentIdentity : undefined, [agentIdentityOwner]: agent, [agentEnvIdentity]: undefined }
-  const envIdentity = createAgentEnvIdentity({ ...(!owner ? context.agentIdentity : {}), name })
+  const parents = agentParentNames(agent, name)
+  const envIdentity = createAgentEnvIdentity({ ...(!owner ? context.agentIdentity : {}), name }, name, parents)
   return {
     ...context,
     // Host identity controls routing and attribution; Env authority belongs to the Definition.
     agentIdentity: !owner && context.agentIdentity
-      ? createAgentEnvIdentity(context.agentIdentity, name)
+      ? createAgentEnvIdentity(context.agentIdentity, name, parents)
       : agent.name ? envIdentity : undefined,
     [agentEnvIdentity]: envIdentity,
     [agentIdentityOwner]: agent,
