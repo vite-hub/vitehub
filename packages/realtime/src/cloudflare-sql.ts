@@ -34,6 +34,11 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // descriptor shape only ensures that invoking discovery cannot run an
     // arbitrary inherited getter.
     if (typeof constructor !== "function" || typeof exec !== "function" || typeof databaseSize !== "function") return false
+    // Workerd exposes the platform carrier as `SqlStorage`. Requiring this
+    // name keeps unrelated native accessors (for example Map.prototype.size)
+    // from being accepted when their prototype is polluted with copied SQL
+    // members.
+    if (constructor.name !== "SqlStorage") return false
     // All platform members belong to one prototype, and its constructor must
     // identify that exact prototype. This rejects copied members and bound or
     // arrow constructor proxies before any candidate callback is invoked.

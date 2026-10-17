@@ -105,6 +105,26 @@ describe("Cloudflare SQL carrier discovery", () => {
     expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
   })
 
+  it("rejects an unrelated native accessor on a polluted built-in prototype", () => {
+    const exec = Object.getOwnPropertyDescriptor(Map.prototype, "get")!.value
+    const databaseSize = Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get
+    const previousExec = Object.getOwnPropertyDescriptor(Map.prototype, "exec")
+    const previousDatabaseSize = Object.getOwnPropertyDescriptor(Map.prototype, "databaseSize")
+    try {
+      Object.defineProperties(Map.prototype, {
+        exec: { configurable: true, value: exec },
+        databaseSize: { configurable: true, get: databaseSize },
+      })
+      expect(hasCloudflareSqlExec(new Map())).toBe(false)
+    }
+    finally {
+      if (previousExec) Object.defineProperty(Map.prototype, "exec", previousExec)
+      else delete (Map.prototype as Map<unknown, unknown> & { exec?: unknown }).exec
+      if (previousDatabaseSize) Object.defineProperty(Map.prototype, "databaseSize", previousDatabaseSize)
+      else delete (Map.prototype as Map<unknown, unknown> & { databaseSize?: unknown }).databaseSize
+    }
+  })
+
   it("returns false if proxy inspection throws", () => {
     const sql = new Proxy({}, { getOwnPropertyDescriptor() { throw new Error("unavailable") } })
     expect(hasCloudflareSqlExec(sql)).toBe(false)
