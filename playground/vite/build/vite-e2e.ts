@@ -808,7 +808,6 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     alias["@vite-hub/workspace/internal/runtime/workspace"] = workspaceRuntimeFile
     alias["@vite-hub/workspace/runtime"] = workspaceStateRuntimeFile
     alias["@vite-hub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
-    alias["@vite-hub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
     alias["@vite-hub/workspace/test"] = resolve(workspacePackageDir, "src/test.ts")
     alias["@vite-hub/workspace"] = workspaceRuntimeFile
     alias["@vite-hub/shell/workspace"] = workspaceShellRuntimeFile

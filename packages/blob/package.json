@@ -206,7 +206,7 @@
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
     "aws4fetch": "catalog:storage",
-    "cjs-module-lexer": "2.2.1",
+    "cjs-module-lexer": "2.3.0",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
@@ -221,7 +221,7 @@
     "@azure/storage-blob": "catalog:storage",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.1.3",
+    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.1.4",
     "@vercel/blob": "catalog:storage",
     "files-sdk": "catalog:storage",
     "ofetch": "catalog:unjs",

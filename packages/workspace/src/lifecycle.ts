@@ -12,9 +12,8 @@ import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
 import { workspaceStoreIdentity, registerWorkspaceStoreAlias } from "./storage/identity.ts"
 import { withWorkspaceStoreMutation } from "./storage/mutation.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
-import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
-import type { LoaderContext, SourceContext, WorkspaceAssets, WorkspaceDefinition, WorkspaceFile, WorkspaceLoaderSource, WorkspacePublishOptions, WorkspaceSnapshot, WorkspaceStore, WorkspaceStreamFile } from "./core/types.ts"
+import type { LoaderContext, SourceContext, WorkspaceAssets, WorkspaceDefinition, WorkspaceFile, WorkspaceLoaderSource, WorkspaceStore, WorkspaceStreamFile } from "./core/types.ts"
 
 const buildSourcesMetaKey = (workspace: string) => `workspace:${encodeURIComponent(workspace)}:build-sources`
 
@@ -273,29 +272,7 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
   return createWorkspaceStoreFromProvider(definition)
 }
 
-export async function publishWorkspace(definition: WorkspaceDefinition, store: WorkspaceStore, options: WorkspacePublishOptions = {}): Promise<void> {
-  if (!definition.publish?.length) return
-
-  const snapshot = await createCurrentSnapshotFromStore(store, options.name)
-  await publishWorkspaceSnapshot(definition, store, snapshot, false)
-}
-
 type TrackLifecycleOperation = <T>(operation: Promise<T>) => Promise<T>
-
-export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, store: WorkspaceStore, snapshot: WorkspaceSnapshot, durable = true, abortSignal?: AbortSignal, trackOperation?: TrackLifecycleOperation): Promise<void> {
-  for (const publisher of definition.publish || []) {
-    abortSignal?.throwIfAborted()
-    const operation = publisher.publish({
-      abortSignal,
-      durable,
-      workspace: definition,
-      store,
-      rootDir: definition.rootDir || process.cwd(),
-      snapshot,
-    })
-    await (trackOperation ? trackOperation(operation) : operation)
-  }
-}
 
 const STORE_MUTATIONS = new Set(["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "snapshot", "writeFile", "writeFileConditional", "writeFileStream"])
 
@@ -381,8 +358,8 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   abortSignal?.throwIfAborted()
   if (bundledBuildSources && buildSources.every(source => bundledBuildSources.has(source.key))) {
     await invalidateOverwrittenStartupSnapshots(definition, store, materializationStore, startupSources, buildSources)
-    const snapshot = await store.snapshot({ name: "sync" })
-    await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
+    await store.snapshot({ name: "sync" })
+    abortSignal?.throwIfAborted()
     return
   }
   if (!hasBuildSourceState && !hasExplicitLoaders) return
@@ -408,8 +385,8 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   }
   abortSignal?.throwIfAborted()
   await invalidateOverwrittenStartupSnapshots(definition, store, materializationStore, startupSources, buildSources)
-  const snapshot = await store.snapshot({ name: "sync" })
-  await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
+  await store.snapshot({ name: "sync" })
+  abortSignal?.throwIfAborted()
 }
 
 async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, startupSources: ResolvedWorkspaceSource[], buildSources: ResolvedWorkspaceSource[]) {

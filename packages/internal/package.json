@@ -182,6 +182,12 @@
       "require": "./dist/runtime/time-zone.js",
       "default": "./dist/runtime/time-zone.js"
     },
+    "./build/nitro-cache-bypass": {
+      "types": "./dist/build/nitro-cache-bypass.d.ts",
+      "import": "./dist/build/nitro-cache-bypass.js",
+      "require": "./dist/build/nitro-cache-bypass.js",
+      "default": "./dist/build/nitro-cache-bypass.js"
+    },
     "./build/cloudflare": {
       "types": "./dist/build/cloudflare.d.ts",
       "import": "./dist/build/cloudflare.js",

@@ -149,6 +149,26 @@ The Trigger translates the validated event and attaches trusted context. Keep mo
 
 When the Channel declares message methods, also return `message`: JSON data that identifies the provider message. Hooks use it through `event.message`. See [Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
 
+### Debounce webhook deliveries
+
+Some providers send several notifications for one change. Set `webhook.debounce: { key, delayMs }` to run only the last one. The queued delivery waits `delayMs` before it runs. A later delivery with the same `key` replaces a queued one that has not started, and its own wait starts again.
+
+```ts
+defineChannelTrigger({
+  input: recordChanged,
+  invoke: (context, event) => ({
+    input: { prompt: `Check record ${event.recordId} for duplicates.` },
+    webhook: {
+      concurrencyLimit: 1,
+      debounce: { delayMs: 3 * 60_000, key: event.recordId },
+      deliveryId: event.changeId,
+    },
+  }),
+})
+```
+
+Debounce needs a queued delivery, so it needs a state provider and `concurrencyLimit`. A delivery that already runs is not stopped; the later delivery runs after it. A replaced delivery is complete in the queue and shows a `superseded` event in its Channel delivery record. `debounce` is not available with `busy: 'steer'`.
+
 ### Report a failed webhook delivery
 
 When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the Agent has a state provider, ViteHub queues the webhook delivery and retries a failed execution. The Invocation runs under the delivery ID: an unset `run.runId` defaults to `deliveryId` and an unset `run.channelId` to the Channel, so every retry of one delivery is the same Invocation. A delivery gets three execution attempts. Add `failed` to the Trigger to report the failure to the provider when the queue stops retrying.

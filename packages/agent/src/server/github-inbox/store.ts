@@ -20,6 +20,8 @@ export type Snapshot = {
   wait?: PullRequestWait
   lease: string | null; leaseUntil: number; attempts: number
   progressBudget?: ProgressBudget
+  /** Generation of the last human comment or review. A wait rejected before it stays free. */
+  humanFeedbackGeneration?: number
   recoveryHead?: string
   sourcePushHead?: string
   sourcePushHeads?: string[]
@@ -76,6 +78,7 @@ function parseSnapshot(value: unknown): Snapshot {
   if (input.sourcePushOverflow !== undefined) v.parse(v.boolean(), input.sourcePushOverflow)
   if (input.sourcePushHead !== undefined) v.parse(v.string(), input.sourcePushHead)
   if (input.recoveryHead !== undefined) v.parse(v.string(), input.recoveryHead)
+  if (input.humanFeedbackGeneration !== undefined) v.parse(v.pipe(v.number(), v.integer(), v.minValue(0)), input.humanFeedbackGeneration)
   if (input.ciEvidence !== undefined) v.parse(v.array(v.record(v.string(), v.unknown())), input.ciEvidence)
   if (input.wait !== undefined) parseWait(input.wait)
   if (input.progressBudget !== undefined) parseProgressBudget(input.progressBudget)
@@ -928,11 +931,13 @@ export class PullRequestInbox {
           || event === 'status' && payload.state === 'pending'
         const wake = (changed || !s.pr) && !pendingCi
         // New human feedback is new evidence on the same head. It resets an exhausted no-progress budget.
-        const human = String(payload.sender?.type ?? '').toLowerCase() === 'user' && !this.activityAuthors.has(String(payload.sender?.login ?? '').toLowerCase())
+        const actor = payload.sender ?? payload.comment?.user ?? payload.review?.user
+        const human = String(actor?.type ?? '').toLowerCase() === 'user' && !this.activityAuthors.has(String(actor?.login ?? '').toLowerCase())
         if (changed && human && ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event) && s.progressBudget?.exhausted) {
           s.progressBudget = { ...s.progressBudget, count: 0, exhausted: false, resetReason: `${event}:${payload.sender?.login ?? 'unknown'}` }
         }
         if (wake) this.dirty(s, `${event}:${payload.action ?? check?.conclusion ?? payload.state ?? 'updated'}`)
+        if (changed && human && ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event)) s.humanFeedbackGeneration = s.generation
         else if (changed) s.revision = (s.revision ?? 0) + 1
         const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha
         const eligible = this.eligible(repository, s.pr)
@@ -1104,6 +1109,7 @@ export class PullRequestInbox {
           || s.sourcePushHeads?.some(head => !pushed.has(head))) {
           s.lease = null; s.leaseUntil = 0
           if (s.status !== 'terminal') { s.status = 'ready'; s.nextAt = 0 }
+          this.recordRejectedProgress(s, claim, result.progress)
           await this.put(tx, s)
           return false
         }
@@ -1126,6 +1132,7 @@ export class PullRequestInbox {
           || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) {
           s.lease = null; s.leaseUntil = 0
           if (s.status !== 'terminal') { s.status = 'ready'; s.nextAt = 0 }
+          this.recordRejectedProgress(s, claim, result.progress)
           await this.put(tx, s)
           return false
         }
@@ -1152,6 +1159,13 @@ export class PullRequestInbox {
       if (s.generation === claim.generation) await this.enqueueStatusResult(tx, s, claim)
       return true
     })
+  }
+  /**
+   * A wait rejected by new evidence still used its pass. Checks and bot reviews arrive during most
+   * passes, so the pass counts unless a person commented after the claim: the next pass answers them.
+   */
+  private recordRejectedProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
+    if ((s.humanFeedbackGeneration ?? 0) <= claim.generation) this.recordProgress(s, claim, progress)
   }
   private recordProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const head = s.pr?.head?.sha

@@ -1,7 +1,7 @@
-diff --git a/dist/chunk-YYMLUMXS.js b/dist/chunk-YYMLUMXS.js
-index 34a1b3a6440b2781c8e76d084e06198fe876d847..5cdbe84ecf58261085dc1fd81e29c0177a751f26 100644
---- a/dist/chunk-YYMLUMXS.js
-+++ b/dist/chunk-YYMLUMXS.js
+diff --git a/dist/chunk-XKVPKJPO.js b/dist/chunk-XKVPKJPO.js
+index ac0f10f..cf33bad 100644
+--- a/dist/chunk-XKVPKJPO.js
++++ b/dist/chunk-XKVPKJPO.js
 @@ -3,7 +3,6 @@ import { isNodeProcess } from "is-node-process";
  
  // src/multipart/helpers.ts

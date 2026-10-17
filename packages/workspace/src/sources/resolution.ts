@@ -686,11 +686,6 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       list: writeFs.list,
       materializeSources,
       mkdir: writeFs.mkdir,
-      publish: async (options) => {
-        const { publishWorkspace } = await import("../lifecycle.ts")
-        const resolvedStore = createWritableFacadeStore({ ...workspace, fs: writeFs })
-        await publishWorkspace(resolvedDefinition, resolvedStore, options)
-      },
       rebase,
       readFile: writeFs.readFile,
       rm: writeFs.rm,
@@ -751,7 +746,6 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       fs: writeFs,
       history: writableHistory,
       materializeSources,
-      publish: writeWorkspace.publish,
       snapshot: writeWorkspace.snapshot,
       startSession: writeWorkspace.startSession,
       sync: writeWorkspace.sync,
