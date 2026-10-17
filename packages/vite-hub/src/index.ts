@@ -183,7 +183,7 @@ function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
 const frameworkProviderImportAliases = Object.fromEntries(
   Object.entries(frameworkPackageManifest.exports)
     .filter(([subpath, target]) => subpath.startsWith("./") && packageExportImportTarget(target)?.endsWith(".js"))
-    .map(([subpath]): [string, string] => {
+    .map(([subpath]) => {
       const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
       return [specifier, fileURLToPath(import.meta.resolve(specifier))]
     })
