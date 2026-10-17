@@ -3,7 +3,6 @@ import { runWithScheduleWaitUntil } from "./wait-until.ts"
 import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
-import { isScheduleDate, validateScheduledAt } from "./date.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 export interface ExecuteStaticScheduleOptions {
@@ -160,6 +159,25 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
   return await Promise.all(runs)
 }
 
+function validateScheduledAt(scheduledAt: Date | undefined): Date {
+  const value = scheduledAt ?? new Date()
+  let time: number
+  try {
+    time = Date.prototype.getTime.call(value)
+  }
+  catch {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+      details: invalidScheduleValueDetails("scheduledAt", value),
+    })
+  }
+  if (Number.isNaN(time)) {
+    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
+      details: invalidScheduleValueDetails("scheduledAt", value),
+    })
+  }
+  return new Date(time)
+}
+
 export async function executeCloudflareStaticSchedules(
   event: CloudflareScheduledEventLike,
   options: ExecuteCloudflareStaticSchedulesOptions,
@@ -182,8 +200,8 @@ function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cr
     throw scheduleErrorDiagnostics.SCHEDULE_R0027({ message: "[vitehub:schedule] Cloudflare scheduled event is missing a cron string." })
   }
   const scheduledTime = event.controller?.scheduledTime ?? event.scheduledTime
-  const scheduledAt = isScheduleDate(scheduledTime)
-    ? new Date(Date.prototype.getTime.call(scheduledTime))
+  const scheduledAt = scheduledTime instanceof Date
+    ? scheduledTime
     : scheduledTime === undefined
       ? new Date()
       : new Date(scheduledTime)

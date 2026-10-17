@@ -141,34 +141,99 @@ describe("Auth access handlers", () => {
     expect(result?.status).toBe(403)
   })
 
-  it("normalizes a local Response proxy with unstable ordinary reads", async () => {
-    const source = new Response("Policy rejected", { status: 409 })
-    let headerReads = 0
-    const candidate = new Proxy(source, {
-      get(target, key) {
-        if (key === "headers" && ++headerReads > 1) throw new Error("unstable headers")
-        return Reflect.get(target, key, target)
+  it("assimilates a stateful thenable with one then lookup", async () => {
+    let reads = 0
+    const result = {
+      get then() {
+        reads++
+        if (reads > 1) throw new Error("then getter read twice")
+        return (resolve: (value: boolean) => void) => resolve(true)
       },
-    })
+    }
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => candidate }] },
+      access: { routes: [{ route: "/**", authorize: () => result as never }] },
     }))
 
-    const response = await handler(new Request("https://app.example/"))
-
-    expect(response).not.toBe(candidate)
-    expect(response?.status).toBe(409)
-    expect(() => response?.headers.forEach(() => {})).not.toThrow()
-    await expect(response?.text()).resolves.toBe("Policy rejected")
-    expect(headerReads).toBe(1)
+    await expect(handler(new Request("https://app.example/"))).resolves.toBeUndefined()
+    expect(reads).toBe(1)
   })
 
-  it("normalizes authorization responses from another runtime", async () => {
+  it("adopts native authorization promises without using a replaced then", async () => {
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => Promise.resolve(true) }] },
+    }))
+    const originalThen = Promise.prototype.then
+    let pending: Promise<unknown>
+    Promise.prototype.then = function () {
+      throw new Error("authorization must not use the replaced then")
+    } as typeof Promise.prototype.then
+    try {
+      pending = handler(new Request("https://app.example/"))
+    }
+    finally {
+      Promise.prototype.then = originalThen
+    }
+
+    await expect(pending!).resolves.toBeUndefined()
+  })
+
+  it("observes rejected native promises when species construction throws", async () => {
+    const reason = new Error("authorization rejected")
+    class BrokenSpeciesPromise<T> extends Promise<T> {
+      static get [Symbol.species](): typeof Promise { throw new Error("invalid species") }
+    }
+    const result = BrokenSpeciesPromise.reject(reason)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => result as never }] },
+    }))
+    // Replace the instance method to ensure the branded path never falls back
+    // to mutable thenable assimilation.
+    Object.defineProperty(result, "then", { value: () => { throw new Error("must not call mutable then") } })
+    const originalResolve = Promise.resolve
+    Promise.resolve = (() => { throw new Error("must not call mutable Promise.resolve") }) as typeof Promise.resolve
+    try {
+      await expect(handler(new Request("https://app.example/"))).rejects.toBe(reason)
+    }
+    finally {
+      Promise.resolve = originalResolve
+    }
+  })
+
+  it.each([
+    ["a Promise subclass", new (class extends Promise<boolean> {
+      then(): never { throw new Error("subclass then must not be called") }
+    })(resolve => resolve(true))],
+    ["a Promise from another realm", runInNewContext("Promise.resolve(true)") as Promise<boolean>],
+  ])("adopts native authorization promises from %s without reflective then", async (_label, result) => {
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => result as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toBeUndefined()
+  })
+
+  it("returns a Response with an own then method without assimilating it", async () => {
+    const response = new Response("Policy rejected", { status: 409 })
+    const then = vi.fn(() => { throw new Error("Response must not be assimilated") })
+    Object.defineProperty(response, "then", { configurable: true, value: then })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+
+    const result = await handler(new Request("https://app.example/"))
+    expect(result).toBeInstanceOf(Response)
+    expect(result).not.toBe(response)
+    expect(result?.status).toBe(409)
+    expect(then).not.toHaveBeenCalled()
+  })
+
+  it("normalizes compatible authorization responses from another realm", async () => {
     const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
     expect(foreignResponse).not.toBeInstanceOf(Response)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
     }))
+
 
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
