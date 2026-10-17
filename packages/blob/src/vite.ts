@@ -371,7 +371,14 @@ async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConf
 function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCloudflareR2 = false) {
   if (!blob) return
   const stores = Object.values(blob.stores ?? { default: blob.store })
-  const skipDrivers = nativeCloudflareR2 && stores.some(store => store.driver === "cloudflare-r2" && Boolean(store.bucketName))
+  // The native module is selected only when every configured R2 store has a
+  // binding. Keep the SDK check for mixed configurations that still import
+  // the HTTP/S3 implementation.
+  const cloudflareR2Stores = stores.filter(store => store.driver === "cloudflare-r2")
+  const nativeR2 = nativeCloudflareR2
+    && cloudflareR2Stores.length > 0
+    && cloudflareR2Stores.every(store => Boolean(store.bucketName))
+  const skipDrivers = nativeR2
     ? ["cloudflare-r2" as const]
     : []
   const missing = findMissingFilesSdkPeers(stores.map(store => store.driver), undefined, skipDrivers)
