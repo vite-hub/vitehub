@@ -1,6 +1,6 @@
 export * from "@vite-hub/agent/capabilities"
 
-import { and, desc, eq, lt, sql } from "drizzle-orm"
+import { and, desc, eq, lt, or, sql } from "drizzle-orm"
 import { inputCommands as baseInputCommands } from "@vite-hub/agent/capabilities"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -48,7 +48,13 @@ async function previousConsoleInvocation(invocations: ConsoleInvocationsDatabase
 
   const threadId = current.summary?.threadId
   const channelId = current.summary?.channelId
-  const filters = [eq(table.agentName, agentName), lt(table.sequence, current.sequence)]
+  const filters = [
+    or(
+      eq(table.agentName, agentName),
+      sql`json_extract(${table.summary}, '$.agentName') = ${agentName}`,
+    ),
+    lt(table.sequence, current.sequence),
+  ]
   if (threadId) {
     filters.push(sql`json_extract(${table.summary}, '$.threadId') = ${threadId}`)
     filters.push(channelId
@@ -56,7 +62,10 @@ async function previousConsoleInvocation(invocations: ConsoleInvocationsDatabase
       : sql`json_extract(${table.summary}, '$.channelId') IS NULL`)
   }
   const [previous] = await db
-    .select({ agentName: table.agentName, id: table.id })
+    .select({
+      agentName: sql<string>`coalesce(${table.agentName}, json_extract(${table.summary}, '$.agentName'))`,
+      id: table.id,
+    })
     .from(table)
     .where(and(...filters))
     .orderBy(desc(table.sequence))
