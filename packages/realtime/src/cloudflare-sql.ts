@@ -60,6 +60,16 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     catch {
       // A genuine SqlStorage getter rejects unrelated receivers.
     }
+    // Set.prototype.size is another finite-number native accessor. Reject it
+    // as well so a counterfeit carrier cannot pass by only failing the Map
+    // probe while retaining the Set brand.
+    try {
+      const setSize = Reflect.apply(databaseSize, new Set(), [])
+      if (Number.isFinite(setSize)) return false
+    }
+    catch {
+      // A genuine SqlStorage getter rejects unrelated receivers.
+    }
 
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)
