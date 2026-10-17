@@ -549,7 +549,12 @@ async function writeStandaloneAgentScheduleRegistry(
 ): Promise<string> {
   const registryPath = join(root, generatedAgentScheduleRegistry)
   const base = ["const registry = {}", "", "export default registry", ""].join("\n")
-  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath, runtimeCapabilities, scheduleRuntimeSpecifier, generatedImportOptions) ?? base
+  // The standalone registry must stay provider-free. Provider capabilities are
+  // supplied by the generated host route and are registered globally there.
+  const registryCapabilities = runtimeCapabilities.filter(capability =>
+    capability.name !== "connections" && capability.name !== "db",
+  )
+  const contents = await transformScheduleRegistry(base, definitions, agentImportBase, registryPath, registryCapabilities, scheduleRuntimeSpecifier, generatedImportOptions) ?? base
   await mkdir(dirname(registryPath), { recursive: true })
   await writeFile(registryPath, contents, "utf8")
   return registryPath
