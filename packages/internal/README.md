@@ -48,3 +48,4 @@ Only Vite + Nitro hosts run Nitro in the Vite process. Nuxt runs Vite in middlew
 These helpers are dev-only. Dev endpoints trust the `Host` header, the guard header, the request origin, and a token file under the project root. A deployed stage has none of these, and no existing authenticated path reaches these endpoints on a deployed stage. Commands that target a deployed stage, such as `vitehub channels sync --stage <name> --url <origin>`, load the stage environment and call the provider APIs with its credentials.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
+
