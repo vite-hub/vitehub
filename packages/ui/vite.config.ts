@@ -1,4 +1,5 @@
 import { defineConfig } from "vite-plus";
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 import { componentEntryName, componentNames } from "./src/component-entries.ts";
 
 export default defineConfig({
@@ -40,7 +41,7 @@ export default defineConfig({
               return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }];
             }),
         );
-        return { ...publicExports, "./styles.css": "./dist/styles.css" };
+        return { ...normalizePackageExports(publicExports), "./styles.css": "./dist/styles.css" };
       },
       inlinedDependencies: false,
     },

@@ -19,6 +19,7 @@ Use these imports and methods to work with a Workspace from server code.
 | Source resolution, request, and preparation helpers from `@vite-hub/workspace/runtime` | Integrate resolved Workspace Sources and process-local readiness into runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
 | `registerWorkspacePlugin` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Add rules and hooks to a Workspace you do not define. See [Add plugins to a Workspace](#add-plugins-to-a-workspace). |
+| `workspaceFile` from `@vite-hub/workspace` | Use a JSON array in a Workspace file as a [Collection source](/docs/source/server-api#collections-over-an-array). |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Register Workspace discovery, generated types, assets, and runtime wiring. |
 | `@vite-hub/workspace/loader`, `@vite-hub/workspace/publish`, `@vite-hub/workspace/test` | Add loaders and publishers, or register test Workspaces. |
 
@@ -168,6 +169,10 @@ History covers the Store file tree. It does not capture live Source responses or
 A commit waits for Definition synchronization before checking Source ownership. Synchronization can publish a Source revision and advance the `main` head. If that happens, the commit reports `WORKSPACE_CONFLICT`. Read the new head and retry. Source-owned files cannot be changed or deleted on any ref, including materialized files not yet retained in a revision.
 
 Retained history requires access to the complete Workspace. A facade restricted to selected paths or Sources throws `WORKSPACE_R0069` instead of exposing or replacing a complete folder outside that scope.
+
+### Read history from the CLI
+
+During development, `vitehub workspace history`, `refs`, and `show` read the same history from a running Vite + Nitro Development Server. They list revisions with ref, author, message, and time, list refs with their heads, and print a revision or one file at that revision. Add `--json` for machine-readable output. See [Read Workspace history during development](/docs/development/cli#read-workspace-history-during-development).
 
 ## Add plugins to a Workspace
 

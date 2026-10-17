@@ -31,13 +31,14 @@ import { AgentMarkdown, AgentPatchDiff } from "@vite-hub/ui";
 import { AgentToolList } from "@vite-hub/ui";
 
 function statusLabel(status: AgentInvocationView["status"]): string {
-  return {
+  const labels = {
     cancelled: "Cancelled",
     completed: "Completed",
     failed: "Failed",
     pending: "Queued",
     running: "Working",
-  }[status];
+  };
+  return Object.hasOwn(labels, status) ? labels[status] : "Unknown";
 }
 
 function compactCommand(command: string): string {
@@ -128,6 +129,22 @@ function renderFolderIcon() {
 type InspectTarget = "agent" | "workspace";
 type InspectHandler = (target: InspectTarget, path?: string) => void;
 
+function payloadText(value: unknown): string {
+  if (hasRuntimeType(value, "string")) return value;
+  const ancestors: object[] = [];
+  try {
+    return JSON.stringify(value, function (this: unknown, _key, item: unknown) {
+      if (hasRuntimeType(item, "bigint")) return `${item}n`;
+      if (!hasRuntimeType(item, "object") || item === null) return item;
+      while (ancestors.length && ancestors.at(-1) !== this) ancestors.pop();
+      if (ancestors.includes(item)) return "[Circular]";
+      ancestors.push(item);
+      return item;
+    }, 2) ?? String(value);
+  } catch (error) {
+    return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
+  }
+}
 
 function payloadPreview(value: unknown, text: string): string {
   const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
@@ -1066,10 +1083,11 @@ function statusIcon(status: AgentInvocationView["status"]) {
     pending: ["M12 8v4l3 2", "M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20"],
     running: ["M21 12a9 9 0 1 1-6.219-8.56"],
   };
+  const iconPaths = Object.hasOwn(paths, status) ? paths[status] : ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"];
   return h(
     "svg",
     { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" },
-    paths[status].map((path) =>
+    iconPaths.map((path) =>
       h("path", {
         d: path,
         "stroke-linecap": "round",
@@ -1192,8 +1210,8 @@ function renderConfiguration(
   configuration: AgentInvocationConfiguration,
   invocation: AgentInvocationView,
   showCapabilities: boolean,
-  showSources: boolean,
   selectTool: (name: string) => void,
+  showSources = true,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
@@ -1609,8 +1627,8 @@ export const AgentInvocationInspector = defineComponent({
   props: {
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
-    showCapabilities: { default: false, type: Boolean },
     showSources: { default: true, type: Boolean },
+    showCapabilities: { default: false, type: Boolean },
     showTimeline: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
   },
@@ -1762,7 +1780,7 @@ export const AgentInvocationInspector = defineComponent({
             inspectorSection(
               "Run summary",
               h("dl", { class: "vh-invocation-inspector__metrics" }, [
-                h("div", [h("dt", "Messages"), h("dd", metrics.value.messages)]),
+                h("div", [h("dt", "Messages (including collapsed)"), h("dd", metrics.value.messages)]),
                 h("div", [h("dt", "Steps"), h("dd", metrics.value.steps)]),
                 h("div", [h("dt", "Tool calls"), h("dd", metrics.value.toolCalls)]),
                 totalTime ? h("div", [h("dt", "Total time"), h("dd", totalTime)]) : null,
@@ -1789,7 +1807,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, props.showSources, selectTool) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool, props.showSources) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",

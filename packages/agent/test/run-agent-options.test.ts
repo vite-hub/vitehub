@@ -26,6 +26,32 @@ it("runs a discovered Agent inline with an invocation-only tool and settled sche
   expect(send).toHaveBeenCalledWith({ text: "Roast" })
 })
 
+it("forwards runtime capabilities through standalone scheduled runs", async () => {
+  const connections = { runtime: vi.fn() }
+  const agent = defineAgent({
+    runtime: false,
+    capabilities: [defineCapability({
+      id: "runtime-capability-check",
+      requires: [{ primitive: "connections" }],
+      tools: context => ({
+        runtime_capability: {
+          name: "runtime_capability",
+      execute: (_input: unknown) => Object.keys(context.capabilities),
+        },
+      }),
+    })],
+    driver: { async run({ tools }) {
+      return (await tools?.runtime_capability?.execute?.({}) as string[]).includes("connections") ? "available" : "missing"
+    } },
+  })
+
+  await expect(runAgent(agent, { prompt: "Check runtime" }, {
+    output: "drained",
+    runtimeContext: { capabilities: { connections } },
+    schedule,
+  })).resolves.toEqual([null, "available"])
+})
+
 it("rejects callable tools before starting an explicit Workflow", async () => {
   const run = vi.fn(() => "unreachable")
   const agent = defineAgent({ driver: { run }, runtime: workflow("durable-roast") })

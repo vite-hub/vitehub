@@ -13,7 +13,8 @@ import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroCo
 import { renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
-import { discoverScheduleDefinitions } from "./discovery.ts"
+import { collectScheduleContributions } from "./contributions.ts"
+import { discoverScheduleDefinitions, isServerScheduleDefinition } from "./discovery.ts"
 import { inspectScheduleDefinitions } from "./inspect.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
 import { generateProviderOutputsWithinLock, readDefinitionCrons, readRuntimeDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
@@ -27,10 +28,19 @@ import type { ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { CollectedScheduleContribution } from "./contributions.ts"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
-export { discoverScheduleDefinitions } from "./discovery.ts"
+export { collectScheduleContributions } from "./contributions.ts"
+export type {
+  CollectedScheduleContribution,
+  ScheduleContributingPlugin,
+  ScheduleContribution,
+  ScheduleContributionContext,
+  ScheduleContributionFactory,
+} from "./contributions.ts"
+export { contributedScheduleSource, discoverScheduleDefinitions, type ScheduleDiscoveryOptions } from "./discovery.ts"
 export { inspectScheduleDefinitions, type ScheduleInspectionOptions, scheduleConsoleSection } from "./inspect.ts"
 
 export async function readScheduleDefinitionCrons(
@@ -70,9 +80,16 @@ export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
   /** @internal Resolve generated Nitro registrations from the ViteHub project root. */
   nitroOwnsPaths?: boolean
   nitro?: unknown
+  /** Vite plugins that can contribute Schedule Definitions through `vitehub.schedules`. */
+  plugins?: readonly unknown[]
   root?: string
   /** @internal Framework-resolved server definition directories. */
   serverDirs?: string[]
+}
+
+interface InternalScheduleNitroConfigOptions extends ScheduleNitroConfigOptions {
+  /** Contributions that the Vite plugin already collected, so factories run once per config pass. */
+  contributions?: readonly CollectedScheduleContribution[]
 }
 
 interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
@@ -224,7 +241,9 @@ async function addNitroScheduleDevHandler(value: unknown, roots: ReturnType<type
   await mkdir(dirname(handler), { recursive: true })
   const contents = renderViteHubNitroDevHandler({ context: { rootDir: roots.viteRoot, serverId }, export: "handleScheduleDevRequest", module: `${importBase ?? schedulePackageName}/runtime/dev` })
   if (!existsSync(handler) || await readFile(handler, "utf8") !== contents) await writeFile(handler, contents, "utf8")
-  const kit = createNitroServerKit(cloneNitroConfig(value))
+  const nitro = cloneNitroConfig(value)
+  if (Array.isArray(nitro.handlers) && nitro.handlers.some(entry => isRecord(entry) && entry.route === scheduleDevRuntimeRoute)) return nitro
+  const kit = createNitroServerKit(nitro)
   kit.addHandler({ handler, route: scheduleDevRuntimeRoute })
   return kit.config as NitroConfig
 }
@@ -454,7 +473,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
 }
 
 function hasServerScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): boolean {
-  return definitions.some(definition => definition.runtimeOnly !== true && definition.source === "server-schedules")
+  return definitions.some(definition => definition.runtimeOnly !== true && isServerScheduleDefinition(definition))
 }
 
 function hasViteSuffixScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): boolean {
@@ -465,7 +484,7 @@ function selectNitroScheduleDefinitions(definitions: DiscoveredScheduleDefinitio
   if (options.providerOutput === false || options.providerOutput === "standalone") return []
   const staticDefinitions = definitions.filter(definition => definition.runtimeOnly !== true)
   if (options.providerOutput === "nitro") return staticDefinitions
-  return staticDefinitions.filter(definition => definition.source === "server-schedules")
+  return staticDefinitions.filter(isServerScheduleDefinition)
 }
 
 function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition["source"] | undefined {
@@ -488,7 +507,11 @@ function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefin
 export async function createScheduleNitroConfig(options: ScheduleNitroConfigOptions = {}): Promise<NitroConfig | null> {
   const processRuntime = resolveProcessRuntimeOptions(options.runtime)
   const roots = resolveSchedulePluginRoots(options.root || process.cwd(), options)
+  // SAFETY: Only `hubSchedule()` passes the internal `contributions` field; public callers leave it undefined.
+  const contributions = (options as InternalScheduleNitroConfigOptions).contributions
+    ?? await collectScheduleContributions(options.plugins, { projectRoot: roots.projectRoot, root: roots.viteRoot, serverDirs: options.serverDirs })
   const definitions = discoverScheduleDefinitions({
+    contributions,
     rootDir: roots.viteRoot,
     serverDirs: options.serverDirs,
     serverRootDir: roots.projectRoot,
@@ -559,6 +582,11 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
   let serverDirs: string[] | undefined
   let viteRoot: string | undefined
+  let contributions: CollectedScheduleContribution[] = []
+
+  async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {
+    return await collectScheduleContributions(plugins, { projectRoot: roots.projectRoot, root: roots.viteRoot, serverDirs })
+  }
 
   function discoverViteSchedules() {
     if (!projectRoot || !viteRoot) {
@@ -566,6 +594,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     }
 
     return discoverScheduleDefinitions({
+      contributions,
       mode: "vite-suffix",
       rootDir: viteRoot,
       serverDirs,
@@ -579,6 +608,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     }
 
     return discoverScheduleDefinitions({
+      contributions,
       rootDir: viteRoot,
       serverDirs,
       serverRootDir: projectRoot,
@@ -601,21 +631,25 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     async config(config, env) {
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const roots = resolveSchedulePluginRoots(config.root || process.cwd(), options)
+      contributions = await collectPluginScheduleContributions(config.plugins, roots)
       const definitions = discoverScheduleDefinitions({
+        contributions,
         rootDir: roots.viteRoot,
         serverDirs,
         serverRootDir: roots.projectRoot,
       })
       emitStandaloneProviderOutput = (options.runtime === undefined || options.providerOutput === "standalone") && shouldEmitStandaloneProviderOutput(definitions, options)
       standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
-      const nitro = await createScheduleNitroConfig({
+      const nitroOptions: InternalScheduleNitroConfigOptions = {
         ...options,
         command: env.command,
+        contributions,
         nitroOwnsPaths: hasNitroConfigContext(config),
         nitro: (config as { nitro?: unknown }).nitro,
         root: config.root || process.cwd(),
         serverDirs,
-      })
+      }
+      const nitro = await createScheduleNitroConfig(nitroOptions)
       if (env.command === "serve") {
         ;(config as ViteConfigWithNitro).nitro = await addNitroScheduleDevHandler(nitro ?? (config as { nitro?: unknown }).nitro, roots, devServerId, internalOptions.importBase)
         return
@@ -640,8 +674,31 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       const roots = resolveSchedulePluginRoots(config.root, options)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
+      // The resolved list includes plugins that other plugins add after the `config` hook.
+      contributions = await collectPluginScheduleContributions(config.plugins, roots)
+      const definitions = discoverRegistrySchedules()
+      emitStandaloneProviderOutput = (options.runtime === undefined || options.providerOutput === "standalone") && shouldEmitStandaloneProviderOutput(definitions, options)
+      standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
+      if (config.command) {
+        const nitro = await createScheduleNitroConfig({
+          ...options,
+          command: config.command,
+          contributions,
+          nitro: (config as ResolvedConfig & { nitro?: unknown }).nitro,
+          nitroOwnsPaths: hasNitroConfigContext(config),
+          root: config.root,
+          serverDirs,
+        } as InternalScheduleNitroConfigOptions)
+        if (nitro) {
+          // SAFETY: Nitro integrations attach their generated config to the resolved Vite config at runtime.
+          const configWithNitro = config as ResolvedConfig & { nitro?: NitroConfig }
+          configWithNitro.nitro = config.command === "serve"
+            ? await addNitroScheduleDevHandler(nitro, roots, devServerId, internalOptions.importBase)
+            : nitro
+        }
+      }
       // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
-      await writeScheduleTypes(projectRoot, discoverRegistrySchedules(), (options as InternalScheduleVitePluginOptions).typesImportBase)
+      await writeScheduleTypes(projectRoot, definitions, (options as InternalScheduleVitePluginOptions).typesImportBase)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -658,7 +715,8 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       const serverSchedule = scheduleRoots.some(directory =>
         file.startsWith(directory) && /\.(?:c|m)?[jt]s$/i.test(file.slice(directory.length)),
       )
-      if (!/\.schedule\.(?:c|m)?[jt]s$/i.test(file) && !serverSchedule) {
+      const contributedSchedule = contributions.some(contribution => normalize(contribution.definition.module).replace(/\\/g, "/") === file)
+      if (!/\.schedule\.(?:c|m)?[jt]s$/i.test(file) && !serverSchedule && !contributedSchedule) {
         return
       }
 
@@ -798,7 +856,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         label: "Schedules",
         list: () => {
           const roots = resolveSchedulePluginRoots(viteRoot ?? process.cwd(), options)
-          return inspectScheduleDefinitions({ projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
+          return inspectScheduleDefinitions({ plugins: resolved?.plugins, projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
         },
       }],
     }),

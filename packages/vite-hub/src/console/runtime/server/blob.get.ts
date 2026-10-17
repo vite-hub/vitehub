@@ -96,5 +96,5 @@ async function consoleBlobHandler(event: ConsoleRequestEvent): Promise<ConsoleBl
   return result
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof consoleBlobHandler> = withConsoleAccess(consoleBlobHandler)
+const guardedHandler: ConsoleAccessRoute<typeof consoleBlobHandler> = withConsoleAccess(consoleBlobHandler, { section: "blob" })
 export default guardedHandler

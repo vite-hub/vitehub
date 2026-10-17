@@ -47,11 +47,42 @@ export function apiKeyOrigin(value: string): string | undefined {
 
 /** Whether the provider header and origins can carry a key safely. */
 export function isValidApiKeyProvider(provider: { header: string, origins: readonly string[], scheme?: string }): boolean {
-  return tokenPattern.test(provider.header)
-    && provider.header === provider.header.toLowerCase()
-    && (provider.scheme === undefined || tokenPattern.test(provider.scheme))
-    && provider.origins.length > 0
-    && provider.origins.every(origin => apiKeyOrigin(origin) === origin)
+  try {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This public validator checks untrusted provider shapes at the boundary.
+    if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
+    const header = provider.header
+    const candidateOrigins = provider.origins
+    const scheme = provider.scheme
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This public validator checks untrusted provider fields at the boundary.
+    if (typeof header !== "string" || !Array.isArray(candidateOrigins)) return false
+    // structuredClone rejects Proxy values and gives us a stable, ordinary-array snapshot.
+    const origins = structuredClone(candidateOrigins)
+    if (Object.getPrototypeOf(origins) !== Array.prototype) return false
+    const originIndexes = Object.getOwnPropertyNames(origins).filter(key => {
+      const index = Number(key)
+      return String(index) === key && index >= 0 && index < 2 ** 32 - 1
+    })
+    if (originIndexes.length !== origins.length) return false
+    for (const key of originIndexes) {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Each untrusted origin must be a string before URL policy validation.
+      if (typeof origins[Number(key)] !== "string") return false
+    }
+    for (const key of originIndexes) {
+      const origin = origins[Number(key)]
+      if (apiKeyOrigin(origin) !== origin) return false
+    }
+    return tokenPattern.test(header)
+      && header === header.toLowerCase()
+      && (scheme === undefined || (() => {
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject non-string authentication schemes at the validation boundary.
+        if (typeof scheme !== "string") return false
+        return tokenPattern.test(scheme)
+      })())
+      && origins.length > 0
+  }
+  catch {
+    return false
+  }
 }
 
 export function isApiKeyProvider(provider: ConnectionDefinition["provider"]): provider is ConnectionApiKeyProvider {

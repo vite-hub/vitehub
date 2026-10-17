@@ -213,17 +213,92 @@
     "./workspace/runtime": "./dist/workspace/runtime.js",
     "./workspace/server": "./dist/workspace/server.js",
     "./package.json": "./package.json",
-    "./console/auth/client": "./dist/console/auth-client.js",
-    "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
-    "./console/auth/inline": "./dist/console/auth-inline.js",
-    "./console/blob": "./dist/console/runtime/server/blob.js",
-    "./console/database": "./dist/console/runtime/server/database.js",
-    "./console/definitions": "./dist/console/runtime/server/definitions.js",
-    "./console/env": "./dist/console/runtime/server/env.js",
-    "./console/kv": "./dist/console/runtime/server/kv.js",
-    "./console/sections": "./dist/console/runtime/server/sections.js",
+    "./console/auth/client": {
+      "types": "./dist/console/auth-client.d.ts",
+      "import": "./dist/console/auth-client.js",
+      "require": "./dist/console/auth-client.js",
+      "default": "./dist/console/auth-client.js"
+    },
+    "./console/auth/cloudflare-access": {
+      "types": "./dist/console/auth-cloudflare-access.d.ts",
+      "import": "./dist/console/auth-cloudflare-access.js",
+      "require": "./dist/console/auth-cloudflare-access.js",
+      "default": "./dist/console/auth-cloudflare-access.js"
+    },
+    "./console/auth/inline": {
+      "types": "./dist/console/auth-inline.d.ts",
+      "import": "./dist/console/auth-inline.js",
+      "require": "./dist/console/auth-inline.js",
+      "default": "./dist/console/auth-inline.js"
+    },
+    "./console/blob": {
+      "types": "./dist/console/runtime/server/blob.d.ts",
+      "import": "./dist/console/runtime/server/blob.js",
+      "require": "./dist/console/runtime/server/blob.js",
+      "default": "./dist/console/runtime/server/blob.js"
+    },
+    "./console/database": {
+      "types": "./dist/console/runtime/server/database.d.ts",
+      "import": "./dist/console/runtime/server/database.js",
+      "require": "./dist/console/runtime/server/database.js",
+      "default": "./dist/console/runtime/server/database.js"
+    },
+    "./console/definitions": {
+      "types": "./dist/console/runtime/server/definitions.d.ts",
+      "import": "./dist/console/runtime/server/definitions.js",
+      "require": "./dist/console/runtime/server/definitions.js",
+      "default": "./dist/console/runtime/server/definitions.js"
+    },
+    "./console/env": {
+      "types": "./dist/console/runtime/server/env.d.ts",
+      "import": "./dist/console/runtime/server/env.js",
+      "require": "./dist/console/runtime/server/env.js",
+      "default": "./dist/console/runtime/server/env.js"
+    },
+    "./console/kv": {
+      "types": "./dist/console/runtime/server/kv.d.ts",
+      "import": "./dist/console/runtime/server/kv.js",
+      "require": "./dist/console/runtime/server/kv.js",
+      "default": "./dist/console/runtime/server/kv.js"
+    },
+    "./console/sections": {
+      "types": "./dist/console/runtime/server/sections.d.ts",
+      "import": "./dist/console/runtime/server/sections.js",
+      "require": "./dist/console/runtime/server/sections.js",
+      "default": "./dist/console/runtime/server/sections.js"
+    },
     "./ui/styles.css": "./dist/ui/styles.css",
-    "./tsconfig": "./tsconfig.json"
+    "./tsconfig": "./tsconfig.json",
+    "./ui/attachment": {
+      "types": "./dist/ui/attachment.d.ts",
+      "import": "./dist/ui/attachment.js",
+      "require": "./dist/ui/attachment.js",
+      "default": "./dist/ui/attachment.js"
+    },
+    "./ui/bubble": {
+      "types": "./dist/ui/bubble.d.ts",
+      "import": "./dist/ui/bubble.js",
+      "require": "./dist/ui/bubble.js",
+      "default": "./dist/ui/bubble.js"
+    },
+    "./ui/marker": {
+      "types": "./dist/ui/marker.d.ts",
+      "import": "./dist/ui/marker.js",
+      "require": "./dist/ui/marker.js",
+      "default": "./dist/ui/marker.js"
+    },
+    "./ui/message": {
+      "types": "./dist/ui/message.d.ts",
+      "import": "./dist/ui/message.js",
+      "require": "./dist/ui/message.js",
+      "default": "./dist/ui/message.js"
+    },
+    "./ui/trace": {
+      "types": "./dist/ui/trace.d.ts",
+      "import": "./dist/ui/trace.js",
+      "require": "./dist/ui/trace.js",
+      "default": "./dist/ui/trace.js"
+    }
   },
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
