@@ -96,7 +96,6 @@ catalogs:
     valibot: ^1.5.0
     zod: ^4.6.5
   sandbox:
-    "@cloudflare/computer": ^0.2.1
     "@cloudflare/sandbox": ^0.12.10
     "@vercel/sandbox": ^3.5.1
   shell:

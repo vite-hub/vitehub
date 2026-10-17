@@ -8,6 +8,7 @@ const dynamicError = {
 export const boxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
   codes: {
+    // Retired: BOX_R0001 to BOX_R0019 belonged to the removed ascii and cloudflare-computer Box runtimes. Do not reuse these codes.
     BOX_R0001: dynamicError,
     BOX_R0002: dynamicError,
     BOX_R0003: dynamicError,
@@ -72,6 +73,7 @@ export const boxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BOX_R0062: dynamicError,
     BOX_R0063: dynamicError,
     BOX_R0064: dynamicError,
+    // Retired: BOX_R0065 to BOX_R0087 belonged to the removed ascii Box runtime SSH transport. Do not reuse these codes.
     BOX_R0065: dynamicError,
     BOX_R0066: dynamicError,
     BOX_R0067: dynamicError,

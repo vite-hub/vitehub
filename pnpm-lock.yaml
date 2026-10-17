@@ -233,9 +233,6 @@ catalogs:
       specifier: ^4.6.5
       version: 4.6.5
   sandbox:
-    '@cloudflare/computer':
-      specifier: ^0.2.1
-      version: 0.2.1
     '@cloudflare/sandbox':
       specifier: ^0.12.10
       version: 0.12.10
@@ -1119,12 +1116,6 @@ importers:
         specifier: ^7.8.5
         version: 7.8.5
     devDependencies:
-      '@asciidev/box-sdk':
-        specifier: ^0.0.37
-        version: 0.0.37
-      '@cloudflare/computer':
-        specifier: catalog:sandbox
-        version: 0.2.1(ai@7.0.130(zod@4.6.5))(zod@4.6.5)
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
         version: 0.12.10
@@ -3056,9 +3047,6 @@ packages:
     peerDependencies:
       '@types/json-schema': ^7.0.15
 
-  '@asciidev/box-sdk@0.0.37':
-    resolution: {integrity: sha512-fZhs5ygWO3uZ3clx/dPVSRPMadCbNleyeeB2tf+hcqgOKpqWNfjOk/a8M/QffpZfQE8n5LJUtQlqnL7ysBi/Qw==}
-
   '@aws-sdk/checksums@3.1001.1':
     resolution: {integrity: sha512-x12Q17KYlJAd3nKf8LV5LV0vt8sh8/6YfQLGPtrGnQf/tW4jqxPGq5GPpuVitpQYM3eUR4XB7CbxZf751NMbLw==}
     engines: {node: '>=20.0.0'}
@@ -3606,20 +3594,6 @@ packages:
   '@clack/prompts@1.8.1':
     resolution: {integrity: sha512-dlT1m5e/0yUL0kRNcQn7yGLVThkgbB0Ga/1AmfDDC/8ik6AIiSf2QLQO2zPYvefsHP0aFgxO93cVLCCfDp7kzQ==}
     engines: {node: '>= 20.12.0'}
-
-  '@cloudflare/computer@0.2.1':
-    resolution: {integrity: sha512-jh0pa1csAExPItUYzrzBrZO1vCBjsQ6jX+aunrnKe2VSC9i8mEziQYZUL3IZId4GpceRL+v8HIzVr4kjbmQXPw==}
-    peerDependencies:
-      '@platformatic/vfs': '*'
-      ai: 7.0.130
-      zod: ^4.4.3
-    peerDependenciesMeta:
-      '@platformatic/vfs':
-        optional: true
-      ai:
-        optional: true
-      zod:
-        optional: true
 
   '@cloudflare/containers@0.3.7':
     resolution: {integrity: sha512-DM9dm3FnIBSyiSJ1FLavKwl/lk3oAmTaynCzZQ9pZR0ncRPquSxkxd8Nu2MFILxmDDsPkxKsSNEh9mHHMty4Fw==}
@@ -16719,8 +16693,6 @@ snapshots:
       '@types/json-schema': 7.0.15
       js-yaml: 4.3.2
 
-  '@asciidev/box-sdk@0.0.37': {}
-
   '@aws-sdk/checksums@3.1001.1':
     dependencies:
       '@aws-sdk/core': 3.978.1
@@ -17509,29 +17481,6 @@ snapshots:
       fast-string-width: 3.0.2
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
-
-  '@cloudflare/computer@0.2.1(ai@7.0.130(zod@4.5.4))(zod@4.5.4)':
-    dependencies:
-      acorn: 8.18.0
-      capnweb: 0.8.0
-      just-bash: 3.6.0
-    optionalDependencies:
-      ai: 7.0.130(zod@4.5.4)
-      zod: 4.5.4
-    transitivePeerDependencies:
-      - supports-color
-    optional: true
-
-  '@cloudflare/computer@0.2.1(ai@7.0.130(zod@4.6.5))(zod@4.6.5)':
-    dependencies:
-      acorn: 8.18.0
-      capnweb: 0.8.0
-      just-bash: 3.6.0
-    optionalDependencies:
-      ai: 7.0.130(zod@4.6.5)
-      zod: 4.6.5
-    transitivePeerDependencies:
-      - supports-color
 
   '@cloudflare/containers@0.3.7': {}
 

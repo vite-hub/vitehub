@@ -72,7 +72,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/channels` and `vite-hub/channels/server` | Outbound Channel Definitions with `defineOutboundChannel()` and discovered named delivery. |
 | `vite-hub/connections`, `vite-hub/connections/google`, and `vite-hub/connections/server` | Connection Definitions, the Google preset with typed Gmail Operations, and runtime access. |
 | `vite-hub/connections/agent` and `vite-hub/connections/http` | Agent primitive handle, and the management and OAuth routes that the Console mounts. |
-| `vite-hub/box` | Box Definitions and built-in runtime selection for trusted-host, Crabbox, ASCII, Cloudflare Sandbox, Cloudflare Computer, and Vercel Sandbox execution. |
+| `vite-hub/box` | Box Definitions and built-in runtime selection for trusted-host, Crabbox, Cloudflare Sandbox, and Vercel Sandbox execution. |
 | `vite-hub/box/ssh` | `sshLaunch` for provider Driver launch callbacks and `serveSsh` for a trusted SSH runner. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated `useDatabase()` access. |
 | `vite-hub/env` | Env Declaration helpers and authoring types. |
