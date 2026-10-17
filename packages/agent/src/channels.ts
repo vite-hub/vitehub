@@ -3432,6 +3432,8 @@ export interface GmailChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   dryRun?: boolean
   /** `fetch` for Google OAuth, certificates, and the Gmail API. Defaults to the global `fetch`. */
   fetch?: typeof fetch
+  /** Instructions added to Invocations started by this Channel. */
+  instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   /**
    * Labels that the Channel manages. `vitehub channels sync` creates and colors them,
    * and message methods create a missing one on first use.
@@ -3503,6 +3505,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
     await modifyGmailMessage(await resolveClient(context), id, input, labels)
   const channel = defineChannel("gmail", {
     ...(options.capabilities ? { capabilities: options.capabilities } : {}),
+    ...(options.instructions !== undefined ? { instructions: options.instructions } : {}),
     history: {
       collection: gmailHistoryCollection(() => resolveClient(), bodyLimit),
       key: message => message.id,
