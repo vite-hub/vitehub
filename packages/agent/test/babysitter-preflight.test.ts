@@ -21,9 +21,15 @@ describe("Babysitter host prerequisites", () => {
     expect(command).toHaveBeenCalledTimes(4);
   });
 
-  it.each([false, { command: "custom-installer" }] as const)("does not require Corepack when installation is %j", async install => {
+  it("does not require an installer when installation is disabled", async () => {
     const command = vi.fn(async () => {});
-    expect((await createBabysitterPreflight(install, command)()).pause).toBeUndefined();
+    expect((await createBabysitterPreflight(false, command)()).pause).toBeUndefined();
     expect(command.mock.calls).toEqual([["git"]]);
+  });
+
+  it("checks a configured installer executable", async () => {
+    const command = vi.fn(async () => {});
+    expect((await createBabysitterPreflight({ command: "corepack", args: ["pnpm"] }, command)()).pause).toBeUndefined();
+    expect(command.mock.calls).toEqual([["git"], ["corepack"]]);
   });
 });

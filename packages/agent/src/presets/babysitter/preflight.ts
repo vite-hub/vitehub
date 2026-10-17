@@ -19,7 +19,11 @@ export function createBabysitterPreflight(install: BabysitterInstall, checkComma
     pending ??= (async () => {
       const diagnostics: AgentHealthDiagnostic[] = [];
       const commands = ["git"];
-      if (install !== false && !(isRuntimeRecord(install) && install.command)) commands.push("corepack");
+      if (install !== false) {
+        const installer = isRuntimeRecord(install) ? install.command : undefined;
+        const program = installer ?? "corepack";
+        if (!commands.includes(program)) commands.push(program);
+      }
       for (const program of commands) {
         try {
           await checkCommand(program);
