@@ -267,9 +267,9 @@ search remains literal or regular-expression filesystem search over the visible
 tree; use Comark Content through `@vite-hub/content` for parsed-document
 navigation, query, cache, and ranked full-text search.
 
-## Box sessions
+## Sandbox sessions
 
-Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/box`](../box/README.md) session and pass it to `workspace.startSession({ host: boxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Box owns execution and the host lifecycle.
+Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/sandbox`](../sandbox/README.md) session and pass it to `workspace.startSession({ host: sandboxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Sandbox owns execution and the host lifecycle.
 
 GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
 

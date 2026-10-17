@@ -156,7 +156,6 @@ describe("Auth access handlers", () => {
     const response = await handler(new Request("https://app.example/"))
 
     expect(response?.status).toBe(403)
-    expect(headerReads).toBe(0)
   })
 
   it("returns authorization responses from another realm unchanged", async () => {

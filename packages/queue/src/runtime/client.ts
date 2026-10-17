@@ -1,39 +1,24 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeQueueOptions } from "../config.ts"
-import {
-  createQueueError,
-  isQueueBoundaryIdentity,
-  normalizePublicQueueIdentifier,
-  runQueueProviderOperation,
-} from "../errors.ts"
+import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
 import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
 import { getOrCreateQueueClient, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
-import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueName, QueuePayload, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
+import type { Result } from "@vite-hub/runtime"
+import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
-
-function createQueueDefinitionNotFoundError(name: string) {
-  const queue = normalizePublicQueueIdentifier(name)
-  return createQueueError("QUEUE_DEFINITION_NOT_FOUND", {
-    details: queue ? { queue } : undefined,
-  })
-}
 
 async function loadNamedQueueDefinition(name: string) {
   try {
     return await loadQueueDefinition(name)
   }
   catch (cause) {
-    if (isQueueBoundaryIdentity(cause)) throw cause
-    const queue = normalizePublicQueueIdentifier(name)
-    throw createQueueError("QUEUE_DEFINITION_LOAD_FAILED", {
-      cause,
-      details: queue ? { queue } : undefined,
-    })
+    // Names can come from external input. Only a safe identifier goes into the `why`.
+    throw queueErrorDiagnostics.QUEUE_DEFINITION_LOAD_FAILED({ cause, queue: normalizePublicQueueIdentifier(name) })
   }
 }
 
@@ -73,21 +58,27 @@ function getActiveQueueConfig(): false | ResolvedQueueOptions {
 async function createNamedQueueClient(name: string): Promise<QueueClient> {
   const config = getActiveQueueConfig()
   if (config === false) {
-    throw createQueueError("QUEUE_DISABLED")
+    throw queueErrorDiagnostics.QUEUE_DISABLED()
   }
 
   const provider = toProviderOptions(name, config)
   const createClient = getQueueRuntimeClientFactory()
   if (!createClient) {
-    throw queueErrorDiagnostics.QUEUE_R0012({ message: "[vitehub] Queue Client is installed by generated Provider Output." })
+    throw queueErrorDiagnostics.QUEUE_RUNTIME_NOT_INSTALLED()
   }
-  return await runQueueProviderOperation(provider.provider, "create-client", () => createClient(provider))
+  try {
+    return await createClient(provider)
+  }
+  catch (cause) {
+    if (isQueueError(cause)) throw cause
+    throw queueErrorDiagnostics.QUEUE_PROVIDER_FAILED({ cause, operation: "create-client", provider: provider.provider })
+  }
 }
 
 async function getDynamicQueue(name: string): Promise<QueueClient> {
   const definition = await loadNamedQueueDefinition(name)
   if (!definition) {
-    throw createQueueDefinitionNotFoundError(name)
+    throw queueErrorDiagnostics.QUEUE_DEFINITION_NOT_FOUND({ queue: normalizePublicQueueIdentifier(name) })
   }
 
   const config = getActiveQueueConfig()
@@ -99,14 +90,25 @@ async function getDynamicQueue(name: string): Promise<QueueClient> {
   return await getOrCreateQueueClient(name, () => createNamedQueueClient(name))
 }
 
-async function runDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): Promise<QueueSendResult> {
-  const queue = await getDynamicQueue(name)
+async function runDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): Promise<Result<QueueSendResult, QueueErrorCode>> {
+  let queue: QueueClient
+  try {
+    queue = await getDynamicQueue(name)
+  }
+  catch (error) {
+    // A provider failure while the client starts is a runtime error. Config errors still throw.
+    if (isQueueError(error, ["QUEUE_PROVIDER_FAILED"])) return [error, undefined]
+    throw error
+  }
   return await queue.send(payload, options)
 }
 
 function deferDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): void {
   const request = getQueueRuntimeEvent()
-  const task = () => runWithQueueRuntimeEvent(request, () => runDynamicQueue(name, payload, options))
+  const task = async () => {
+    const [error] = await runWithQueueRuntimeEvent(request, () => runDynamicQueue(name, payload, options))
+    if (error) throw error
+  }
   const handleError = async (error: unknown) => {
     console.error(`[vitehub] Deferred queue dispatch failed for "${name}"`, error)
     try {
@@ -134,11 +136,18 @@ export const dynamicQueue: {
   run: runDynamicQueue,
 }
 
+/**
+ * Returns the QueueClient of a discovered Queue Definition. Config errors, for example an unknown name, throw.
+ */
 export async function getQueue<TName extends QueueName>(name: TName): Promise<QueueClient<"cloudflare" | "vercel", QueuePayload<TName>>> {
   return await getDynamicQueue(name)
 }
 
-export function runQueue<TName extends QueueName>(name: TName, payload: NoInfer<QueuePayload<TName>>, options?: QueueEnqueueOptions): Promise<QueueSendResult> {
+/**
+ * Enqueues one job and returns `[error, result]`. `error.code` is a `QueueErrorCode`.
+ * Config errors, for example an unknown Queue name, throw.
+ */
+export function runQueue<TName extends QueueName>(name: TName, payload: NoInfer<QueuePayload<TName>>, options?: QueueEnqueueOptions): Promise<Result<QueueSendResult, QueueErrorCode>> {
   return runDynamicQueue(name, payload, options)
 }
 

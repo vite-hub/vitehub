@@ -132,8 +132,8 @@ const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
-  "@vite-hub/sandbox",
-  "@vite-hub/sandbox/*",
+  "@vite-hub/sandbox-task",
+  "@vite-hub/sandbox-task/*",
   "@vite-hub/shell",
   "@vite-hub/shell/*",
   "@vite-hub/workflow",
@@ -157,9 +157,9 @@ function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions
     bundled.add("@vite-hub/workflow")
     bundled.add("@vite-hub/workflow/*")
   }
-  if (options.workspaceDependencyRuntimeImports?.sandbox || options.workspaceDependencyRuntimeImports?.sandboxRuntimeState) {
-    bundled.add("@vite-hub/sandbox")
-    bundled.add("@vite-hub/sandbox/*")
+  if (options.workspaceDependencyRuntimeImports?.sandboxTask || options.workspaceDependencyRuntimeImports?.sandboxTaskRuntimeState) {
+    bundled.add("@vite-hub/sandbox-task")
+    bundled.add("@vite-hub/sandbox-task/*")
   }
   if (options.workspaceDependencyRuntimeImports?.shellWorkspace) {
     bundled.add("@vite-hub/shell")
@@ -190,8 +190,8 @@ interface AgentGeneratedImportOptions {
 }
 
 interface WorkspaceDependencyRuntimeImports {
-  sandbox?: string
-  sandboxRuntimeState?: string
+  sandboxTask?: string
+  sandboxTaskRuntimeState?: string
   shellWorkspace?: string
 }
 
@@ -480,8 +480,8 @@ function generatedAgentWorkspaceDependencyRuntime(options: AgentGeneratedImportO
     imports: [`import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`],
     setup: [
       "vitehubSetWorkspaceDependencyRuntimeLoaders({",
-      ...(imports.sandbox ? [`  sandbox: () => import(${JSON.stringify(imports.sandbox)}),`] : []),
-      ...(imports.sandboxRuntimeState ? [`  sandboxRuntimeState: () => import(${JSON.stringify(imports.sandboxRuntimeState)}),`] : []),
+      ...(imports.sandboxTask ? [`  sandboxTask: () => import(${JSON.stringify(imports.sandboxTask)}),`] : []),
+      ...(imports.sandboxTaskRuntimeState ? [`  sandboxTaskRuntimeState: () => import(${JSON.stringify(imports.sandboxTaskRuntimeState)}),`] : []),
       ...(imports.shellWorkspace ? [`  shellWorkspace: () => import(${JSON.stringify(imports.shellWorkspace)}),`] : []),
       "})",
       "",
@@ -1956,7 +1956,7 @@ async function generateAgentWebhookRouteHandler(
     ...generatedRuntimeHelpers(),
     ...(options.cloudflareState ? generatedCloudflareChatStateHelper() : []),
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
-    ...(options.libsqlState ? ["/** Agent State for contributed process hosts, such as the Babysitter's PR inbox. */", "export const agentProcessHostState = () => chatStateFromLibsql()"] : []),
+    ...(options.libsqlState ? ["/** Agent State for contributed process hosts. */", "export const agentProcessHostState = () => chatStateFromLibsql()"] : []),
     "",
     ...routeCapabilities.setup,
     ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
@@ -3001,7 +3001,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         projectModule
         && !normalizedId.includes("/node_modules/")
         && resolvesWorkerConditions(this.environment?.config.resolve.conditions)
-        && usesProviderAgentDriver(code, await parseTypeScript())
+        && usesProviderAgentDriver(code, await parseTypeScript(), normalizedId)
       ) {
         throw agentDiagnostics.AGENT_B0019({ files: [relative(resolved.root, normalizedId)] })
       }
@@ -3144,7 +3144,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (processHostAgents.length) {
         const hosting = denoOutput ? "deno" : resolveAgentHosting(config)
         if (hosting) {
-          throw agentDiagnostics.AGENT_B0022({ message: `[vitehub] Agent ${processHostAgents.map(name => `"${name}"`).join(", ")} uses a preset that runs a long-lived process host, such as the Babysitter. ${hosting} cannot run it; deploy with the Node server preset.` })
+          throw agentDiagnostics.AGENT_B0022({ message: `[vitehub] Agent ${processHostAgents.map(name => `"${name}"`).join(", ")} uses a preset that runs a long-lived process host. ${hosting} cannot run it; deploy with the Node server preset.` })
         }
         if (!installWebhookQueue) {
           throw agentDiagnostics.AGENT_B0023({ message: `[vitehub] Agent ${processHostAgents.map(name => `"${name}"`).join(", ")} stores its process host state in Agent State. Use the sqlite, libsql, or auto Agent State provider.` })

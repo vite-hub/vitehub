@@ -301,6 +301,8 @@ async function runAccessAuthorize(
   return createForbiddenResponse(context.request)
 }
 
+const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
+
 const authorizationResponsePrototypeLimit = 32
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
@@ -596,7 +598,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
 
     // Preserve the standard error response before constructing a local response.
-    if (status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0) return Response.error()
+    if (status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0) {
+      if (nativeProperties && nativeBodyUnused && value instanceof Response) return value
+      return Response.error()
+    }
     if (body === null) return new Response(null, { status, statusText, headers: normalizedHeaders })
     if (typeof bodyReader !== "function") return
     const bridgedBody = bridgeAuthorizationBody(body, bodyReader)
