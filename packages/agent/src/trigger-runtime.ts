@@ -613,8 +613,9 @@ export async function resolveAgentTriggerInvocation<
   if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
   const invoked = withWebhookDeliveryRun(result, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
+  const inheritedRun = { ...(context.run || {}), ...(invoked.run || {}) }
   const run = annotations
-    ? { ...(invoked.run || context.run || { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...(invoked.run || context.run)?.annotations, ...annotations } }
+    ? { ...(Object.keys(inheritedRun).length ? inheritedRun : { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun.annotations, ...annotations } }
     : invoked.run
   return resolveAgentTriggerInvocationResult({
     ...invoked,
