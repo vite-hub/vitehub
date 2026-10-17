@@ -1,5 +1,4 @@
 import type { EmailProviderError, EmailProviderErrorCode } from "./types.ts"
-import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 
 function isError(value: unknown): value is Error {
   if (typeof value !== "object" || value === null) return false
@@ -32,6 +31,7 @@ const emailProviderErrorCodes = new Set<EmailProviderErrorCode>([
   "CANCELLED",
   "INVALID_OPTIONS",
   "NETWORK",
+  "NOT_CONFIGURED",
   "PROVIDER",
   "RATE_LIMIT",
   "TIMEOUT",
@@ -44,7 +44,7 @@ export function emailProviderError(
   message: string,
   options: { cause?: unknown, retryable?: boolean, status?: number } = {},
 ): EmailProviderError {
-  return Object.assign(emailErrorDiagnostics.EMAIL_R0007({ message, cause: options.cause }), {
+  return Object.assign(new Error(message, { cause: options.cause }), {
     code,
     driver,
     name: "EmailProviderError",

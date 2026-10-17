@@ -15,6 +15,21 @@ export default defineNuxtConfig({
   agentDiscovery: {
     // Pages with a Markdown twin. On Cloudflare these also run the Worker before static assets.
     routes: ["/", "/docs", "/docs/**", "/about", "/contact", "/privacy"],
+    llms: {
+      // Rules for every task, printed under the llms.txt description. Page-level detail lives in `::agent-only` blocks.
+      details: [
+        "Rules for coding agents:",
+        [
+          "- Read the installed package exports and types before you write imports or options. When the installed packages, these docs, and remembered syntax disagree, follow the installed packages.",
+          "- Prefer the `vite-hub` distribution: register `vitehub()` from `vite-hub` in the Vite config and import Runtime Helpers from feature subpaths such as `vite-hub/kv`. Some pages use owner packages such as `@vite-hub/kv`; follow the style that the project already uses.",
+          "- Keep provider and host selection in the Vite config. Application code calls the same Runtime Helper on every host.",
+          "- Give an Agent authority only through Capabilities, Workspaces, Sources, or Channels. Do not pass application secrets or broad access to an Agent implicitly.",
+          "- Open the raw page for one feature, such as `https://vitehub.dev/raw/docs/kv.md`, before you write code. Raw pages contain agent-only details that the rendered site does not show. Do not load llms-full.txt for one task.",
+          "- Prove the change: run the Runtime Helper, Agent Invocation, webhook, or schedule, and inspect the generated `.vitehub/` state or provider output.",
+          "- Install the ViteHub skill for routed guidance: `npx skills add https://vitehub.dev --skill vitehub`.",
+        ].join("\n"),
+      ],
+    },
   },
   llms: {
     contentRawMarkdown: false,

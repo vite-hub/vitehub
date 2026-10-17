@@ -178,6 +178,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           and previous.committed = 1
       ), '{}')
     `
+    // Compare manifests with substr, not LIKE, so `%` and `_` in paths stay literal.
     const pathFilter = path === undefined ? undefined : sql`(
       exists (
         select 1

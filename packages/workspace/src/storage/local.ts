@@ -1225,6 +1225,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async removeEmptyDirectory(path: string): Promise<void> {
     await this.#pathLock(this.root, path, async () => {
+      if (!normalizeWorkspacePath(path)) return
       await this.#assertPathComponents(path, false)
       const absolute = resolveInside(this.root, path)
       const info = await lstat(absolute).catch((error: NodeJS.ErrnoException) => {

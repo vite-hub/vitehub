@@ -1,0 +1,39 @@
+diff --git a/dist/chunk-SQCJ2S3G.js b/dist/chunk-SQCJ2S3G.js
+index dd2b4d3..035251a 100644
+--- a/dist/chunk-SQCJ2S3G.js
++++ b/dist/chunk-SQCJ2S3G.js
+@@ -181,7 +181,7 @@ var InvalidBlobsRegionError = class extends Error {
+ 
+ // src/retry.ts
+ import { getEnvironment as getEnvironment2 } from "@netlify/runtime-utils";
+-var DEFAULT_RETRY_DELAY = getEnvironment2().get("NODE_ENV") === "test" ? 1 : 5e3;
++var DEFAULT_RETRY_DELAY = 5e3;
+ var MIN_RETRY_DELAY = 1e3;
+ var MAX_RETRY = 5;
+ var RATE_LIMIT_HEADER = "X-RateLimit-Reset";
+diff --git a/dist/main.cjs b/dist/main.cjs
+index 1cbe987..4bd0aea 100644
+--- a/dist/main.cjs
++++ b/dist/main.cjs
+@@ -215,7 +215,7 @@ function withSpan(span, name, fn) {
+ }
+ 
+ // src/retry.ts
+-var DEFAULT_RETRY_DELAY = (0, import_runtime_utils4.getEnvironment)().get("NODE_ENV") === "test" ? 1 : 5e3;
++var DEFAULT_RETRY_DELAY = 5e3;
+ var MIN_RETRY_DELAY = 1e3;
+ var MAX_RETRY = 5;
+ var RATE_LIMIT_HEADER = "X-RateLimit-Reset";
+diff --git a/dist/server.cjs b/dist/server.cjs
+index 85889eb..b156b27 100644
+--- a/dist/server.cjs
++++ b/dist/server.cjs
+@@ -99,7 +99,7 @@ function decodeName(string) {
+ }
+ 
+ // src/retry.ts
+-var DEFAULT_RETRY_DELAY = (0, import_runtime_utils3.getEnvironment)().get("NODE_ENV") === "test" ? 1 : 5e3;
++var DEFAULT_RETRY_DELAY = 5e3;
+ 
+ // src/client.ts
+ var SIGNED_URL_ACCEPT_HEADER = "application/json;type=signed-url";

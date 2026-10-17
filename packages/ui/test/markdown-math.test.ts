@@ -68,6 +68,11 @@ SS = z\sqrt{L\sigma_w^2 + \mu_w^2\sigma_L^2} + A
     expect(wrapper.findAll("math")).toHaveLength(4);
   });
 
+  it("closes dollar formulas after an even escaped backslash pair", async () => {
+    const wrapper = await render(String.raw`Use $x\\$ after a literal slash.`);
+    expect(wrapper.findAll(".katex")).toHaveLength(1);
+  });
+
   it("preserves code examples and ordinary currency", async () => {
     const wrapper = await render("Costs $10 and $20. `\\(x\\)` and `$x$`.\n\n```text\n\\[x\\]\n```\n");
     expect(wrapper.find(".katex").exists()).toBe(false);

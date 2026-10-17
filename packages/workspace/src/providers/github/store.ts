@@ -173,13 +173,12 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     private workspaceName: string,
   ) {
     this.#repository = requireGitHubOption(
-      "store",
       "a repository",
       resolveGitHubRepositoryOption(options),
     );
     this.#branch = resolveGitHubBranchOption(options);
     this.#root = resolveGitHubRootOption(options, workspaceName);
-    this.#token = requireGitHubOption("store", "a token", resolveGitHubTokenOption(options));
+    this.#token = requireGitHubOption("a token", resolveGitHubTokenOption(options));
   }
 
   get history(): WorkspaceStoreHistory {
@@ -284,7 +283,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     }
     await createGitHubBlob({
       bytes: update.bytes,
-      kind: "store",
       repository: this.#repository,
       token: this.#token,
     });
@@ -391,7 +389,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       await this.#ensure({ refresh: false });
       const remote = await readGitHubBranchState({
         branch: this.#branch,
-        kind: "store",
         repository: this.#repository,
         root: this.#root,
         token: this.#token,
@@ -471,7 +468,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
     const remote = await readGitHubBranchState({
       branch: this.#branch,
-      kind: "store",
       repository: this.#repository,
       root: this.#root,
       token: this.#token,
@@ -586,7 +582,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     const previousFiles = this.#files;
     const remote = await readGitHubBranchState({
       branch: this.#branch,
-      kind: "store",
       repository: this.#repository,
       root: this.#root,
       token: this.#token,

@@ -12,9 +12,6 @@ type NuxtLike = {
   options: {
     alias?: Record<string, string>
     dev?: boolean
-    imports?: {
-      imports?: Array<{ from: string, name: string }>
-    }
     rootDir?: string
     serverDir?: string
     srcDir?: string
@@ -37,14 +34,6 @@ function resolveWorkspaceOptions(options: WorkspaceNuxtModuleOptions, viteOption
 
 export default function viteHubWorkspaceNuxtModule(options: WorkspaceNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
   if (!nuxt) return
-
-  nuxt.options.imports ??= {}
-  nuxt.options.imports.imports ??= []
-  for (const name of ["useWorkspaceCollection", "useWorkspaceCollectionItem"]) {
-    if (!nuxt.options.imports.imports.some(entry => entry.name === name)) {
-      nuxt.options.imports.imports.push({ from: "@vite-hub/workspace/collections/client", name })
-    }
-  }
 
   nuxt.options.vite ??= {}
   const workspaceOptions = resolveWorkspaceOptions(options, nuxt.options.vite.workspace)

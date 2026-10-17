@@ -12,14 +12,14 @@ export const docsCategoryOrder = [
   "Platform",
 ] as const;
 
-const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
-
 export type DocsCategory = (typeof docsCategoryOrder)[number];
 
 export type DocsCatalogGroup = {
   category: DocsCategory;
   sections: DocsSection[];
 };
+
+const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
 
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
@@ -38,19 +38,6 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
         .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title)),
     }))
     .filter(group => group.sections.length > 0);
-}
-
-export function getDocsSectionKind(section: DocsSection) {
-  if (section.id === "agents") return "Agent runtime";
-  if (section.id === "ui") return "UI components";
-  if (["Data", "Compute", "Access", "Delivery", "Files"].includes(section.category || "")) return "Server Primitive";
-  if (section.category === "Start") return "Getting started";
-  if (section.category === "Platform") return "Platform";
-  return section.category || "Documentation";
-}
-
-export function getDocsRailCatalog(sections: DocsSection[]) {
-  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
 }
 
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
@@ -83,7 +70,7 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
 
   const entries = [...groups].map(([label, pages], index) => ({ label, pages, index }));
   if (!primitiveCategories.has(section.category || "")) {
-    return entries.map(({ label, pages }) => ({ label, pages }));
+    return entries.map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
   }
   return entries
     .sort((left, right) => left.index - right.index)
@@ -120,4 +107,16 @@ export function isDocsLandingPath(sections: DocsSection[], path: string) {
 /** Pages of a product section other than its Overview, in sidebar order. The landing page lists them as cards. */
 export function getDocsSectionSubpages(section: DocsSection) {
   return section.pages.filter(page => page.navigation !== false && page.id !== "index");
+}
+
+/** Platform topics stay reachable from Get started and the catalog, without product rail entries. */
+export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
+  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
+}
+
+export function getDocsSectionKind(section: DocsSection): string {
+  if (section.id === docsRootSectionId) return "Get started";
+  if (section.id === "ui") return "UI components";
+  if (primitiveCategories.has(section.category || "")) return "Server Primitive";
+  return section.category || "Platform";
 }

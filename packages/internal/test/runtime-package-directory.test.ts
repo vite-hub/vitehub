@@ -4,7 +4,6 @@ import { basename, join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { copyVercelFunctionRuntimePackageDirectories } from "../src/build/vercel-runtime-package-copy.ts"
 import { copyVercelFunctionRuntimePackages } from "../src/build/vercel-runtime-packages.ts"
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -41,7 +40,6 @@ async function fixture(existing = true) {
 
 const adapters = [
   { name: "traced packages", copy: copyVercelFunctionRuntimePackages },
-  { name: "package directories", copy: copyVercelFunctionRuntimePackageDirectories },
 ]
 
 describe.each(adapters)("runtime package publication: $name", ({ copy }) => {

@@ -80,7 +80,7 @@ export interface TranscribeArtifactsOptions {
   transcript?: false | TranscribeTranscriptArtifactOptions
 }
 
-export const TRANSCRIPTION_RESULTS_CONTEXT_KEY = "transcribe.results"
+const TRANSCRIPTION_RESULTS_CONTEXT_KEY = "transcribe.results"
 
 type StaticTranscribeOptions =
   | (AiSdkTranscribeOptions & {
