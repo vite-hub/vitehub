@@ -34,11 +34,6 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // descriptor shape only ensures that invoking discovery cannot run an
     // arbitrary inherited getter.
     if (typeof constructor !== "function" || typeof exec !== "function" || typeof databaseSize !== "function") return false
-    // Workerd exposes the platform carrier as `SqlStorage`. Requiring this
-    // name keeps unrelated native accessors (for example Map.prototype.size)
-    // from being accepted when their prototype is polluted with copied SQL
-    // members.
-    if (constructor.name !== "SqlStorage") return false
     // All platform members belong to one prototype, and its constructor must
     // identify that exact prototype. This rejects copied members and bound or
     // arrow constructor proxies before any candidate callback is invoked.
@@ -57,6 +52,11 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // and accessor naming details while still requiring a native body.
     const nativeGetterSource = /^function\s+(?:get(?:\s+\w+)?\s*\(\s*\)|\(\s*\))\s*\{\s*\[native\s+code\]\s*\}$/
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
+    // Native accessors retain their declared property name even when their
+    // source is rendered anonymously. This excludes unrelated branded
+    // accessors such as Map.prototype.size while accepting workerd's
+    // version-dependent `databaseSize` naming.
+    if (databaseSize.name !== "" && databaseSize.name !== "databaseSize" && databaseSize.name !== "get databaseSize") return false
 
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)
