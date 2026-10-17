@@ -78,7 +78,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   await writeFile(join(checkout, "source.ts"), "export const value = 1\n");
   let head = "a".repeat(40);
   let baseHead = "c".repeat(40);
-  let compareStatus = "ahead";
+  let compareStatus = "behind";
   const git = async (cwd: string, ...args: string[]) => (await promisify(execFile)("git", ["-C", cwd, "-c", "user.name=Test", "-c", "user.email=test@example.test", ...args])).stdout.trim();
   let remoteBox: { path: string; closed: boolean } | undefined;
   if (preset.remoteBox) {
@@ -790,6 +790,7 @@ describe("Babysitter preset runtime", () => {
   it.each(["commitRepair", "pushRepair"] as const)("keeps %s when the prepared conflict base only moved forward", async operation => {
     const f = await fixture(false, false, { mergeableState: "dirty", allowOperationAfterAdmission: true });
     f.choose(operation, operation === "commitRepair" ? { message: "resolve base conflict", paths: ["source.ts"] } : {});
+    f.compareBase("ahead");
     f.onAdmission(() => { f.advanceBase("d".repeat(40)); });
     try {
       await f.reconcile();
