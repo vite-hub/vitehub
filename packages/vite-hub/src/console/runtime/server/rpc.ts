@@ -93,7 +93,6 @@ function errorResult(error: unknown): ConsoleRpcResult {
   const rawStatus = Reflect.get(value, "statusCode") ?? Reflect.get(value, "status")
   const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500
   const statusMessage = Reflect.get(value, "statusMessage")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
   const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : undefined
   // A failure site with its own diagnostic keeps its code and guidance. Others get the Console code of the status.
   const code = text(Reflect.get(value, "code"))
@@ -107,7 +106,6 @@ function errorResult(error: unknown): ConsoleRpcResult {
 }
 
 function text(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
   return typeof value === "string" && value ? value : undefined
 }
 

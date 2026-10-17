@@ -6,7 +6,7 @@ navigation.order: 1
 icon: i-lucide-terminal
 ---
 
-::product-hero{tagline="Run Unix-like commands from server code through Just Bash, Cloudflare, or a custom Execution Provider." hosts="Node, Docker, Cloudflare"}
+::product-hero{tagline="Run Unix-like commands from server code through Just Bash or a custom Execution Provider." hosts="Node, Docker, Cloudflare"}
   :::code-group
   ```ts [Runtime]
   import { createShellRuntime } from '@vite-hub/shell'

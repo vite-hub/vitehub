@@ -296,7 +296,7 @@
     "@standard-schema/spec": "catalog:runtime",
     "@valibot/to-json-schema": "catalog:runtime",
     "@t3tools/provider-runtime": "catalog:",
-    "@vercel/connect": "2.4.0",
+    "@vercel/connect": "2.5.2",
     "@vercel/nft": "catalog:vercel",
     "@yarnpkg/parsers": "catalog:tooling",
     "@vite-hub/box": "workspace:*",
@@ -309,7 +309,6 @@
     "ai": "catalog:ai",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
-    "effect": "catalog:effect",
     "esbuild": "catalog:tooling",
     "forges": "catalog:",
     "nostics": "catalog:runtime",
@@ -322,7 +321,7 @@
     "advocaat": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
-    "@github-tools/eve-extension": "0.8.0",
+    "@github-tools/eve-extension": "0.8.1",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
@@ -333,7 +332,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "evalite": "catalog:ai",
-    "eve": "0.72.1",
+    "eve": "0.80.1",
     "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -342,8 +341,8 @@
     "vitest": "catalog:tooling",
     "zod": "catalog:runtime",
     "vue": "catalog:ui",
-    "evlog": "^2.29.0",
-    "posthog-node": "^5.55.0"
+    "evlog": "^2.32.0",
+    "posthog-node": "^5.56.2"
   },
   "optionalDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
@@ -357,7 +356,6 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
-    "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
@@ -365,7 +363,7 @@
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "eve": "0.46.1 || 0.72.1",
+    "eve": "0.80.1",
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0"
   },
@@ -389,9 +387,6 @@
       "optional": true
     },
     "@vite-hub/email": {
-      "optional": true
-    },
-    "@vite-hub/schedule": {
       "optional": true
     },
     "@vite-hub/workflow": {

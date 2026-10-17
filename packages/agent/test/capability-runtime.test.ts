@@ -306,6 +306,20 @@ describe("agent capability runtime", () => {
     expect(closeError.errors).toEqual([secondError, firstError])
   })
 
+  it("runs capability close callbacks once and keeps their failure on a later close", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const closeError = new Error("close failed")
+    const close = vi.fn(() => { throw closeError })
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [defineCapability({ close, id: "failing-close" })],
+    }, runtime(), {})
+
+    await expect(Promise.all([resolved.close(), resolved.close()].map(result => result.catch(error => error))))
+      .resolves.toEqual([closeError, closeError])
+    await expect(resolved.close()).rejects.toBe(closeError)
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it("preserves setup and cleanup failures in the existing aggregate contract", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const setupError = new Error("setup failed")

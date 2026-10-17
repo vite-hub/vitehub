@@ -37,7 +37,6 @@ const primitiveCapabilities = {
   "kv": "kv",
   "rate-limit": "rate-limit",
   "sandbox": "sandbox",
-  "schedule": "schedule",
   "workspace-shell": "workspace",
 } satisfies Record<string, string>;
 
@@ -112,6 +111,9 @@ export const docsPageRedirects = {
   "/docs/reference/channels": "/docs/channels",
   "/docs/reference/diagnostics": "/docs/reference/errors-diagnostics",
   "/docs/reference/realtime": "/docs/realtime",
+  // The schedule() Agent Capability was removed with Runtime Schedules.
+  "/docs/capabilities/schedule": "/docs/schedule",
+  "/docs/schedule/agent-capability": "/docs/schedule",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/server-primitives/env-bridge": "/docs/env/bridge",
   ...Object.fromEntries(movedServerPrimitives.map(id => [`/docs/server-primitives/${id}`, `/docs/${id}`])),

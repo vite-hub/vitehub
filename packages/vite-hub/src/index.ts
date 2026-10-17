@@ -831,7 +831,6 @@ function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin {
     config(config, { command }) {
       if (publicUrl === undefined || command !== "build") return
       let resolved: PublicUrlConfig
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The option is a string or a callback; typeof also accepts callbacks from another realm.
       if (typeof publicUrl === "function") {
         const root = resolveViteHubProjectRoot(config.root ?? process.cwd())
         // SAFETY: ViteHub hosts add this private server-directory symbol before plugins read the config.
@@ -1055,7 +1054,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
       runtimeCapabilityImports,
-      scheduleRuntimeImport: `${generatedImportBase}/schedule/runtime`,
       workflowImportBase: `${generatedImportBase}/workflow`,
       workspaceDependencyRuntimeImports,
       workspaceImportBase: `${generatedImportBase}/workspace`,
@@ -1129,7 +1127,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
       importBase: `${generatedImportBase}/schedule`,
-      typesImportBase: "vite-hub/schedule",
       providerImportAliases,
       runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))

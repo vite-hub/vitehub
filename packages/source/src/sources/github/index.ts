@@ -13,12 +13,10 @@ import type { FileSource, SourceContext, SourceRevision } from "../../core/types
 import type { GitHubCommitResponse, GitHubContentResponse, GitHubFile, GitHubRepositoryResponse, GitHubSourceOptions } from "./types.ts"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function isNonEmptyString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
   return typeof value === "string" && value.length > 0
 }
 
@@ -34,13 +32,9 @@ function isGitHubContentResponse(value: unknown): value is GitHubContentResponse
   return isRecord(value)
     && isNonEmptyString(value.type)
     && isNonEmptyString(value.sha)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && (value.content === undefined || typeof value.content === "string")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && (value.encoding === undefined || typeof value.encoding === "string")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && (value.path === undefined || typeof value.path === "string")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && (value.sha === undefined || typeof value.sha === "string")
 }
 

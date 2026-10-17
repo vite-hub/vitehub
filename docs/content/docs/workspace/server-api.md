@@ -21,7 +21,7 @@ Use these imports and methods to work with a Workspace from server code.
 | `registerWorkspacePlugin` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Add rules and hooks to a Workspace you do not define. See [Add plugins to a Workspace](#add-plugins-to-a-workspace). |
 | `workspaceFile` from `@vite-hub/workspace` | Use a JSON array in a Workspace file as a [Collection source](/docs/source/server-api#collections-over-an-array). |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Register Workspace discovery, generated types, assets, and runtime wiring. |
-| `@vite-hub/workspace/loader`, `@vite-hub/workspace/publish`, `@vite-hub/workspace/test` | Add loaders and publishers, or register test Workspaces. |
+| `@vite-hub/workspace/loader`, `@vite-hub/workspace/test` | Add loaders, or register test Workspaces. |
 
 Workspace definition, Source Binding, rule, hook, store, sync, facade, and session types are exported from `@vite-hub/workspace`. Source resolution runtime types are exported from `@vite-hub/workspace/runtime`.
 
@@ -227,8 +227,7 @@ Build and development integrations materialize Sources at build time. Runtime `s
 | `sources` | `all \| readonly string[]` | required | Selects all sync-enabled Sources or explicit Source keys. |
 | `details` | `counts \| paths` | `counts` | Returns per-Source counts, with optional per-path results. |
 | `snapshot` | `boolean \| { name?, message? }` | `false` | Creates a snapshot after successful reconciliation. A message is used as the snapshot name when `name` is absent. |
-| `publish` | `boolean` | `false` | Publishes the resulting snapshot through configured Workspace Publishers; enabling it also creates a snapshot. |
-| `publishPartial` | `boolean` | `false` | Applies and optionally publishes successful Source plans even when another selected Source fails. |
+| `publishPartial` | `boolean` | `false` | Applies successful Source plans even when another selected Source fails. With `snapshot`, it also creates the snapshot. |
 
 Source Sync requires a Workspace Store with metadata support. Without `publishPartial`, any planning error skips all otherwise valid plans so the sync does not apply only part of the requested selection.
 
