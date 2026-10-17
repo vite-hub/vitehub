@@ -2116,7 +2116,7 @@ describe("agent Vite plugin", () => {
       expect([emailRuntime, emailDefinition].join("\n")).not.toContain(root)
       expect([emailRuntime, emailDefinition].join("\n")).not.toMatch(/node_modules[/\\\\]/)
       expect(denoServer).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
-      expect(denoServer).not.toContain("@vite-hub/database/drizzle")
+      expect(denoServer).toContain("@vite-hub/database/drizzle")
       const emailBundle = join(root, "email-runtime-bundle.mjs")
       await bundleEsmEntry(join(root, ".vitehub/agent/email-runtime.js"), emailBundle, {
         alias: { "@vite-hub/email": resolve(import.meta.dirname, "../../email/dist/index.js") },
@@ -2153,7 +2153,7 @@ describe("agent Vite plugin", () => {
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
-      expect(netlifyFunction).not.toContain("@vite-hub/database/drizzle")
+      expect(netlifyFunction).toContain("@vite-hub/database/drizzle")
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING

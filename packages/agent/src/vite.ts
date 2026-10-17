@@ -276,9 +276,10 @@ async function writeStandaloneAgentRuntimeCapabilities(
   config: Pick<ResolvedConfig, "plugins" | "root">,
   capabilities: GeneratedAgentRuntimeCapability[],
 ): Promise<GeneratedAgentRuntimeCapability[]> {
-  // Standalone schedules do not have the host-generated Connections registry or
-  // database-backed store, so do not advertise either capability.
-  const standaloneCapabilities = capabilities.filter(capability => capability.name !== "db" && capability.name !== "connections")
+  // The generated Deno and Netlify route modules are host runtimes too. Keep
+  // their full capability record available to standalone handlers; the
+  // schedule registry itself still does not import these providers.
+  const standaloneCapabilities = capabilities
   const emailCapability = standaloneCapabilities.find(capability =>
     capability.name === "email" && capability.packageName !== false
   )
