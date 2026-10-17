@@ -387,7 +387,14 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // stringify as concise methods with a full implementation body. Reject
     // the short, caller-authored method-shaped functions used to spoof an
     // operation while allowing those substantive implementations through.
-    if (/^\s*[^\s(]+\s*\([^)]*\)\s*\{/.test(source) && source.length < 256) return false
+    if (/^\s*[^\s(]+\s*\([^)]*\)\s*\{/.test(source)) {
+      // A concise method is only acceptable when its implementation is
+      // substantive. In particular, comments and whitespace must not be
+      // enough to turn a caller-authored spoof into an accepted operation.
+      const body = source.slice(source.indexOf("{") + 1, source.lastIndexOf("}"))
+      if (body.includes("/*") || body.includes("//")) return false
+      if (body.replace(/\s/g, "").length < 32) return false
+    }
     return true
   }
   catch {
