@@ -20,8 +20,10 @@ import {
 import { describe, expect, it } from "vitest"
 
 const repoRoot = resolve(import.meta.dirname, "..")
-const effectVersion = "4.0.0-rc.112"
-const expectedEffectOwners = ["agent", "internal", "schedule", "source"]
+const effectVersion = "4.0.5"
+// Only the Runtime Schedules process wake runtime still imports Effect.
+// Delete this test and the Effect catalog entry when it no longer does.
+const expectedEffectOwners = ["schedule"]
 const allowedEffectOwners = new Set(expectedEffectOwners)
 const dependencyGroups = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
 
@@ -164,12 +166,6 @@ describe("Effect ownership", () => {
       expect(bundles, packageDir).not.toMatch(/effect@3\.|3\.17\.7/)
     }
   }, 30_000)
-
-  it("keeps Source's bundled Effect out of emitted JavaScript and declarations", async () => {
-    const sources = await readFiles(join(repoRoot, "packages/source/dist"), path => /\.[cm]?[jt]s$/.test(path))
-    expect(sources.length).toBeGreaterThan(0)
-    expect(sources.some(sourceImportsEffect)).toBe(false)
-  })
 
   it.each([
     {

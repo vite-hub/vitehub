@@ -80,10 +80,7 @@ export function parseWorkspaceHistoryDevRequest(value: unknown): WorkspaceHistor
     if (!optionalString(cursor) || !optionalString(ref)) return "Workspace history cursor and ref must be strings."
     if (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1)) return "Workspace history limit must be a positive integer."
     if (cursor !== undefined && ref === undefined) return "Workspace history cursor requires a ref."
-    const request: Extract<WorkspaceHistoryDevRequest, { operation: "history" }> = {
-      operation: "history",
-      workspace,
-    }
+    const request: Extract<WorkspaceHistoryDevRequest, { operation: "history" }> = { operation: "history", workspace }
     if (cursor !== undefined) request.cursor = cursor
     if (limit !== undefined) request.limit = Number(limit)
     if (ref !== undefined) request.ref = ref
@@ -93,9 +90,7 @@ export function parseWorkspaceHistoryDevRequest(value: unknown): WorkspaceHistor
     const { path, target } = value
     if (!hasRuntimeType(target, "string") || !target) return "Workspace show requires a ref or revision."
     if (!optionalString(path)) return "Workspace show path must be a string."
-    const request: Extract<WorkspaceHistoryDevRequest, { operation: "show" }> = { operation: "show", workspace, target }
-    if (path !== undefined) request.path = path
-    return request
+    return path === undefined ? { operation: "show", workspace, target } : { operation: "show", workspace, target, path }
   }
   return "Unknown Workspace history operation."
 }

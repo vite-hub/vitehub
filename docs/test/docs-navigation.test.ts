@@ -4,6 +4,8 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
+  getDocsRailCatalog,
+  getDocsSectionKind,
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
@@ -35,6 +37,27 @@ const serverPrimitiveSections = [
 ];
 
 describe("docs product navigation", () => {
+  it("keeps platform topics in the catalog but out of the product rail", () => {
+    const catalog = getDocsCatalog(docsManifest.sections);
+    const rail = getDocsRailCatalog(docsManifest.sections);
+    expect(catalog.find(group => group.category === "Platform")?.sections.map(section => section.id))
+      .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "reference"]));
+    const railSectionIds = rail.flatMap(group => group.sections.map(section => section.id));
+    for (const sectionId of ["development", "frameworks-hosts", "reference"]) {
+      expect(railSectionIds).not.toContain(sectionId);
+    }
+    expect(rail.map(group => group.category)).toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
+    expect(rail.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
+  });
+
+  it("labels UI catalog tiles as UI components", () => {
+    const section = (id: string) => docsManifest.sections.find(candidate => candidate.id === id)!;
+    expect(getDocsSectionKind(section("ui"))).toBe("UI components");
+    expect(getDocsSectionKind(section("agents"))).toBe("Agents");
+    expect(getDocsSectionKind(section("getting-started"))).toBe("Get started");
+    expect(getDocsSectionKind(section("reference"))).toBe("Platform");
+  });
+
   it("files every section under one catalog category", () => {
     expect(getUncategorizedDocsSections(docsManifest.sections)).toEqual([]);
 
@@ -65,8 +88,7 @@ describe("docs product navigation", () => {
       expect(templateTitles, sectionId).toContain("Server API");
       // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
-      const templateIndexes = templateTitles.map(title => titles.indexOf(title));
-      expect(templateIndexes, sectionId).toEqual([...templateIndexes].sort((left, right) => left - right));
+      expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -99,7 +121,6 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
-      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
@@ -114,7 +135,7 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.pages.length > 0), sectionId).toBe(true);
+      expect(groups.every(group => group.label && group.pages.length > 0), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
@@ -152,7 +173,7 @@ describe("docs product navigation", () => {
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.title)
+    expect(getDocsPageByPath("/docs/getting-started/concepts/runtime-policy-approvals-and-traces")?.title)
       .toBe("Runtime policy, approvals, and traces");
   });
 

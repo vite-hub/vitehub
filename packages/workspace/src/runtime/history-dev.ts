@@ -49,22 +49,22 @@ function isoTime(value: string): string {
 
 function describeRevision(revision: WorkspaceRevision): WorkspaceHistoryDevRevision {
   const author = revision.metadata?.author
-  const described: WorkspaceHistoryDevRevision = {
+  const result: WorkspaceHistoryDevRevision = {
     ...revision,
     createdAt: isoTime(revision.createdAt),
   }
-  if (hasRuntimeType(author, "string") && author) described.author = author
-  return described
+  if (hasRuntimeType(author, "string") && author) result.author = author
+  return result
 }
 
 function describeFile(entry: WorkspaceEntry): WorkspaceHistoryDevFile {
-  const described: WorkspaceHistoryDevFile = {
+  const result: WorkspaceHistoryDevFile = {
     path: entry.path,
   }
-  if (entry.size !== undefined) described.size = entry.size
-  if (entry.mediaType !== undefined) described.mediaType = entry.mediaType
-  if (entry.digest !== undefined) described.digest = entry.digest
-  return described
+  if (entry.size !== undefined) result.size = entry.size
+  if (entry.mediaType !== undefined) result.mediaType = entry.mediaType
+  if (entry.digest !== undefined) result.digest = entry.digest
+  return result
 }
 
 function encodeContent(bytes: Uint8Array): Pick<WorkspaceHistoryDevContent, "content" | "encoding"> {
@@ -82,14 +82,13 @@ async function listHistory(workspace: string, history: WorkspaceHistoryReader, r
   const limit = request.limit ?? defaultHistoryLimit
   if (request.ref !== undefined) {
     const page = await history.list({ cursor: request.cursor, limit, ref: request.ref })
-    const result: WorkspaceHistoryDevList = {
+    return {
       workspace,
       ref: request.ref,
       revisions: page.revisions.map(describeRevision),
+      cursor: page.cursor,
       more: Boolean(page.cursor),
     }
-    if (page.cursor) result.cursor = page.cursor
-    return result
   }
   // The newest `limit` revisions across refs are inside the newest `limit` revisions of each ref.
   const pages = await Promise.all((await history.refs()).map(async ref => await history.list({ limit, ref: ref.name })))

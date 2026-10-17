@@ -289,7 +289,7 @@ function isSupportedHistoryRef(name: string): boolean {
 
 /** A read-through view of GitHub branches and commits using the retained Workspace history contract. */
 export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): WorkspaceStoreHistory {
-  const { owner, repo } = splitGitHubRepository(options.repository, "store")
+  const { owner, repo } = splitGitHubRepository(options.repository)
   const commitCache = new Map<string, GitHubCommit>()
   const treeCache = new Map<string, GitHubHistoryEntry[]>()
   const commitRefs = new Map<string, string>()
@@ -297,7 +297,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
   const readCommit = async (id: string): Promise<GitHubCommit> => {
     const cached = commitCache.get(id)
     if (cached) return cached
-    const { value } = await requestGitHubJsonResponse<unknown>(
+    const { value } = await requestGitHubJsonResponse(
       options.repository,
       options.token,
       `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(id)}`,
@@ -310,7 +310,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
   const readTree = async (commit: GitHubCommit): Promise<GitHubHistoryEntry[]> => {
     const cached = treeCache.get(commit.sha)
     if (cached) return cached
-    const { value } = await requestGitHubJsonResponse<unknown>(
+    const { value } = await requestGitHubJsonResponse(
       options.repository,
       options.token,
       `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(commit.tree)}?recursive=1`,
@@ -329,7 +329,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
     const root = options.root.replace(/^\/+|\/+$/g, "")
     const entries: GitHubTreeEntry[] = []
     const walk = async (sha: string, prefix: string): Promise<void> => {
-      const { value } = await requestGitHubJsonResponse<unknown>(
+      const { value } = await requestGitHubJsonResponse(
         options.repository,
         options.token,
         `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(sha)}`,
@@ -364,7 +364,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
     while (true) {
       let response: { value: unknown, headers: Headers }
       try {
-        response = await requestGitHubJsonResponse<unknown>(
+        response = await requestGitHubJsonResponse(
           options.repository,
           options.token,
           `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?per_page=100&page=${page}`,
@@ -385,7 +385,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
 
   const readBranchHead = async (ref: string): Promise<string | null> => {
     try {
-      const { value } = await requestGitHubJsonResponse<unknown>(
+      const { value } = await requestGitHubJsonResponse(
         options.repository,
         options.token,
         `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeGitHubPath(ref)}`,
@@ -408,7 +408,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
     const page = pageFromCursor(ref, listOptions.cursor)
     let response: { value: unknown, headers: Headers }
     try {
-      response = await requestGitHubJsonResponse<unknown>(
+      response = await requestGitHubJsonResponse(
         options.repository,
         options.token,
         `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits?sha=${encodeURIComponent(ref)}&per_page=${limit}&page=${page}`,
@@ -442,7 +442,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
     const cached = commitRefs.get(id)
     if (cached) return cached
     try {
-      const { value } = await requestGitHubJsonResponse<unknown>(
+      const { value } = await requestGitHubJsonResponse(
         options.repository,
         options.token,
         `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(id)}/branches-where-head?per_page=100`,
@@ -555,7 +555,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
   const commit = async (commitOptions: WorkspaceStoreHistoryCommitOptions): Promise<WorkspaceRevision> => {
     const ref = normalizeHistoryRef(commitOptions.ref)
     if (commitOptions.ifHead !== null && !nonEmptyString(commitOptions.ifHead)) throw workspaceError("[vitehub] History commit requires ifHead to be a revision id or null.")
-    const state = await readGitHubBranchState({ branch: ref, kind: "store", repository: options.repository, root: options.root, token: options.token })
+    const state = await readGitHubBranchState({ branch: ref, repository: options.repository, root: options.root, token: options.token })
     const actual = state.branchExists ? state.refSha : null
     if (actual !== commitOptions.ifHead) throw historyConflict(ref, commitOptions.ifHead, actual)
     const updates: Array<{ bytes: Uint8Array, fullPath: string, gitSha: string, mode?: string }> = []

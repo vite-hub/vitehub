@@ -50,23 +50,17 @@ export default function handleRequest() {
 }
 ```
 
-Register the standalone Vite integration and give Vite a server entry:
+Register the Vite integration with the Nitro Vite plugin. Nitro is the only host output:
 
 ```ts
 // vite.config.ts
-import { resolve } from "node:path";
-
 import { hubQueue } from "@vite-hub/queue/vite";
+import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  build: {
-    rolldownOptions: {
-      input: resolve(import.meta.dirname, "src/server.ts"),
-    },
-    ssr: true,
-  },
-  plugins: [hubQueue({ provider: "cloudflare" })],
+  nitro: { preset: "cloudflare-module", serverEntry: "./src/server.ts" },
+  plugins: [hubQueue({ provider: "cloudflare" }), nitro()],
 });
 ```
 
@@ -76,7 +70,7 @@ Run a production-shaped build:
 pnpm vite build
 ```
 
-A successful build writes `.vitehub/queue/registry.mjs` with the `welcome-email` definition. It also writes a Cloudflare Worker and `wrangler.json` under `dist`. The Wrangler configuration contains one generated producer binding and one consumer for the Queue Definition.
+A successful build writes `.vitehub/queue/registry.mjs` with the `welcome-email` definition. Nitro writes the Worker and `.output/server/wrangler.json`. The Wrangler configuration contains one generated producer binding and one consumer for the Queue Definition.
 
 That build proves discovery and generated output only. `runQueue()` needs the generated runtime, a deployed Cloudflare binding, and an existing queue before it can return `{ status: "queued" }`. Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
 
@@ -85,9 +79,9 @@ That build proves discovery and generated output only. `runQueue()` needs the ge
 | Provider   | Choose it when                                                                                        | Generated output                                                    | Enqueue options                                                |
 | ---------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------- |
 | Cloudflare | The deployed runtime supplies request-scoped Cloudflare Queue bindings                                | Worker bundle and `wrangler.json` producer and consumer entries     | `contentType`, `delaySeconds`                                  |
-| Vercel     | The deployment runs Vercel Queue callbacks and has a Queue region when the installed SDK requires one | Consumer functions and trigger configuration under `.vercel/output` | `delaySeconds`, `idempotencyKey`, `region`, `retentionSeconds` |
+| Vercel     | The deployment runs Vercel Queue callbacks and has a Queue region when the installed SDK requires one | One Nitro route per Queue Definition, with a Vercel queue trigger | `delaySeconds`, `idempotencyKey`, `region`, `retentionSeconds` |
 
-The ViteHub framework preset selects Cloudflare for `preset: "cloudflare"` and Vercel for `preset: "vercel"`. With the standalone owner package, set `provider` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue Provider for local delivery, Deno, or self-hosted Node. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
+The ViteHub framework preset selects Cloudflare for `preset: "cloudflare"` and Vercel for `preset: "vercel"`. With the owner package, set `provider` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue Provider for local delivery, Deno, or self-hosted Node. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
 Cloudflare needs a concrete request-scoped binding at runtime. Its generated queue resources can be created through the ViteHub Cloudflare provision step when the required account credentials are present. Cloudflare rejects Vercel-only options such as `idempotencyKey`, `region`, and `retentionSeconds`.
 
@@ -119,7 +113,7 @@ Queue operations use the shared `ViteHubError` contract. Public `code` and JSON-
 | Import                           | Purpose                                                                             |
 | -------------------------------- | ----------------------------------------------------------------------------------- |
 | `@vite-hub/queue`                | Queue Definitions, enqueue helpers, direct clients, host adapters, and public types |
-| `@vite-hub/queue/vite`           | Vite discovery and Cloudflare or Vercel Provider Output                             |
+| `@vite-hub/queue/vite`           | Vite discovery and Cloudflare or Vercel Nitro configuration                         |
 | `@vite-hub/queue/nuxt`           | Nuxt module that composes Queue into Nitro                                          |
 | `@vite-hub/queue/runtime/hosted` | Advanced hosted Vercel callback adapter                                             |
 

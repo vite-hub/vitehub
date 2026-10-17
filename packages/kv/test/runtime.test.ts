@@ -156,6 +156,13 @@ describe("kv runtime", () => {
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = originalDeno
   })
 
+  it("rejects inherited store names", async () => {
+    const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
+
+    expect(() => createHostedKVStorage({ store: { driver: "fs-lite", base: "/tmp" } }, "constructor"))
+      .toThrow("Unknown KV store \"constructor\".")
+  })
+
   it("returns provider failures as KV results", async () => {
     process.env.VITEHUB_HOSTING = "local"
     const cause = new Error("provider unavailable")
