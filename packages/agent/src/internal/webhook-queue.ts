@@ -111,6 +111,7 @@ export function hasAgentWebhookQueue(state: StateAdapter): state is AgentWebhook
     isRuntimeFunction(candidate.extendWebhookDeliveryLease) &&
     isRuntimeFunction(candidate.retryWebhookDelivery) &&
     isRuntimeFunction(candidate.webhookDeliveries) &&
+    isRuntimeFunction(candidate.queuedWebhookDeliveries) &&
     isRuntimeFunction(candidate.webhookDeliveryScopes)
   )
 }
