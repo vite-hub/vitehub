@@ -802,6 +802,24 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); vi.useRealTimers(); }
   });
 
+  it("counts conflict repairs cancelled by a moving base against the no-progress budget", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const f = await fixture(false, false, { mergeableState: "dirty", options: { noProgressBudget: 2 } });
+    f.choose("pushRepair");
+    let base = 0;
+    f.onAdmission(() => { f.advanceBase(String(++base).repeat(40)); });
+    try {
+      for (let pass = 1; pass <= 3; pass++) {
+        await f.reconcile();
+        const current = await f.runtime.inbox.get("acme/app", 12);
+        if (current?.status === "ready") vi.setSystemTime(current.nextAt + 1);
+      }
+      expect(f.passes).toHaveLength(2);
+      expect(f.push).not.toHaveBeenCalled();
+      expect((await f.runtime.inbox.get("acme/app", 12))?.progressBudget).toMatchObject({ head: f.pr().head.sha, count: 2, exhausted: true });
+    } finally { await f.runtime.inbox.close(); vi.useRealTimers(); }
+  });
+
   it("bounds stalled readiness hooks and contains rejection and cancellation", async () => {
     await expect(boundedMergeReady(() => new Promise(() => {}), new AbortController().signal, 5)).resolves.toBe("merge readiness timed out");
     await expect(boundedMergeReady(() => Promise.reject(new Error("offline")), new AbortController().signal)).resolves.toBe("merge readiness check failed");

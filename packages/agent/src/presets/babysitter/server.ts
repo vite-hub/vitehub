@@ -832,6 +832,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         // A pass placed in a Box installs there; the host checkout keeps no dependencies.
         const hostInstall = () => presetOptions.install !== false && !placementLease?.box;
         let modelWorkParked = false;
+        let modelDispatched = false;
         const parkBlockedModelWork = async () => {
           const currentAdmission = await options.admission?.();
           const retryAt = currentAdmission && !currentAdmission.accepting
@@ -1423,6 +1424,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 // Run metadata and retry backoff can outlive a sibling admission
                 // block. Check each Box dispatch immediately before runAgent.
                 if (workerSettings.box && await parkBlockedModelWork()) throw new DOMException("Provider dispatch is waiting for admission.", "AbortError");
+                modelDispatched = true;
                 return await runAgent(
                   agent,
                   {
@@ -1518,6 +1520,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 : "Pass interrupted; current webhook state retained.",
               retry: !pushSucceeded,
               terminal: (await pullRequestInbox.get(repository, number))?.status === "terminal",
+              // A cancelled model pass on an unchanged head, such as a conflict repair
+              // whose base moved, used the budget. The store ignores a changed head.
+              ...(modelDispatched && !pushSucceeded ? { progress: { kind: "no-progress" as const } } : {}),
             });
             schedulerEvent("babysitter.owner.cancelled", {
               reason: "pull-request-state-changed-or-aborted",
