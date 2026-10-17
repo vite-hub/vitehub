@@ -1,13 +1,10 @@
-import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { createBabysitterInstaller, pnpmInstallKey } from "../src/presets/babysitter/install.ts";
 import { sweepBabysitterWorkspaces } from "../src/presets/babysitter/host.ts";
 
-const execFileAsync = promisify(execFile);
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
@@ -168,16 +165,12 @@ describe.runIf(process.platform === "linux")("Babysitter dependency install cach
     expect(await readdir(cache)).toEqual([]);
   });
 
-  it("uses the default cache directory only on a filesystem with reflinks", async () => {
+  it("uses an environment-selected cache directory on any filesystem", async () => {
     const pnpm = await fakePnpm();
     const cache = await directory("default-cache");
-    await writeFile(join(cache, "probe"), "probe");
-    const reflinks = await execFileAsync("cp", ["--reflink=always", join(cache, "probe"), join(cache, "probe.copy")]).then(() => true, () => false);
-    await rm(join(cache, "probe.copy"), { force: true });
-    await rm(join(cache, "probe"));
     const install = createBabysitterInstaller(true, { ...pnpm.env, BABYSITTER_INSTALL_CACHE: cache }, "test/repo");
-    expect((await install(await workspace(), signal()))?.cache).toBe(reflinks ? "miss" : undefined);
-    expect(await readdir(cache)).toHaveLength(reflinks ? 1 : 0);
+    expect((await install(await workspace(), signal()))?.cache).toBe("miss");
+    expect(await readdir(cache)).toHaveLength(1);
   });
 });
 
