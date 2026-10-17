@@ -74,6 +74,40 @@ describe("Console data route contract", () => {
     }
   })
 
+  it("declares the Console section of every server route", async () => {
+    for (const { file, handler } of await guardedRoutes()) {
+      const scope = consoleRouteScope(handler)
+      expect(scope, `${file} must pass { section } or { anySection: true } to withConsoleAccess()`).toBeDefined()
+      expect(scope && "anySection" in scope, `${file} must declare its section`).toBe(anySectionRoutes.has(file))
+    }
+  })
+
+  it("rejects every section route outside the allowed sections", async () => {
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["not-a-route-section"] }) })
+    for (const { file, route } of await guardedRoutes()) {
+      if (anySectionRoutes.has(file)) continue
+      await expect(rejection(await route(event())), file).resolves.toMatchObject({ status: 403 })
+    }
+  })
+
+  it("rejects a route without a declared section", () => {
+    // @ts-expect-error Every guarded route declares its Console section.
+    expect(() => withConsoleAccess(() => "data")).toThrow("requires { section } or { anySection: true }")
+    expect(() => withConsoleAccess(() => "data", JSON.parse('{"section":""}'))).toThrow("requires { section } or { anySection: true }")
+  })
+
+  it("declares the Console section of every RPC operation", () => {
+    for (const method of Object.values(consoleRpcMethods)) {
+      const input = method === consoleRpcMethods.definitions || method === consoleRpcMethods.documents ? { query: { section: "workflows" } } : {}
+      expect(consoleRpcOperationSection(method, input), method).not.toBeUndefined()
+    }
+    expect(consoleRpcOperationSection(consoleRpcMethods.sections)).toBe(false)
+    expect(consoleRpcOperationSection(consoleRpcMethods.definitions, { query: { section: "workflows" } })).toBe("workflows")
+    // Document actions belong to the section in the request, such as Content.
+    expect(consoleRpcOperationSection(consoleRpcMethods.documents, { query: { section: "content" } })).toBe("content")
+    expect(consoleRpcOperationSection(consoleRpcMethods.documents)).toBeUndefined()
+  })
+
   it("guards the Schedule run RPC operation", async () => {
     const { consoleScheduleRunHandler } = await import("../src/console/runtime/server/schedule-run.ts")
     await expect(rejection(await consoleScheduleRunHandler(event()))).resolves.toMatchObject({ status: 500 })

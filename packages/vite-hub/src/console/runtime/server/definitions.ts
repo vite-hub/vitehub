@@ -12,6 +12,7 @@ function copyFields(fields: readonly ConsoleDefinitionField[]): ConsoleDefinitio
 }
 
 function copyContent(content: ConsoleSectionContent): ConsoleSectionContent {
+  if (content.kind === "document-editor") return { collections: [], kind: "document-editor" }
   return content.kind === "definition-catalog"
     ? {
         definitions: content.definitions.map(definition => ({ ...definition, fields: copyFields(definition.fields) })),
@@ -41,9 +42,9 @@ export function copyConsoleRecords(records: readonly ConsoleRecord[]): ConsoleRe
 function copySection(section: ConsoleContributedSection): ConsoleContributedSection {
   return {
     ...section,
-    view: section.view.kind === "definition-catalog"
-      ? { kind: "definition-catalog", notice: section.view.notice }
-      : { columns: section.view.columns.map(column => ({ ...column })), kind: "record-table", notice: section.view.notice },
+    view: section.view.kind === "record-table"
+      ? { columns: section.view.columns.map(column => ({ ...column })), kind: "record-table", notice: section.view.notice }
+      : { kind: section.view.kind, notice: section.view.notice },
   }
 }
 

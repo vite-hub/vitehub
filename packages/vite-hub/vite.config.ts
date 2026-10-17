@@ -236,6 +236,14 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/pages/kv.vue", to: "dist/console/runtime/pages" },
       { from: "src/console/runtime/pages/section.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/pages/documents.vue", to: "dist/console/runtime/pages" },
+      { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-list.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-editor.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-diff.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-markdown-editor.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-schema-form.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
       { from: "../ui/styles.css", to: "dist/ui" },
       { from: "templates/cloudflare-types.d.ts", to: "dist" },
     ],
@@ -279,6 +287,7 @@ export default defineConfig({
       "src/console/runtime/client/request.ts",
       "src/console/runtime/client/env-management.ts",
       "src/console/runtime/client/connections-management.ts",
+      "src/console/runtime/client/documents.ts",
       "src/console/runtime/client/env-status.ts",
       "src/console/runtime/client/problem.ts",
       "src/console/runtime/client/schedule-run.ts",
@@ -319,6 +328,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/request"];
         delete exports["./console/runtime/client/env-management"];
         delete exports["./console/runtime/client/connections-management"];
+        delete exports["./console/runtime/client/documents"];
         delete exports["./console/runtime/client/env-status"];
         delete exports["./console/runtime/client/problem"];
         delete exports["./console/runtime/client/schedule-run"];
@@ -335,6 +345,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/database.get"];
         delete exports["./console/runtime/server/definitions"];
         delete exports["./console/runtime/server/definitions.get"];
+        delete exports["./console/runtime/server/documents"];
         delete exports["./console/runtime/server/invocation-capabilities.get"];
         delete exports["./console/runtime/server/rpc"];
         delete exports["./console/runtime/server/invocation.get"];
@@ -364,6 +375,7 @@ export default defineConfig({
           "./console/blob": "./dist/console/runtime/server/blob.js",
           "./console/database": "./dist/console/runtime/server/database.js",
           "./console/definitions": "./dist/console/runtime/server/definitions.js",
+          "./console/documents": "./dist/console/runtime/server/documents.js",
           "./console/env": "./dist/console/runtime/server/env.js",
           "./console/kv": "./dist/console/runtime/server/kv.js",
           "./console/sections": "./dist/console/runtime/server/sections.js",

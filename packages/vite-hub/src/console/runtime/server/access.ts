@@ -45,8 +45,9 @@ const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-wa
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
-const routeScopes = new WeakMap<object, ConsoleRouteScope>()
+// Reads the signed-in user of an access that did not need it during the check. Keyed by the checked access.
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
+const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local", "open"])
 
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
@@ -179,18 +180,22 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       sections = allowed
     }
   }
-  else if (authorization !== true) {
-    if (authorization === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
-    const allowed = authorizedSections(authorization)
-    if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")
-    if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
-    sections = allowed
+  const fields: { mode: ConsoleAccessMode, sections: ConsoleAccess["sections"], user?: ConsoleUser } = { mode: policy.mode, sections }
+  if (user) fields.user = user
+  const access: ConsoleAccess = consoleAccessGrant.issue(policy.mode, fields)
+  const readUser = policy.mode !== "open" && !user ? policy.user : undefined
+  if (readUser) {
+    let pending: Promise<ConsoleUser | undefined> | undefined
+    deferredUsers.set(access, () => pending ??= readUser(event))
   }
-  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, ...(sections ? { sections } : {}), ...(user ? { user } : {}) })
-  if (policy.mode === "auth" && !user && policy.user) deferredUsers.set(access, () => policy.user!(event))
   return access
 }
 
+/**
+ * Return the signed-in user of a checked access. The check reads the user only when `console.authorize` needs it,
+ * so an action that acts for the user, such as a Content save, reads it here from the original request once.
+ * Returns `undefined` for `auth: false`, Cloudflare Access, and a request without a session.
+ */
 export async function readConsoleAccessUser(access: ConsoleAccess): Promise<ConsoleUser | undefined> {
   if (!consoleAccessGrant.isValid(access)) return undefined
   return access.user ?? await deferredUsers.get(access)?.()

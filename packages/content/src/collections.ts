@@ -551,6 +551,15 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   const collections = new Map<string, CollectionRuntime>()
+  let mutationTail = Promise.resolve()
+  async function acquireMutation(): Promise<() => void> {
+    let release!: () => void
+    const turn = new Promise<void>(resolve => { release = resolve })
+    const previous = mutationTail
+    mutationTail = previous.then(() => turn)
+    await previous
+    return release
+  }
   const plugin = registerWorkspacePlugin(workspaceName, {
     id: "vitehub.content",
     hooks: {
@@ -564,7 +573,6 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           if (text === undefined) return
           const parsed = await collection.parseText(text)
           if (parsed.issues) throw contentInvalid(collection.name, collection.idFor(path), path, parsed.issues)
-          return
         }
       },
     },
@@ -750,13 +758,18 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           if (!parsed.issues) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
         }
         try {
-          const revision = await retained.commit({
-            ref: "draft",
-            ifHead: head?.id ?? null,
-            changes: "delete" in change ? { delete: [path] } : { put: { [path]: change.text } },
-            message,
-            metadata,
-          })
+          const release = await acquireMutation()
+          let revision: WorkspaceRevision
+          try {
+            revision = await retained.commit({
+              ref: "draft",
+              ifHead: head?.id ?? null,
+              changes: "delete" in change ? { delete: [path] } : { put: { [path]: change.text } },
+              message,
+              metadata,
+            })
+          }
+          finally { release() }
           if ("delete" in change) return
           texts.set(change.digest, change.text)
           return documentOf(id, { path, digest: change.digest }, change, revision, revision.createdAt)
@@ -772,8 +785,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     async function save(id: string, input: ContentSaveInput, writeOptions: ContentWriteOptions = {}): Promise<IndexedDocument> {
       const path = pathFor(id)
       if (input === null || Object(input) !== input) throw contentInvalid(name, id, path, [{ message: "save() requires { data, body }.", path: [] }])
-      const body = input.body === undefined ? "" : input.body
-      if (typeof body !== "string") throw contentInvalid(name, id, path, [{ message: "body must be a Markdown string.", path: ["body"] }])
+      const body = input.body ?? ""
+      if (String(body) !== body) throw contentInvalid(name, id, path, [{ message: "body must be a Markdown string.", path: ["body"] }])
       let frontmatter: Record<string, unknown>
       try {
         frontmatter = normalizeFrontmatter(input.data)
@@ -987,7 +1000,15 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         documents.push({ collection: collection.name, id, change: publishedDigest === undefined ? "add" : "update" })
       }
       if (!documents.length) return { revision: null, documents: [] }
+      const release = await acquireMutation()
       try {
+        const latestDraftHead = await retained.head({ ref: "draft" })
+        if ((latestDraftHead?.id ?? null) !== (draftHead?.id ?? null)) {
+          if (!expectations && attempt < maxCommitAttempts) continue
+          throw contentConflict("[vitehub] The draft Content changed before publish().", {
+            ref: "draft", expected: draftHead?.id ?? null, actual: latestDraftHead?.id ?? null,
+          })
+        }
         const revision = await retained.commit({
           ref: "published",
           ifHead: publishedHead?.id ?? null,
@@ -1005,22 +1026,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         return { revision, documents }
       }
       catch (error) {
-        if (expectations && isWorkspaceConflict(error) && conflictRef(error) === "draft") {
-          const head = await retained.head({ ref: "draft" })
-          const current = head ? await openRevision(head) : published
-          const mismatches: ContentPublishMismatch[] = []
-          for (const { collection, id, path, digest } of expectations) {
-            const actual = current?.files.get(path) ?? null
-            if (actual !== digest) mismatches.push({ collection: collection.name, id, expected: digest ?? null, actual })
-          }
-          if (mismatches.length) throw contentConflict(mismatchMessage(mismatches), { ref: "draft", documents: mismatches.map(mismatch => ({ ...mismatch })) })
-          // An unrelated document moved draft: retry with the same reviewed digests.
-          if (attempt < maxCommitAttempts) continue
-        }
         // Without ifHead, a concurrent publish only moves the base: recompute against the new head and check `expect` again.
         if (isWorkspaceConflict(error) && conflictRef(error) === "published" && publishOptions.ifHead === undefined && attempt < maxCommitAttempts) continue
         throw error
       }
+      finally { release() }
     }
   }
 

@@ -109,7 +109,7 @@ function isFacets(value: unknown): value is CollectionFacets {
     Array.isArray(entries) && entries.every(entry => Object(entry) === entry
       && String(Reflect.get(entry, "value")) === Reflect.get(entry, "value")
       && Number.isSafeInteger(Reflect.get(entry, "count"))
-      && Number(Reflect.get(entry, "count")) >= 0))
+      && Reflect.get(entry, "count") >= 0))
 }
 
 function appBaseURL(): string {

@@ -94,9 +94,12 @@ const sectionGroups = computed(() =>
     };
   }),
 );
-// Usage comes with Agents, so it is not offered on its own.
+// Usage comes with Agents, so it is not offered on its own. A user limited to some sections may not see the others,
+// so the Overview does not call them "not enabled".
 const notEnabledPrimitives = computed(() =>
-  consolePrimitives.filter((entry) => entry.id !== "usage" && !sections.value.includes(entry.id)),
+  installedNavigation.value?.scoped
+    ? []
+    : consolePrimitives.filter((entry) => entry.id !== "usage" && !sections.value.includes(entry.id)),
 );
 const lastSectionDetails = computed(() =>
   availableSections.value.find((section) => section.id === lastSection.value),

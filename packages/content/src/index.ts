@@ -199,8 +199,7 @@ export function defineContent<
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
   const { source, sources, workspace, collections, authorize, ...sharedOptions } = options
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization is a public callback boundary and must accept functions from other realms.
-  if (authorize !== undefined && typeof authorize !== "function") {
+  if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
   const collectionEntries = Object.entries(collections ?? {})
