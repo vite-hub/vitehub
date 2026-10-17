@@ -310,15 +310,16 @@ export async function fetchViteHubDevEndpoint(
   fetchImpl: typeof fetch,
   url: string,
   endpoint: Pick<ViteHubDevEndpoint, "header" | "headerValue">,
-  init: Omit<RequestInit, "headers"> & { headers?: Record<string, string> } = {},
+  init: RequestInit = {},
 ): Promise<Response> {
+  const headers = {
+    ...Object.fromEntries(new Headers(init.headers)),
+    [endpoint.header]: endpoint.headerValue,
+  }
   return await fetchImpl(url, {
     ...init,
     redirect: "manual",
-    headers: {
-      ...init.headers,
-      [endpoint.header]: endpoint.headerValue,
-    },
+    headers,
   })
 }
 

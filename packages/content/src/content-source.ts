@@ -34,6 +34,10 @@ export type ContentSourceInput =
   | ComarkContentSource
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
+const typedArrayTag = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  Symbol.toStringTag,
+)!.get!
 
 function normalizeContentSourcePath(path = ""): string {
   const raw = path.replace(/\\/g, "/")
@@ -56,16 +60,9 @@ function contentPath(item: ContentSourceItem): string {
   return normalizeContentSourcePath(item.path || item.key)
 }
 
-function isUint8Array(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value)) return false
-  const typedArrayTag = Object.getOwnPropertyDescriptor(
-    Object.getPrototypeOf(Uint8Array.prototype),
-    Symbol.toStringTag,
-  )?.get
-  return typedArrayTag?.call(value) === "Uint8Array"
-}
-
 function textContent(item: ContentSourceItem): string {
+  // `instanceof` rejects bytes supplied by a Source running in another realm.
+  // The intrinsic tag check keeps the conversion limited to Uint8Array values.
   if (isUint8Array(item.content)) return new TextDecoder().decode(item.content)
   if (item.content !== undefined) return item.content
   if (item.data !== undefined) {
@@ -87,6 +84,10 @@ function isRuntimeFunction(value: unknown): value is Function {
 
 function isRuntimeObject(value: unknown): value is RuntimeObject {
   return value !== null && Object(value) === value && !isRuntimeFunction(value)
+}
+
+function isUint8Array(value: unknown): value is Uint8Array {
+  return typedArrayTag.call(value) === "Uint8Array"
 }
 
 function isConstructorPrototype(prototype: RuntimeObject): boolean {

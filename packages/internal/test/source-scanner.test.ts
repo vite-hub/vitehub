@@ -480,6 +480,18 @@ describe("source scanner", () => {
     expect(calls[0]?.arguments).toEqual(["\"real\"", "{ ok: true }"])
   })
 
+  it.each(["𐐀", "\u200C", "\u200D"]) ("ignores calls embedded in Unicode identifiers: %s", (prefix) => {
+    const suffix = prefix === "𐐀" ? "𐐀" : prefix
+    const calls = findIdentifierCalls([
+      `${prefix}defineThing({ value: "prefix" })`,
+      `defineThing${suffix}({ value: "suffix" })`,
+    ].join("\n"), "defineThing")
+
+    expect(calls).toEqual([])
+    expect(findDefaultExportCall(`export default ${prefix}defineThing({ value: "embedded" })`, ["defineThing"])).toBeUndefined()
+    expect(findDefaultExportCall(`export default defineThing${suffix}({ value: "embedded" })`, ["defineThing"])).toBeUndefined()
+  })
+
   it("ignores function declarations with matching names", () => {
     const defineCalls = findIdentifierCalls([
       `function defineThing(value: string) { return value }`,
@@ -855,6 +867,13 @@ describe("source scanner", () => {
       `() => { try {} catch (error) /\\)/.test(")") }`,
       `{ id: "daily" }`,
     ])
+  })
+
+  it("does not match names inside Unicode identifiers", () => {
+    const source = `export default αdefineThing({ value: "fake" })`
+
+    expect(findIdentifierCalls(source, "defineThing")).toEqual([])
+    expect(findDefaultExportCall(source, ["defineThing"])).toBeUndefined()
   })
 
   it("ignores TypeScript type member signatures with matching names", () => {
