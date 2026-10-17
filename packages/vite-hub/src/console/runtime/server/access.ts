@@ -136,6 +136,14 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
           const constructed = new constructor()
           hasConstructibleResponse = constructed && typeof constructed === "object"
             && Object.getPrototypeOf(constructed) === responsePrototype
+            // Independently implemented Responses (such as happy-dom) keep
+            // their state on the instance. Native implementations expose
+            // internal slots instead. A spoof that only returns
+            // Object.create(proto) has neither signal.
+            && (constructorSource.includes("[native code]")
+              || (Object.prototype.hasOwnProperty.call(constructed, "status")
+                && Object.prototype.hasOwnProperty.call(constructed, "headers")
+                && Object.prototype.hasOwnProperty.call(constructed, "body")))
 
           // Fetch constructors expose static factories that create genuinely
           // branded Responses. Calling one with the candidate constructor as
