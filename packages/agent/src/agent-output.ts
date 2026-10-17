@@ -826,14 +826,6 @@ function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
 }
 
 function getPrototypeMethod(value: object, key: PropertyKey): ((...args: unknown[]) => unknown) | undefined {
-  // Proxy-backed foreign streams may expose supported operations through the
-  // instance trap even when the proxy target's prototype has no descriptor.
-  // Read that surface first, preserving the body as the receiver at call
-  // sites below.
-  const directMethod = (value as Record<PropertyKey, unknown>)[key]
-  if (hasRuntimeType(directMethod, "function")) {
-    return directMethod as (...args: unknown[]) => unknown
-  }
   let prototype: object | null = Object.getPrototypeOf(value) as object | null
   const visited = new Set<object>()
   while (prototype && !visited.has(prototype)) {
@@ -841,6 +833,14 @@ function getPrototypeMethod(value: object, key: PropertyKey): ((...args: unknown
     const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
     if (descriptor) return hasRuntimeType(descriptor.value, "function") ? descriptor.value as (...args: unknown[]) => unknown : undefined
     prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+  // Proxy-backed foreign streams may expose supported operations through the
+  // instance trap even when the proxy target's prototype has no descriptor.
+  // Only use that facade after the intrinsic prototype walk, so an own
+  // property cannot replace a validated stream operation.
+  const directMethod = (value as Record<PropertyKey, unknown>)[key]
+  if (hasRuntimeType(directMethod, "function")) {
+    return directMethod as (...args: unknown[]) => unknown
   }
   return undefined
 }
