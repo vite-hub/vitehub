@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
@@ -96,17 +97,31 @@ beforeEach(() => {
       const sha = ref === "main" ? "c2" : ref === "feature/draft" ? "c3" : undefined
       return sha ? json({ object: { sha } }) : new Response("missing", { status: 404 })
     }
-    if (url.pathname.endsWith("/git/trees/t1") || url.pathname.endsWith("/git/trees/t2") || url.pathname.endsWith("/git/trees/t3")) {
-      const tree = trees[url.pathname.split("/git/trees/")[1] as keyof typeof trees]
-      return json({ tree })
+    if (url.pathname.includes("/commits/heads%2F")) {
+      const ref = decodeURIComponent(url.pathname.split("/commits/heads%2F")[1] || "")
+      const sha = ref === "main" ? "c2" : ref === "feature/draft" ? "c3" : undefined
+      return sha ? json({ sha }) : new Response("missing", { status: 404 })
+    }
+    if (url.pathname.includes("/git/trees/")) {
+      const ref = url.pathname.split("/git/trees/")[1]
+      const tree = trees[ref as keyof typeof trees] || trees[{ c1: "t1", c2: "t2", c3: "t3" }[ref] as keyof typeof trees]
+      return tree ? json({ tree }) : new Response("missing", { status: 404 })
+    }
+    if (url.pathname.includes("/contents/")) {
+      const path = decodeURIComponent(url.pathname.split("/contents/")[1] || "")
+      const ref = url.searchParams.get("ref") || ""
+      const body = bodies.get(`${ref}/${path.replace(`${root}/`, "")}`)
+      return body
+        ? json({ content: Buffer.from(body).toString("base64"), encoding: "base64", path, sha: `b-${path}`, size: body.byteLength, type: "file" })
+        : new Response("missing", { status: 404 })
     }
     if (url.pathname.endsWith("/commits")) {
       const ref = url.searchParams.get("sha")
       const page = requestPage(url)
       if (ref === "main") return page === 1
-        ? json([{ sha: "c2" }], { link: '<https://api.github.com/repos/onmax/repo/commits?page=2>; rel="next"' })
-        : page === 2 ? json([{ sha: "c1" }]) : json([])
-      if (ref === "feature/draft") return json(page === 1 ? [{ sha: "c3" }, { sha: "c1" }] : [])
+        ? json([commits.c2], { link: '<https://api.github.com/repos/onmax/repo/commits?page=2>; rel="next"' })
+        : page === 2 ? json([commits.c1]) : json([])
+      if (ref === "feature/draft") return json(page === 1 ? [commits.c3, commits.c1] : [])
       return new Response("missing", { status: 404 })
     }
     const commitId = url.pathname.split("/commits/")[1]
@@ -135,7 +150,7 @@ describe("GitHub Workspace history", () => {
     await expect(history.refs()).resolves.toEqual([
       {
         name: "feature/draft",
-        head: expect.objectContaining({ id: "c3", ref: "feature/draft", parentId: "c1", files: 1, bytes: 6, message: "Draft guide", createdAt: "2026-10-15T10:00:00Z", metadata: { author: "Katherine Johnson", url: "https://github.com/onmax/repo/commit/c3" } }),
+        head: expect.objectContaining({ id: "c3", ref: "feature/draft", parentId: "c1", files: 1, bytes: 6, message: "Draft guide", createdAt: "2026-10-15T10:00:00.000Z", metadata: { author: "Katherine Johnson", url: "https://github.com/onmax/repo/commit/c3" } }),
       },
       {
         name: "main",
@@ -162,7 +177,7 @@ describe("GitHub Workspace history", () => {
       expect.objectContaining({ path: "image.bin", type: "file", size: 2, mediaType: "application/octet-stream" }),
     ])
     await expect(view.stat("guide.md")).resolves.toMatchObject({ revision: "c2", size: 10 })
-    expect(requests.some(path => path.includes("raw.githubusercontent.com/onmax/repo/c2/.vitehub/workspaces/docs/guide.md"))).toBe(true)
+    expect(requests.some(path => path.includes("api.github.com/repos/onmax/repo/contents/.vitehub/workspaces/docs/guide.md"))).toBe(true)
   })
 
   it("reports empty history for a repository without branches", async () => {

@@ -1,18 +1,17 @@
-import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import { forgeEnv, readForgeEnv } from "@vite-hub/forge"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
 
 import { resolveGitHubIgnore } from "./github-ignore.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 import { resolveWorkspaceEnv } from "../env.ts"
-import { processEnv, resolveGitHubTokenOption } from "../providers/github/shared.ts"
+import { readGitHubEnvToken } from "../providers/github/shared.ts"
 import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
 import type { MaybePromise, WorkspaceSource, WorkspaceSourceResolutionContext } from "../core/types.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
 type GitHubResolvedSourceOptions = Omit<GitHubSourceOptions, "repo"> & Partial<Pick<GitHubSourceOptions, "repo">>
-const githubTokenEnvNames = ["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] as const
 
 export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth" | "ignore">, WorkspaceSourceRuntimeOptions {
   auth?: GitHubAuth
@@ -159,16 +158,14 @@ function pullRequestSource(value: unknown): { ref?: string, repo?: string } | un
 function createGitHubAuthResolver(auth: GitHubAuth | undefined) {
   if (auth === false) return false
   return async () => {
-    return await resolveExplicitGitHubAuth(auth)
-      || getActiveCloudflareBinding<string>("GITHUB_TOKEN")
-      || processEnv(process.env, ...githubTokenEnvNames)
+    return await resolveExplicitGitHubAuth(auth) || readGitHubEnvToken()
   }
 }
 
 async function resolveGitHubAuth(auth: GitHubAuth | undefined, rootDir: string): Promise<GitHubAuth | undefined> {
   if (auth === false) return false
   return await resolveExplicitGitHubAuth(auth)
-    || resolveGitHubTokenOption({})
+    || readGitHubEnvToken()
     || await resolveGitHubEnvFileToken(rootDir)
     || await resolveGitHubCliToken()
 }
@@ -180,8 +177,8 @@ async function resolveExplicitGitHubAuth(auth: GitHubAuth | undefined): Promise<
 }
 
 async function resolveGitHubEnvFileToken(rootDir: string): Promise<string | undefined> {
-  const env = Object.fromEntries(await Promise.all(githubTokenEnvNames.map(async name => [name, await resolveWorkspaceEnv(rootDir, name)] as const)))
-  return processEnv(env, ...githubTokenEnvNames)
+  const env = Object.fromEntries(await Promise.all(forgeEnv.github.token.names.map(async name => [name, await resolveWorkspaceEnv(rootDir, name)] as const)))
+  return readForgeEnv(forgeEnv.github.token, env)
 }
 
 async function resolveGitHubCliToken(): Promise<string | undefined> {

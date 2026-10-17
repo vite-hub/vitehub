@@ -2692,6 +2692,9 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
