@@ -415,6 +415,10 @@ function hasNativeDateJSONHook(value: object): boolean {
   // ambiguous and must be rejected rather than trusted by their name.
   const isIntrinsicDateJSON = (hook: unknown): boolean => {
     if (!isNative(hook)) return false
+    // Callable proxies stringify as an anonymous native function even when
+    // their target is Date.prototype.toJSON. Require the intrinsic source
+    // shape so a proxy around an arbitrary serializer cannot pass as Date.
+    if (!/^function toJSON\(\) \{ \[native code\] \}$/.test(Function.prototype.toString.call(hook))) return false
     const name = Reflect.getOwnPropertyDescriptor(hook, "name")
     const length = Reflect.getOwnPropertyDescriptor(hook, "length")
     return !!name && "value" in name && name.value === "toJSON" && !!length && "value" in length && length.value === 1
@@ -455,7 +459,13 @@ function hasNativeDateJSONHook(value: object): boolean {
       visited.add(prototype)
       const descriptor = Reflect.getOwnPropertyDescriptor(prototype, "toJSON")
       if (descriptor) {
-        if ("value" in descriptor) return hasRuntimeType(descriptor.value, "function") ? isIntrinsicDateJSON(descriptor.value) : false
+        if ("value" in descriptor) {
+          if (!hasRuntimeType(descriptor.value, "function")) return false
+          if (!isNative(descriptor.value)) return false
+          const name = Reflect.getOwnPropertyDescriptor(descriptor.value, "name")
+          const isBound = !!name && "value" in name && hasRuntimeType(name.value, "string") && name.value.startsWith("bound ")
+          return isIntrinsicDateJSON(descriptor.value) || !isBound
+        }
         // An accessor may expose the native hook while hiding its value from
         // descriptor inspection. Treat it as unsafe once native Date methods
         // identify the surrounding object as a Date proxy.

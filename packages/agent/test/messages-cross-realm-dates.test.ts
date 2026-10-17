@@ -112,6 +112,12 @@ describe("Agent message date boundaries", () => {
     expect(() => validateMessage({ id: "message-1", parts: [{ data: { value }, type: "data" }], role: "user" })).toThrow("must be serialized before storing")
   })
 
+  it("rejects a native-looking proxy around a custom JSON hook", () => {
+    const value: unknown = runInNewContext("Object.create({ getTime: Date.prototype.getTime, toISOString: Date.prototype.toISOString, toJSON: new Proxy(() => { throw new Error('unsafe') }, {}) })")
+    expect(() => createMessage({ metadata: { value }, role: "user" })).toThrow("must be serialized before storing")
+    expect(() => validateMessage({ id: "message-1", parts: [{ data: { value }, type: "data" }], role: "user" })).toThrow("must be serialized before storing")
+  })
+
   it("rejects a Date-like proxy whose JSON hook is an accessor", () => {
     const value: unknown = runInNewContext("Object.create({ getTime: Date.prototype.getTime, toISOString: Date.prototype.toISOString, get toJSON() { return Date.prototype.toJSON } })")
     expect(() => createMessage({ metadata: { value }, role: "user" })).toThrow("must be serialized before storing")
