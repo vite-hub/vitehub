@@ -24,6 +24,7 @@ export { resolvePublicUrl } from "@vite-hub/runtime"
 export { markDiscoveredWorkspaceAgentDefinitionRegistered } from "../workspace-agent.ts"
 export type { AgentWebhookRequestInput } from "../internal/webhook-request.ts"
 export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
+export { setAgentHostCapabilities } from "../internal/host-capabilities.ts"
 export type { AgentWorkflowCapabilityLoaders, AgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 
 export type {

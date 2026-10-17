@@ -108,6 +108,8 @@ Credentials come from the Server Env group `typesafe`. Declare it with `typesafe
 
 Use `runAgent(agent, input)` in a script to get `[null, result]` or `[Error, null]`. ViteHub creates an isolated memo cache and run ID, then drains background work before returning. Results retain their inline output or Workflow Run shape. Agents that rely on default host Workflow discovery return an error tuple. Set `runtime: false` for inline execution, configure an explicit `workflow("name")` binding, or use the three-argument form with a host context. Non-Error failures are wrapped with their original value as the cause.
 
+Inside a running host, `runAgent(agent, input)` gets the same runtime capabilities that the generated Agent routes give Agents, such as Connections, KV, Blob, Database, Console, and Schedules. A Schedule handler does not need to import or pass them. `runAgent(agent, input, { runtimeContext: { capabilities } })` overrides them key by key. The generated route module registers these capabilities when it loads. Nitro imports it at server startup, and the generated Deno server and Netlify function are that module, so the capabilities are ready before a Schedule runs. A script that runs without the host server, such as a test, gets only the capabilities it passes.
+
 `runAgent(agent, runtimeContext, input)` keeps the host context, returns the result directly, and throws failures. Use this form for request metadata, runtime configuration, and streams that require a host background lifetime. Errors during later stream or Response-body consumption are outside the two-argument tuple. See the [invocation guide](https://vitehub.dev/docs/agents/invocations).
 
 ## Structured data and interception

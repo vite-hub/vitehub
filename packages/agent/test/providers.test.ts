@@ -2009,6 +2009,8 @@ describe("agent Vite plugin", () => {
         expect(route).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
         expect(route).toContain("const vitehubAgentRouteCapabilities = { connections: vitehubConnections, schedule: { schedules: vitehubSchedules } }")
         expect(route).toContain("capabilities: vitehubAgentRouteCapabilities")
+        expect(route).toContain('import { setAgentHostCapabilities as vitehubSetAgentHostCapabilities } from "@vite-hub/agent/server/internal"')
+        expect(route).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       }
 
       const denoPlugin = hubAgent({ runtime: "deno" })
@@ -2028,12 +2030,15 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
       expect(denoServer).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
       expect(denoServer).toContain("capabilities: vitehubAgentRouteCapabilities")
+      expect(denoServer).toContain("const vitehubAgentRouteCapabilities = { schedule: { schedules: vitehubSchedules } }")
+      expect(denoServer).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       const standaloneRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
       expect(standaloneRegistry).toContain('registry["agent/support"]')
       expect(standaloneRegistry).toContain('import("../../server/agents/support.ts")')
       expect(standaloneRegistry).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
       expect(standaloneRegistry).toContain("capabilities: { schedule: { schedules: vitehubSchedules } }")
       expect(standaloneRegistry).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(standaloneRegistry).not.toContain("setAgentHostCapabilities")
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
