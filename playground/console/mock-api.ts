@@ -63,13 +63,13 @@ const definitions = {
       fields: [{ label: "Kind", value: "Definition" }],
       file: "server/sandbox-tasks/release-check.ts",
       name: "release-check",
-      source: "sandbox",
+      source: "sandbox-task",
     },
     {
       fields: [{ label: "Kind", value: "Package entry" }],
       file: "node_modules/@vite-hub/sandbox-task/dist/providers/node.js",
       name: "node",
-      source: "sandbox",
+      source: "sandbox-task",
     },
   ],
   workspaces: [

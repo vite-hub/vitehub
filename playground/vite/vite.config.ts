@@ -218,6 +218,15 @@ export default defineConfig(async () => {
     }
   }
 
+  if (buildMode === VITEHUB_MODES.sandbox) {
+    const { hubSandboxTask } = await import("@vite-hub/sandbox-task/vite")
+    return {
+      ...baseConfig,
+      plugins: [hubSandboxTask()],
+      sandboxTask: {},
+    }
+  }
+
   const [{ hubKv }, { hubQueue }] = await Promise.all([
     import("@vite-hub/kv/vite"),
     import("@vite-hub/queue/vite"),
