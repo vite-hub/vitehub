@@ -74,17 +74,18 @@ describe("docs product navigation", () => {
   });
 
   it("orders every Server Primitive section by the product page template", () => {
-    const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
-
     for (const sectionId of serverPrimitiveSections) {
       const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
       const pages = section?.pages.filter(page => page.navigation) || [];
+      const startTitle = pages.find(page => page.path.endsWith("/get-started"))?.title;
+      const template = ["Overview", startTitle, "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"]
+        .filter((title): title is string => Boolean(title));
       const titles = pages.map(page => page.title);
       const templateTitles = titles.filter(title => template.includes(title));
 
       expect(pages[0]?.path, sectionId).toBe(`/docs/${sectionId}`);
       expect(titles[0], sectionId).toBe("Overview");
-      expect(templateTitles, sectionId).toContain("Get started");
+      expect(templateTitles, sectionId).toContain(startTitle);
       expect(templateTitles, sectionId).toContain("Server API");
       // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));

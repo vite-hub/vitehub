@@ -73,7 +73,32 @@ const docsShellUi = {
   max-width: var(--vh-landing-width);
 }
 
-/* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */
+.vh-docs-landing {
+  max-width: var(--vh-landing-width);
+}
+
+/* The content fills the space next to the sidebars. */
+.vh-docs-content {
+  display: flex;
+  min-width: 0;
+  max-width: none;
+  min-height: calc(100dvh - var(--ui-header-height));
+  flex-direction: column;
+  overflow-x: clip;
+}
+
+.vh-docs-footer {
+  margin-top: 3rem;
+}
+
+@media (min-width: 40rem) {
+  .vh-docs-main,
+  .vh-docs-landing {
+    padding: 0 2rem;
+  }
+}
+
+/* Keep the desktop rail sticky while clipping only horizontal overflow. */
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;

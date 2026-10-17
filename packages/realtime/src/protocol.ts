@@ -55,13 +55,25 @@ export function decodeRealtimeControlPayload(decoder: decoding.Decoder): Realtim
 }
 
 function validPath(value: unknown): value is string {
-  if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0") || value.replaceAll("\\", "/").includes("//")) return false
-  try {
-    return normalizeSafeWorkspacePath(value) === value
-  }
-  catch {
-    return false
-  }
+  if (typeof value !== "string" || value.length === 0 || value.length > 4096 || value.includes("\0")) return false
+  if (value.startsWith("/") || value.endsWith("/") || value.includes("\\") || /^[a-z]:/i.test(value)) return false
+  const parts = value.split("/")
+  if (parts.some(part => {
+    const withoutStream = part.split(":", 1)[0]!
+    return !withoutStream || /^(?:\.(?: +[. ]*)?|\.\.(?: +[. ]*)?)$/.test(withoutStream)
+  })) return false
+  if (parts.some((part, index) => {
+    const lower = part.toLowerCase()
+    const withoutStream = lower.split(":", 1)[0]!
+    const normalized = withoutStream.replace(/[ .]+$/, "")
+    const traversal = /^(?:\.(?: +[. ]*)?|\.\.(?: +[. ]*)?)$/.test(withoutStream)
+    const reserved = normalized === ".git"
+      || /^git~\d+$/.test(normalized)
+      || (index === 0 && normalized.toLowerCase() === ".vitehub")
+      || (index === 0 && /^vitehu~\d+$/.test(normalized))
+    return traversal || reserved
+  })) return false
+  return true
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {
