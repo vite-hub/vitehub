@@ -218,16 +218,16 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     const transcript = /^(?:chat:.*:)?transcripts:user:/.test(key)
     const expiresAt = this.preserveTranscripts && transcript ? null : options?.ttlMs ? now + options.ttlMs : null
     await this.transaction(async (tx) => {
-      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?`, [key, now])
+      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE ${this.expiredList()}`, [key, key, now])
+      // The new row carries the expiry of the whole list, so an append writes one row, not the list.
       await execute(tx, `INSERT INTO ${this.tables.lists} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
-      await execute(tx, `UPDATE ${this.tables.lists} SET expires_at = ? WHERE key = ?`, [expiresAt, key])
       if (options?.maxLength != null && options.maxLength > 0) {
         await execute(
           tx,
-          `DELETE FROM ${this.tables.lists} WHERE key = ? AND id NOT IN (
-            SELECT id FROM ${this.tables.lists} WHERE key = ? ORDER BY id DESC LIMIT ?
+          `DELETE FROM ${this.tables.lists} WHERE key = ? AND id < (
+            SELECT id FROM ${this.tables.lists} WHERE key = ? ORDER BY id DESC LIMIT 1 OFFSET ?
           )`,
-          [key, key, options.maxLength],
+          [key, key, options.maxLength - 1],
         )
       }
     })
@@ -602,7 +602,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     await this.cleanupExpiredStateIfDue()
     const now = Date.now()
     const valueRows = await this.transaction(async (tx) => {
-      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?`, [key, now])
+      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE ${this.expiredList()}`, [key, key, now])
       return await execute(tx, `SELECT value FROM ${this.tables.lists} WHERE key = ? ORDER BY id ASC`, [key])
     })
     return valueRows.map((row) => {
@@ -753,8 +753,19 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       await execute(this.driver, `DELETE FROM ${this.tables.locks} WHERE expires_at <= ?`, [now])
       await execute(this.driver, `DELETE FROM ${this.tables.cache} WHERE expires_at IS NOT NULL AND expires_at <= ?`, [now])
       await execute(this.driver, `DELETE FROM ${this.tables.queue} WHERE expires_at <= ?`, [now])
-      await execute(this.driver, `DELETE FROM ${this.tables.lists} WHERE expires_at IS NOT NULL AND expires_at <= ?`, [now])
+      await execute(this.driver, `DELETE FROM ${this.tables.lists} WHERE key IN (
+        SELECT list.key FROM ${this.tables.lists} AS list WHERE list.expires_at IS NOT NULL AND list.expires_at <= ?
+          AND list.id = (SELECT MAX(id) FROM ${this.tables.lists} WHERE key = list.key)
+      )`, [now])
     })
+  }
+
+  /**
+   * A list expires with its newest row: each append sets the expiry of the whole list, and older rows
+   * keep the expiry of their own append. Takes the key twice and the current time.
+   */
+  private expiredList(): string {
+    return `key = ? AND (SELECT expires_at FROM ${this.tables.lists} WHERE key = ? ORDER BY id DESC LIMIT 1) <= ?`
   }
 
   private async migrate(): Promise<void> {

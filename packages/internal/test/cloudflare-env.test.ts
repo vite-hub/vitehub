@@ -101,6 +101,20 @@ describe("Cloudflare environment context", () => {
     expect(getCloudflareEnv({ env: eventEnv }, { fallback: false })).toBe(eventEnv)
   })
 
+  it("does not read inherited event environment carriers", () => {
+    const eventEnv = { name: "inherited" }
+    const event = Object.create({ env: eventEnv }) as object
+
+    expect(getCloudflareEnv(event, { fallback: false })).toBeUndefined()
+  })
+
+  it("does not read inherited event lifetime carriers", () => {
+    const waitUntil = () => {}
+    const event = Object.create({ waitUntil }) as object
+
+    expect(resolveWaitUntil(event)).toBeUndefined()
+  })
+
   it("can prefer a host lifetime without changing default event precedence", () => {
     const owners: unknown[] = []
     const waitUntil = function (this: unknown) { owners.push(this) }

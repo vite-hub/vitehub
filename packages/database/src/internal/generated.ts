@@ -120,6 +120,11 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
 }
 
 function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
+  if (database.dialect === "postgresql") {
+    const url = renderConfigValueExpression(database.connection?.url)
+    return url ? ["  dbCredentials: {", `    url: ${url},`, "  },"] : []
+  }
+
   const databaseId = renderConfigValueExpression(database.cloudflare?.databaseId)
   if (database.cloudflare?.http && databaseId) {
     return [
@@ -159,7 +164,7 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
     `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     "",
     "export default {",
-    "  dialect: \"sqlite\",",
+    `  dialect: ${JSON.stringify(database.dialect)},`,
     "  casing: databaseDefinition.drizzle?.casing,",
     ...renderDbCredentials(database),
     `  schema: ${JSON.stringify([config.generatedSchemaFilesByDatabase[database.name]!])},`,
@@ -193,6 +198,7 @@ function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
   const registryEntries = definitions.flatMap((definition, index) => [
     `    ${JSON.stringify(definition.name)}: {`,
+    ...(config.databases[definition.name]?.dialect === "postgresql" ? ["      dialect: \"postgresql\""] : []),
     `      schema: ${schemaType(definition, index)}`,
     "    },",
   ])
