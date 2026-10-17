@@ -62,12 +62,7 @@ export function installAgentShutdownDrain(
     const startedAt = Date.now()
     // srvx closes HTTP from its `shutdown` listener, and Nitro calls the close hooks after that.
     // Hooks run in order, so a hook added now runs after every other close hook.
-    const serverClosing = runtime.listeners(signal).some(listener =>
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Signal listeners come from the Node process and are untyped at this boundary.
-      typeof listener === "function" && listener.name === "shutdown")
-    const closed = serverClosing
-      ? new Promise<void>((resolve) => { app.hooks.hook("close", () => resolve()) })
-      : undefined
+    const closed = new Promise<void>((resolve) => { app.hooks.hook("close", () => resolve()) })
     console.info("[vitehub]", JSON.stringify({ event: "agent.shutdown.draining", drainMs, signal, timestamp: new Date().toISOString() }))
     draining = (async () => {
       const [chat] = await Promise.all([work.chat({ timeoutMs: drainMs }), work.queues()])
@@ -86,8 +81,7 @@ export function installAgentShutdownDrain(
       runtime.exit(0)
     })()
   }
+  ;(stop as typeof stop & { __vitehubAgentDrain?: boolean }).__vitehubAgentDrain = true
   const signals: ProcessStopSignal[] = ["SIGTERM", "SIGINT"]
-  setTimeout(() => setImmediate(() => {
-    for (const signal of signals) runtime.on(signal, stop)
-  }), 0)
+  for (const signal of signals) runtime.on(signal, stop)
 }
