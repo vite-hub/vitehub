@@ -242,7 +242,7 @@ describe("Connections manager from Console access", () => {
   }
 
   it.each([
-    { name: "open with authorize", policy: { mode: "open", authorize: () => true }, actor: "user:open" },
+    { name: "open with authorize", policy: { mode: "open", authorize: () => true }, actor: "user:host-managed" },
     { name: "cloudflare-access", policy: { mode: "cloudflare-access", check: async () => undefined }, actor: "user:cloudflare-access" },
     { name: "local", policy: { mode: "local" }, actor: "user:local" },
     { name: "auth with a session", policy: { mode: "auth", check: async () => undefined }, session: "user:ada", actor: "user:ada" },
