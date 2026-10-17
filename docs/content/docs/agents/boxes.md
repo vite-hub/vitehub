@@ -6,6 +6,16 @@ navigation.group: Advanced execution
 icon: i-lucide-package-open
 ---
 
+::agent-only{skill="box"}
+Use Boxes for trusted-host or provider-backed execution sessions. Boxes provide the execution boundary used by provider Agents and application code that needs an isolated project environment.
+
+Read [Run your first Box](/docs/agents/box-tutorial) and [Choose a runtime](/docs/agents/boxes#choose-a-runtime).
+
+Choose the provider and image, mounts, environment, commands, network, and resource bounds explicitly. A Box is not a permission bypass. Keep credentials and Workspace access scoped to the run.
+
+Prove command execution, cancellation, timeout, cleanup, and provider output for the target host.
+::
+
 A Box prepares the process environment for a built-in provider Driver. It declares the working tree, private Home, environment, durable CLI state, and boot checks. The Codex or Claude Code process then starts inside the Box.
 
 For a first working result, follow [Run your first Box](/docs/agents/box-tutorial).

@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createSkillReferences } from "../modules/vitehub-docs/artifacts/skill-references";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const contentRoot = resolve(docsRoot, "content/docs");
 const aiResourcesRoot = resolve(contentRoot, "getting-started", "ai-resources");
 const skillRoot = resolve(docsRoot, "skills/vitehub");
+const skillsCapabilityPage = resolve(contentRoot, "agents", "capabilities", "skills.md");
 
 function listFiles(root: string): string[] {
   return readdirSync(root)
@@ -34,6 +36,28 @@ describe("public ViteHub skill", () => {
       "references/channels-triggers.md",
       "references/framework-composition.md",
       "references/preview-contract.md",
+      "references/primitives/auth.md",
+      "references/primitives/blob.md",
+      "references/primitives/box.md",
+      "references/primitives/browser.md",
+      "references/primitives/cache.md",
+      "references/primitives/channels.md",
+      "references/primitives/connections.md",
+      "references/primitives/content.md",
+      "references/primitives/database.md",
+      "references/primitives/email.md",
+      "references/primitives/env.md",
+      "references/primitives/kv.md",
+      "references/primitives/markdown-template.md",
+      "references/primitives/queue.md",
+      "references/primitives/rate-limit.md",
+      "references/primitives/realtime.md",
+      "references/primitives/sandbox.md",
+      "references/primitives/schedule.md",
+      "references/primitives/shell.md",
+      "references/primitives/source.md",
+      "references/primitives/workflow.md",
+      "references/primitives/workspace.md",
       "references/project-patterns.md",
       "references/project-shapes.md",
       "references/proof-recovery.md",
@@ -64,6 +88,17 @@ describe("public ViteHub skill", () => {
     expect(skill).toContain("## 5. Prove and repair");
     expect(skill).toContain("Package owner | Source file | Runtime path | Authority or persistence | Proof");
     expect(skill).toContain("every behavior row has an observed result, or a precise source-backed unsupported boundary");
+  });
+
+  it("builds primitive references from agent-only blocks in the docs pages", async () => {
+    // Edit the `::agent-only{skill="..."}` block on the docs page, then run `vp test -u` to regenerate.
+    const primitivesRoot = resolve(skillRoot, "references/primitives");
+    const references = createSkillReferences(docsRoot);
+
+    expect(references.map(reference => `${reference.name}.md`)).toEqual(readdirSync(primitivesRoot).sort());
+    for (const reference of references) {
+      await expect(reference.markdown, reference.source).toMatchFileSnapshot(resolve(primitivesRoot, `${reference.name}.md`));
+    }
   });
 
   it("publishes every directly routed reference", () => {
@@ -104,5 +139,18 @@ describe("public ViteHub skill", () => {
       const sectionIndexPath = resolve(contentRoot, rawPath.replace(/\.md$/, "/index.md"));
       expect(existsSync(directPath) || existsSync(sectionIndexPath), rawPath).toBe(true);
     }
+  });
+});
+
+describe("skills() documentation", () => {
+  it("documents an inspectable path and missing-file smoke test", () => {
+    const page = readFileSync(skillsCapabilityPage, "utf8");
+
+    expect(page).toContain("pnpm vitehub agent info --agent support --json");
+    expect(page).toContain("select(.id == \"skills\") | .metadata");
+    expect(page).toContain("'::skill{path=\"skills/review\"}'");
+    expect(page).toContain("'::'");
+    expect(page).toContain('"skillPath": "skills/review/SKILL.md"');
+    expect(page).toContain("skills() requires workspace path skills/review/SKILL.md");
   });
 });

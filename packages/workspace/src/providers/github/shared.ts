@@ -1,10 +1,10 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 import { Diagnostic } from "nostics";
 
-import { workspaceError } from "../../core/errors.ts";
+import { workspaceConflict, workspaceError } from "../../core/errors.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
 
-import type { GitHubWorkspaceOption, WorkspaceEntry } from "../../core/types.ts";
+import type { GitHubWorkspaceOption } from "../../core/types.ts";
 
 export interface GitHubWorkspaceOptions {
   branch?: GitHubWorkspaceOption;
@@ -22,7 +22,7 @@ export interface GitHubTreeEntry {
   type: string;
 }
 
-export interface GitHubTreeResponse {
+interface GitHubTreeResponse {
   tree: GitHubTreeEntry[];
   truncated?: boolean;
 }
@@ -58,20 +58,26 @@ interface GitHubCommitResponse {
   tree: { sha: string }
 }
 
+interface GitHubBlobResponse {
+  sha: string
+}
+
 const githubReadAttempts = 3
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function isNonEmptyString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
   return typeof value === "string" && value.length > 0
 }
 
 function isGitHubRefResponse(value: unknown): value is GitHubRefResponse {
   return isRecord(value) && isRecord(value.object) && isNonEmptyString(value.object.sha)
+}
+
+function isGitHubBlobResponse(value: unknown): value is GitHubBlobResponse {
+  return isRecord(value) && isNonEmptyString(value.sha)
 }
 
 function isGitHubRepositoryResponse(value: unknown): value is GitHubRepositoryResponse {
@@ -84,14 +90,10 @@ function isGitHubCommitResponse(value: unknown): value is GitHubCommitResponse {
 
 function isGitHubTreeEntry(value: unknown): value is GitHubTreeEntry {
   return isRecord(value)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && typeof value.path === "string"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && typeof value.type === "string"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && (value.mode === undefined || typeof value.mode === "string")
     && isNonEmptyString(value.sha)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && (value.size === undefined || (typeof value.size === "number" && Number.isInteger(value.size) && value.size >= 0))
 }
 
@@ -99,7 +101,6 @@ function isGitHubTreeResponse(value: unknown): value is GitHubTreeResponse {
   return isRecord(value)
     && Array.isArray(value.tree)
     && value.tree.every(isGitHubTreeEntry)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && (value.truncated === undefined || typeof value.truncated === "boolean")
 }
 
@@ -167,11 +168,30 @@ class GitHubRequestError extends Diagnostic {
   }
 }
 
-function githubRequestStatus(error: unknown): number | undefined {
+export function githubRequestStatus(error: unknown): number | undefined {
   const cause = error instanceof GitHubRequestError
     ? error
     : error instanceof Error && error.cause instanceof GitHubRequestError ? error.cause : undefined;
   return cause?.status;
+}
+
+export function githubBranchMovedConflict(input: {
+  actualHead?: string;
+  branch: string;
+  expectedHead: string;
+  repository: string;
+}): ReturnType<typeof workspaceConflict> {
+  return workspaceConflict(
+    `[vitehub] GitHub Workspace Store conflict for ${input.repository}@${input.branch}: the branch moved after this Workspace Store loaded. Rebase from the current branch head and retry.`,
+    {
+      details: {
+        actualHead: input.actualHead,
+        branch: input.branch,
+        expectedHead: input.expectedHead,
+        repository: input.repository,
+      },
+    },
+  );
 }
 
 export interface GitHubWorkspaceStoreTarget {
@@ -207,17 +227,15 @@ function activeCloudflareEnv(
 }
 
 export function requireGitHubOption(
-  kind: "publisher" | "store",
   label: string,
   value: string | undefined,
 ): string {
-  if (!value) throw workspaceError(`[vitehub] GitHub workspace ${kind} requires ${label}.`);
+  if (!value) throw workspaceError(`[vitehub] GitHub workspace store requires ${label}.`);
   return value;
 }
 
 export function splitGitHubRepository(
   repository: string,
-  kind: "publisher" | "store",
 ): { owner: string; repo: string } {
   const parts = repository.split("/");
   const owner = parts[0];
@@ -228,7 +246,7 @@ export function splitGitHubRepository(
     || !repo || /[^A-Za-z0-9_.-]/.test(repo) || repo === "." || repo === ".."
   ) {
     throw workspaceError(
-      `[vitehub] GitHub workspace ${kind} requires a repository in owner/repo format.`,
+      "[vitehub] GitHub workspace store requires a repository in owner/repo format.",
     );
   }
   return { owner: owner, repo: repo };
@@ -249,18 +267,12 @@ export function resolveGitHubWorkspaceRoot(root: string, workspaceName: string):
   });
 }
 
-export function workspacePathFromGitPath(path: string, root: string): string | undefined {
+function workspacePathFromGitPath(path: string, root: string): string | undefined {
   const normalized = joinGitPath(path);
   const normalizedRoot = joinGitPath(root);
   if (!normalizedRoot) return normalizeWorkspacePath(normalized);
   if (!normalized.startsWith(`${normalizedRoot}/`)) return undefined;
   return normalizeWorkspacePath(normalized.slice(normalizedRoot.length + 1));
-}
-
-export function isWorkspaceFileEntry(
-  entry: WorkspaceEntry,
-): entry is WorkspaceEntry & { type: "file" } {
-  return entry.type === "file";
 }
 
 function toHex(bytes: Uint8Array): string {
@@ -275,7 +287,7 @@ export async function gitBlobSha(bytes: Uint8Array): Promise<string> {
   return toHex(new Uint8Array(await globalThis.crypto.subtle.digest("SHA-1", input)));
 }
 
-export function toBase64(bytes: Uint8Array): string {
+function toBase64(bytes: Uint8Array): string {
   let binary = "";
   for (let index = 0; index < bytes.length; index += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
@@ -362,8 +374,33 @@ export async function requestGitHubJson<T>(
   repository: string,
   token: string,
   path: string,
+  init: RequestInit | undefined,
+  parse: (value: unknown) => T,
+): Promise<T>
+export async function requestGitHubJson(
+  repository: string,
+  token: string,
+  path: string,
   init?: RequestInit,
-): Promise<T> {
+): Promise<unknown>
+export async function requestGitHubJson<T>(
+  repository: string,
+  token: string,
+  path: string,
+  init?: RequestInit,
+  parse?: (value: unknown) => T,
+): Promise<T | unknown> {
+  const value = (await requestGitHubJsonResponse(repository, token, path, init)).value
+  return parse ? parse(value) : value
+}
+
+/** Read a JSON response and retain headers for APIs that expose pagination in Link. */
+export async function requestGitHubJsonResponse(
+  repository: string,
+  token: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ value: unknown, headers: Headers }> {
   const response = await requestGitHub(`https://api.github.com${path}`, {
     ...init,
     headers: {
@@ -383,7 +420,7 @@ export async function requestGitHubJson<T>(
     );
     throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
   }
-  return (await response.json()) as T;
+  return { value: await response.json(), headers: response.headers };
 }
 
 export async function readGitHubRawFile(input: {
@@ -392,7 +429,7 @@ export async function readGitHubRawFile(input: {
   repository: string;
   token: string;
 }): Promise<Uint8Array> {
-  const { owner, repo } = splitGitHubRepository(input.repository, "store");
+  const { owner, repo } = splitGitHubRepository(input.repository);
   const path = input.path.split("/").map(encodeURIComponent).join("/");
   const response = await requestGitHub(
     `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(input.ref)}/${path}`,
@@ -419,7 +456,7 @@ export async function readGitHubArchive(input: {
   signal?: AbortSignal;
   token: string;
 }): Promise<Uint8Array> {
-  const { owner, repo } = splitGitHubRepository(input.repository, "store");
+  const { owner, repo } = splitGitHubRepository(input.repository);
   const response = await requestGitHub(
     `https://codeload.github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tar.gz/${encodeURIComponent(input.ref)}`,
     {
@@ -440,14 +477,13 @@ export async function readGitHubArchive(input: {
   return new Uint8Array(await response.arrayBuffer());
 }
 
-export function findGitHubRemoteFiles(
+function findGitHubRemoteFiles(
   tree: GitHubTreeResponse,
   root: string,
-  kind: "publisher" | "store",
 ): Map<string, GitHubTreeEntry> {
   if (tree.truncated) {
     throw workspaceError(
-      `[vitehub] GitHub workspace ${kind} could not compare the remote tree because GitHub returned a truncated tree.`,
+      "[vitehub] GitHub workspace store could not compare the remote tree because GitHub returned a truncated tree.",
     );
   }
 
@@ -462,17 +498,15 @@ export function findGitHubRemoteFiles(
 
 export async function readGitHubBranchState(input: {
   branch: string;
-  kind: "publisher" | "store";
-  paths?: string[];
   repository: string;
   root: string;
   token: string;
 }): Promise<GitHubBranchState> {
-  const { owner, repo } = splitGitHubRepository(input.repository, input.kind);
+  const { owner, repo } = splitGitHubRepository(input.repository);
   let branchExists = true;
   let ref: GitHubRefResponse;
   try {
-    ref = requireGitHubResponse(await requestGitHubJson<unknown>(
+    ref = requireGitHubResponse(await requestGitHubJson(
       input.repository,
       input.token,
       `/repos/${owner}/${repo}/git/ref/heads/${encodeGitHubRef(input.branch)}`,
@@ -480,59 +514,31 @@ export async function readGitHubBranchState(input: {
   }
   catch (error) {
     if (githubRequestStatus(error) !== 404) throw error;
-    const repository = requireGitHubResponse(await requestGitHubJson<unknown>(
+    const repository = requireGitHubResponse(await requestGitHubJson(
       input.repository,
       input.token,
       `/repos/${owner}/${repo}`,
     ), isGitHubRepositoryResponse, "repository");
-    ref = requireGitHubResponse(await requestGitHubJson<unknown>(
+    ref = requireGitHubResponse(await requestGitHubJson(
       input.repository,
       input.token,
       `/repos/${owner}/${repo}/git/ref/heads/${encodeGitHubRef(repository.default_branch)}`,
     ), isGitHubRefResponse, "default branch reference");
     branchExists = false;
   }
-  const current = requireGitHubResponse(await requestGitHubJson<unknown>(
+  const current = requireGitHubResponse(await requestGitHubJson(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/commits/${ref.object.sha}`,
   ), isGitHubCommitResponse, "commit");
-  if (input.paths) {
-    const entries = await Promise.all(input.paths.map(async (path) => {
-      const fullPath = joinGitPath(input.root, path);
-      const encodedPath = fullPath.split("/").map(encodeURIComponent).join("/");
-      try {
-        const entry = await requestGitHubJson<unknown>(
-          input.repository,
-          input.token,
-          `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref.object.sha)}`,
-          { headers: { accept: "application/vnd.github.object+json" } },
-        );
-        return requireGitHubResponse(entry, isGitHubTreeEntry, "content");
-      }
-      catch (error) {
-        if (githubRequestStatus(error) === 404) return undefined;
-        throw error;
-      }
-    }));
-    return {
-      branchExists,
-      files: new Map(input.paths.flatMap((path, index) => {
-        const entry = entries[index];
-        return entry?.type === "file" ? [[path, entry] as const] : [];
-      })),
-      refSha: ref.object.sha,
-      treeSha: current.tree.sha,
-    };
-  }
-  const tree = requireGitHubResponse(await requestGitHubJson<unknown>(
+  const tree = requireGitHubResponse(await requestGitHubJson(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/trees/${current.tree.sha}?recursive=1`,
   ), isGitHubTreeResponse, "tree");
   return {
     branchExists,
-    files: findGitHubRemoteFiles(tree, input.root, input.kind),
+    files: findGitHubRemoteFiles(tree, input.root),
     refSha: ref.object.sha,
     treeSha: current.tree.sha,
   };
@@ -544,27 +550,25 @@ export async function commitGitHubChanges(input: {
   branchExists: boolean;
   deletePaths: string[];
   files: GitHubFileUpdate[];
-  kind?: "publisher" | "store";
   message: string;
   parentSha: string;
   repository: string;
   token: string;
 }): Promise<GitHubCommitResult> {
-  const kind = input.kind || "store";
-  const { owner, repo } = splitGitHubRepository(input.repository, kind);
+  const { owner, repo } = splitGitHubRepository(input.repository);
   const blobs = await Promise.all(
     input.files.map((file) =>
       file.bytes
         ? createGitHubBlob({
             bytes: file.bytes,
-            kind,
             repository: input.repository,
             token: input.token,
           })
         : { sha: file.gitSha },
     ),
   );
-  const tree = await requestGitHubJson<{ sha: string }>(
+  const tree = await requestGitHubJson(
+
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/trees`,
@@ -583,8 +587,8 @@ export async function commitGitHubChanges(input: {
       }),
       method: "POST",
     },
-  );
-  const commit = await requestGitHubJson<{ sha: string }>(
+  ) as { sha: string };
+  const commit = await requestGitHubJson(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/commits`,
@@ -596,17 +600,30 @@ export async function commitGitHubChanges(input: {
       }),
       method: "POST",
     },
-  );
+  ) as { sha: string };
   if (input.branchExists) {
-    await requestGitHubJson(
-      input.repository,
-      input.token,
-      `/repos/${owner}/${repo}/git/refs/heads/${encodeGitHubRef(input.branch)}`,
-      {
-        body: JSON.stringify({ force: false, sha: commit.sha }),
-        method: "PATCH",
-      },
-    );
+    try {
+      await requestGitHubJson(
+        input.repository,
+        input.token,
+        `/repos/${owner}/${repo}/git/refs/heads/${encodeGitHubRef(input.branch)}`,
+        {
+          body: JSON.stringify({ force: false, sha: commit.sha }),
+          method: "PATCH",
+        },
+      );
+    }
+    catch (error) {
+      const status = githubRequestStatus(error);
+      if (status === 409) {
+        throw githubBranchMovedConflict({
+          branch: input.branch,
+          expectedHead: input.parentSha,
+          repository: input.repository,
+        });
+      }
+      throw error;
+    }
   }
   else {
     await requestGitHubJson(
@@ -624,13 +641,11 @@ export async function commitGitHubChanges(input: {
 
 export async function createGitHubBlob(input: {
   bytes: Uint8Array;
-  kind?: "publisher" | "store";
   repository: string;
   token: string;
 }): Promise<{ sha: string }> {
-  const kind = input.kind || "store";
-  const { owner, repo } = splitGitHubRepository(input.repository, kind);
-  return await requestGitHubJson<{ sha: string }>(
+  const { owner, repo } = splitGitHubRepository(input.repository);
+  const response = await requestGitHubJson(
     input.repository,
     input.token,
     `/repos/${owner}/${repo}/git/blobs`,
@@ -638,7 +653,8 @@ export async function createGitHubBlob(input: {
       body: JSON.stringify({ content: toBase64(input.bytes), encoding: "base64" }),
       method: "POST",
     },
-  );
+  )
+  return requireGitHubResponse(response, isGitHubBlobResponse, "blob")
 }
 
 export async function createGitHubFileUpdate(

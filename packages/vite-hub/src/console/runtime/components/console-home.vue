@@ -23,6 +23,8 @@ import { recentTimestamp } from "../client/time";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleSectionIcon from "./console-section-icon.vue";
+import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -118,10 +120,6 @@ const summary = computed(() => {
   return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
 });
 
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : "The console could not load its configuration.";
-}
-
 async function loadRecentSessions(): Promise<void> {
   sessionsLoadedAt.value = Date.now();
   await recentSessions.refresh();
@@ -209,17 +207,12 @@ onBeforeUnmount(() => request++);
               </div>
             </div>
 
-            <UAlert
+            <ConsoleState
               v-else-if="error && !availableSections.length"
               class="mt-10"
-              color="error"
-              variant="subtle"
-              icon="i-ph-cloud-slash-light"
+              :error="error"
               title="Could not load sections"
-              :description="errorMessage(error)"
-              :actions="[
-                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadSections },
-              ]"
+              :retry="loadSections"
             />
 
             <template v-else>
@@ -270,7 +263,7 @@ onBeforeUnmount(() => request++);
                   >
                     <span class="flex items-center justify-between gap-3">
                       <span class="vitehub-console__overview-icon size-9">
-                        <UIcon :name="lastSectionDetails.icon" class="size-[1.125rem]" />
+                        <ConsoleSectionIcon :section="lastSectionDetails.id" :icon="lastSectionDetails.icon" class="size-[1.125rem]" />
                       </span>
                       <span class="font-mono text-[11px] uppercase tracking-[0.08em] text-dimmed">Last visited</span>
                     </span>
@@ -285,7 +278,7 @@ onBeforeUnmount(() => request++);
                   <div v-if="agentsEnabled" class="flex flex-col overflow-hidden rounded-lg border border-default" :class="lastSectionDetails ? 'min-h-40' : ''">
                     <div class="flex items-center justify-between gap-3 border-b border-default px-4 py-2.5">
                       <span class="flex items-center gap-2 text-sm font-medium text-highlighted">
-                        <UIcon :name="consoleSectionDetails.agents.icon" class="size-4 text-muted" />
+                        <ConsoleSectionIcon section="agents" :icon="consoleSectionDetails.agents.icon" class="size-4 text-muted" />
                         Recent sessions
                       </span>
                       <UButton
@@ -300,10 +293,8 @@ onBeforeUnmount(() => request++);
                     <div v-if="recentSessions.pending.value && !sessionItems.length" class="grid gap-2 p-4" aria-hidden="true">
                       <USkeleton v-for="index in 3" :key="index" class="h-6 rounded-md" />
                     </div>
-                    <div v-else-if="recentSessions.error.value" class="flex flex-1 items-center gap-2 px-4 py-6 text-sm text-muted">
-                      <UIcon name="i-ph-cloud-slash-light" class="size-4 shrink-0" />
-                      <span class="min-w-0 flex-1">Could not load recent sessions.</span>
-                      <UButton color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
+                    <div v-else-if="recentSessions.error.value" class="p-3">
+                      <ConsoleState compact :error="recentSessions.error.value" title="Could not load recent sessions" :retry="loadRecentSessions" />
                     </div>
                     <p v-else-if="!sessionItems.length" class="flex flex-1 items-center px-4 py-6 text-sm text-muted">
                       No Agent sessions yet. Invoke an Agent to see its sessions here.
@@ -358,7 +349,7 @@ onBeforeUnmount(() => request++);
                     />
                     <span class="pointer-events-none flex items-start justify-between gap-3">
                       <span class="vitehub-console__overview-icon size-8">
-                        <UIcon :name="section.icon" class="size-4" />
+                        <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="size-4" />
                       </span>
                       <a
                         v-if="section.docs"
@@ -404,7 +395,7 @@ onBeforeUnmount(() => request++);
                   >
                     <span class="flex items-center gap-2.5">
                       <span class="vitehub-console__overview-icon size-7">
-                        <UIcon :name="entry.icon" class="size-3.5" />
+                        <ConsoleSectionIcon :section="entry.id" :icon="entry.icon" class="size-3.5" />
                       </span>
                       <span class="text-sm font-medium text-toned">{{ entry.label }}</span>
                       <span class="vitehub-console__overview-docs ms-auto inline-flex items-center gap-1">

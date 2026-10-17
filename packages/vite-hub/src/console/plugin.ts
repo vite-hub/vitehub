@@ -24,43 +24,84 @@ function renderRetentionLimit(value: number | false | undefined): string {
 }
 /**
  * The Console access policy that generated output installs. Every Console data route checks it.
- * `check.module` is a generated Console Auth middleware that exports `checkConsoleAccess`.
- * `check.appRoutes` lists the Primary Auth access routes that protect the Console.
+ * `check.module` is a generated Console Auth middleware that exports `checkConsoleAccess`, and `readConsoleUser` for a session.
+ * `check.appRoutes` lists the app Auth access routes that protect the Console.
+ * `authorize` is the `console.authorize` server file.
  */
-export type ConsoleAccessBuild =
-  | { mode: "local" }
-  | { mode: "auth" | "cloudflare-access", check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] } }
-  | { mode: "host-managed", authorize?: string }
+export interface ConsoleAccessBuild {
+  mode: "open" | "auth" | "cloudflare-access" | "host-managed" | "local"
+  authorize?: string
+  check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
+}
+
+interface ConsoleRuntimeCapabilityImport {
+  exportName: string
+  name: string
+}
+
+const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[] = [
+  { exportName: "blob", name: "blob" },
+  { exportName: "connections", name: "connections" },
+  { exportName: "content", name: "content" },
+  { exportName: "console", name: "console" },
+  { exportName: "agentDb", name: "db" },
+  { exportName: "email", name: "email" },
+  { exportName: "kv", name: "kv" },
+]
+
+function renderConsoleRuntimeCapabilities(imports: Record<string, false | string> | undefined): { imports: string[], install?: string } {
+  if (!imports) return { imports: [] }
+  const capabilities = consoleRuntimeCapabilityImports.flatMap(({ exportName, name }) => {
+    const module = imports[name]
+    if (!module) return []
+    const alias = `vitehubConsoleAgent${name[0]!.toUpperCase()}${name.slice(1)}`
+    return [{ alias, exportName, module, name }]
+  })
+  if (!capabilities.length) return { imports: [] }
+  return {
+    imports: capabilities.map(({ alias, exportName, module }) => `import { ${exportName} as ${alias} } from ${JSON.stringify(module)}`),
+    install: `capabilities: { ${capabilities.map(({ alias, name }) => `${name}: ${alias}`).join(", ")} }`,
+  }
+}
 
 function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports: string[], install: string[] } {
   if (!access) return { imports: [], install: [] }
-  if (access.mode === "local") return { imports: [], install: ['installConsoleAccess({ mode: "local" })'] }
-  if (access.mode === "host-managed") {
-    return access.authorize
-      ? {
-          imports: [`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`],
-          install: ['installConsoleAccess({ mode: "host-managed", authorize: vitehubConsoleAuthorize })'],
-        }
-      : { imports: [], install: ['installConsoleAccess({ mode: "host-managed" })'] }
-  }
-  const mode = JSON.stringify(access.mode)
-  if (!access.check) return { imports: [], install: [`installConsoleAccess({ mode: ${mode} })`] }
-  if ("module" in access.check) {
-    return {
-      imports: [`import { checkConsoleAccess as vitehubConsoleAccessCheck } from ${JSON.stringify(pathToFileURL(access.check.module).href)}`],
-      install: [`installConsoleAccess({ mode: ${mode}, check: vitehubConsoleAccessCheck })`],
+  const imports: string[] = []
+  const fields = [`mode: ${JSON.stringify(access.mode)}`]
+  if (access.check && "module" in access.check) {
+    const module = JSON.stringify(pathToFileURL(access.check.module).href)
+    if (access.mode === "auth") {
+      imports.push(`import { checkConsoleAccess as vitehubConsoleAccessCheck, readConsoleUser as vitehubConsoleUser } from ${module}`)
+      fields.push("check: vitehubConsoleAccessCheck", "user: vitehubConsoleUser")
+    }
+    else {
+      imports.push(`import { checkConsoleAccess as vitehubConsoleAccessCheck } from ${module}`)
+      fields.push("check: vitehubConsoleAccessCheck")
     }
   }
-  const routes = JSON.stringify(access.check.appRoutes)
-  return access.check.appRoutes.length
-    ? {
-        imports: ['import { requireAuthAccessRoutes as vitehubRequireAuthAccessRoutes } from "#vitehub/auth/server"'],
-        install: [`installConsoleAccess({ mode: ${mode}, check: event => { const path = event.url.pathname; const method = (event.req?.method ?? event.request?.method ?? "GET").toUpperCase(); const matched = ${routes}.filter(route => { if (route.method && route.method !== method) return false; if (path === route.route) return true; if (!route.route.endsWith("/**")) return false; const base = route.route.slice(0, -3); return path === base || path.startsWith(base + "/") }); const indexes = matched.map(route => route.index); const required = matched.filter(route => route.authorize).map(route => route.index); return vitehubRequireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false }) } })`],
-      }
-    : {
-        imports: ['import { withAuthorization as vitehubWithAuthorization } from "#vitehub/auth/server"'],
-        install: [`installConsoleAccess({ mode: ${mode}, check: vitehubWithAuthorization(true, () => undefined) })`],
-      }
+  else if (access.check) {
+    // App Auth: require a session, and the authorize callbacks of the Auth access routes that match the request.
+    const routes = JSON.stringify(access.check.appRoutes)
+    imports.push(
+      'import { getAuthForRequest as vitehubGetAuthForRequest, requireAuthAccessRoutes as vitehubRequireAuthAccessRoutes, withAuthorization as vitehubWithAuthorization } from "#vitehub/auth/server"',
+      'import { readConsoleSessionUser as vitehubReadConsoleSessionUser } from "vite-hub/console/auth"',
+    )
+    fields.push(
+      `check: event => { const path = event.url.pathname; const method = (event.req?.method ?? event.request?.method ?? "GET").toUpperCase(); const matched = ${routes}.filter(route => { if (route.method && route.method !== method) return false; if (path === route.route) return true; if (!route.route.endsWith("/**")) return false; const base = route.route.slice(0, -3); return path === base || path.startsWith(base + "/") }); if (!matched.length) return vitehubRequireSession(event); const indexes = matched.map(route => route.index); const required = matched.filter(route => route.authorize).map(route => route.index); return vitehubRequireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false }) }`,
+      "user: event => vitehubReadConsoleSessionUser(vitehubGetAuthForRequest(event.req, undefined, event), event.req)",
+    )
+  }
+  if (access.authorize) {
+    imports.push(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`)
+    fields.push("authorize: vitehubConsoleAuthorize")
+  }
+  return {
+    imports,
+    install: [
+      ...(access.check && "appRoutes" in access.check ? ["const vitehubRequireSession = vitehubWithAuthorization(true, () => undefined)"] : []),
+      `installConsoleAccess({ ${fields.join(", ")} })`,
+    ],
+  }
 }
 
 function renderConsoleNitroPlugin(
@@ -79,8 +120,10 @@ function renderConsoleNitroPlugin(
   independentAuth: true | "cloudflare-access" | false = false,
   retention?: AgentInvocationRetentionOptions,
   access?: ConsoleAccessBuild,
+  runtimeCapabilityImports?: Record<string, false | string>,
 ): string {
   const accessCode = renderConsoleAccess(access)
+  const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const definitions = agents.map((agent, index) => {
     const skills = readColocatedAgentSkills(agent.handler)
     const module = `vitehubConsoleAgent${index}`
@@ -106,6 +149,7 @@ function renderConsoleNitroPlugin(
   return [
     `import { ${access ? "installConsoleAccess, " : ""}installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
+    ...(agentsEnabled ? runtimeCapabilities.imports : []),
     ...(blobEnabled
       ? [
           `import { installConsoleBlob } from "vite-hub/console/blob"`,
@@ -149,9 +193,9 @@ function renderConsoleNitroPlugin(
       ? fixture
         ? [
             `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
-            `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations })`,
+            `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`,
           ]
-        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${journal && "databaseUrl" in journal ? `, databaseUrl: ${JSON.stringify(journal.databaseUrl)}` : ""}${journal && "d1Binding" in journal ? `, d1: { binding: ${JSON.stringify(journal.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }` : ""}${retention !== undefined ? `, retention: { maxAgeMs: ${renderRetentionLimit(retention.maxAgeMs)}, maxRecords: ${renderRetentionLimit(retention.maxRecords)} }` : ""} })`]
+        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${journal && "databaseUrl" in journal ? `, databaseUrl: ${JSON.stringify(journal.databaseUrl)}` : ""}${journal && "d1Binding" in journal ? `, d1: { binding: ${JSON.stringify(journal.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }` : ""}${retention !== undefined ? `, retention: { maxAgeMs: ${renderRetentionLimit(retention.maxAgeMs)}, maxRecords: ${renderRetentionLimit(retention.maxRecords)} }` : ""}${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`]
       : []),
     ...(kvEnabled
       ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
@@ -178,6 +222,7 @@ export async function writeConsoleNitroPlugin(
   independentAuth: true | "cloudflare-access" | false = false,
   retention?: AgentInvocationRetentionOptions,
   access?: ConsoleAccessBuild,
+  runtimeCapabilityImports?: Record<string, false | string>,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -187,7 +232,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")

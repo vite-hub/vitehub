@@ -381,13 +381,13 @@ function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: strin
 }
 
 /** The default prefix of canonical variable names. */
-export const defaultEnvPrefix = "VITEHUB_"
+const defaultEnvPrefix = "VITEHUB_"
 
 /**
  * The canonical variable name of a declaration path: the prefix plus the path in upper snake case.
  * `env.server.cliproxy.apiKey` becomes `VITEHUB_CLIPROXY_API_KEY`. `false` disables canonical names.
  */
-export function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
+function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
   return prefix === false ? undefined : `${prefix}${pathToEnvName(path)}`
 }
 

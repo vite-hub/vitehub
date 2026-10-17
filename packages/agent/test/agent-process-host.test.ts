@@ -112,7 +112,7 @@ describe("Babysitter webhook intake", () => {
   const agent = defineAgent({ extends: babysitter, name: "babysitter", options: { filter: { repository: { allow: ["acme/app"] } } } })
 
   it("passes a signed delivery to the running host without starting the Agent", async () => {
-    vi.stubEnv("GITHUB_WEBHOOK_SECRET", "webhook-secret")
+    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "webhook-secret")
     const intake = vi.fn(async () => Response.json({ accepted: true }, { status: 202 }))
     registerAgentProcessHostIntake("babysitter", intake)
     const invocation = await resolveAgentTriggerInvocation(agent, { ...runtime, request: request("webhook-secret") }, "github.delivery", input)
@@ -121,17 +121,17 @@ describe("Babysitter webhook intake", () => {
   })
 
   it("rejects a wrong signature and fails closed without a webhook secret", async () => {
-    vi.stubEnv("GITHUB_WEBHOOK_SECRET", "webhook-secret")
+    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "webhook-secret")
     const intake = vi.fn()
     registerAgentProcessHostIntake("babysitter", intake)
     await expect(resolveAgentTriggerInvocation(agent, { ...runtime, request: request("wrong") }, "github.delivery", input)).rejects.toMatchObject({ statusCode: 401 })
-    vi.stubEnv("GITHUB_WEBHOOK_SECRET", "")
+    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "")
     await expect(resolveAgentTriggerInvocation(agent, { ...runtime, request: request("") }, "github.delivery", input)).rejects.toThrow()
     expect(intake).not.toHaveBeenCalled()
   })
 
   it("reports 503 while the host has not started", async () => {
-    vi.stubEnv("GITHUB_WEBHOOK_SECRET", "webhook-secret")
+    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "webhook-secret")
     const invocation = await resolveAgentTriggerInvocation(agent, { ...runtime, request: request("webhook-secret") }, "github.delivery", input)
     expect("response" in invocation && invocation.response.status).toBe(503)
   })

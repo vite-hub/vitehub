@@ -37,7 +37,9 @@ export function getDatabaseNuxtProvisionStateKey(databaseName: string) {
 
 // Resolves discovered Cloudflare D1 databases keyed by Database Definition name.
 function planDatabases(rootDir: string, options: DatabaseProvisionOptions | undefined): PlannedDatabase[] {
-  const config = resolveDBViteConfig(options, rootDir)
+  const nuxtHostResource = Boolean(options && "nuxtHostResource" in options && options.nuxtHostResource === true)
+  // An enabled Vite database always has a default Database. The Nuxt host resource is the Nuxt default Database.
+  const config = resolveDBViteConfig(options, rootDir, { implicitDefault: !nuxtHostResource })
   const plannedByName = new Map<string, PlannedDatabase>()
   for (const definition of config?.databaseNames ?? []) {
     const cloudflare = config?.databases[definition]?.cloudflare
@@ -47,7 +49,7 @@ function planDatabases(rootDir: string, options: DatabaseProvisionOptions | unde
     if (matching) matching.definitions.push(definition)
     else plannedByName.set(databaseName, { databaseName, definitions: [definition], nuxt: false })
   }
-  const integrationDatabaseName = options && options.driver === "d1" && "nuxtHostResource" in options && options.nuxtHostResource === true
+  const integrationDatabaseName = options && options.driver === "d1" && nuxtHostResource
     ? resolveConfigValue(options.databaseName)
     : undefined
   if (integrationDatabaseName) {

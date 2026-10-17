@@ -44,7 +44,7 @@ async function executePackageEntry(definitionSource: string, options: {
     child.once("close", resolve)
   })
   const output = JSON.parse(await readFile(outputPath, "utf8")) as {
-    error?: { message?: string }
+    error?: { code?: string; message?: string }
     ok: boolean
     result?: unknown
   }
@@ -56,6 +56,34 @@ async function executePackageEntry(definitionSource: string, options: {
 }
 
 describe("package entry result transport", () => {
+  it.each([
+    ["subclass tag", "new (class extends Uint8Array { get [Symbol.toStringTag]() { return 'Bytes' } })([0, 1, 2, 3, 4]).subarray(1, 4)"],
+    ["own tag", "Object.defineProperty(new Uint8Array([0, 1, 2, 3, 4]).subarray(1, 4), Symbol.toStringTag, { value: 'Bytes' })"],
+    ["throwing tag", "Object.defineProperty(new Uint8Array([0, 1, 2, 3, 4]).subarray(1, 4), Symbol.toStringTag, { get() { throw new Error('tag read') } })"],
+  ])("extracts foreign byte arrays with a %s", async (_label, expression) => {
+    const execution = await executePackageEntry([
+      "import { runInNewContext } from 'node:vm'",
+      `export default () => runInNewContext(${JSON.stringify(expression)})`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({
+      ok: true,
+      result: { [SANDBOX_VALUE_MARKER]: { id: 0, kind: "uint8array", tag: "binary" } },
+    })
+    expect(Array.from(await execution.readOutputFile(0))).toEqual([1, 2, 3])
+  })
+
+  it("does not extract another typed array with a Uint8Array tag as a byte sidecar", async () => {
+    const execution = await executePackageEntry([
+      "import { runInNewContext } from 'node:vm'",
+      `export default () => runInNewContext("Object.defineProperty(new Uint16Array([1, 2, 3]), Symbol.toStringTag, { value: 'Uint8Array' })")`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: { 0: 1, 1: 2, 2: 3 } })
+  })
+
   it.each(["opaque", "opaqueredirect"])("preserves a %s response across the child process", async (type) => {
     const url = type === "opaqueredirect" ? "https://example.com/manual-redirect" : ""
     const execution = await executePackageEntry(
@@ -138,6 +166,20 @@ describe("package entry result transport", () => {
     expect(Uint8Array.from(await execution.readOutputFile(0))).toEqual(Uint8Array.from([1, 2, 3]))
   })
 
+  it("does not treat a spoofed typed-array tag as a byte array", async () => {
+    const execution = await executePackageEntry([
+      `export default async function () {`,
+      `  const value = new Uint16Array([513])`,
+      `  Object.defineProperty(value, Symbol.toStringTag, { value: 'Uint8Array' })`,
+      `  return value`,
+      `}`,
+      ``,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: { 0: 513 } })
+  })
+
   it("revives and extracts nested binary sidecars", async () => {
     const binary = (id: number, kind: "blob" | "uint8array", type?: string) => ({
       [SANDBOX_VALUE_MARKER]: { id, kind, ...(type ? { type } : {}), tag: "binary" },
@@ -212,6 +254,38 @@ describe("package entry result transport", () => {
     expect(execution.output).toEqual({ ok: true, result: escaped })
   })
 
+  it.each([
+    ["prefix-only toJSON getter", "export default () => Object.defineProperty({}, 'toJSON', { get() { throw new TypeError('Sandbox result must be JSON-serializable') } })"],
+    ["prefixed toJSON getter", "export default () => Object.defineProperty({}, 'toJSON', { get() { throw new TypeError('Sandbox result must be JSON-serializable; user getter.') } })"],
+    ["nested toJSON getter", "export default () => ({ nested: Object.defineProperty({}, 'toJSON', { get() { throw new TypeError('Sandbox result must be JSON-serializable; cyclic value.') } }) })"],
+    ["toJSON callback", "export default () => ({ toJSON() { throw new TypeError('Sandbox result must be JSON-serializable; unsupported undefined.') } })"],
+    ["property getter", "export default () => Object.defineProperty({}, 'value', { enumerable: true, get() { throw new TypeError('Sandbox result must be JSON-serializable; user property.') } })"],
+    ["cyclic result", "export default () => { const result = {}; result.self = result; return result }"],
+    ["undefined result property", "export default () => ({ value: undefined })"],
+    ["non-finite result property", "export default () => ({ value: Infinity })"],
+  ])("marks %s as a generated serialization error", async (_label, source) => {
+    const execution = await executePackageEntry(source)
+
+    expect(execution.code).toBe(1)
+    expect(execution.output).toMatchObject({
+      error: { code: "SANDBOX_SERIALIZATION_ERROR", message: expect.stringContaining("Sandbox result must be JSON-serializable") },
+      ok: false,
+    })
+  })
+
+  it("preserves a handler error even when its message matches a serialization diagnostic", async () => {
+    const execution = await executePackageEntry(
+      "export default () => { throw new TypeError('Sandbox result must be JSON-serializable; handler failure.') }",
+    )
+
+    expect(execution.code).toBe(1)
+    expect(execution.output).toMatchObject({
+      error: { message: "Sandbox result must be JSON-serializable; handler failure." },
+      ok: false,
+    })
+    expect(execution.output.error?.code).toBeUndefined()
+  })
+
   it("applies result toJSON before staging nested binary values", async () => {
     const execution = await executePackageEntry([
       `export default async function () {`,
@@ -264,8 +338,38 @@ describe("package entry result transport", () => {
 
   it("preserves boxed primitive result semantics", async () => {
     const execution = await executePackageEntry(
-      `export default async function () { return { boolean: new Boolean(true), number: new Number(5), string: new String('ready') } }\n`,
+      `export default async function () { const number = new Number(5); number.valueOf = () => 2; return { boolean: new Boolean(true), number, string: new String('ready') } }\n`,
     )
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({
+      ok: true,
+      result: { boolean: true, number: 2, string: "ready" },
+    })
+  })
+
+  it("classifies throwing boxed primitive valueOf methods as serialization errors", async () => {
+    const execution = await executePackageEntry(
+      `export default async function () { const number = new Number(5); number.valueOf = () => { throw new Error('broken valueOf') }; return number }\n`,
+    )
+
+    expect(execution.code).toBe(1)
+    expect(execution.output).toMatchObject({
+      error: { code: "SANDBOX_SERIALIZATION_ERROR", cause: "Error: broken valueOf" },
+      ok: false,
+    })
+  })
+
+  it("preserves boxed primitive results created in another realm", async () => {
+    const execution = await executePackageEntry([
+      `import { runInNewContext } from 'node:vm'`,
+      `export default async function () { return {`,
+      `  boolean: runInNewContext('new Boolean(true)'),`,
+      `  number: runInNewContext('new Number(5)'),`,
+      `  string: runInNewContext("new String('ready')"),`,
+      `} }`,
+      ``,
+    ].join("\n"))
 
     expect(execution.code).toBe(0)
     expect(execution.output).toEqual({

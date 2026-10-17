@@ -3,12 +3,12 @@
 title: Create your first collaborative room
 description: Connect two TipTap editors to the same document and verify synchronization.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Open the same document in two browser tabs and edit it from either tab. Realtime synchronizes the editors through a shared room. A Workspace supplies the file path and receives the document when your app saves a checkpoint.
+Open the same document in two browser tabs and edit it from either tab. Realtime synchronizes the editors through a shared room. A Workspace supplies the file and receives each save.
 
 You need Node.js 24.15 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses in-memory room and Workspace stores. Restarting the server loses their state. The room is public during this local check; enable Auth before admitting private documents.
 
@@ -46,7 +46,7 @@ export default defineConfig({
 Create a Realtime Definition under `server/realtime`. Its name comes from the
 relative file path, so this file defines `docs`.
 
-`document.workspace` names the Workspace used for checkpoints. The room name and file path together identify the shared document.
+`document.workspace` names the Workspace that stores the Markdown file. The room name and file path together identify the shared document.
 
 ```ts [server/realtime/docs.ts]
 import { defineRealtime } from 'vite-hub/realtime'
@@ -139,9 +139,10 @@ one tab and type a sentence; it should appear in the other tab. Edit from the
 second tab and verify that the first updates too. Both editors use the same
 `docs` Definition and `guides/getting-started.md` document path.
 
-Room updates synchronize the editors but do not write a Workspace file. An
-explicit `realtime.history.checkpoint()` saves the current Markdown to the
-Workspace. Both the room authority and Workspace store in this tutorial are
-in memory, so restarting the server loses their state. Use a durable setup
-before relying on documents surviving a restart.
+Room updates synchronize the editors immediately. Realtime writes the Markdown
+file to the Workspace 2 seconds after the last edit, at most every 10 seconds
+while you keep typing, and when the last tab closes. `realtime.history.checkpoint()`
+also commits it to Workspace history. Both the room authority and Workspace
+store in this tutorial are in memory, so restarting the server loses their
+state. Use a durable setup before relying on documents surviving a restart.
 ::

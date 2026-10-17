@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus";
 
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
@@ -9,7 +11,7 @@ export default defineConfig({
     ],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "esbuild", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime"],
+      neverBundle: ["vite", "esbuild", "postgres", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime"],
       onlyBundle: false,
     },
     plugins: [{
@@ -32,10 +34,12 @@ export default defineConfig({
       "src/runtime/agent.ts",
       "src/runtime/cloudflare-vite.ts",
       "src/runtime/d1.ts",
+      "src/runtime/default-database.ts",
       "src/runtime/definition-defaults.ts",
       "src/runtime/definition-hosted.ts",
       "src/runtime/definition-local.ts",
       "src/runtime/hosted.ts",
+      "src/runtime/postgres.ts",
       "src/runtime/state.ts",
       "src/runtime/virtual-databases.ts",
       "src/runtime/virtual-schema.ts",
@@ -43,7 +47,7 @@ export default defineConfig({
     ],
     exports: {
       customExports(exports) {
-        return {
+        return normalizePackageExports({
           ...Object.fromEntries(
             Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-")),
           ),
@@ -52,7 +56,7 @@ export default defineConfig({
             import: "./dist/virtual.js",
           },
           "./runtime/cloudflare-env": "./dist/runtime/state.js",
-        }
+        });
       },
       inlinedDependencies: false,
     },

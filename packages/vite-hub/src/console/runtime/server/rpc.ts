@@ -3,7 +3,7 @@ import { defineHandler } from "h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader, consoleRpcMethods } from "../rpc.ts"
-import { bindConsoleAccess, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { bindConsoleAccess, consoleAccessAllows, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import consoleAgentsHandler from "./agents.get.ts"
 import consoleAgentInvocationsHandler from "./agent-invocations.post.ts"
 import { consoleAttachmentRequestBytes } from "./attachments.ts"
@@ -16,6 +16,7 @@ import consoleInvocationHandler from "./invocation.get.ts"
 import consoleInvocationsHandler from "./invocations.get.ts"
 import consoleEnvHandler from "./env.get.ts"
 import consoleKVHandler from "./kv.get.ts"
+import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
 import { consoleScheduleRunHandler } from "./schedule-run.ts"
@@ -26,6 +27,7 @@ import consoleUsageHandler from "./usage.get.ts"
 import type { EventHandlerRequest, EventHandlerWithFetch, H3Event } from "h3"
 import type { ConsoleRpcInput, ConsoleRpcMethod, ConsoleRpcResult } from "../rpc.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleSectionId } from "../sections.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export const consoleRpcCallPath = "/_vitehub/rpc/__call"
@@ -91,9 +93,20 @@ function errorResult(error: unknown): ConsoleRpcResult {
   const rawStatus = Reflect.get(value, "statusCode") ?? Reflect.get(value, "status")
   const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500
   const statusMessage = Reflect.get(value, "statusMessage")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
-  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : "Console request failed."
-  return { message, ok: false, status }
+  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : undefined
+  // A failure site with its own diagnostic keeps its code and guidance. Others get the Console code of the status.
+  const code = text(Reflect.get(value, "code"))
+  if (!code) return { ...consoleDiagnosticBody(consoleStatusDiagnosticCode(status), message), ok: false, status }
+  const result: Extract<ConsoleRpcResult, { ok: false }> = { code, message: message ?? "Console request failed.", ok: false, status }
+  const fix = text(Reflect.get(value, "fix"))
+  const docs = text(Reflect.get(value, "docs"))
+  if (fix) result.fix = fix
+  if (docs) result.docs = docs
+  return result
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined
 }
 
 async function consoleSearchError(response: Response): Promise<Error> {
@@ -128,31 +141,49 @@ async function result(resolve: () => unknown | Promise<unknown>): Promise<Consol
   }
 }
 
-type ConsoleOperation = (input: ConsoleRpcInput, context: ConsoleOperationContext) => unknown | Promise<unknown>
+type ConsoleOperation = {
+  /** The Console section of the operation. `false` marks an operation that every Console user may call. */
+  section: ConsoleSectionId | false | ((input: ConsoleRpcInput) => ConsoleSectionId | undefined)
+  run: (input: ConsoleRpcInput, context: ConsoleOperationContext) => unknown | Promise<unknown>
+}
+
+function querySection(input: ConsoleRpcInput): ConsoleSectionId | undefined {
+  const section = input.query?.section
+  return Array.isArray(section) ? undefined : section
+}
 
 const operations = new Map<string, ConsoleOperation>(Object.entries({
-  [consoleRpcMethods.agents]: (input, context) => consoleAgentsHandler(requestEvent("agents", input, context)),
-  [consoleRpcMethods.agentInvocations]: (input, context) => consoleAgentInvocationsHandler(requestEvent(`agents/${input.agent ?? ""}/invocations`, input, context)),
-  [consoleRpcMethods.blob]: (input, context) => consoleBlobHandler(requestEvent("blob", input, context)),
-  [consoleRpcMethods.database]: (input, context) => consoleDatabaseHandler(requestEvent("database", input, context)),
-  [consoleRpcMethods.definitions]: (input, context) => consoleDefinitionsHandler(requestEvent("definitions", input, context)),
-  [consoleRpcMethods.invocationWorkspace]: (input, context) => consoleInvocationWorkspaceHandler(requestEvent("invocation-workspace", input, context)),
-  [consoleRpcMethods.invocation]: (input, context) => consoleInvocationHandler(requestEvent("invocations", input, context)),
-  [consoleRpcMethods.invocationCapabilities]: (input, context) => consoleInvocationCapabilitiesHandler(requestEvent("invocation-capabilities", input, context)),
-  [consoleRpcMethods.invocations]: (input, context) => consoleInvocationsHandler(requestEvent("invocations", input, context)),
-  [consoleRpcMethods.env]: (input, context) => consoleEnvHandler(requestEvent("env", input, context)),
-  [consoleRpcMethods.kv]: (input, context) => consoleKVHandler(requestEvent("kv", input, context)),
-  async [consoleRpcMethods.search](input, context) {
-    const event = requestEvent("search", input, context)
-    const response = await consoleSearchCollectionHandler.fetch(new Request(event.req!.url!, { method: event.method }))
-    if (!response.ok) throw await consoleSearchError(response)
-    return await response.json()
+  [consoleRpcMethods.agents]: { section: "agents", run: (input, context) => consoleAgentsHandler(requestEvent("agents", input, context)) },
+  [consoleRpcMethods.agentInvocations]: { section: "agents", run: (input, context) => consoleAgentInvocationsHandler(requestEvent(`agents/${input.agent ?? ""}/invocations`, input, context)) },
+  [consoleRpcMethods.blob]: { section: "blob", run: (input, context) => consoleBlobHandler(requestEvent("blob", input, context)) },
+  [consoleRpcMethods.database]: { section: "databases", run: (input, context) => consoleDatabaseHandler(requestEvent("database", input, context)) },
+  [consoleRpcMethods.definitions]: { section: querySection, run: (input, context) => consoleDefinitionsHandler(requestEvent("definitions", input, context)) },
+  [consoleRpcMethods.invocationWorkspace]: { section: "agents", run: (input, context) => consoleInvocationWorkspaceHandler(requestEvent("invocation-workspace", input, context)) },
+  [consoleRpcMethods.invocation]: { section: "agents", run: (input, context) => consoleInvocationHandler(requestEvent("invocations", input, context)) },
+  [consoleRpcMethods.invocationCapabilities]: { section: "agents", run: (input, context) => consoleInvocationCapabilitiesHandler(requestEvent("invocation-capabilities", input, context)) },
+  [consoleRpcMethods.invocations]: { section: "agents", run: (input, context) => consoleInvocationsHandler(requestEvent("invocations", input, context)) },
+  [consoleRpcMethods.env]: { section: "env", run: (input, context) => consoleEnvHandler(requestEvent("env", input, context)) },
+  [consoleRpcMethods.kv]: { section: "kv", run: (input, context) => consoleKVHandler(requestEvent("kv", input, context)) },
+  [consoleRpcMethods.search]: {
+    section: "agents",
+    async run(input, context) {
+      const event = requestEvent("search", input, context)
+      const response = await consoleSearchCollectionHandler.fetch(new Request(event.req!.url!, { method: event.method }))
+      if (!response.ok) throw await consoleSearchError(response)
+      return await response.json()
+    },
   },
-  [consoleRpcMethods.scheduleRun]: (input, context) => consoleScheduleRunHandler(requestEvent("schedule-run", input, context)),
-  [consoleRpcMethods.sections]: (input, context) => consoleSectionsHandler(requestEvent("sections", input, context)),
-  [consoleRpcMethods.status]: (input, context) => consoleStatusHandler(requestEvent("status", input, context)),
-  [consoleRpcMethods.usage]: (input, context) => consoleUsageHandler(requestEvent("usage", input, context)),
+  [consoleRpcMethods.scheduleRun]: { section: "schedules", run: (input, context) => consoleScheduleRunHandler(requestEvent("schedule-run", input, context)) },
+  [consoleRpcMethods.sections]: { section: false, run: (input, context) => consoleSectionsHandler(requestEvent("sections", input, context)) },
+  [consoleRpcMethods.status]: { section: "agents", run: (input, context) => consoleStatusHandler(requestEvent("status", input, context)) },
+  [consoleRpcMethods.usage]: { section: "usage", run: (input, context) => consoleUsageHandler(requestEvent("usage", input, context)) },
 } satisfies Record<ConsoleRpcMethod, ConsoleOperation>))
+
+/** The Console section of each RPC operation, for inspection and tests. `false` marks an operation that every Console user may call. */
+export function consoleRpcOperationSection(method: ConsoleRpcMethod, input: ConsoleRpcInput = {}): ConsoleSectionId | false | undefined {
+  const section = operations.get(method)?.section
+  return section instanceof Function ? section(input) : section
+}
 
 function isSameOriginRequest(request: Request, url: URL): boolean {
   const origin = request.headers.get("origin")
@@ -226,7 +257,7 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
-  if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Forbidden")
+  if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   if (!isConsoleRpcCallPath(url.pathname)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
   let payload: unknown
@@ -243,7 +274,11 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   if (!operation) throw consoleRequestError(404, "Console operation not found.")
   const input = v.safeParse(inputSchema, envelope.output.input ?? {})
   if (!input.success || Array.isArray(envelope.output.input)) throw consoleRequestError(400, "Invalid Console input.")
-  return operation(input.output, context)
+  const section = operation.section instanceof Function ? operation.section(input.output) : operation.section
+  if (section !== false && !consoleAccessAllows(context.access, section)) {
+    throw consoleRequestError(403, "This Console access does not include this section.")
+  }
+  return operation.run(input.output, context)
 }
 
 /** Run one Console operation from one checked request, so any host instance can serve any call. */
@@ -256,6 +291,7 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
 const consoleRpcHandler: EventHandlerWithFetch<EventHandlerRequest, Promise<Response>> = defineHandler(withConsoleAccess((event: H3Event, access) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
   return handleConsoleRpcRequest(event.req, { access, env: getCloudflareEnv(event, { fallback: false }), waitUntil })
-}))
+  // Each operation checks its own section.
+}, { anySection: true }))
 
 export default consoleRpcHandler

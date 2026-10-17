@@ -19,6 +19,7 @@ jobs:
     name: ci
     needs:
       - checks
+      - workflow-lint
       - contracts-examples
       - contract-tests
       - package-tests
@@ -41,11 +42,19 @@ jobs:
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.CI_RESULTS)
+          // Pull requests use a fast, always-reporting gate. The full
+          // integration matrix still runs on every push to main. Keep this
+          // aggregate job required so skipped PR-only jobs never leave a
+          // branch protection check pending.
           const skippedPullRequestJobs = new Set([
+            "contracts-examples",
             "contract-tests",
+            "package-tests",
+            "package-tests-success",
             "consumer-contracts",
             "consumer-contracts-success",
             "windows-agent-credentials",
+            "docs",
             "verify-providers",
           ])
           const failures = Object.entries(results).filter(([name, job]) => {
@@ -60,39 +69,59 @@ jobs:
           }
           NODE
 
+  # Keep the required PR path small. The push-to-main run below still executes
+  # the complete contracts, package, docs, consumer, and provider matrix.
   checks:
-    name: lint and types
+    name: fast checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
-      - uses: ./.github/actions/setup-deno
 
-      - name: Knip catalog
-        run: vp run knip:catalog
+      # Vite+ combines lint and TypeScript checks into one deterministic PR gate.
+      # Formatting currently loads generated fixture configs, so the full format
+      # check remains on the push-to-main validation path.
+      - run: vp check --no-fmt
 
-      - run: vp run lint
-      - run: vp run doctor:typescript
-        env:
-          VITE_DOCTOR_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before || 'HEAD^' }}
-      - run: vp run typecheck
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-      - name: Docs links
-        run: vp run --filter vitehub-docs test:links
+      # zizmor and actionlint do not check these inputs. The script explains why.
+      - name: Check transient package executors and Docker actions
+        run: node .github/scripts/check-ci-inputs.mjs
+
+  # zizmor audits workflow security: template injection, unpinned actions and
+  # images, persisted credentials, and token permissions. actionlint checks
+  # workflow syntax and expressions, and runs shellcheck on every run: block.
+  workflow-lint:
+    name: workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+        with:
+          version: 1.31.1
+          advanced-security: false
+          annotations: true
+      - uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+        with:
+          args: -color
 
   # Split from checks, which took 9 minutes because typecheck, contracts and
   # examples each ran a full build in sequence.
   contracts-examples:
     name: contracts and examples
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
@@ -100,6 +129,18 @@ jobs:
       # Run contracts first: examples:verify leaves generated example output
       # that the repository contract tests would scan.
       - run: vp run build
+
+      # vp pack rewrites each package's exports map in sorted order. Commit
+      # that order so a local build leaves the tree clean.
+      - name: Build leaves package manifests unchanged
+        run: |
+          git diff --exit-code -- 'packages/*/package.json' || {
+            echo "::error::vp run build rewrote package.json exports. Run it locally and commit the result."
+            exit 1
+          }
+
+      - name: Validate packed package metadata
+        run: vp run package:metadata
 
       - name: Fast contracts
         if: ${{ github.event_name == 'pull_request' }}
@@ -114,6 +155,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
@@ -125,6 +167,7 @@ jobs:
   # packages, so a new package always runs somewhere.
   package-tests:
     name: package tests (${{ matrix.shard.name }})
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -152,6 +195,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
@@ -183,6 +227,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
@@ -205,6 +250,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - name: Build Agent test dependencies
@@ -217,9 +264,12 @@ jobs:
 
   docs:
     name: docs
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - run: vp run --filter vitehub-docs test
@@ -229,7 +279,7 @@ jobs:
         run: ./.github/ci-tools/node_modules/.bin/wrangler deploy --dry-run --config docs/.output/server/wrangler.json
       - name: Upload Worker bundle
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vitehub-docs-output
           path: docs/.output
@@ -255,10 +305,12 @@ jobs:
       queue: max
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - name: Download Worker bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: vitehub-docs-output
           path: docs/.output
@@ -278,7 +330,7 @@ jobs:
 
       - name: Check the live site
         run: |
-          for attempt in 1 2 3 4 5 6; do
+          for _ in 1 2 3 4 5 6; do
             if curl --fail --silent --show-error --max-time 30 -o /dev/null "https://vitehub.dev/raw/docs/getting-started.md?deploy=${GITHUB_SHA}"; then
               echo "vitehub.dev serves ${GITHUB_SHA}."
               exit 0
@@ -312,6 +364,8 @@ jobs:
           - 8080:8080
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - name: Cloudflare output contract
@@ -326,7 +380,9 @@ jobs:
           KV_REST_API_TOKEN: local-srh-token
           KV_REST_API_URL: http://127.0.0.1:8079
           TURSO_DATABASE_URL: http://127.0.0.1:8080
+      # The exact version pins the CLI. Moving it into .github/ci-tools would
+      # add its large dependency tree to the workspace lockfile.
       - name: Install Netlify CLI
-        run: npm install -g netlify-cli@23.15.1
+        run: npm install -g netlify-cli@23.15.1 # zizmor: ignore[adhoc-packages]
       - name: Netlify end-to-end
         run: vp run e2e:netlify

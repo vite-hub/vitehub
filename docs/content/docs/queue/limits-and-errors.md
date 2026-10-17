@@ -28,7 +28,7 @@ When you migrate from package-specific Queue errors, import `ViteHubError` from 
 | `QUEUE_DEFINITION_LOAD_FAILED` | A discovered Queue Definition could not be loaded. |
 | `QUEUE_PROVIDER_OPERATION_FAILED` | Queue client creation, send, or batch send failed. |
 | `QUEUE_PROVIDER_RESPONSE_INVALID` | A successful Vercel send returned a missing or malformed `messageId`. |
-| `CLOUDFLARE_BINDING_RESOLUTION_REQUIRED` | A direct Cloudflare client was created without a concrete binding. |
+| `CLOUDFLARE_BINDING_RESOLUTION_REQUIRED` | A Cloudflare client has no concrete binding. When the request env does not have the generated binding, `details.binding` names it. This is expected on the Vite or Nuxt dev server, which has no local Queue delivery. Run the built Worker with `wrangler dev`, or deploy it. |
 | `CLOUDFLARE_BINDING_INVALID` | The Cloudflare binding does not expose `send()` and `sendBatch()`. |
 | `CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS` | Cloudflare received unsupported enqueue options: `idempotencyKey`, `region`, or `retentionSeconds`. |
 | `VERCEL_QUEUE_SDK_LOAD_FAILED` | `@vercel/queue` could not be loaded. |

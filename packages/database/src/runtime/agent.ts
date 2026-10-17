@@ -8,11 +8,14 @@ export interface AgentDatabaseHandle {
 }
 
 interface AgentDatabaseEntry {
-  db: {
-    all(query: unknown): Promise<unknown>
-    run(query: unknown): Promise<unknown>
-  }
+  db:
+    | { execute(query: unknown): Promise<unknown> }
+    | { all(query: unknown): Promise<unknown>, execute?: undefined, run(query: unknown): Promise<unknown> }
 }
+
+// Postgres databases run every statement through execute(). SQLite databases use all() and run().
+const postgresSchemaQuery = "SELECT table_schema, table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY table_schema, table_name, ordinal_position"
+const sqliteSchemaQuery = "SELECT name, type, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
 
 export function defaultDatabaseNotConfiguredError(): Error {
   return databaseErrorDiagnostics.DATABASE_R0016({ message: "[vitehub] Database \"default\" is not configured." })
@@ -28,12 +31,19 @@ function createAgentDatabaseHandle(
   databases: Record<string, AgentDatabaseEntry>,
   name: string,
 ): AgentDatabaseHandle {
+  function execute(statement: string, method: "all" | "run") {
+    const { db } = requireDatabase(databases, name)
+    const query = sql.raw(statement)
+    return db.execute ? db.execute(query) : db[method](query)
+  }
+
   return {
-    exec: statement => requireDatabase(databases, name).db.run(sql.raw(statement)),
-    query: statement => requireDatabase(databases, name).db.all(sql.raw(statement)),
-    schema: () => requireDatabase(databases, name).db.all(sql.raw(
-      "SELECT name, type, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
-    )),
+    exec: statement => execute(statement, "run"),
+    query: statement => execute(statement, "all"),
+    schema: () => {
+      const { db } = requireDatabase(databases, name)
+      return execute(db.execute ? postgresSchemaQuery : sqliteSchemaQuery, "all")
+    },
   }
 }
 

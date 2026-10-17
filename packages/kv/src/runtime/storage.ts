@@ -39,7 +39,6 @@ function inferHosting(env: Record<string, string | undefined>) {
     return explicit
   }
 
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Hosting detection checks an optional ambient runtime function.
   // SAFETY: This assertion only reads the optional Deno.openKv marker.
   if (typeof (globalThis as { Deno?: { openKv?: unknown } }).Deno?.openKv === "function") {
     return "deno"
@@ -67,7 +66,6 @@ async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | 
     if (!shouldFallbackHostedConfigImport(error)) {
       throw error
     }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This runtime module supports hosts without Node's process global.
     const env = typeof process !== "undefined" ? process.env : {}
     return normalizeKVOptions(undefined, { env, hosting: inferHosting(env) }) || false
   }
