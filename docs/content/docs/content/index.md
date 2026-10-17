@@ -1,12 +1,12 @@
 ---
 title: Content
 navigation.title: Overview
-description: Parse, query, search, and serve Source content with Comark Content.
+description: Parse, query, search, and serve Source content with Comark Content, and edit document collections with drafts and publishing.
 navigation.order: 1
 icon: i-lucide-file-text
 ---
 
-::product-hero{tagline="Parsed Markdown, JSON, YAML, and media from Sources, with navigation and search, served from one generated route on every preset." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+::product-hero{tagline="Parsed Markdown, JSON, YAML, and media from Sources, plus editable document collections with drafts and publishing, served from one generated route on every preset." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-group
   ```ts [Definition]
   import sqlite from 'comark-content/database/sqlite-node'
@@ -20,6 +20,25 @@ icon: i-lucide-file-text
       docs: glob({ cwd: 'docs', include: '**/*.md' }),
     },
   })
+  ```
+
+  ```ts [Collections]
+  import { defineContent, documents } from 'vite-hub/content'
+  import { z } from 'zod'
+
+  export const content = defineContent({
+    workspace: 'site',
+    collections: {
+      posts: documents({
+        path: 'posts/**/*.md',
+        fields: { title: z.string(), date: z.coerce.date() },
+      }),
+    },
+  })
+
+  const posts = content.collection('posts')
+  await posts.save('hello', { data: { title: 'Hello', date: '2026-10-14' }, body: '# Hello' })
+  await content.publish({ collection: 'posts', ids: ['hello'] })
   ```
 
   ```ts [Route]
@@ -51,6 +70,10 @@ icon: i-lucide-file-text
 ::product-features
   :::product-feature-item{title="One Source definition feeds Content and direct reads" icon="i-lucide-folder-input" to="/docs/content/configure"}
   Each named Source in `defineContent()` becomes one Comark instance.
+  :::
+
+  :::product-feature-item{title="Edit documents with drafts and publishing" icon="i-lucide-file-pen" to="/docs/content/configure#document-collections"}
+  Collections validate frontmatter fields, save drafts to Workspace history, and serve only what you publish.
   :::
 
   :::product-feature-item{title="Documents, navigation, and search from server code" icon="i-lucide-code-2" to="/docs/content/server-api"}

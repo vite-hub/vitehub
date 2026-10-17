@@ -64,6 +64,10 @@ export default defineDatabase({
 })
 ```
 
+`schema` does not have to be an object literal. You can pass an imported schema object, a namespace import such as `import * as schema from './schema'`, or a spread that combines several schemas. Each time ViteHub writes generated artifacts, it loads the Definition and exports every Drizzle table and view in the evaluated schema, so `vitehub db generate` writes migrations for all of them. A schema key cannot be `schema` or `default`, because the generated schema module already uses those export names.
+
+ViteHub loads the Definition with your Vite or Nuxt string aliases. If the Definition still cannot load, for example because it imports a module that only a Vite plugin provides, `vite dev` and builds print a warning and fall back to the keys of a literal `schema: { ... }` object. `vitehub db generate` fails in that case, so a migration never silently omits a table.
+
 ## Tables from Nuxt layers
 
 In a Nuxt application, ViteHub also discovers Database Definitions in the server
@@ -94,6 +98,87 @@ These rules apply:
 
 ViteHub finds duplicate table keys when `schema` is an object literal. Query the merged database with `useDatabase()` or the `db` server auto-import. A layer that queries its own `defineDatabase()` object directly sees only its own tables.
 
+## Contribute tables from a package
+
+A package can add Drizzle tables to an application's Database from its own Vite plugin, so the application does not edit its Definition. Add `vitehub.databases` to the plugin object. Each entry has a `name` and a `definition` that names the module and export of an object of tables:
+
+```ts [my-package/vite.ts]
+import type { Plugin } from 'vite'
+import type { DatabaseContributingPlugin } from '@vite-hub/database/vite'
+
+export function myPackage(): Plugin & DatabaseContributingPlugin {
+  return {
+    name: 'my-package/vite',
+    vitehub: {
+      databases: () => [{
+        name: 'history',
+        definition: { module: 'my-package/schema', export: 'historySchema' },
+        reason: 'Stores Workspace history.',
+      }],
+    },
+  }
+}
+```
+
+```ts [my-package/schema.ts]
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export const historySchema = {
+  historyRefs: sqliteTable('history_refs', { workspace: text('workspace').primaryKey(), head: text('head') }),
+  historyRevisions: sqliteTable('history_revisions', { id: integer('id').primaryKey() }),
+}
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Name of this group of tables. Each name has one contribution. Inspection and errors show it. |
+| `definition.module` | `string` | Absolute file path, `file:` URL, or package specifier that the application can import. Relative paths are rejected. |
+| `definition.export` | `string` | Export that holds the object of tables. Defaults to `default`. |
+| `reason` | `string` | Optional. Why the package adds the tables. `vitehub inspect definitions` and the Console show it. |
+| `database` | `string` | Optional. Database that receives the tables. Omit it to target the default or only Database. |
+| `dialect` | `'sqlite'` | Optional. SQL dialect of the tables. When set, the build fails if the target Database uses another dialect. |
+
+`vitehub.databases` accepts an array or a factory. The factory receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root, and can be async. It runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
+
+### Contribute tables from a Nuxt module
+
+A Nuxt module uses the same contribution. Add the plugin to `nuxt.options.vite.plugins` during module setup:
+
+```ts [my-module/module.ts]
+import { defineNuxtModule } from '@nuxt/kit'
+import { myPackage } from 'my-package/vite'
+
+export default defineNuxtModule({
+  setup(_options, nuxt) {
+    nuxt.options.vite.plugins ||= []
+    nuxt.options.vite.plugins.push(myPackage())
+  },
+})
+```
+
+The Database module reads the contributions after every module has run setup, so the module order does not matter. Do not use `addVitePlugin()` for a contribution. It adds the plugin when Vite starts, after Nitro has built its Database runtime.
+
+Contributed tables join the target Database everywhere the Definition schema goes:
+
+- The generated Drizzle schema exports each contributed table, so `vitehub db generate` writes their migrations.
+- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, Nitro, and provider output.
+- `vitehub inspect definitions` and the Console Database section list them in a `Contributed tables` field with the contributing plugin.
+
+The Definition object that you import from its file keeps only its own `schema`. Read contributed tables from `useDatabase(name).schema` or import them from their package.
+
+A contribution without `database` targets the Database named `default`, or the only Database when there is one. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` applies the same rule, so a package can pick the same Database for its own runtime code. The Console uses it to choose its D1 journal.
+
+### Contribution errors
+
+| Code | Cause |
+| --- | --- |
+| `DATABASE_B0010` | Two plugins contribute tables with one `name`, or a contributed table uses the key or SQL table name of an application table or another contribution. The message names both sources. If the Definition already lists the contributed tables, remove them from its schema. |
+| `DATABASE_B0011` | The target Database does not exist, the app has no Database, `database` is omitted while several Named Databases exist and none is named `default`, or `dialect` does not match the target Database. The message lists the Database names to choose from. |
+| `DATABASE_B0012` | The contribution is not `{ name, definition: { module, export? }, reason?, database?, dialect? }`, its `definition.module` is relative, or its export is missing or is not an object of tables. |
+| `DATABASE_B0007` | The contributed module cannot load. `vitehub db generate` fails. `vite dev` and builds print a warning and keep the tables in the runtime schema, without drizzle-kit exports. |
+
+`collectDatabaseContributions(plugins, context)` and `resolveDatabaseContributionTargets(names, contributions)` from `@vite-hub/database/vite` return the validated contributions and their targets for other build steps.
+
 ## Database Definition options
 
 `defineDatabase()` accepts one object.
@@ -101,7 +186,7 @@ ViteHub finds duplicate table keys when `schema` is an object literal. Query the
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | `string` | Named Databases only | Runtime identity. Must match the discovered file or directory name. |
-| `schema` | `Record<string, Drizzle table>` | Yes | Database Table Schema source of truth. |
+| `schema` | `Record<string, Drizzle table>` | Yes | Database Table Schema source of truth. Packages can [contribute more tables](#contribute-tables-from-a-package). |
 | `connection.url` | `DatabaseConfigValue` | No | SQLite or libSQL connection URL. Defaults to `file:.vitehub/data/database/sqlite.db` for a Default Database and `file:.vitehub/data/database/<name>.sqlite.db` for a Named Database. |
 | `connection.authToken` | `DatabaseConfigValue` | No | Hosted database auth token. |
 | `cloudflare.binding` | `string` | No | D1 binding. Defaults to `DB` for a Default Database and `DB_<NAME>` for a Named Database. |
