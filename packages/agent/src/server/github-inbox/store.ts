@@ -1,4 +1,4 @@
-import { parseProviderBudget, parseProgressBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome } from './budgets.ts'
+import { parseProviderBudget, parseProgressBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome } from './budgets.ts'
 
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -105,6 +105,8 @@ export interface PullRequestInboxOptions {
   activityAuthors?: readonly string[]
   budgets?: InboxBudgets
 }
+
+const conflicted = (pr: GitHubPullRequestRecord | null | undefined): boolean => pr?.mergeable === false || pr?.mergeable_state === 'dirty'
 
 export function pullRequestFilterContext(repository: string, pr: GitHubPullRequestRecord | null): GitHubPullRequestFilterContext {
   const headRepository = pr?.head?.repo?.full_name
@@ -709,7 +711,7 @@ export class PullRequestInbox {
       if (limit === undefined) throw new Error('Configure budgets.noProgress before resetting progress')
       const previous = s.progressBudget?.head === head ? s.progressBudget : undefined
       s.progressBudget = { head, limit, count: 0, exhausted: false, evidence: previous?.evidence,
-        creditedEvidence: previous?.creditedEvidence ?? [], resetReason: reason }
+        creditedEvidence: previous?.creditedEvidence ?? [], resetReason: reason, ...(previous?.grants ? { grants: previous.grants } : {}) }
       this.dirty(s, 'progress-budget:reset'); await this.put(tx, s)
       return true
     })
@@ -746,6 +748,7 @@ export class PullRequestInbox {
     // A wait on a pushed head survives that head's synchronize event.
     if (newHead && pr.head?.sha !== s.wait?.headSha || pr.state === 'closed') delete s.wait
     s.pr = { ...previous, ...pr }
+    if (previous && !newHead && conflicted(s.pr) && !conflicted(previous)) this.grantProgress(s, 'conflict')
     if (newHead) {
       delete s.ciEvidence
       s.checks = Object.fromEntries(Object.entries(s.checks).filter(([, check]) => check.head_sha === pr.head?.sha))
@@ -933,12 +936,15 @@ export class PullRequestInbox {
         // New human feedback is new evidence on the same head. It resets an exhausted no-progress budget.
         const actor = payload.sender ?? payload.comment?.user ?? payload.review?.user
         const human = String(actor?.type ?? '').toLowerCase() === 'user' && !this.activityAuthors.has(String(actor?.login ?? '').toLowerCase())
-        if (changed && human && ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event) && s.progressBudget?.exhausted) {
+        const feedbackEvent = ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event)
+        if (changed && human && feedbackEvent && s.progressBudget?.exhausted) {
           s.progressBudget = { ...s.progressBudget, count: 0, exhausted: false, resetReason: `${event}:${payload.sender?.login ?? 'unknown'}` }
         }
+        else if (changed && feedbackEvent && String(actor?.type ?? '').toLowerCase() === 'bot'
+          && !this.activityAuthors.has(String(actor?.login ?? '').toLowerCase())) this.grantProgress(s, 'bot-feedback')
         if (wake) this.dirty(s, `${event}:${payload.action ?? check?.conclusion ?? payload.state ?? 'updated'}`)
-        if (changed && human && ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event)) s.humanFeedbackGeneration = s.generation
         else if (changed) s.revision = (s.revision ?? 0) + 1
+        if (changed && human && feedbackEvent) s.humanFeedbackGeneration = s.generation
         const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha
         const eligible = this.eligible(repository, s.pr)
         if (s.pr && !eligible) {
@@ -998,9 +1004,11 @@ export class PullRequestInbox {
         if (s.pr && stamp(pr) < stamp(s.pr)) return false
         patch = { ...patch, pr }
       }
+      const before = s.pr
       Object.assign(s, patch)
+      if (patch.pr && before && before.head?.sha === s.pr?.head?.sha && conflicted(s.pr) && !conflicted(before)) this.grantProgress(s, 'conflict')
       if (s.pr && !this.eligible(s.repository, s.pr)) s.status = 'terminal'
-      await this.put(tx, s); Object.assign(claim.snapshot, patch, { status: s.status }); return true
+      await this.put(tx, s); Object.assign(claim.snapshot, patch, { status: s.status, progressBudget: s.progressBudget }); return true
     })
   }
   async refreshThreads(observed: Snapshot, threads: GitHubReviewThread[]): Promise<boolean> {
@@ -1167,6 +1175,15 @@ export class PullRequestInbox {
   private recordRejectedProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     if ((s.humanFeedbackGeneration ?? 0) <= claim.generation) this.recordProgress(s, claim, progress)
   }
+  /**
+   * An exhausted head gets one more pass for new evidence that a pass can act on: a new merge
+   * conflict, or new bot feedback. Each kind is granted once per head. A person's feedback resets the budget instead.
+   */
+  private grantProgress(s: Snapshot, grant: ProgressGrant): void {
+    const budget = s.progressBudget
+    if (!budget?.exhausted || budget.head !== s.pr?.head?.sha || budget.grants?.includes(grant)) return
+    s.progressBudget = { ...budget, count: budget.limit - 1, exhausted: false, resetReason: grant, grants: [...budget.grants ?? [], grant] }
+  }
   private recordProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const head = s.pr?.head?.sha
     if (progress?.kind === 'verified') requireEvidence(progress.evidence)
@@ -1179,7 +1196,7 @@ export class PullRequestInbox {
       s.progressBudget = { head, limit, count, exhausted: count >= limit,
         evidence: verified ? progress.evidence : previous?.evidence,
         creditedEvidence: verified ? [...creditedEvidence, progress.evidence] : creditedEvidence,
-        resetReason: previous?.resetReason }
+        resetReason: previous?.resetReason, ...(previous?.grants ? { grants: previous.grants } : {}) }
     }
   }
   /** Waiting PRs that received events since the host last evaluated their wait. */

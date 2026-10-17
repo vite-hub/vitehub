@@ -132,7 +132,7 @@ test('exhausted same-head deliveries persist feedback and closure without queuei
   assert.equal((await inbox.claim(1)).length, 0)
 })
 
-test('a person commenting on an exhausted head resets its budget; bots do not', async t => {
+test('a person commenting on an exhausted head resets its budget; a bot gives one more pass', async t => {
   const inbox = memory(t); await inbox.seed(repository, pr())
   for (let index = 0; index < 3; index++) {
     await wake(inbox, index)
@@ -142,7 +142,11 @@ test('a person commenting on an exhausted head resets its budget; bots do not', 
     repository: { full_name: repository }, issue: { number: 7, pull_request: {} }, sender: { login, type },
     comment: { id, body: `feedback ${id}`, user: { login, type } },
   })
-  assert.deepEqual((await comment(20, 'review-bot[bot]', 'Bot')).queued, [])
+  assert.deepEqual((await comment(20, 'review-bot[bot]', 'Bot')).queued, [7])
+  const granted = (await inbox.claim(1))[0]!
+  assert.equal(granted.snapshot.progressBudget?.count, 2)
+  await inbox.finish(granted, { text: 'waiting', progress: { kind: 'no-progress' } })
+  assert.deepEqual((await comment(22, 'review-bot[bot]', 'Bot')).queued, [])
   assert.equal((await inbox.claim(1)).length, 0)
   assert.deepEqual((await comment(21, 'maintainer', 'User')).queued, [7])
   const budget = (await inbox.get(repository, 7))?.progressBudget
@@ -358,4 +362,41 @@ test('a pass whose wait loses to a new event on the same head still uses the no-
   }
   assert.deepEqual((await inbox.get(repository, 7))?.progressBudget, { head: 'a', limit: 3, count: 3, exhausted: true, creditedEvidence: [] })
   assert.equal((await inbox.claim(1)).length, 0)
+})
+
+async function exhaust(inbox: PullRequestInbox) {
+  for (let index = 0; index < 3; index++) {
+    await wake(inbox, 900 + index)
+    await inbox.finish((await inbox.claim(1))[0]!, { text: 'waiting', progress: { kind: 'no-progress' } })
+  }
+  assert.equal((await inbox.get(repository, 7))?.progressBudget?.exhausted, true)
+}
+
+test('a new merge conflict gives an exhausted head one more pass, once', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  await exhaust(inbox)
+  await inbox.seed(repository, { ...pr(), mergeable: false, mergeable_state: 'dirty' })
+  const [claim] = await inbox.claim(1)
+  assert.ok(claim, 'the conflict is claimed for a pass')
+  assert.deepEqual(claim.snapshot.progressBudget?.grants, ['conflict'])
+  await inbox.finish(claim, { text: 'Conflict needs a person', progress: { kind: 'no-progress' } })
+  assert.equal((await inbox.get(repository, 7))?.progressBudget?.exhausted, true)
+  // The conflict clears and returns on the same head: the grant is spent.
+  await inbox.seed(repository, { ...pr(), mergeable: true, mergeable_state: 'clean' })
+  await inbox.seed(repository, { ...pr(), mergeable: false, mergeable_state: 'dirty' })
+  assert.equal((await inbox.claim(1)).length, 0)
+})
+
+test('new bot feedback gives an exhausted head one more pass, once', async t => {
+  const inbox = memory(t); await inbox.seed(repository, pr())
+  await exhaust(inbox)
+  const review = (id: number) => ({ repository: { full_name: repository }, action: 'submitted', pull_request: pr(),
+    sender: { login: 'pullfrog[bot]', type: 'Bot' }, review: { id, body: `Finding ${id}`, user: { login: 'pullfrog[bot]', type: 'Bot' }, state: 'COMMENTED', commit_id: 'a' } })
+  await inbox.ingest('bot-review-1', 'pull_request_review', review(1))
+  const [claim] = await inbox.claim(1)
+  assert.ok(claim, 'the bot feedback is claimed for a pass')
+  await inbox.finish(claim, { text: 'Assessed', progress: { kind: 'no-progress' } })
+  await inbox.ingest('bot-review-2', 'pull_request_review', review(2))
+  assert.equal((await inbox.claim(1)).length, 0)
+  assert.deepEqual((await inbox.get(repository, 7))?.progressBudget?.grants, ['bot-feedback'])
 })
