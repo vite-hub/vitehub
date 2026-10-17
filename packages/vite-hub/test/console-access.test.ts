@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { runInNewContext } from "node:vm"
 
 import { DatabaseSync } from "node:sqlite"
 
@@ -21,6 +22,7 @@ import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleOptions
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
+import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import type { ConsoleAccess, ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
@@ -37,7 +39,7 @@ async function run(policy: ConsoleAccessPolicy | undefined, request = event()) {
   if (policy) installConsoleAccess(policy)
   else Reflect.deleteProperty(globalThis, policyKey)
   const handler = vi.fn((_event: ConsoleRequestEvent, access: ConsoleAccess) => access)
-  const result = await withConsoleAccess(handler, { anySection: true })(request)
+  const result = await withConsoleAccess(handler)(request)
   return { handler, result }
 }
 
@@ -81,9 +83,101 @@ describe("Console data route contract", () => {
 })
 
 describe("Console access policies", () => {
-  it("requires console.auth instead of the removed access and exposure keys", () => {
-    expect(() => resolveConsoleOptions({ access: "auth" })).toThrow(/console\.auth is required/)
-    expect(() => resolveConsoleOptions({ exposure: "host-managed", authorize: "authorize.ts" })).toThrow(/console\.auth is required/)
+  it("accepts access callbacks created in another runtime realm", async () => {
+    const authorize = runInNewContext("({ request }) => request.headers.get('x-role') === 'admin'") as unknown as ConsoleAuthorize
+    const handler = runInNewContext("(_event, access) => access.mode") as (_event: ConsoleRequestEvent, access: ConsoleAccess) => string
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    await expect(withConsoleAccess(handler, { anySection: true })(event({ "x-role": "admin" }))).resolves.toBe("open")
+  })
+
+  it("accepts section results created in another runtime realm", async () => {
+    const authorize = runInNewContext("() => ({ sections: ['content'] })") as unknown as ConsoleAuthorize
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess((_event, access) => access.sections, { section: "content" })(event())
+
+    expect(result).toEqual(["content"])
+  })
+
+  it("preserves genuine responses and rejects spoofed response-shaped values", async () => {
+    const authorize = runInNewContext("() => new Response('Sign in elsewhere.', { status: 401 })", { Response }) as unknown as ConsoleAuthorize
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 401 })
+    await expect((result as Response).text()).resolves.toBe("Sign in elsewhere.")
+
+    const spoofed = await run({ mode: "open", authorize: () => ({ [Symbol.toStringTag]: "Response", status: 401, text: () => Promise.resolve("spoofed") }) as unknown as Response })
+    expect(spoofed.handler).not.toHaveBeenCalled()
+    await expect(rejection(spoofed.result)).resolves.toMatchObject({ status: 403 })
+
+    const inheritedGetter = await run({ mode: "open", authorize: () => Object.create({ get status() { return 401 } }) as Response })
+    expect(inheritedGetter.handler).not.toHaveBeenCalled()
+    await expect(rejection(inheritedGetter.result)).resolves.toMatchObject({ status: 403 })
+
+    const completeSpoof = Object.create({
+      [Symbol.toStringTag]: "Response",
+      get status() { return 401 },
+      get statusText() { return "Unauthorized" },
+      get headers() { return new Headers() },
+      get bodyUsed() { return false },
+      get body() { return null },
+      clone() { return this },
+      arrayBuffer() { return new ArrayBuffer(0) },
+    }) as Response
+    const spoofedPrototype = await run({ mode: "open", authorize: () => completeSpoof })
+    expect(spoofedPrototype.handler).not.toHaveBeenCalled()
+    await expect(rejection(spoofedPrototype.result)).resolves.toMatchObject({ status: 403 })
+  })
+
+  it("preserves genuine Response subclasses", async () => {
+    class CustomResponse extends Response {}
+    const authorize = () => new CustomResponse("Subclass response.", { status: 202 })
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 202 })
+    await expect((result as Response).text()).resolves.toBe("Subclass response.")
+  })
+
+  it("ignores overridden clone methods on genuine responses", async () => {
+    class SpoofedCloneResponse extends Response {
+      override clone(): Response {
+        return { arrayBuffer: () => Promise.resolve(new TextEncoder().encode("spoofed").buffer) } as unknown as Response
+      }
+    }
+    const authorize = () => new SpoofedCloneResponse("Original.", { status: 401 })
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 401 })
+    await expect((result as Response).text()).resolves.toBe("Original.")
+  })
+
+  it("rejects a consumed response from another runtime realm", async () => {
+    const authorize = runInNewContext("async () => { const response = new Response('Consumed.', { status: 401 }); await response.text(); return response }", { Response }) as unknown as ConsoleAuthorize
+
+    installConsoleAccess({ mode: "open", authorize: defineConsoleAuthorize(authorize) })
+    const result = await withConsoleAccess(() => "unreachable", { anySection: true })(event())
+
+    expect(result).toMatchObject({ status: 500 })
+    await expect((result as Response).json()).resolves.toMatchObject({ status: 500 })
+  })
+
+  it("rejects unknown legacy access and exposure values", () => {
+    expect(() => resolveConsoleOptions({ access: "authz" })).toThrow(/console\.access/)
+    expect(() => resolveConsoleOptions({ exposure: "prod" })).toThrow(/console\.exposure/)
+  })
+
+  it("keeps legacy host-managed exposure out of app-auth validation", () => {
+    expect(resolveConsoleOptions({ exposure: "host-managed", authorize: "authorize.ts" })).toMatchObject({
+      auth: false,
+      exposure: "host-managed",
+    })
   })
 
   it("fails closed when no policy is installed", async () => {
@@ -94,32 +188,36 @@ describe("Console access policies", () => {
 
   it("keeps the local development Console open and fails closed in production", async () => {
     const allowed = await run({ mode: "local" })
-    expect(allowed.result).toEqual({ mode: "local", sections: "all" })
+    expect(allowed.result).toEqual({ mode: "local" })
     expect(Object.isFrozen(allowed.result)).toBe(true)
 
     vi.stubEnv("NODE_ENV", "production")
     const denied = await run({ mode: "local" })
     expect(denied.handler).not.toHaveBeenCalled()
-    await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", fix: expect.stringContaining("For production"), message: expect.stringContaining("development-only"), status: 403 })
+    await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", fix: expect.stringContaining("host-managed"), message: expect.stringContaining("development-only"), status: 403 })
   })
 
-  it("runs console.authorize for open access", async () => {
+  it("requires the host authorize function for host-managed exposure", async () => {
+    const missing = await run({ mode: "host-managed" })
+    expect(missing.handler).not.toHaveBeenCalled()
+    await expect(rejection(missing.result)).resolves.toMatchObject({ code: "CONSOLE_AUTHORIZE_REQUIRED", fix: expect.stringContaining("defineConsoleAuthorize()"), message: expect.stringContaining("requires console.authorize"), status: 500 })
+
     const authorize = vi.fn(({ request }: { request: Request }) => request.headers.get("x-role") === "admin")
-    const denied = await run({ mode: "open", authorize })
+    const denied = await run({ mode: "host-managed", authorize })
     expect(denied.handler).not.toHaveBeenCalled()
     await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", status: 403 })
 
-    const allowed = await run({ mode: "open", authorize }, event({ "x-role": "admin" }))
-    expect(allowed.result).toEqual({ mode: "open", sections: "all" })
+    const allowed = await run({ mode: "host-managed", authorize }, event({ "x-role": "admin" }))
+    expect(allowed.result).toEqual({ mode: "host-managed" })
     expect(authorize).toHaveBeenLastCalledWith({ request: expect.any(Request) })
 
-    const custom = await run({ mode: "open", authorize: () => new Response("Sign in at the host.", { status: 401 }) })
+    const custom = await run({ mode: "host-managed", authorize: () => new Response("Sign in at the host.", { status: 401 }) })
     expect(custom.handler).not.toHaveBeenCalled()
     expect(custom.result).toBeInstanceOf(Response)
     await expect(Response.prototype.text.call(custom.result)).resolves.toBe("Sign in at the host.")
 
-    const defined = await run({ mode: "open", authorize: defineConsoleAuthorize(() => true) })
-    expect(defined.result).toEqual({ mode: "open", sections: "all" })
+    const defined = await run({ mode: "host-managed", authorize: defineConsoleAuthorize(() => true) })
+    expect(defined.result).toEqual({ mode: "host-managed" })
   })
 
   it("checks the Auth Session and fails closed without an Auth Definition", async () => {
@@ -135,7 +233,7 @@ describe("Console access policies", () => {
     const request = event()
     const allowed = await run({ mode: "cloudflare-access", check }, request)
     expect(check).toHaveBeenCalledWith(request)
-    expect(allowed.result).toEqual({ mode: "cloudflare-access", sections: "all" })
+    expect(allowed.result).toEqual({ mode: "cloudflare-access" })
   })
 
   it("checks a real Console Auth Session with withAuthorization()", async () => {
@@ -169,7 +267,7 @@ describe("Console access policies", () => {
         mode: "auth",
         check: async request => request.req instanceof Request ? authorizeConsole(request.req) : new Response(null, { status: 400 }),
       })
-      const route = withConsoleAccess(() => "workspace file", { anySection: true })
+      const route = withConsoleAccess(() => "workspace file")
       const call = (cookie?: string) => route({
         method: "GET",
         req: new Request("https://example.com/_vitehub/rpc/__call", { headers: cookie ? { cookie } : {} }),
@@ -188,7 +286,7 @@ describe("Console access policies", () => {
 
   it("rejects invalid policies", () => {
     expect(() => installConsoleAccess(JSON.parse('{"mode":"public"}'))).toThrow("known access mode")
-    expect(() => installConsoleAccess({ mode: "open", authorize: JSON.parse('"server/authorize.ts"') })).toThrow("default-export a function")
+    expect(() => installConsoleAccess({ mode: "host-managed", authorize: JSON.parse('"server/authorize.ts"') })).toThrow("default-export a function")
     expect(() => defineConsoleAuthorize(JSON.parse("true"))).toThrow("requires a function")
   })
 })
@@ -205,13 +303,13 @@ describe("Console access grants", () => {
   })
 
   it("rejects a forged access for an internal Console event", () => {
-    const forged: ConsoleAccess = Object.freeze({ mode: "local", sections: "all" })
+    const forged: ConsoleAccess = Object.freeze({ mode: "local" })
     expect(() => bindConsoleAccess(forged, event())).toThrow("not created by the access check")
   })
 
   it("does not run RPC operations with a forged access", async () => {
     installConsoleSections("/console-access", ["agents"])
-    const forged: ConsoleAccess = Object.freeze({ mode: "local", sections: "all" })
+    const forged: ConsoleAccess = Object.freeze({ mode: "local" })
     const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
       body: JSON.stringify({ input: {}, method: consoleRpcMethods.sections }),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
@@ -228,9 +326,9 @@ describe("Console access grants", () => {
     const outer = withConsoleAccess(async (_event: ConsoleRequestEvent, access: ConsoleAccess) => {
       const internal = bindConsoleAccess(access, { method: "GET" })
       expect(() => bindConsoleAccess(access, internal)).toThrow("already bound")
-      return withConsoleAccess(inner, { anySection: true })(internal)
-    }, { anySection: true })
-    await expect(outer(event())).resolves.toEqual({ mode: "auth", sections: "all" })
+      return withConsoleAccess(inner)(internal)
+    })
+    await expect(outer(event())).resolves.toEqual({ mode: "auth" })
     expect(check).toHaveBeenCalledTimes(1)
     expect(inner).toHaveBeenCalledTimes(1)
   })
@@ -242,7 +340,7 @@ describe("Connections manager from Console access", () => {
   }
 
   it.each([
-    { name: "open with authorize", policy: { mode: "open", authorize: () => true }, actor: "user:host-managed" },
+    { name: "host-managed allows", policy: { mode: "host-managed", authorize: () => true }, actor: "user:host-managed" },
     { name: "cloudflare-access", policy: { mode: "cloudflare-access", check: async () => undefined }, actor: "user:cloudflare-access" },
     { name: "local", policy: { mode: "local" }, actor: "user:local" },
     { name: "auth with a session", policy: { mode: "auth", check: async () => undefined }, session: "user:ada", actor: "user:ada" },
@@ -252,7 +350,8 @@ describe("Connections manager from Console access", () => {
   })
 
   it.each([
-    { name: "authorize denies", policy: { mode: "open", authorize: () => false }, status: 403, code: "CONSOLE_ACCESS_DENIED" },
+    { name: "host-managed denies", policy: { mode: "host-managed", authorize: () => false }, status: 403, code: "CONSOLE_ACCESS_DENIED" },
+    { name: "host-managed without authorize", policy: { mode: "host-managed" }, status: 500, code: "CONSOLE_AUTHORIZE_REQUIRED" },
     { name: "auth without a session user id", policy: { mode: "auth", check: async () => undefined }, status: 403, code: "CONSOLE_MANAGER_REQUIRED" },
   ] satisfies Array<{ name: string, policy: ConsoleAccessPolicy, status: number, code: string }>)("returns the Console diagnostic when it denies the manager: $name", async ({ policy, status, code }) => {
     installConsoleAccess(policy)
@@ -267,7 +366,7 @@ describe("Connections manager from Console access", () => {
   })
 
   it("reports section-scoped access denial separately from missing manager identity", async () => {
-    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["agents"] }) })
+    installConsoleAccess({ mode: "host-managed", authorize: () => ({ sections: ["agents"] }) })
     await expect(rejection(await consoleConnectionsActor(connectionsEvent()))).resolves.toMatchObject({
       code: "CONSOLE_ACCESS_DENIED",
       status: 403,
@@ -294,9 +393,9 @@ describe("Connections manager from Console access", () => {
     expect(runtime).not.toHaveBeenCalled()
   })
 
-  it("runs Connections routes only after the authorize function", async () => {
+  it("runs Connections routes only after the host-managed authorize function", async () => {
     const authorize = vi.fn(({ request }: { request: Request }) => request.headers.get("x-admin") === "1")
-    installConsoleAccess({ mode: "open", authorize })
+    installConsoleAccess({ mode: "host-managed", authorize })
     // No Connection Definitions, so `list` never opens the store.
     const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
     const call = (headers: Record<string, string>) => {
@@ -344,17 +443,24 @@ describe("generated Console access", () => {
     await expect(generatedPlugin({}, "serve")).resolves.toContain('installConsoleAccess({ mode: "local" })')
   })
 
-  it("imports console.authorize for open access", async () => {
-    const plugin = await generatedPlugin({ console: { auth: false, authorize: hostManagedAuthorize } }, "build")
+  it("imports console.authorize for host-managed exposure", async () => {
+    const plugin = await generatedPlugin({ console: { authorize: hostManagedAuthorize, exposure: "host-managed" } }, "build")
     expect(plugin).toContain(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(hostManagedAuthorize).href)}`)
-    expect(plugin).toContain('installConsoleAccess({ mode: "open", authorize: vitehubConsoleAuthorize })')
-    await expect(generatedPlugin({ console: { auth: false, authorize: "missing-authorize.ts" } }, "serve"))
+    expect(plugin).toContain('installConsoleAccess({ mode: "host-managed", authorize: vitehubConsoleAuthorize })')
+  })
+
+  it("fails closed without console.authorize for host-managed exposure", async () => {
+    const development = await generatedPlugin({ console: JSON.parse('{"exposure":"host-managed"}') }, "serve")
+    expect(development).toContain('installConsoleAccess({ mode: "host-managed" })')
+    expect(() => assertConsoleProductionAccess(JSON.parse('{"exposure":"host-managed"}'), { development: false }))
+      .toThrow("requires console.authorize")
+    await expect(generatedPlugin({ console: { authorize: "missing-authorize.ts", exposure: "host-managed" } }, "serve"))
       .rejects.toThrow("console.authorize file does not exist")
   })
 
   it("checks the Primary Auth access routes that protect the Console", async () => {
     const plugin = await generatedPlugin({
-      console: { auth: "app" },
+      console: { access: "auth" },
       resolveAuthConfig: () => appAuth([
         { route: "/api/**" },
         { authorize: true, route: "/_vitehub/**" },
@@ -369,7 +475,7 @@ describe("generated Console access", () => {
 
   it("accepts exact GET rules for the registered Console API endpoints", async () => {
     const plugin = await generatedPlugin({
-      console: { auth: "app" },
+      console: { access: "auth" },
       sections: ["agents", "usage"],
       resolveAuthConfig: () => appAuth([
         { authorize: true, route: "/_vitehub/**" },
@@ -383,7 +489,7 @@ describe("generated Console access", () => {
 
   it.each([undefined, "/portal/"])("accepts exact status access with base %s when Usage is not registered", (base) => {
     const prefix = base?.replace(/\/$/, "") ?? ""
-    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
+    expect(() => assertConsoleProductionAccess({ access: "auth" }, {
       auth: appAuth([
         { authorize: true, route: `${prefix}/_vitehub/**` },
         { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/status` },
@@ -399,14 +505,14 @@ describe("generated Console access", () => {
     { method: "GET", route: "/api/_vitehub/console/status" } as const,
     { authorize: true, method: "GET", route: "/api/_vitehub/console/status/child" } as const,
   ])("rejects a rule that does not authorize GET status: %j", (route) => {
-    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
+    expect(() => assertConsoleProductionAccess({ access: "auth" }, {
       auth: appAuth([{ authorize: true, route: "/_vitehub/**" }, route]),
       development: false,
     })).toThrow("/api/_vitehub/console/status")
   })
 
   it("requires separate Usage coverage when the Usage endpoint is registered", () => {
-    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
+    expect(() => assertConsoleProductionAccess({ access: "auth" }, {
       auth: appAuth([
         { authorize: true, route: "/_vitehub/**" },
         { authorize: true, method: "GET", route: "/api/_vitehub/console/status" },
@@ -417,7 +523,7 @@ describe("generated Console access", () => {
   })
 
   it("does not treat an exact Console shell rule as recursive protection", () => {
-    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
+    expect(() => assertConsoleProductionAccess({ access: "auth" }, {
       auth: appAuth([
         { authorize: true, route: "/_vitehub" },
         { authorize: true, method: "GET", route: "/api/_vitehub/console/**" },
@@ -426,7 +532,7 @@ describe("generated Console access", () => {
     })).toThrow("/_vitehub/**")
   })
 
-  it("rejects app Auth access without a discovered Auth Definition", async () => {
-    await expect(generatedPlugin({ console: { auth: "app" } }, "serve")).rejects.toThrow("requires a discovered ViteHub Auth Definition")
+  it("fails closed for Auth access without a discovered Auth Definition", async () => {
+    await expect(generatedPlugin({ console: { access: "auth" } }, "serve")).resolves.toContain('installConsoleAccess({ mode: "auth" })')
   })
 })
