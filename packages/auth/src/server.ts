@@ -579,10 +579,24 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const body: unknown = Reflect.get(candidate, "body")
     const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
     const type: unknown = Reflect.get(candidate, "type")
+    let nativeResponseState = false
+    if (value instanceof Response) {
+      try {
+        const responseGetters = ["status", "statusText", "headers", "body", "bodyUsed", "type"] as const
+        const responseValues = [status, statusText, headers, body, bodyUsed, type]
+        nativeResponseState = responseGetters.every((key, index) => {
+          const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+          return getter !== undefined && Reflect.apply(getter, candidate, []) === responseValues[index]
+        })
+      }
+      catch {
+        nativeResponseState = false
+      }
+    }
     // Response.error() is the one valid status-zero response. Preserve it before
     // applying ordinary HTTP status validation; reconstructing it with Response
     // would reject status 0 and lose its error type.
-    if (status === 0 && statusText === "" && body === null && type === "error") {
+    if (status === 0 && statusText === "" && body === null && type === "error" && nativeResponseState) {
       return value instanceof Response ? value as Response : Response.error()
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
@@ -635,8 +649,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
     const cookies: unknown = getSetCookie ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
-    // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
-    if (typeof getSetCookie !== "function" && Reflect.apply(Reflect.get(headerCarrier, "get"), headers, ["set-cookie"]) !== null) return
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
