@@ -447,6 +447,9 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       if (config.command === "build") assertDriverSdksInstalled(blobConfig.blob, cloudflare)
       const provider = hosting === "cloudflare" || hosting === "vercel" ? hosting : undefined
       siblingRuntime = createSiblingRuntimeContribution(rootDir, runtimeConfig.blob, provider)
+      if (siblingRuntime) {
+        contributeProviderRuntime(useProviderOutputCatalog(config), siblingRuntime)
+      }
       await refreshBlobGeneratedFiles(
         rootDir,
         runtimeConfig.blob,
