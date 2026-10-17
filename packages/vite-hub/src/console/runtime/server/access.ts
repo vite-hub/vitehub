@@ -247,6 +247,14 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
     // local response from bytes so independently implemented Fetch realms work.
     if (!("arrayBuffer" in clone) || typeof clone.arrayBuffer !== "function") return invalidAuthorizationResponse
     const body = await Reflect.apply(clone.arrayBuffer, clone, [])
+    // Fetch's arrayBuffer() must return an actual ArrayBuffer. Calling the
+    // intrinsic accessor checks its internal slot and rejects plain spoof data.
+    try {
+      ArrayBuffer.prototype.byteLength.call(body)
+    }
+    catch {
+      return invalidAuthorizationResponse
+    }
     return value.body === null ? new Response(null, init) : new Response(body as ArrayBuffer, init)
   }
   catch {
