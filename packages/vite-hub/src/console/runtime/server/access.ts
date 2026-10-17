@@ -113,9 +113,19 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
         if (!(cloned instanceof constructor)) return
         Reflect.apply(foreignStatus, cloned, [])
         const bytes = await Reflect.apply(foreignArrayBuffer, cloned, [])
-        if (!(bytes instanceof ArrayBuffer)) return
+        // `arrayBuffer()` creates the buffer in the response's realm, so a
+        // current-realm `instanceof ArrayBuffer` check rejects valid foreign
+        // responses. The typed-array constructor performs the cross-realm
+        // internal-slot check and gives us bytes that `Response` can consume.
+        let normalizedBytes: Uint8Array
+        try {
+          normalizedBytes = new Uint8Array(bytes)
+        }
+        catch {
+          return
+        }
         const body = Reflect.apply(foreignBody, value, [])
-        return new Response(body === null ? null : bytes, { headers: new Headers(headers), status, statusText })
+        return new Response(body === null ? null : normalizedBytes, { headers: new Headers(headers), status, statusText })
       }
       prototype = Object.getPrototypeOf(prototype)
     }
