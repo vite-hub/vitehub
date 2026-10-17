@@ -50,8 +50,12 @@ export interface ViteHubInspectionContributingPlugin {
 async function collectContributors(plugins: readonly unknown[]): Promise<ViteHubInspectionContributor[]> {
   const contributors: ViteHubInspectionContributor[] = []
   for (const plugin of plugins) {
-    if (!plugin || typeof plugin !== "object") continue
-    const value = (plugin as ViteHubInspectionContributingPlugin).vitehub?.inspect
+    if (!plugin || typeof plugin !== "object" || !Object.hasOwn(plugin, "vitehub")) continue
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The object guard establishes the plugin shape before reading its own metadata.
+    const metadata = (plugin as ViteHubInspectionContributingPlugin).vitehub
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate opaque plugin metadata before invoking inspection contributors.
+    if (!metadata || typeof metadata !== "object" || !Object.hasOwn(metadata, "inspect")) continue
+    const value = metadata.inspect
     const contributor = typeof value === "function" ? await value() : value
     if (contributor) contributors.push(contributor)
   }

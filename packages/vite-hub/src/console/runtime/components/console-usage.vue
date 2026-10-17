@@ -5,6 +5,7 @@ import * as v from "valibot";
 import { useRoute, useRouter } from "vue-router";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { requestConsole } from "../client/request";
+import ConsoleState from "./console-state.vue";
 import ConsoleUsageChart from "./console-usage-chart.vue";
 import ConsoleUsageModelDetail from "./console-usage-model-detail.vue";
 import ConsoleUsageShareBar from "./console-usage-share-bar.vue";
@@ -454,7 +455,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           <USelect v-model="selectedAgent" :items="agentOptions" value-key="value" aria-label="Agent" size="sm" class="w-40 max-w-full" />
           <USelect v-model="status" :items="statusOptions" value-key="value" aria-label="Session status" size="sm" class="w-36" />
         </div>
-        <UAlert v-if="errorMessage(error)" color="error" variant="subtle" title="Could not load session history" :description="errorMessage(error)" :actions="[{ label: 'Try again', onClick: load }]" />
+        <ConsoleState v-if="error" compact :error="error" title="Could not load session history" :retry="load" />
         <p v-if="summary?.partial" class="flex items-start gap-2 text-xs text-muted" role="status">
           <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           Some usage is unavailable. Recorded totals include only the evidence received.
