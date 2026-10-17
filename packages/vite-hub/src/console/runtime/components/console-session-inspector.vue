@@ -6,7 +6,6 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
 import ConsoleState from "./console-state.vue";
-import ConsoleWorkspaceHistory from "./console-workspace-history.vue";
 import { matchesWorkspaceFile } from "./console-workspace-file";
 import { useConsoleWordWrap } from "./console-wrap";
 import { requestConsole } from "../client/request";
@@ -14,30 +13,12 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 type InspectorTab = "details" | "trace" | "workspace" | "capabilities" | "diff";
 type WorkspaceDescriptor = {
-  history?: WorkspaceHistoryPage;
   paths: string[];
   pullRequest?: number;
   repository: string;
   revision: string;
 };
 type WorkspaceFile = { content: string; path: string; provenance?: { source: string }; revision: string; size: number };
-type WorkspaceRevision = {
-  bytes: number;
-  createdAt: string;
-  files: number;
-  id: string;
-  message?: string;
-  metadata?: Record<string, unknown>;
-  parentId: string | null;
-  ref: string;
-};
-type WorkspaceHistoryRef = { head: WorkspaceRevision; name: string };
-type WorkspaceHistoryPage = {
-  cursor?: string;
-  ref?: string;
-  refs: WorkspaceHistoryRef[];
-  revisions?: WorkspaceRevision[];
-};
 
 const props = withDefaults(
   defineProps<{
@@ -54,19 +35,12 @@ const activeSurface = defineModel<string>("activeSurface", { default: "" });
 const openViews = defineModel<InspectorTab[]>("openViews", { default: () => [] });
 const openPaths = defineModel<string[]>("openPaths", { default: () => [] });
 const selectedPath = defineModel<string | undefined>("selectedPath");
-const selectedRevision = ref<string>();
 const workspace = ref<WorkspaceDescriptor>();
-const workspaceError = ref<string>();
+const workspaceError = ref<unknown>();
 const workspaceLoading = ref(false);
 const file = ref<WorkspaceFile>();
 const fileError = ref<string>();
 const fileLoading = ref(false);
-const historyRef = ref<string>();
-const historyRefs = ref<WorkspaceHistoryRef[]>([]);
-const historyRevisions = ref<WorkspaceRevision[]>([]);
-const historyCursor = ref<string>();
-const historyError = ref<string>();
-const historyLoading = ref(false);
 const viewMeta: Record<
   InspectorTab,
   { description: string; icon: string; label: string; shortcut: string }
@@ -137,12 +111,10 @@ const filesPanel = ref<HTMLElement>();
 let workspaceRequest: AbortController | undefined;
 let workspaceLoad: Promise<void> | undefined;
 let fileRequest: AbortController | undefined;
-let historyRequest: AbortController | undefined;
 
 onBeforeUnmount(() => {
   workspaceRequest?.abort();
   fileRequest?.abort();
-  historyRequest?.abort();
 });
 
 const workspaceLabel = computed(() =>
@@ -155,7 +127,6 @@ const workspaceLabel = computed(() =>
 const workspaceSources = computed(() => props.invocation.configuration?.workspace?.sources
   ?.map(source => source instanceof Object ? source.id : source)
   .join(" · "));
-const historyAvailable = computed(() => historyRefs.value.length > 0);
 const breadcrumbs = computed(() => selectedPath.value?.split("/") ?? []);
 type InspectorSurfaceItem = TabsItem & {
   icon: string;
@@ -225,14 +196,6 @@ watch(
     file.value = undefined;
     fileError.value = undefined;
     fileLoading.value = false;
-    historyRequest?.abort();
-    historyRef.value = undefined;
-    historyRefs.value = [];
-    historyRevisions.value = [];
-    historyCursor.value = undefined;
-    historyError.value = undefined;
-    historyLoading.value = false;
-    selectedRevision.value = undefined;
     if (!props.workspaceBase) {
       openViews.value = openViews.value.filter((view) => view !== "workspace");
       openPaths.value = [];
@@ -390,14 +353,6 @@ function fileName(path: string) {
   return path.split("/").at(-1) || path;
 }
 
-function workspaceEndpoint(query: Record<string, string | undefined> = {}) {
-  const url = `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace`;
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) if (value !== undefined) params.set(key, value);
-  const search = params.toString();
-  return search ? `${url}?${search}` : url;
-}
-
 async function loadWorkspace() {
   if (workspaceLoad) return workspaceLoad;
   const load = requestWorkspace();
@@ -418,15 +373,17 @@ async function requestWorkspace() {
   workspaceError.value = undefined;
   try {
     const loadedWorkspace = parseWorkspaceDescriptor(
-      await requestJson(workspaceEndpoint(), controller.signal),
+      await requestJson(
+        `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace`,
+        controller.signal,
+      ),
     );
     if (workspaceRequest !== controller) return;
     workspace.value = loadedWorkspace;
-    applyHistoryPage(loadedWorkspace.history);
     if (selectedPath.value) void loadFile(selectedPath.value);
   } catch (error) {
     if (!controller.signal.aborted) {
-      workspaceError.value = message(error);
+      workspaceError.value = error;
     }
   } finally {
     if (workspaceRequest === controller) {
@@ -434,90 +391,6 @@ async function requestWorkspace() {
       workspaceLoading.value = false;
     }
   }
-}
-
-async function loadRevision(revision: string) {
-  if (!props.workspaceBase) return;
-  workspaceRequest?.abort();
-  const controller = new AbortController();
-  workspaceRequest = controller;
-  workspaceLoading.value = true;
-  workspaceError.value = undefined;
-  try {
-    const loadedWorkspace = parseWorkspaceDescriptor(
-      await requestJson(workspaceEndpoint({ revision, ref: historyRef.value }), controller.signal),
-    );
-    if (workspaceRequest !== controller) return;
-    workspace.value = loadedWorkspace;
-    if (selectedPath.value && !loadedWorkspace.paths.includes(selectedPath.value)) {
-      selectedPath.value = undefined;
-      file.value = undefined;
-      fileError.value = undefined;
-    } else if (selectedPath.value) {
-      void loadFile(selectedPath.value);
-    }
-  } catch (error) {
-    if (!controller.signal.aborted) workspaceError.value = message(error);
-  } finally {
-    if (workspaceRequest === controller) {
-      workspaceRequest = undefined;
-      workspaceLoading.value = false;
-    }
-  }
-}
-
-async function selectHistoryRef(refName: string) {
-  historyRef.value = refName;
-  historyRevisions.value = [];
-  historyCursor.value = undefined;
-  await loadHistory(refName);
-  const head = historyRefs.value.find(item => item.name === refName)?.head.id;
-  if (head) {
-    selectedRevision.value = head;
-    await loadRevision(head);
-  }
-}
-
-async function selectHistoryRevision(revision: string | undefined) {
-  selectedRevision.value = revision;
-  if (revision) await loadRevision(revision);
-  else await loadWorkspace();
-}
-
-async function loadHistory(refName = historyRef.value, cursor?: string) {
-  if (!props.workspaceBase || !refName) return;
-  historyRequest?.abort();
-  const controller = new AbortController();
-  historyRequest = controller;
-  historyLoading.value = true;
-  historyError.value = undefined;
-  try {
-    const value = parseHistoryPage(
-      await requestJson(workspaceEndpoint({ history: "1", ref: refName, cursor }), controller.signal),
-    );
-    if (historyRequest !== controller) return;
-    historyRefs.value = value.refs;
-    historyRef.value = value.ref ?? refName;
-    historyRevisions.value = cursor
-      ? [...historyRevisions.value, ...(value.revisions ?? [])]
-      : value.revisions ?? [];
-    historyCursor.value = value.cursor;
-  } catch (error) {
-    if (!controller.signal.aborted) historyError.value = message(error);
-  } finally {
-    if (historyRequest === controller) {
-      historyRequest = undefined;
-      historyLoading.value = false;
-    }
-  }
-}
-
-function applyHistoryPage(page: WorkspaceHistoryPage | undefined) {
-  if (!page) return;
-  historyRefs.value = page.refs;
-  historyRef.value = page.ref ?? page.refs[0]?.name;
-  historyRevisions.value = page.revisions ?? [];
-  historyCursor.value = page.cursor;
 }
 
 async function loadFile(path: string) {
@@ -530,7 +403,10 @@ async function loadFile(path: string) {
   file.value = undefined;
   try {
     const loadedFile = parseWorkspaceFile(
-      await requestJson(workspaceEndpoint({ path, ref: historyRef.value, revision: selectedRevision.value }), controller.signal),
+      await requestJson(
+        `${props.workspaceBase}/${encodeURIComponent(props.invocation.id)}/workspace?path=${encodeURIComponent(path)}`,
+        controller.signal,
+      ),
     );
     if (!matchesWorkspaceFile(loadedFile, path, workspace.value))
       throw viteHubErrorDiagnostics.VITE_HUB_R0107({
@@ -576,49 +452,8 @@ function parseWorkspaceDescriptor(value: unknown): WorkspaceDescriptor {
     repository,
     revision,
   };
-  const history = parseHistoryPage(descriptor?.history, true);
-  if (history) result.history = history;
   if (pullRequest !== undefined) result.pullRequest = pullRequest;
   return result;
-}
-
-function parseHistoryPage(value: unknown, allowMissing = false): WorkspaceHistoryPage | undefined {
-  if (value === undefined && allowMissing) return undefined;
-  const page = record(value);
-  const rawRefs = page?.refs;
-  if (!Array.isArray(rawRefs)) {
-    if (allowMissing) return undefined;
-    throw viteHubErrorDiagnostics.VITE_HUB_R0108({ message: "The host returned an invalid Workspace history page." });
-  }
-  const refs = rawRefs.map(item => {
-    const ref = record(item);
-    const name = stringValue(ref?.name);
-    if (!name) throw viteHubErrorDiagnostics.VITE_HUB_R0108({ message: "The host returned an invalid Workspace history ref." });
-    return { name, head: parseWorkspaceRevision(ref?.head, name) };
-  });
-  const rawRevisions = page?.revisions;
-  const revisions = rawRevisions === undefined ? undefined : Array.isArray(rawRevisions)
-    ? rawRevisions.map(item => parseWorkspaceRevision(item, stringValue(page?.ref)))
-    : undefined;
-  if (rawRevisions !== undefined && revisions === undefined)
-    throw viteHubErrorDiagnostics.VITE_HUB_R0108({ message: "The host returned an invalid Workspace history page." });
-  const cursor = stringValue(page?.cursor);
-  const ref = stringValue(page?.ref);
-  return { refs, ...(ref ? { ref } : {}), ...(revisions ? { revisions } : {}), ...(cursor ? { cursor } : {}) };
-}
-
-function parseWorkspaceRevision(value: unknown, fallbackRef?: string): WorkspaceRevision {
-  const revision = record(value);
-  const id = stringValue(revision?.id);
-  const ref = stringValue(revision?.ref) ?? fallbackRef;
-  const parentId = revision?.parentId === null ? null : stringValue(revision?.parentId);
-  const createdAt = stringValue(revision?.createdAt);
-  const files = numericValue(revision?.files);
-  const bytes = numericValue(revision?.bytes);
-  if (!id || !ref || (parentId === undefined && revision?.parentId !== undefined) || !createdAt || files === undefined || bytes === undefined)
-    throw viteHubErrorDiagnostics.VITE_HUB_R0108({ message: "The host returned an invalid Workspace revision." });
-  const metadata = record(revision?.metadata);
-  return { id, ref, parentId, createdAt, files, bytes, ...(stringValue(revision?.message) ? { message: revision.message as string } : {}), ...(metadata ? { metadata } : {}) };
 }
 
 function parseWorkspaceFile(value: unknown): WorkspaceFile {
@@ -820,7 +655,7 @@ function message(error: unknown) {
         </section>
       </div>
     </div>
-    <div v-else class="session-inspector__workspace" :class="{ 'session-inspector__workspace--history': historyAvailable }">
+    <div v-else class="session-inspector__workspace">
       <div class="session-inspector__breadcrumbs">
         <span class="session-inspector__repository">{{
           workspace?.repository || "Workspace"
@@ -864,19 +699,6 @@ function message(error: unknown) {
           /></UTooltip>
         </div>
       </div>
-      <ConsoleWorkspaceHistory
-        v-if="historyAvailable"
-        :refs="historyRefs"
-        :revisions="historyRevisions"
-        :selected-ref="historyRef"
-        :selected-revision="selectedRevision"
-        :cursor="historyCursor"
-        :loading="historyLoading"
-        :error="historyError"
-        @select-ref="selectHistoryRef"
-        @select-revision="selectHistoryRevision"
-        @load-more="loadHistory(historyRef, historyCursor)"
-      />
       <div v-if="workspaceLoading && !selectedPath" class="session-inspector__state">
         <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading Workspace…
       </div>

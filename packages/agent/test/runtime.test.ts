@@ -6352,7 +6352,7 @@ describe("agent message protocol", () => {
         web: webChat({ messages: { triggerHistory: "none" } }),
       },
       driver: { run: () => "ok" },
-    })).toThrow("Channel-local messages options other than commentary, filter, meta, metaRevision, replyToSubscribedThreads, or stream are only supported when an Agent defines one message-shaped Channel")
+    })).toThrow("Channel-local messages options other than allowBots, commentary, filter, meta, metaRevision, replyToSubscribedThreads, or stream are only supported when an Agent defines one message-shaped Channel")
   })
 
   it("rejects channel-local identity across multiple message-shaped channels", async () => {

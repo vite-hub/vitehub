@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
+import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
@@ -140,6 +141,24 @@ function installEmailTemplateResolver(config: Record<string, unknown>, root: str
   const plugins = (rollupConfig.plugins ??= []) as Plugin[]
   if (!plugins.some(plugin => plugin.name === "vite-hub/nuxt-email-templates")) {
     plugins.push(emailTemplateResolver(root))
+  }
+}
+
+/**
+ * Generated Collection and Content modules import server files by `file://` URL. Nitro 2's externals plugin does not
+ * resolve those and leaves them external, so Node would load a second, unbundled copy of the server file.
+ */
+const nitroFileUrlResolver = {
+  name: "vite-hub/nitro-file-url",
+  resolveId: (source: string) => source.startsWith("file://") ? fileURLToPath(source) : null,
+}
+
+/** Nitro 2 runs user Rollup plugins before its own resolvers, so these see generated and cache imports first. */
+function installNitroBuildPlugins(config: Record<string, unknown>): void {
+  const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
+  const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
+  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver]) {
+    if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
 
@@ -1317,6 +1336,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     installNitroRuntimeResolvers(config, replayPlugins)
+    installNitroBuildPlugins(config)
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))
     }

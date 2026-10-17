@@ -67,6 +67,20 @@ concurrency modes use the same admission policy. The provider must deliver the
 messages first. For Teams, the Team app installation needs channel-message read
 permission and consent.
 
+## Ignore other bots
+
+Built-in chat Channels ignore messages from bot authors, including mentions and direct messages. Two bots that answer each other can loop without end. The Chat SDK already skips the Agent's own messages. Set `messages.allowBots: true` on the Agent or on one Channel to admit other bots:
+
+```ts
+teams({
+  messages: {
+    allowBots: true,
+  },
+})
+```
+
+An ignored bot message is recorded as a `rejected` Channel delivery. It does not reach `messages.filter`.
+
 ## Act on the Channel message in hooks
 
 The Channel defines the connector. The Agent reacts in its hooks. `agent:finish` and `agent:error` hooks receive `event.message`, a handle for the Channel message that started the Invocation.
@@ -462,7 +476,7 @@ Install the matching `@chat-adapter/*` package when a built-in Channel uses prov
 
 Built-in Channels read credentials from Server Env under `env.server.<channel>`. ViteHub discovers built-in Channel factories in Agent definitions and declares their fields automatically, so applications usually need no separate Env declaration. Explicit Channel options take precedence over Env values. Declare a field yourself when the host variable name or provider differs from the default.
 
-Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. Use the canonical name when the vendor name is taken, for example `VITEHUB_GITHUB_TOKEN` in CI. See [Server Env variable names](/docs/env/configure).
+Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. `github()`, `gitlab()` and `forgejo()` read the `VITEHUB_` name, then the `FORGES_` name of the [`forges`](https://forges.link/reference/environment-variables) library: `github()` reads `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. They do not read `GH_TOKEN` or `GITHUB_TOKEN`. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. See [Server Env variable names](/docs/env/configure).
 
 Use [Server Env](/docs/env) to inspect the discovered fields and their required or secret status. When a Channel is defined outside a discovered Agent file, declare its Env fields explicitly.
 

@@ -30,6 +30,7 @@ import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
+import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
@@ -183,7 +184,7 @@ function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
 const frameworkProviderImportAliases = Object.fromEntries(
   Object.entries(frameworkPackageManifest.exports)
     .filter(([subpath, target]) => subpath.startsWith("./") && packageExportImportTarget(target)?.endsWith(".js"))
-    .map(([subpath]): [string, string] => {
+    .map(([subpath]) => {
       const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
       return [specifier, fileURLToPath(import.meta.resolve(specifier))]
     })
@@ -590,7 +591,9 @@ function deploymentPlugins(
             ...cloneRecord(options.rateLimit === true ? undefined : options.rateLimit),
             ...cloneRecord((config as { rateLimit?: unknown }).rateLimit),
             namespace: name,
-            provider: plan.services.rateLimit.adapter,
+            // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
+            // default for `serve`: one in-memory limiter.
+            provider: building ? plan.services.rateLimit.adapter : "memory",
           }
         }
         if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
@@ -1163,6 +1166,8 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     importBase: "vite-hub/source",
   })
   plugins.push(sourcePlugin)
+  // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
+  plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,

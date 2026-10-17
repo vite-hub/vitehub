@@ -1,12 +1,13 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-import { Response as UndiciResponse } from "undici"
+import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
+import type { AuthRuntimeEnvResolver } from "./runtime-state.ts"
 
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
@@ -31,8 +32,6 @@ export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
 
-type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
-
 function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
   return Boolean(options && Object.keys(options).length > 0)
 }
@@ -48,10 +47,8 @@ function hasConfiguredPublicUrl(): boolean {
     && Boolean(__VITEHUB_PUBLIC_URL__?.url || Object.keys(__VITEHUB_PUBLIC_URL__?.agents ?? {}).length)
 }
 
-let authRuntimeEnvResolver: AuthRuntimeEnvResolver | undefined
-
 export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined): void {
-  authRuntimeEnvResolver = resolver
+  getAuthRuntimeState().envResolver = resolver
 }
 
 interface RequestInitWithDuplex extends RequestInit {
@@ -78,7 +75,7 @@ export function createAuthRequestRuntimeOptions(
   runtimeOptions: AuthRuntimeOptions = {},
   event?: unknown,
 ): AuthRuntimeOptions {
-  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).requestRuntimeOptions
+  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).requestRuntimeOptions
 }
 
 function resolveDefaultDefinition(): AuthDefinition {
@@ -92,7 +89,7 @@ export function createBetterAuthOptions(
   definition: AuthDefinition,
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
-  return resolveAuthOptions(definition, { runtimeOptions, env: authRuntimeEnvResolver }).providerOptions
+  return resolveAuthOptions(definition, { runtimeOptions, env: getAuthRuntimeState().envResolver }).providerOptions
 }
 
 function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
@@ -117,7 +114,7 @@ export function createAuthForRequest(
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): ViteHubAuth {
-  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).providerOptions) as ViteHubAuth
+  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).providerOptions) as ViteHubAuth
 }
 
 export function handleAuthRequest(
@@ -171,7 +168,7 @@ export function getAuthForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition)
   }
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).providerOptions)
+  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).providerOptions)
 }
 
 export async function assertAuthOrigin(
@@ -230,7 +227,7 @@ async function createSignInResponse(
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
   const origin = new URL(options.baseURL as string).origin
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
-  const basePath = normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)
+  const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
   const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
@@ -262,7 +259,7 @@ async function createSignInResponse(
 
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: authRuntimeEnvResolver })
+  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: getAuthRuntimeState().envResolver })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   return { auth, options, request, session }
@@ -274,6 +271,25 @@ type AuthCheck =
 
 function reject(response: Response): AuthCheck {
   return { response }
+}
+
+function responseGetter(value: object, property: string): (() => unknown) | undefined {
+  let prototype: object | null = value
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (descriptor?.get) return descriptor.get
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+}
+
+function responseMethod(value: object, property: string): ((this: object) => unknown) | undefined {
+  if (Object.prototype.hasOwnProperty.call(value, property)) return
+  let prototype: object | null = Object.getPrototypeOf(value) as object | null
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
 }
 
 async function runAccessAuthorize(
@@ -352,20 +368,14 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
 function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | false | undefined {
   if (body === null || typeof body !== "object") return
   try {
-    // Acquire the reader first so malformed body candidates are rejected by the
-    // intrinsic stream brand check before Fetch can coerce them during Response
-    // construction. This also validates the reader methods without dispatching
-    // any shadowed properties from the candidate stream.
+    if (Object.prototype.hasOwnProperty.call(body, "getReader")) return false
     const streamDescriptors = getNativeAuthorizationStreamDescriptors(body)
     if (!streamDescriptors) return false
     const getReader = streamDescriptors.getReader
-    if (typeof getReader !== "function") return false
     const reader = Reflect.apply(getReader, body, [])
     const methods = getNativeAuthorizationReaderMethods(reader)
     if (!methods) return false
     Reflect.apply(methods.releaseLock, reader, [])
-    // The owning stream intrinsic performs the brand check, including for
-    // streams created by another realm; retain that intrinsic for bridging.
     return getReader
   }
   catch {
@@ -383,26 +393,15 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 
 function getNativeAuthorizationStreamDescriptors(body: object) {
   try {
-    let current: object | null = body
-    const seen = new Set<object>()
-    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(current)) return
-      seen.add(current)
-      const getReader = Object.getOwnPropertyDescriptor(current, "getReader")
-      const locked = Object.getOwnPropertyDescriptor(current, "locked")
-      // The first stream carrier in the chain must own both native members.
-      // An interposed prototype that replaces either member is caller-controlled.
-      if (getReader || locked) {
-        if (typeof getReader?.value !== "function" || typeof locked?.get !== "function") return
-        // Native ReadableStream prototypes own their constructor and point it
-        // back at themselves. A forwarding/interposed prototype inherits that
-        // constructor (or otherwise points elsewhere), so reject it before any
-        // caller-supplied reader or lock accessor can be invoked.
-        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-        if (typeof constructor !== "function" || constructor.prototype !== current || constructor.name !== "ReadableStream") return
-        return { getReader: getReader.value as (this: object) => ReadableStreamDefaultReader<Uint8Array>, locked: locked.get as (this: object) => boolean }
-      }
-      current = Object.getPrototypeOf(current)
+    // Host ReadableStream intrinsics perform an internal-slot check that works
+    // across realms and cannot be forged by an interposed prototype.
+    const getReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
+    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    if (typeof getReader !== "function" || typeof locked !== "function") return
+    Reflect.apply(locked, body, [])
+    return {
+      getReader: getReader as (this: object) => ReadableStreamDefaultReader<Uint8Array>,
+      locked: locked as (this: object) => boolean,
     }
   }
   catch {
@@ -528,10 +527,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (!nativeField("status", status) || !nativeField("statusText", statusText)
       || !nativeField("headers", headers) || !nativeField("body", body)) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
-    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
+    // Response construction rejects bodies for these status codes. Check this
+    // before transferring a foreign stream so a rejected candidate retains
+    // ownership of its original body.
+    if (body !== null && (status === 204 || status === 205 || status === 304)) return
 
     const headerCarrier = Object(headers)
     // Local Response values were returned above after native slot validation;
@@ -555,6 +558,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
+    // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
+    if (typeof getSetCookie !== "function" && Reflect.apply(Reflect.get(headerCarrier, "get"), headers, ["set-cookie"]) !== null) return
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
@@ -686,7 +691,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && typeof authorize !== "function") {
+  if (authorize !== true && !(authorize instanceof Function)) {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {
@@ -708,7 +713,8 @@ export function createAuthAccessHandler(
     index,
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
-    path: route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route,
+    // Request URLs keep the application base path, so match each route below it.
+    path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
     recursive: route.route.endsWith("/**"),
   }))
 

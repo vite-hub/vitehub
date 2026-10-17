@@ -10,7 +10,6 @@ import {
   getDocsSectionForPath,
   getDocsSidebarGroups,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
-import { sidebarPageIcon, sidebarSectionIcon } from "~/utils/docs-sidebar-icons";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
@@ -37,6 +36,7 @@ const related = computed(() =>
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
+const platformSections = computed(() => docsManifest.sections.filter(section => section.category === "Platform"));
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
@@ -45,7 +45,7 @@ function isActive(path: string) {
 
 <template>
   <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
-    <template v-for="(pageGroup, index) in pageGroups" :key="pageGroup.label || `pages-${index}`">
+    <template v-for="pageGroup in pageGroups" :key="pageGroup.label || 'pages'">
       <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
         <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink
@@ -84,6 +84,19 @@ function isActive(path: string) {
       >
         <UIcon :name="sidebarSectionIcon(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ relatedSection.title }}</span>
+      </NuxtLink>
+    </section>
+
+    <section v-if="section.id === 'getting-started' || section.category === 'Platform'" class="vh-docs-sidebar-related" aria-label="Build and deploy">
+      <h2 class="vh-docs-sidebar-heading">Build and deploy</h2>
+      <NuxtLink
+        v-for="platformSection in platformSections"
+        :key="platformSection.id"
+        :to="platformSection.path"
+        class="vh-docs-sidebar-link"
+      >
+        <UIcon :name="sidebarSectionIcon(platformSection)" class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{{ platformSection.title }}</span>
       </NuxtLink>
     </section>
 

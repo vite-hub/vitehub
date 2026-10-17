@@ -21,6 +21,33 @@ describe("Cloudflare environment context", () => {
     expect(getActiveCloudflareBinding("BUCKET")).toBeUndefined()
   })
 
+  it("keeps the host bindings when the env reads globalThis.__env__", () => {
+    // The shape of unenv's env proxy, which Nitro's Cloudflare dev server exports as `cloudflare:workers` env.
+    const scope = globalThis as { __env__?: Record<PropertyKey, unknown> }
+    const workersEnv = new Proxy({}, {
+      get: (_, key) => scope.__env__?.[key],
+      has: (_, key) => Boolean(scope.__env__ && key in scope.__env__),
+      ownKeys: () => Reflect.ownKeys(scope.__env__ ?? {}),
+      getOwnPropertyDescriptor: (_, key) => scope.__env__ && key in scope.__env__
+        ? { configurable: true, enumerable: true, value: scope.__env__[key], writable: true }
+        : undefined,
+    }) as Record<string, unknown>
+    const bindings = { BUCKET: "dev-bucket" }
+    scope.__env__ = bindings
+
+    // Generated plugins may run in any order, and each installs the module env.
+    setActiveCloudflareEnv(workersEnv)
+    setActiveCloudflareEnv(workersEnv)
+
+    expect(scope.__env__).toBe(bindings)
+    expect({ ...workersEnv }).toEqual({ BUCKET: "dev-bucket" })
+    expect(getActiveCloudflareBinding("BUCKET")).toBe("dev-bucket")
+
+    const requestEnv = { BUCKET: "request-bucket" }
+    setActiveCloudflareEnv(requestEnv)
+    expect(scope.__env__).toBe(requestEnv)
+  })
+
   it("clears the installed environment and its bindings", async () => {
     setActiveCloudflareEnv({ BUCKET: "old-bucket" })
 

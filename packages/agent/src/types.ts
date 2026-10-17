@@ -2263,6 +2263,8 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   final?: {
     delivery: "new-message" | "placeholder"
   }
+  /** Admit messages from other bots. Chat Channels ignore bot authors by default. The Agent's own messages are always ignored. */
+  allowBots?: boolean
   filter?: AgentMessageFilter<TRuntimeConfig>
   identity?: IdentityResolver
   loading?: {

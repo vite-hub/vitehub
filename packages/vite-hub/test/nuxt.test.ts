@@ -485,12 +485,14 @@ describe("ViteHub Nuxt integration", () => {
 
     const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
     expect(plugins.map(plugin => plugin.name)).toEqual([
+      "vite-hub/nitro-file-url",
+      "vite-hub/nitro-cache-bypass",
       "existing-nitro-plugin",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite",
     ])
-    const kvResolver = plugins[1]!
-    const blobResolver = plugins[2]!
+    const kvResolver = plugins[3]!
+    const blobResolver = plugins[4]!
     const context = { marker: "nitro-context" }
     expect(Reflect.apply(kvResolver.resolveId as Function, context, ["#vitehub/kv/config"])).toBe("\0#vitehub/kv/config")
     expect(Reflect.apply(kvResolver.load as Function, context, ["\0#vitehub/kv/config"])).toBe(
@@ -2563,6 +2565,12 @@ describe("ViteHub Nuxt integration", () => {
       },
       replace: {
         __VITEHUB_AGENT_APP_ROOT__: JSON.stringify("/tmp/vitehub-nuxt"),
+      },
+      rollupConfig: {
+        plugins: [
+          expect.objectContaining({ name: "vite-hub/nitro-file-url" }),
+          expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),
+        ],
       },
       sandbox: true,
       workflows: true,
