@@ -146,9 +146,10 @@ function refreshDates(value: unknown, offset: number): void {
 
 onMounted(() => {
   const refreshedAt = Date.now();
-  refreshDates(invocations.value, refreshedAt - now.value);
+  const refreshedInvocations = structuredClone(invocations.value);
+  refreshDates(refreshedInvocations, refreshedAt - now.value);
   now.value = refreshedAt;
-  invocations.value = [...invocations.value];
+  invocations.value = refreshedInvocations;
 });
 
 // Map full records to list summaries with the display helpers the Console uses.

@@ -346,6 +346,13 @@ const authorizationReaderCancel = authorizationReaderPrototype
 const authorizationReaderReleaseLock = authorizationReaderPrototype
   ? Object.getOwnPropertyDescriptor(authorizationReaderPrototype, "releaseLock")?.value
   : undefined
+const authorizationStreamPrototype = typeof ReadableStream === "function" ? ReadableStream.prototype : undefined
+const authorizationStreamGetReader = authorizationStreamPrototype
+  ? Object.getOwnPropertyDescriptor(authorizationStreamPrototype, "getReader")?.value
+  : undefined
+const authorizationStreamLocked = authorizationStreamPrototype
+  ? Object.getOwnPropertyDescriptor(authorizationStreamPrototype, "locked")?.get
+  : undefined
 const authorizationUint8ArraySubarray = Object.getOwnPropertyDescriptor(
   Object.getPrototypeOf(Uint8Array.prototype),
   "subarray",
@@ -378,8 +385,8 @@ function getAuthorizationStreamOperations(body: unknown): AuthorizationStreamOpe
   // Use the host's captured native operations. Their brand checks accept
   // genuine streams from other realms while ignoring shadowed prototype
   // methods supplied by the response's realm.
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  const getReader = ReadableStream.prototype.getReader
+  const locked = authorizationStreamLocked
+  const getReader = authorizationStreamGetReader
   if (typeof locked !== "function" || typeof getReader !== "function") return
   try {
     if (Reflect.apply(locked, body, [])) return
@@ -481,7 +488,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null
-      || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+      || responsePropertyDescriptor(Object(body), "getReader")?.value === authorizationStreamGetReader
     if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!(value instanceof Response && nativeProperties) && bodyUsed === true) return
     const streamOperations = body === null ? undefined : getAuthorizationStreamOperations(body)
@@ -505,9 +512,9 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
+      : new Response(body as ReadableStream<Uint8Array> | null, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
-    const bridgedBody = bridgeAuthorizationBody(body, streamOperations!)
+    const bridgedBody = bridgeAuthorizationBody(body as ReadableStream<Uint8Array>, streamOperations!)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
