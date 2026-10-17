@@ -296,7 +296,7 @@
     "@standard-schema/spec": "catalog:runtime",
     "@valibot/to-json-schema": "catalog:runtime",
     "@t3tools/provider-runtime": "catalog:",
-    "@vercel/connect": "2.4.0",
+    "@vercel/connect": "2.5.2",
     "@vercel/nft": "catalog:vercel",
     "@yarnpkg/parsers": "catalog:tooling",
     "@vite-hub/box": "workspace:*",
@@ -342,8 +342,8 @@
     "vitest": "catalog:tooling",
     "zod": "catalog:runtime",
     "vue": "catalog:ui",
-    "evlog": "^2.29.0",
-    "posthog-node": "^5.55.0"
+    "evlog": "^2.32.0",
+    "posthog-node": "^5.56.2"
   },
   "optionalDependencies": {
     "@ai-sdk/mcp": "catalog:ai",

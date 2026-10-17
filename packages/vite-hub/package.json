@@ -1053,7 +1053,7 @@
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
     "@cloudflare/sandbox": "catalog:sandbox",
-    "@cloudflare/workers-types": "^5.20261003.1",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
     "@libsql/client": "catalog:database",
@@ -1116,7 +1116,7 @@
     "@nuxt/ui": "catalog:nuxt",
     "nuxt": "catalog:nuxt",
     "@vite-hub/internal": "workspace:*",
-    "@vitejs/plugin-vue": "^6.0.9",
+    "@vitejs/plugin-vue": "^6.0.10",
     "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "20.14.5",
     "miniflare": "4.20260730.0",
@@ -1129,7 +1129,7 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "vue-router": "^5.3.1"
+    "vue-router": "^5.4.0"
   },
   "peerDependencies": {
     "@nuxt/ui": "^4.11.0",
