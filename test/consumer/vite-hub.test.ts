@@ -1214,9 +1214,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         VITEHUB_PROVIDER_SANDBOX_CLOSURE: "1",
         VITEHUB_PRESET: "vercel",
       })
-      expect(existsSync(join(appDir, ".vercel", "output", "functions", "__queue.func", "index.mjs"))).toBe(true)
-      expect(existsSync(join(appDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "welcome", "welcome.func", "index.mjs"))).toBe(true)
-
+      expect(existsSync(join(appDir, ".vercel", "output", "functions", "__queue.func"))).toBe(false)
       const queueCallback = join(
         appDir,
         ".vercel",
@@ -1226,20 +1224,19 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "vitehub",
         "queues",
         "vercel",
-        "welcome",
         "welcome.func",
         "index.mjs",
       )
+      expect(JSON.parse(await readFile(join(dirname(queueCallback), ".vc-config.json"), "utf8"))).toMatchObject({
+        experimentalTriggers: [{ consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Dfunc", type: "queue/v2beta" }],
+      })
       const callbackInvocation = await run(
         "node",
         [
           "--input-type=module",
           "--eval",
           `
-        import { once } from "node:events"
-        import { createServer } from "node:http"
         import { pathToFileURL } from "node:url"
-        const localFetch = globalThis.fetch
         const oidcPayload = Buffer.from(JSON.stringify({ owner_id: "offline-team", project_id: "offline-project" })).toString("base64url")
         process.env.VERCEL_OIDC_TOKEN = ["e30", oidcPayload, "offline-signature"].join(".")
         const handler = (await import(pathToFileURL(${JSON.stringify(queueCallback)}).href)).default
@@ -1251,14 +1248,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           send: async () => ({ messageId: "unused" }),
         }
         globalThis.fetch = async input => { throw new Error("offline provider proof: " + String(input)) }
-        const server = createServer(handler)
-        server.listen(0, "127.0.0.1")
-        await once(server, "listening")
-        const address = server.address()
-        const response = await localFetch("http://127.0.0.1:" + address.port, { method: "POST" })
+        const response = await handler.fetch(new Request("http://127.0.0.1/api/vitehub/queues/vercel/welcome", { method: "POST" }), {})
         const body = await response.text()
-        server.close()
-        await once(server, "close")
         if (response.status !== 200 || body !== "handled") throw new Error("Queue callback failed: " + response.status + " " + body)
         process.stdout.write(JSON.stringify(globalThis.__vitehubQueueSandboxTaskResult))
       `,

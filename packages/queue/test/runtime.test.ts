@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import { createServer } from "node:http"
 import { runInNewContext } from "node:vm"
 
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -10,12 +9,11 @@ import { Request as ForeignRequest } from "undici"
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
-import { handleHostedVercelQueueCallback } from "../src/runtime/hosted.ts"
+import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from "../src/runtime/hosted.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
 import { createQueueCloudflareWorker } from "../src/internal/runtime/cloudflare-vite.ts"
 import { createCloudflareQueueRuntimeClient } from "../src/internal/runtime/cloudflare-client.ts"
 import { createQueueClient } from "../src/runtime/create-client.ts"
-import { createQueueVercelServer } from "../src/internal/runtime/vercel-vite.ts"
 import { createVercelQueueRuntimeClient } from "../src/internal/runtime/vercel-client.ts"
 import { resolveVercelQueueRegion } from "../src/internal/vercel-region.ts"
 import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, loadQueueDefinition, missingQueueDefinitionError, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
@@ -811,11 +809,6 @@ describe("vercel provider", () => {
     expect(await normalized.text()).toBe("payload")
   })
 
-  it("requires a selected client factory for default manual servers", () => {
-    expect(() => createQueueVercelServer({} as never)).toThrow("requires its generated client factory")
-    expect(() => createQueueVercelServer({ queue: false })).not.toThrow()
-  })
-
   it("uses the sdk send and callback contract", async () => {
     const send = vi.fn(async () => ({ messageId: "message-1" }))
     const handleCallback = vi.fn(() => async () => new Response("queued"))
@@ -1149,36 +1142,21 @@ it("does not cache regions inferred from Vercel requests", async () => {
 
   it("uses Vercel waitUntil for deferred dispatch", async () => {
     process.env.VERCEL_REGION = "iad1"
+    setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({
+      "welcome-email": async () => ({
+        default: {
+          handler: async () => {},
+        },
+      }),
+    })
 
-    const server = createServer(createQueueVercelServer({
-      app: async () => {
-        deferQueue("welcome-email", { email: "ava@example.com" })
-        return new Response("ok")
-      },
-      createClient: createVercelQueueRuntimeClient,
-      queue: { provider: "vercel" },
-      registry: {
-        "welcome-email": async () => ({
-          default: {
-            handler: async () => {},
-          },
-        }),
-      },
-    }))
+    // The Nitro queue middleware gives each Vercel request the same `waitUntil`.
+    runWithQueueRuntimeEvent({ waitUntil: hostedVercelWaitUntil }, () => deferQueue("welcome-email", { email: "ava@example.com" }))
 
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()))
-    const address = server.address()
-    if (!address || typeof address === "string") {
-      throw new TypeError("Expected server address.")
-    }
-
-    const response = await fetch(`http://127.0.0.1:${address.port}/`)
-    expect(await response.text()).toBe("ok")
     expect(vercelFunctionsMock.waitUntil).toHaveBeenCalledTimes(1)
     await vercelFunctionsMock.waitUntil.mock.calls[0]?.[0]
     expect(vercelQueueMock.send).toHaveBeenCalledTimes(1)
-
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   })
 })
 

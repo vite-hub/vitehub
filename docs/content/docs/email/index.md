@@ -27,12 +27,14 @@ Prove rendered HTML and text output, a rejected address, and the provider respon
     const markdown = await renderWelcome({ user: { name } })
     const body = await renderEmailMarkdown(markdown)
 
-    return await email.send({
+    const [error, sent] = await email.send({
       ...body,
       from: 'verified-sender@example.com',
       to,
       subject: 'Your workspace is ready',
     })
+    if (error) throw error
+    return sent
   }
   ```
 

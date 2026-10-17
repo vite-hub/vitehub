@@ -3,7 +3,9 @@ import virtualConfig, { hosting as virtualHosting, kv as virtualKV } from "#vite
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import { kv, type KVModuleOptions, type KVResult, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import { kv, type KVErrorCode, type KVListPage, type KVModuleOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
 import { hubKv } from "../src/vite.ts"
 
 describe("types", () => {
@@ -47,24 +49,43 @@ describe("types", () => {
   })
 
   it("exposes the intended kv runtime surface", () => {
-    expectTypeOf(kv.get<string>).returns.toEqualTypeOf<Promise<KVResult<string | null>>>()
-    expectTypeOf(kv.getAndDelete<string>).returns.toEqualTypeOf<Promise<KVResult<string | null>>>()
-    expectTypeOf(kv.has).returns.toEqualTypeOf<Promise<KVResult<boolean>>>()
-    expectTypeOf(kv.increment).returns.toEqualTypeOf<Promise<KVResult<number>>>()
-    expectTypeOf(kv.keys).returns.toEqualTypeOf<Promise<KVResult<string[]>>>()
-    expectTypeOf(kv.list).returns.toEqualTypeOf<Promise<KVResult<{ keys: string[]; cursor?: string }>>>()
-    expectTypeOf(kv.set<string>).returns.toEqualTypeOf<Promise<KVResult<void>>>()
+    expectTypeOf(kv.clear).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.del).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.get<string>).returns.toEqualTypeOf<Promise<Result<string | null, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.getAndDelete<string>).returns.toEqualTypeOf<Promise<Result<string | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
+    expectTypeOf(kv.has).returns.toEqualTypeOf<Promise<Result<boolean, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.increment).returns.toEqualTypeOf<Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
+    expectTypeOf(kv.keys).returns.toEqualTypeOf<Promise<Result<string[], "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.list).returns.toEqualTypeOf<Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.set<string>).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()
   })
 
   it("narrows kv results by the error element", async () => {
     const [error, value] = await kv.get<string>("settings")
     if (error) {
       expectTypeOf(error.code).toEqualTypeOf<"KV_OPERATION_FAILED">()
+      expectTypeOf(error.why).toEqualTypeOf<string>()
+      expectTypeOf(error.fix).toEqualTypeOf<string | undefined>()
+      expectTypeOf(error.docs).toEqualTypeOf<string | undefined>()
       expectTypeOf(value).toEqualTypeOf<undefined>()
       return
     }
-    expectTypeOf(error).toEqualTypeOf<null>()
+    expectTypeOf(error).toEqualTypeOf<undefined>()
     expectTypeOf(value).toEqualTypeOf<string | null>()
+  })
+
+  it("types the codes of each method", async () => {
+    const [listError] = await kv.list({ limit: 10 })
+    if (listError) expectTypeOf(listError.code).toEqualTypeOf<"KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">()
+
+    const [incrementError] = await kv.increment("attempts", 60)
+    if (incrementError) {
+      expectTypeOf(incrementError.code).toEqualTypeOf<"KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">()
+      // @ts-expect-error `increment()` never returns a cursor error.
+      void (incrementError.code === "KV_INVALID_CURSOR")
+    }
+
+    expectTypeOf<KVErrorCode>().toEqualTypeOf<"KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">()
   })
 
   it("returns a vite plugin with runtime config access", () => {

@@ -7,12 +7,12 @@ import { createStorage } from "unstorage"
 import type { Driver } from "unstorage"
 import memoryDriver from "unstorage/drivers/memory"
 
-import type { KVResult } from "../src/types.ts"
+import type { Result } from "@vite-hub/runtime"
 
-function expectKVSuccess<TResult>(result: KVResult<TResult>): TResult {
+function expectKVSuccess<TResult>(result: Result<TResult>): TResult {
   const [error, value] = result
-  expect(error).toBeNull()
-  // SAFETY: The preceding assertion verifies the success branch of KVResult.
+  expect(error).toBeUndefined()
+  // SAFETY: The preceding assertion verifies the success branch of Result.
   return value as TResult
 }
 
@@ -160,7 +160,7 @@ describe("kv runtime", () => {
     const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
 
     expect(() => createHostedKVStorage({ store: { driver: "fs-lite", base: "/tmp" } }, "constructor"))
-      .toThrow("Unknown KV store \"constructor\".")
+      .toThrow(expect.objectContaining({ code: "KV_STORE_NOT_FOUND", message: "The KV store \"constructor\" is not configured." }))
   })
 
   it("returns provider failures as KV results", async () => {
@@ -179,8 +179,9 @@ describe("kv runtime", () => {
     expect(error).toMatchObject({
       cause,
       code: "KV_OPERATION_FAILED",
-      details: { operation: "get", store: "default" },
-      name: "ViteHubError",
+      docs: "https://vitehub.dev/docs/kv/limits-and-errors#kv_operation_failed",
+      fix: expect.stringContaining("error.cause"),
+      why: "kv.get() failed on the \"default\" store.",
     })
   })
 
@@ -196,8 +197,9 @@ describe("kv runtime", () => {
     expect(error).toMatchObject({
       cause,
       code: "KV_OPERATION_FAILED",
-      details: { operation: "get", store: "default" },
-      name: "ViteHubError",
+      docs: "https://vitehub.dev/docs/kv/limits-and-errors#kv_operation_failed",
+      fix: expect.stringContaining("error.cause"),
+      why: "kv.get() failed on the \"default\" store.",
     })
 
     fsLiteDriver = memoryDriver()
@@ -248,10 +250,10 @@ describe("kv runtime", () => {
       KV_REST_API_URL: "https://vercel.example.com",
       UPSTASH_REDIS_REST_TOKEN: "upstash-token",
     })).toThrow(
-      "Missing runtime environment variable `KV_REST_API_URL` or `UPSTASH_REDIS_REST_URL` for Upstash KV.",
+      "Upstash KV needs the runtime environment variable `KV_REST_API_URL` or `UPSTASH_REDIS_REST_URL`.",
     )
     expect(() => resolveRuntimeKVOptions(masked, {})).toThrow(
-      "Missing runtime environment variable `KV_REST_API_URL` or `UPSTASH_REDIS_REST_URL` for Upstash KV.",
+      "Upstash KV needs the runtime environment variable `KV_REST_API_URL` or `UPSTASH_REDIS_REST_URL`.",
     )
   })
 
@@ -266,6 +268,31 @@ describe("kv runtime", () => {
     expect(expectKVSuccess(await kv.increment("attempts", 60))).toBe(2)
     expect(upstashGetdel).toHaveBeenCalledWith("verification")
     expect(upstashEval).toHaveBeenCalledWith("attempts", 60)
+  })
+
+  it("returns invalid arguments as KV results", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    upstashEval = vi.fn(async () => 1)
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    const [ttlError, count] = await kv.increment("attempts", 0)
+    expect(count).toBeUndefined()
+    expect(ttlError).toMatchObject({
+      code: "KV_INVALID_TTL",
+      docs: "https://vitehub.dev/docs/kv/limits-and-errors#kv_invalid_ttl",
+      fix: expect.any(String),
+      why: expect.any(String),
+    })
+    expect((await kv.list({ limit: 0 }))[0]).toMatchObject({ code: "KV_INVALID_LIMIT" })
+    expect(upstashEval).not.toHaveBeenCalled()
+  })
+
+  it("throws config errors instead of returning them", async () => {
+    process.env.VITEHUB_HOSTING = "local"
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    await expect(kv.store("missing").get("settings")).rejects.toMatchObject({ code: "KV_STORE_NOT_FOUND" })
   })
 
   it("maps atomic operations to native Upstash commands", async () => {
@@ -285,8 +312,8 @@ describe("kv runtime", () => {
     expect(script.indexOf("if beyond or at_positive_boundary")).toBeLessThan(script.indexOf("redis.call('INCR'"))
     expect(script).toContain("if existed == 0")
     expect(script).toContain("redis.call('EXPIRE'")
-    await expect(driver.incrementItem?.("attempts", 0)).rejects.toThrow("positive TTL")
-    await expect(driver.incrementItem?.("attempts", 1e21)).rejects.toThrow("supported integer range")
+    await expect(driver.incrementItem?.("attempts", 0)).rejects.toMatchObject({ code: "KV_INVALID_TTL" })
+    await expect(driver.incrementItem?.("attempts", 1e21)).rejects.toMatchObject({ code: "KV_INVALID_TTL" })
     expect(upstashEval).toHaveBeenCalledOnce()
 
     upstashEval = vi.fn(async () => Number.MAX_SAFE_INTEGER + 1)
@@ -311,8 +338,8 @@ describe("kv runtime", () => {
     process.env.VITEHUB_HOSTING = "local"
     const { kv } = await import("../src/runtime/storage.ts")
 
-    await expect(kv.getAndDelete("verification")).rejects.toThrow("does not support atomic operations")
-    await expect(kv.increment("attempts", 60)).rejects.toThrow("does not support atomic operations")
+    expect((await kv.getAndDelete("verification"))[0]).toMatchObject({ code: "KV_UNSUPPORTED_OPERATION", why: "kv.getAndDelete() needs atomic operations, and the \"default\" store does not support them." })
+    expect((await kv.increment("attempts", 60))[0]).toMatchObject({ code: "KV_UNSUPPORTED_OPERATION" })
 
     const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
     const denoStorage = createHostedKVStorage({ store: { driver: "deno-kv" } })
@@ -653,7 +680,7 @@ describe("kv runtime", () => {
         if (page.cursor) cursors.push(page.cursor)
       }
 
-      await expect(driver.listKeys({ cursor: cursors[0], limit: 1 })).rejects.toThrow("Invalid or expired")
+      await expect(driver.listKeys({ cursor: cursors[0], limit: 1 })).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
       await expect(driver.listKeys({ cursor: cursors.at(-1), limit: 1 })).resolves.toMatchObject({ keys: [expect.any(String)] })
     }
     finally {
@@ -796,10 +823,12 @@ describe("kv runtime", () => {
     await driver.listKeys({ cursor: first.cursor, limit: 1 })
 
     await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toMatchObject({
-      code: "KV_CURSOR_EXPIRED",
+      code: "KV_INVALID_CURSOR",
+      why: "The list cursor has expired.",
     })
-    await expect(driver.listKeys({ cursor: "malformed", limit: 1 })).rejects.not.toMatchObject({
-      code: "KV_CURSOR_EXPIRED",
+    await expect(driver.listKeys({ cursor: "malformed", limit: 1 })).rejects.toMatchObject({
+      code: "KV_INVALID_CURSOR",
+      why: "The list cursor is invalid or exceeds the maximum size.",
     })
   })
 
