@@ -157,7 +157,6 @@ export interface ConsoleDiagnosticBody {
 const consoleDiagnosticCodes = new Set<string>(Object.keys(consoleDiagnostics))
 
 export function isConsoleDiagnosticCode(value: unknown): value is ConsoleDiagnosticCode {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Codes arrive from untrusted JSON.
   return typeof value === "string" && consoleDiagnosticCodes.has(value)
 }
 

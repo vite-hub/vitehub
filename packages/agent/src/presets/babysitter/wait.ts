@@ -52,7 +52,7 @@ function withoutFindings(review: GitHubEvidence, policy: ContextPolicy): boolean
 }
 
 /** Feedback, intent, and base that need a model pass when they change. CI results are excluded. */
-export function repairContextKey(s: Snapshot, policy: ContextPolicy): string {
+function repairContextKey(s: Snapshot, policy: ContextPolicy): string {
   const pr = s.pr;
   const fromWorker = (value: GitHubEvidence) => String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (policy.workerAuthors.has(login(value)) || policy.ignoreFeedbackAuthors?.has(login(value)) === true);
   const external = (values: Record<string, GitHubEvidence>) => Object.fromEntries(Object.entries(values).filter(([, value]) => !fromWorker(value)));
@@ -71,7 +71,7 @@ export function repairContextKey(s: Snapshot, policy: ContextPolicy): string {
 }
 
 /** Current-head check runs, without workflow aggregates, and commit statuses. */
-export function currentCheckSignals(s: Snapshot): GitHubEvidence[] {
+function currentCheckSignals(s: Snapshot): GitHubEvidence[] {
   const head = s.pr?.head?.sha;
   const signals = new Map<string, GitHubEvidence>();
   for (const check of Object.values(s.checks)) {
@@ -90,7 +90,7 @@ export function currentCheckSignals(s: Snapshot): GitHubEvidence[] {
  * The newest run of each current-head check, by name and app. Some integrations leave an earlier
  * run in progress forever and report the result in a later run; the earlier run is not a gate.
  */
-export function latestCheckSignals(s: Snapshot): GitHubEvidence[] {
+function latestCheckSignals(s: Snapshot): GitHubEvidence[] {
   const latest = new Map<string, GitHubEvidence>();
   for (const signal of currentCheckSignals(s)) {
     const key = `${String(signal.name)}\0${String(signal.app?.id ?? "")}`;

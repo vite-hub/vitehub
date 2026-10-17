@@ -59,12 +59,10 @@ export interface UseRealtimeTiptapOptions {
 const workspaceChangeFlushIntervalMs = 11
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check the untrusted response JSON representation before reading fields.
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function isString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Error fields cross an untyped provider boundary.
   return typeof value === "string"
 }
 
@@ -81,7 +79,6 @@ function isRealtimeCheckpoint(value: unknown): value is RealtimeCheckpoint {
   if (!isRealtimeSaved(value) || !isString(value.digest)) return false
   const snapshot = "snapshot" in value ? value.snapshot : undefined
   if (!isRecord(snapshot)) return false
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Snapshot identifiers and timestamps cross the JSON boundary as unknown values.
   if (typeof snapshot.id !== "string" || typeof snapshot.createdAt !== "string") return false
   if (snapshot.name !== undefined && !isString(snapshot.name)) return false
   if (!isRecord(snapshot.entries)) return false
@@ -90,7 +87,6 @@ function isRealtimeCheckpoint(value: unknown): value is RealtimeCheckpoint {
     if (entry.digest !== undefined && !isString(entry.digest)) return false
     if (entry.metadata !== undefined && !isRecord(entry.metadata)) return false
     if (entry.size !== undefined) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Optional entry sizes are untrusted JSON values.
       if (typeof entry.size !== "number" || !Number.isFinite(entry.size)) return false
     }
     return true
@@ -98,7 +94,6 @@ function isRealtimeCheckpoint(value: unknown): value is RealtimeCheckpoint {
 }
 
 function isRefreshResult(value: unknown): value is { digest: string | null, reseeded: boolean } {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The refresh response crosses an untyped JSON boundary.
   return isRecord(value) && (value.digest === null || isString(value.digest)) && typeof value.reseeded === "boolean"
 }
 
@@ -202,7 +197,6 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     return `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`)}`
   }
 
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server rendering has no window or WebSocket.
   if (typeof window !== "undefined") {
     const workspaceDocument = markRaw(new Y.Doc())
     const nextWorkspaceProvider = new WebsocketProvider(serverURL(), encodeURIComponent(workspaceRoomId), workspaceDocument, {

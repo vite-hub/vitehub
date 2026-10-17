@@ -141,6 +141,5 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
 }
 
 export function isRealtimeWorkspaceDocument(adapter: RealtimeDocumentAdapter): adapter is RealtimeWorkspaceDocumentAdapter {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Adapters are user objects; the built-in one carries its Workspace name.
   return adapter.kind === "workspace" && "workspace" in adapter && typeof adapter.workspace === "string"
 }

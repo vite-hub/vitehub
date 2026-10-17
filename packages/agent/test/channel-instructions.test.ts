@@ -2,7 +2,7 @@ import { channelDeliveryHandlers } from "../src/internal/channel-delivery-handle
 import { describe, expect, it } from "vitest"
 
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
-import { discord, teams, telegram } from "../src/channels.ts"
+import { defineChannel, discord, teams, telegram } from "../src/channels.ts"
 import { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata, runAgent, runAgentTrigger } from "../src/index.ts"
 import { bindMessageChannelInstructions, inheritMessageChannelInstructions, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
@@ -473,6 +473,65 @@ describe("Channel instructions", () => {
     expect(systemMessages).toHaveLength(1)
     expect(systemMessages[0]!.content).toContain("Generate one short title.")
     expect(systemMessages[0]!.content).not.toContain(telegramInstructions)
+  })
+})
+
+describe("Channel instructions option", () => {
+  const ticketRules = "Label each ticket with its product area."
+
+  it("adds the instructions of a custom Channel to the Invocations it starts", async () => {
+    const model = createModel()
+    const agent = defineAgent({
+      channels: {
+        tickets: defineChannel("tickets", {
+          instructions: ticketRules,
+          messages: false,
+          triggers: {
+            opened: { invoke: () => ({ input: { messages: [createMessage({ role: "user", text: "New ticket" })] } }) },
+          },
+        }),
+      },
+      driver: {
+        instructions: agentInstructions,
+        // SAFETY: createModel implements the AI SDK methods exercised by this test.
+        model: model as never,
+      },
+    })
+
+    await runAgentTrigger(agent, runtime, "tickets.opened", {})
+
+    const systemMessages = model.doGenerateCalls[0]!.prompt.filter(message => message.role === "system")
+    expect(systemMessages).toHaveLength(1)
+    expectInstructionsOnceInOrder(systemMessages[0]!.content, [agentInstructions, ticketRules])
+    expect(createAgentInspectionMetadata(agent).instructions).toEqual([`Channel "tickets" instructions:\n\n${ticketRules}`])
+  })
+
+  it("does not add Channel instructions to direct runs", async () => {
+    const model = createModel()
+    const agent = defineAgent({
+      channels: { tickets: defineChannel("tickets", { instructions: ticketRules, messages: false }) },
+      // SAFETY: createModel implements the AI SDK methods exercised by this test.
+      driver: { instructions: agentInstructions, model: model as never },
+    })
+
+    await runAgent(agent, runtime, { messages: [createMessage({ role: "user", text: "Hello" })] })
+
+    const system = model.doGenerateCalls[0]!.prompt.filter(message => message.role === "system").map(message => message.content).join("\n")
+    expect(system).not.toContain(ticketRules)
+  })
+
+  it("adds the app instructions after the built-in guidance of a Channel", () => {
+    const agent = defineAgent({
+      channels: { support: telegram({ instructions: ticketRules }) },
+      // SAFETY: Inspection reads Agent metadata without invoking the placeholder model.
+      driver: { model: {} as never },
+    })
+    expect(createAgentInspectionMetadata(agent).instructions).toEqual([`Channel "support" instructions:\n\n${telegramInstructions}\n\n${ticketRules}`])
+  })
+
+  it.each(["", "  ", 1])("rejects the instructions value %j", (instructions) => {
+    // SAFETY: The test passes invalid runtime values on purpose.
+    expect(() => defineChannel("tickets", { instructions: instructions as never })).toThrow("instructions must be a non-empty string")
   })
 })
 

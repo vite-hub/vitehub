@@ -1,1 +1,1 @@
-export { readAgentEnvIdentity } from "./internal/env-identity.ts"
+export { readAgentEnvIdentity, readAgentEnvParents } from "./internal/env-identity.ts"

@@ -71,22 +71,18 @@ export const playgroundConsoleContributions = [
     },
   },
   {
-    description: "Inspect Schedule Definitions, Runtime Schedules, and run history.",
+    description: "Inspect Schedule Definitions.",
     icon: "i-lucide-calendar-clock",
     id: "schedules",
     label: "Schedules",
     view: {
       columns: [
-        { key: "kind", label: "Kind" },
         { key: "schedule", label: "Schedule" },
-        { key: "target", label: "Target" },
         { key: "timing", label: "Cron" },
-        { key: "enabled", label: "Enabled" },
-        { key: "nextRun", label: "Next run" },
-        { key: "lastRun", label: "Last run" },
+        { key: "manual", label: "Manual" },
       ],
       kind: "record-table",
-      notice: "Runtime Schedules and runs come from the Schedule stores of this server runtime on each request. Memory stores lose data on restart. Schedules with `console.enabled: false` are hidden. The Console is read-only. Use `vitehub schedule run-runtime`, `enable`, or `disable` in development.",
+      notice: "The host runs each Schedule on its UTC cron. Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
     },
   },
 ] as const
