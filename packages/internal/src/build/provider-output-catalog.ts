@@ -52,9 +52,6 @@ interface ProviderRuntimeModulesByProduct {
     vercel?: string
     "vercel-definition-defaults"?: string
   }
-  "rate-limit": {
-    cloudflare?: string
-  }
 }
 
 export type ProviderOutputProduct = keyof ProviderRuntimeModulesByProduct

@@ -14,7 +14,7 @@ import { getCloudflareQueueBindingName } from "../../../packages/queue/src/integ
 import { getCloudflareQueueName } from "../../../packages/queue/src/internal/cloudflare-resource-name.ts"
 import { getVercelQueueTopicName } from "../../../packages/queue/src/integrations/vercel.ts"
 import { discoverRateLimitCatalog } from "../../../packages/rate-limit/src/discovery.ts"
-import { createCloudflareRateLimitBindings } from "../../../packages/rate-limit/src/internal/provider-output.ts"
+import { createCloudflareRateLimitBindings } from "../../../packages/rate-limit/src/internal/cloudflare-bindings.ts"
 import { discoverScheduleDefinitions } from "../../../packages/schedule/src/discovery.ts"
 import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
 import { readDefinitionCrons } from "../../../packages/schedule/src/internal/provider-output.ts"
