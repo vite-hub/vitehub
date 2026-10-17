@@ -147,7 +147,11 @@ function markPrivate(event: ContentPreviewEvent): void {
 }
 
 function isResponseLike(value: unknown): value is Response {
-  return isObject(value) && Object.prototype.toString.call(value) === "[object Response]" && isObject(value.headers)
+  if (!isObject(value) || !isObject(value.headers)) return false
+  const headers = value.headers
+  // Use the Web Response shape instead of instanceof so responses from another
+  // realm (or a host Web API implementation) are handled too.
+  return headers.set instanceof Function && typeof value.status === "number" && "body" in value
 }
 
 function privateResponse<TResult>(result: TResult): TResult {
@@ -271,26 +275,17 @@ function assertEvent(event: unknown, method: string): asserts event is ContentPr
 
 interface Scope<T> { getStore(): T | undefined; run<R>(value: T, callback: () => R): R | Promise<R> }
 function createScope<T>(): Scope<T> {
-  const Constructor = (globalThis as { AsyncLocalStorage?: new <V>() => Scope<V> }).AsyncLocalStorage
+  const runtimeGlobal = globalThis as {
+    AsyncLocalStorage?: new <V>() => Scope<V>
+    process?: { getBuiltinModule?: (name: string) => { AsyncLocalStorage?: new <V>() => Scope<V> } | undefined }
+  }
+  const Constructor = runtimeGlobal.AsyncLocalStorage
+    ?? runtimeGlobal.process?.getBuiltinModule?.("node:async_hooks")?.AsyncLocalStorage
   if (Constructor) return new Constructor<T>()
-  let current: T | undefined
-  let tail = Promise.resolve()
   return {
-    getStore: () => current,
-    run(value, callback) {
-      // Without a host async-context implementation, keep each scope alive until its
-      // callback settles and serialize overlapping scopes so they cannot leak into one
-      // another. Nitro/Cloudflare expose AsyncLocalStorage in supported deployments.
-      if (current === value) return callback()
-      const execute = async () => {
-        const previous = current
-        current = value
-        try { return await callback() }
-        finally { current = previous }
-      }
-      const result = tail.then(execute)
-      tail = result.then(() => undefined, () => undefined)
-      return result
+    getStore: () => undefined,
+    run() {
+      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.preview.run() needs an async request context (AsyncLocalStorage). Enable the host's async-context compatibility API." })
     },
   }
 }
