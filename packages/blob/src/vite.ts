@@ -492,9 +492,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
     },
     buildStart() {
       siblingRuntimeGenerations.capture(this, resolved && useProviderOutputCatalog(resolved))
-    },
-    buildEnd(error) {
-      if (error || !resolved || !siblingRuntime) return
+      if (!resolved || !siblingRuntime) return
       contributeProviderRuntime(useProviderOutputCatalog(resolved), siblingRuntime, siblingRuntimeGenerations.get(this))
     },
     load(id) {
