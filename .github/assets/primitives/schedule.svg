@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -4250ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+}
+.line,
+.ink-line,
+.card {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line {
+  opacity: 0.55;
+}
+.ink-line {
+  opacity: 0.85;
+}
+.soft,
+.job,
+.command,
+.budget,
+.ink,
+.token,
+.band,
+.pointer {
+  fill: currentColor;
+}
+.soft {
+  opacity: 0.35;
+}
+.ink,
+.token,
+.pointer {
+  opacity: 0.85;
+}
+.token,
+.band,
+.ghost,
+.q-in,
+.blob-next {
+  opacity: 0;
+}
+.a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-move);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.q-worker,
+.sch-ring,
+.mail-unread {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.sch-hand {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.sch-hand { animation-name: sch-hand; }
+.sch-ring { animation-name: sch-ring; }
+.sch-runs { animation-name: sch-runs; }
+.sch-fired { animation-name: sch-fired; }
+.sch-next { animation-name: sch-next; }
+@media (prefers-reduced-motion: reduce) {
+  .a {
+    animation: none;
+  }
+}
+@keyframes sch-hand {
+  0%, 4% { transform: rotate(0deg); }
+  46%, 100% { transform: rotate(360deg); }
+}
+@keyframes sch-ring {
+  0%, 46% { opacity: 0; transform: scale(1); }
+  49% { opacity: 0.5; transform: scale(1); animation-timing-function: var(--ease-out); }
+  68%, 100% { opacity: 0; transform: scale(1.3); }
+}
+@keyframes sch-runs {
+  0%, 60% { transform: translateX(0); }
+  84%, 99.9% { transform: translateX(-8px); }
+  100% { transform: translateX(0); }
+}
+@keyframes sch-fired {
+  0%, 46% { opacity: 0.35; }
+  52%, 62% { opacity: 0.85; }
+  78%, 99.9% { opacity: 0; }
+  100% { opacity: 0.35; }
+}
+@keyframes sch-next {
+  0%, 62% { opacity: 0; }
+  84%, 99.9% { opacity: 0.35; }
+  100% { opacity: 0; }
+}
+</style>
+      <circle cx="19" cy="20" r="13" class="line" />
+      <path d="M19 20l5 3" class="line" />
+      <path d="M19 20V11" class="ink-line a sch-hand" />
+      <circle cx="19" cy="20" r="1.75" class="ink" />
+      <circle cx="19" cy="20" r="13" class="ink-line ghost a sch-ring" />
+      <path d="M36 20h22" class="line" />
+      <g class="a sch-runs">
+        <circle cx="41" cy="20" r="2" class="soft a sch-fired" />
+        <circle cx="49" cy="20" r="2" class="soft" />
+        <circle cx="57" cy="20" r="2" class="soft" />
+        <circle cx="65" cy="20" r="2" class="soft a sch-next" />
+      </g>
+</svg>

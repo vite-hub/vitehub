@@ -232,7 +232,7 @@ export function rememberAgentLayerOptions<T extends LayerAgentDefinition>(defini
   const inherited = layerMetadata(source)
   // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
   const metadataTarget = asMetadataTarget(definition)
-  rememberLayerMetadata(metadataTarget, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
+  rememberLayerMetadata(metadataTarget, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults, parent: inherited?.parent })
   copyDefinitionDecorations(asMetadataTarget(source), metadataTarget)
   if (inherited?.parent && !Object.prototype.hasOwnProperty.call(definition, colocatedSkills)) {
     inheritColocatedSkills(asMetadataTarget(inherited.parent), asMetadataTarget(definition))
@@ -509,6 +509,17 @@ export function getAgentLayerOptions(definition: LayerAgentDefinition): AgentSet
   return options ? { ...options } : undefined
 }
 
+/** The definitions that `defineAgent({ extends })` layered under a definition, nearest first. */
+export function agentLayerParents(definition: unknown): object[] {
+  const parents: object[] = []
+  let current = layerMetadata(definition)?.parent
+  while (current && !parents.includes(current)) {
+    parents.push(current)
+    current = layerMetadata(current)?.parent
+  }
+  return parents
+}
+
 /** Keep discovery defaults available without pinning configured values on future extensions. */
 export function inheritAgentLayerOptions(parent: unknown, child: unknown, defaults?: Partial<AgentSettings>): void {
   const metadata = layerMetadata(parent)
@@ -520,5 +531,6 @@ export function inheritAgentLayerOptions(parent: unknown, child: unknown, defaul
     configured: metadata.configured,
     // SAFETY: merge preserves the optional partial settings shape.
     defaults: merge(metadata.defaults, defaults, "") as Partial<AgentSettings> | undefined,
+    parent: metadata.parent,
   })
 }

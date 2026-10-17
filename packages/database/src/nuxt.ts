@@ -61,6 +61,7 @@ type NuxtLike = {
   hook?: {
     (name: "nitro:config", callback: (value: Record<string, unknown>) => Promise<void> | void): void
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
+    (name: "close", callback: () => Promise<void> | void): void
   }
   options: Record<string, unknown> & {
     alias?: Record<string, string>
@@ -144,6 +145,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     if (typeof hook === "function") {
       let localNitroConfig: Record<string, unknown> | undefined
       let localRuntimeRefresh = Promise.resolve()
+      let closed = false
       let contributions: CollectedDatabaseContribution[] = []
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
@@ -155,7 +157,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       ])
       const refreshLocalRuntime = () => {
         const refresh = async () => {
-          if (!localNitroConfig) return
+          if (!localNitroConfig || closed) return
           const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
@@ -174,7 +176,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
           // Nuxt's builder ignores node_modules, so watch each resolved dependency directly.
           const installContributionWatcher = (watchedFile: string) => {
-            if (contributionWatchers.has(watchedFile)) return
+            if (closed || contributionWatchers.has(watchedFile)) return
             try {
               const watcher = watchFs(watchedFile, (eventType) => {
                 if (eventType === "rename") {
@@ -183,7 +185,8 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
                   // Editors commonly replace files by rename; follow the new inode.
                   setTimeout(() => installContributionWatcher(watchedFile), 0)
                 }
-                void refreshLocalRuntime()
+                // A watcher has no caller to reject to, so a failed refresh is reported and the last runtime stays.
+                refreshLocalRuntime().catch(error => console.warn(`[vitehub] Database runtime refresh failed: ${error instanceof Error ? error.message : String(error)}`))
               })
               contributionWatchers.set(watchedFile, watcher)
             }
@@ -191,6 +194,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               // The Nuxt watch list remains the fallback when native watching is unavailable.
             }
           }
+          if (closed) return
           for (const watchedFile of contributionFiles) installContributionWatcher(watchedFile)
         }
         const queued = localRuntimeRefresh.then(refresh, refresh)
@@ -204,6 +208,11 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           if (definitionFiles.has(file) || contributionFiles.has(file) || [...definitionDirectories].some(directory => file === directory || file.startsWith(`${directory}${sep}`))) {
             await refreshLocalRuntime()
           }
+        })
+        hook("close", () => {
+          closed = true
+          for (const watcher of contributionWatchers.values()) watcher.close()
+          contributionWatchers.clear()
         })
       }
       hook("nitro:config", async (config) => {
@@ -340,15 +349,9 @@ async function installNitroLocalDatabaseRuntime(
     onFallback: (message: string) => console.warn(message),
   }
   const loadedContributionsByDatabase = new Map<string, Set<CollectedDatabaseContribution>>()
-  const loadedDefinitionSources = new Map<string, Set<string>>()
   for (const definition of runtime.definitions) {
     const sourceSchemas = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, tableNameOptions)))
     const parts = [{ schema: mergeLoadedSchemas(sourceSchemas), owner: `Database Definition ${definition.handler}` }]
-    const definitionLoaded = sourceSchemas.some((schema, index) =>
-      definition.schemaSources[index]?.handler === definition.handler && schema.loaded)
-    loadedDefinitionSources.set(definition.name, definitionLoaded
-      ? new Set(definition.schemaSources.filter((_, index) => sourceSchemas[index]!.loaded).map(source => source.handler))
-      : new Set())
     const loadedContributions = new Set<CollectedDatabaseContribution>()
     for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
       const schema = await loadContributedDatabaseSchema(contribution, file, tableNameOptions)
@@ -367,38 +370,30 @@ async function installNitroLocalDatabaseRuntime(
         : []))
   const layered = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1
   const merged = (index: number) => layered(runtime.definitions[index]!) || contributedSchemas[index]!.length > 0
-  const imports = runtime.definitions.flatMap((definition, index) => {
-    const loadedSources = loadedDefinitionSources.get(definition.name) ?? new Set<string>()
-    const definitionLoaded = loadedSources.has(definition.handler)
-    if (!definitionLoaded) return []
-    return [
-      `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
-      ...definition.schemaSources.flatMap((source, sourceIndex) => loadedSources.has(source.handler)
-        ? [`import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`]
-        : []),
-      ...contributedSchemas[index]!.map(({ contribution, variable }) => renderContributionImport(file, contribution, variable)),
-    ]
-  })
+  // A Definition that jiti cannot load still runs: Nitro resolves its aliases and Nuxt auto-imports.
+  const imports = runtime.definitions.flatMap((definition, index) => [
+    `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
+    ...layered(definition)
+      ? definition.schemaSources.map((source, sourceIndex) =>
+          `import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`)
+      : [],
+    ...contributedSchemas[index]!.map(({ contribution, variable }) => renderContributionImport(file, contribution, variable)),
+  ])
   const schemas = runtime.definitions.flatMap((definition, index) => {
-    if (!merged(index) || !(loadedDefinitionSources.get(definition.name)?.has(definition.handler))) return []
-    const loadedSources = loadedDefinitionSources.get(definition.name) ?? new Set<string>()
-    const definitionSchemas = definition.schemaSources
-      .map((source, sourceIndex) => loadedSources.has(source.handler) ? `...schemaSource_${index}_${sourceIndex}.schema` : undefined)
-      .filter((source): source is string => source !== undefined)
-    if (!definitionSchemas.length) definitionSchemas.push(`...definition_${index}.schema`)
+    if (!merged(index)) return []
+    const definitionSchemas = layered(definition)
+      ? definition.schemaSources.map((_, sourceIndex) => `...schemaSource_${index}_${sourceIndex}.schema`)
+      : [`...definition_${index}.schema`]
     return [`const schema_${index} = { ${[...definitionSchemas, ...contributedSchemas[index]!.map(({ variable }) => `...${variable}`)].join(", ")} }`]
   })
-  const entries = runtime.definitions.flatMap((definition, index) => {
-    if (!loadedDefinitionSources.get(definition.name)?.has(definition.handler)) return []
-    return [[
-      `  [${JSON.stringify(definition.name)}]: {`,
-      merged(index)
-        ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
-        : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
-      `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
-      "  },",
-    ].join("\n")]
-  })
+  const entries = runtime.definitions.map((definition, index) => [
+    `  [${JSON.stringify(definition.name)}]: {`,
+    merged(index)
+      ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
+      : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
+    `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
+    "  },",
+  ].join("\n"))
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,

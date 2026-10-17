@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const title = "Server primitives for Vite";
 const description =
-  "Write server code once and deploy it across supported Vite hosts with one API for storage, queues, workflows, and more.";
+  "Write server code once and deploy it across supported Vite hosts with one API for databases, storage, queues, workflows, and more.";
 
 useSeo({
   title,
@@ -33,7 +33,7 @@ useSchemaOrg([
     downloadUrl: "https://www.npmjs.com/package/vite-hub",
     featureList: [
       "One server API for every supported host",
-      "Server primitives for storage, queues, and workflows",
+      "Server primitives for databases, storage, queues, and workflows",
       "Inspectable provider output for production",
     ],
     offers: {

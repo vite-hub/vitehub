@@ -53,6 +53,7 @@ try {
     },
     entry: [
       "src/client.ts",
+      "src/drizzle.ts",
       "src/index.ts",
       "src/file.ts",
       "src/github.ts",

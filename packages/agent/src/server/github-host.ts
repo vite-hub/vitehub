@@ -11,7 +11,7 @@ import { promisify } from "node:util"
 import { Diagnostic } from "nostics"
 
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
-import { CodeHostResponseError, codeHostErrorStatus, codeHostProvider, githubAppCredentials } from "../internal/code-host.ts"
+import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials } from "@vite-hub/forge"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./github-repair.ts"
@@ -187,12 +187,12 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
     async identity(): Promise<{ login: string, email: string }> {
       identity ??= (async () => {
         const { login } = await client.app().catch((error: unknown) => {
-          const status = codeHostErrorStatus(error)
+          const status = forgeErrorStatus(error)
           if (status !== undefined) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App request /app failed with ${status}.`, cause: error })
-          if (error instanceof CodeHostResponseError) throw agentDiagnostics.AGENT_R0757({ message: error.message, cause: error })
+          if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0757({ message: error.message, cause: error })
           throw error
         })
-        const provider = await codeHostProvider({ host: "github", userAgent: app.userAgent })
+        const provider = await forgeProvider({ forge: "github", userAgent: app.userAgent })
         const user = await provider.users.get(login).catch(() => undefined)
         return { login, email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` }
       })()
@@ -425,9 +425,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         }
         catch (error) {
           if (input.signal?.aborted) throw abortError(input.signal.reason)
-          const status = codeHostErrorStatus(error)
+          const status = forgeErrorStatus(error)
           if (status !== undefined) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App token request failed with ${status}.`, cause: error })
-          if (error instanceof CodeHostResponseError) throw agentDiagnostics.AGENT_R0758({ message: "GitHub App token response did not include a token.", cause: error })
+          if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0758({ message: "GitHub App token response did not include a token.", cause: error })
           throw error
         }
       }

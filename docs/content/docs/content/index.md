@@ -76,6 +76,10 @@ icon: i-lucide-file-text
   Collections validate frontmatter fields, save drafts to Workspace history, and serve only what you publish.
   :::
 
+  :::product-feature-item{title="Preview drafts through your real pages" icon="i-lucide-eye" to="/docs/content/preview"}
+  A signed cookie makes one browser read drafts while the public site serves published content.
+  :::
+
   :::product-feature-item{title="Documents, navigation, and search from server code" icon="i-lucide-code-2" to="/docs/content/server-api"}
   `content.get()`, `content.navigation()`, and `content.search()` run in server code.
   :::

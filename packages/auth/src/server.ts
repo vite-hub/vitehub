@@ -387,8 +387,15 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
+    const type: unknown = Reflect.get(candidate, "type")
+    // Response.error() is the one valid status-zero response. Preserve it before
+    // applying ordinary HTTP status validation; reconstructing it with Response
+    // would reject status 0 and lose its error type.
+    if (status === 0 && statusText === "" && body === null && type === "error") {
+      return value instanceof Response ? value as Response : Response.error()
+    }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
-    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 200 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return

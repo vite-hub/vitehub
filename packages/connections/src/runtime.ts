@@ -6,7 +6,7 @@ import { isApiKeyProvider } from "./api-key.ts"
 import { ConnectionError, isConnectionError, isEnvBridgeError, normalizeConnectionError } from "./errors.ts"
 import { isConnectionDefinition } from "./definition.ts"
 import { CONNECTION_NAME_MAX_LENGTH, isConnectionReadMethod } from "./types.ts"
-import { callerActor, decide, envActor } from "./policy.ts"
+import { callerActor, callerInheritedActors, decide, envActor } from "./policy.ts"
 import { connectionActions, prepareConnectionMethod } from "./catalog.ts"
 
 import type { EnvAccessContext, EnvActivity } from "@vite-hub/env/bridge"
@@ -57,6 +57,8 @@ interface CallContext {
   approved?: boolean
   approvedGrantId?: string
   definition: ConnectionDefinition
+  /** The `agent:` actors whose rules an Agent actor inherits through `extends`, nearest first. */
+  inherited?: readonly string[]
   name: string
   options: UseConnectionOptions
   providerExecution?: { dispatched: boolean, rejected: boolean }
@@ -127,9 +129,11 @@ const apiKeyVerificationSchema = v.union([
   v.boolean(),
   v.object({ account: v.optional(v.object({ email: v.optional(v.string()), id: v.pipe(v.string(), v.minLength(1)) })) }),
 ])
+// A replayed approval decides with the inherited actors that the Agent runtime vouched for when it was requested.
+const inheritedActorsSchema = v.optional(v.array(v.pipe(v.string(), v.startsWith("agent:"), v.minLength(7), v.maxLength(518))))
 const approvalInputSchema = v.variant("kind", [
-  v.object({ grantId: v.optional(v.string()), input: v.unknown(), kind: v.literal("method") }),
-  v.object({ grantId: v.optional(v.string()), body: v.optional(v.string()), headers: v.optional(v.record(v.string(), v.string())), kind: v.literal("fetch"), method: v.string(), redirect: v.optional(v.picklist(["error", "follow", "manual"])), url: v.string() }),
+  v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, input: v.unknown(), kind: v.literal("method") }),
+  v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, body: v.optional(v.string()), headers: v.optional(v.record(v.string(), v.string())), kind: v.literal("fetch"), method: v.string(), redirect: v.optional(v.picklist(["error", "follow", "manual"])), url: v.string() }),
 ])
 
 async function resolveValue(value: ConnectionValue | undefined): Promise<string | undefined> {
@@ -547,12 +551,14 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   /** Apply policy, dry run, and approval, then send. Returns `undefined` when dry run skips a write. */
   async function governed(context: CallContext, providerRequest: ProviderRequest, approvalInput: ApprovalInput, init: { headers?: Record<string, string>, redirect?: RequestInit["redirect"], signal?: AbortSignal } = {}): Promise<Response | undefined> {
     envActor(context.actor)
+    for (const parent of context.inherited ?? []) envActor(parent)
     const decision = decide({
       action: providerRequest.action,
       actor: context.actor,
       approved: context.approved,
       definition: context.definition,
       highRisk: providerRequest.highRisk,
+      inherited: context.inherited,
       write: providerRequest.write,
     })
     if (decision === "deny") {
@@ -593,7 +599,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         actor: context.actor,
         createdAt: new Date(now()).toISOString(),
         id: `approval_${randomToken().slice(0, 20)}`,
-        input: { ...approvalInput, grantId: token.grantId },
+        input: { ...approvalInput, grantId: token.grantId, ...(context.inherited?.length ? { inherited: [...context.inherited] } : {}) },
         name: context.name,
         status: "pending",
         traceId: context.options.traceId,
@@ -636,8 +642,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let context: Promise<CallContext> | undefined
     const resolveContext = () => (context ??= (async () => {
       const actor = callerActor(options)
+      const inherited = callerInheritedActors(options)
       const loaded = await definition(name)
-      return { actor, definition: loaded, name, options, transport: createConnectionTransport(name, loaded, request) }
+      return { actor, definition: loaded, inherited, name, options, transport: createConnectionTransport(name, loaded, request) }
     })())
     return {
       async call(action: string, input?: unknown, callOptions?: { signal?: AbortSignal }): Promise<unknown> {
@@ -1021,6 +1028,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         actor: approval.actor,
         approved: true,
         approvedGrantId: stored.grantId,
+        inherited: stored.inherited,
         providerExecution,
         definition: loaded,
         name: approval.name,
