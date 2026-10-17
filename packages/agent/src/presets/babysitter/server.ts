@@ -1098,10 +1098,20 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 }
                 return ref.object.sha;
               };
+              // A base branch that only moved forward keeps the prepared merge valid. The repair resolves
+              // conflicts up to the prepared commit, and GitHub checks the newer commits after the push.
+              const baseAdvanced = async (from: string, to: string) => {
+                // One page: the status and counts do not need the list of commits between the bases.
+                const { stdout } = await github.command(["api", `repos/${repository}/compare/${from}...${to}?per_page=1`, "--jq", "{status, behind_by} | @json"],
+                  { repository, timeout: 60_000, signal: abortSignal });
+                const comparison: unknown = stdout.trim() ? JSON.parse(stdout) : undefined;
+                return isRuntimeRecord(comparison) && comparison.status === "ahead" && comparison.behind_by === 0;
+              };
               const assertRepairBase = async () => {
                 if (!preparedMergeBase) return;
                 const [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", abortSignal);
-                if (!isRuntimeRecord(live) || !isRuntimeRecord(live.base) || live.base.ref !== pullRequest.baseRefName || await readRepairBase() !== preparedMergeBase) {
+                const liveBase = isRuntimeRecord(live) && isRuntimeRecord(live.base) && live.base.ref === pullRequest.baseRefName ? await readRepairBase() : undefined;
+                if (!liveBase || liveBase !== preparedMergeBase && !await baseAdvanced(preparedMergeBase, liveBase)) {
                   await pullRequestInbox.hydrate(inboxClaim, { refresh: true });
                   const changed = new DOMException("Pull request base changed; retry the conflict repair against current GitHub state.", "AbortError");
                   passController.abort(changed);

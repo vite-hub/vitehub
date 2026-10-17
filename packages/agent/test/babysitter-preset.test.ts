@@ -78,6 +78,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   await writeFile(join(checkout, "source.ts"), "export const value = 1\n");
   let head = "a".repeat(40);
   let baseHead = "c".repeat(40);
+  let compareStatus = "behind";
   const git = async (cwd: string, ...args: string[]) => (await promisify(execFile)("git", ["-C", cwd, "-c", "user.name=Test", "-c", "user.email=test@example.test", ...args])).stdout.trim();
   let remoteBox: { path: string; closed: boolean } | undefined;
   if (preset.remoteBox) {
@@ -196,6 +197,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       return { stdout: (preset.parents ?? []).map((value) => JSON.stringify(value)).join("\n"), stderr: "" };
     if (path === "repos/acme/app")
       return { stdout: JSON.stringify({ delete_branch_on_merge: false }), stderr: "" };
+    if (path.startsWith("repos/acme/app/compare/"))
+      return { stdout: JSON.stringify({ status: compareStatus, behind_by: compareStatus === "ahead" ? 0 : 1 }), stderr: "" };
     if (path.startsWith("repos/acme/app/git/ref/heads/"))
       return { stdout: JSON.stringify({ ref: `refs/heads/${pr().base.ref}`, object: { type: "commit", sha: preset.baseBranchHead ?? pr().base.sha } }), stderr: "" };
     const data =
@@ -444,6 +447,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     events,
     commit,
     advanceBase: (sha: string) => { baseHead = sha },
+    /** GitHub's compare status from the prepared base to the live base: "ahead" when the base only moved forward. */
+    compareBase: (status: string) => { compareStatus = status },
     advanceHead: (sha: string) => { head = sha },
     push,
     prepare,
@@ -782,10 +787,26 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); vi.useRealTimers(); }
   });
 
-  it.each(["commitRepair", "pushRepair"] as const)("rejects %s after the prepared conflict base changes", async operation => {
+  it.each(["commitRepair", "pushRepair"] as const)("keeps %s when the prepared conflict base only moved forward", async operation => {
+    const f = await fixture(false, false, { mergeableState: "dirty", allowOperationAfterAdmission: true });
+    f.choose(operation, operation === "commitRepair" ? { message: "resolve base conflict", paths: ["source.ts"] } : {});
+    f.compareBase("ahead");
+    f.onAdmission(() => { f.advanceBase("d".repeat(40)); });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(operation === "commitRepair" ? f.commit : f.push).toHaveBeenCalledOnce();
+      const compare = f.command.mock.calls.map(([args]) => args).find(args => args.some(arg => arg.startsWith(`repos/acme/app/compare/${"c".repeat(40)}...${"d".repeat(40)}?per_page=1`)));
+      expect(compare).toBeDefined();
+      expect(compare).not.toContain("--paginate");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each(["commitRepair", "pushRepair"] as const)("rejects %s after the prepared conflict base is rewritten", async operation => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const f = await fixture(false, false, { mergeableState: "dirty" });
     f.choose(operation, operation === "commitRepair" ? { message: "resolve base conflict", paths: ["source.ts"] } : {});
+    f.compareBase("diverged");
     f.onAdmission(() => { f.advanceBase("d".repeat(40)); });
     try {
       await f.reconcile();
