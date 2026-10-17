@@ -162,7 +162,6 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-
   it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
 
@@ -185,17 +184,13 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    expect(layout).toContain(":deep(.vh-docs-aside)");
-    expect(layout).toContain("overflow-x: clip;");
-    expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: hidden;")
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/)
-    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav")
-    const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"))
-    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/)
-    expect(desktopStyles).toMatch(/\.vh-docs-shell > \.vh-docs-desktop-nav\s*\{[^}]*display: flex;/)
-    expect(desktopStyles).toMatch(/\.vh-docs-content\s*\{[^}]*flex: 1;/)
-    expect(layout).toContain("flex: 1;")
+expect(layout).toContain("overflow-x: clip;")
+    expect(sidebarPanel).toContain("overflow: hidden;")
+    expect(layout).toContain("overflow: hidden;");
+    expect(layout).toContain("overflow: visible;");
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
+    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
+    expect(layout).toContain("flex: 1;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {

@@ -13,12 +13,25 @@ const docsShellUi = {
 </script>
 
 <template>
-  <UMain>
-    <UPage v-if="isSupportMatrix" :ui="docsShellUi">
-      <template #left>
-        <UPageAside class="vh-docs-aside hidden lg:block">
-          <DocsSidebars :panel="false" />
-        </UPageAside>
+<UMain class="vh-docs-shell">
+    <DocsSidebars
+      class="vh-docs-desktop-nav"
+      :class="{ 'vh-docs-desktop-nav--panel': hasPanel }"
+      :panel="hasPanel"
+    />
+
+    <div class="vh-docs-content">
+      <UContainer v-if="isSupportMatrix">
+        <AnnouncementBanner />
+        <slot />
+      </UContainer>
+
+      <slot v-else-if="isLanding" />
+
+      <template v-else>
+        <AnnouncementBanner />
+        <slot />
+
       </template>
       <div class="vh-docs-main vh-docs-support-matrix">
         <AnnouncementBanner />
@@ -89,12 +102,16 @@ const docsShellUi = {
     flex: 0 0 auto;
   }
 
+  .vh-docs-shell > .vh-docs-desktop-nav--panel {
+    overflow-x: clip;
+  }
+
   .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-sidebars) {
     width: max-content;
     height: 100%;
   }
 
-  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-aside) {
+  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-panel) {
     position: sticky;
     top: var(--ui-header-height);
     display: flex;
