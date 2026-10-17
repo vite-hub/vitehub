@@ -293,6 +293,8 @@ if (uploadError) throw uploadError
 
 Send `upload.headers` unchanged with the `PUT` body. `contentType` binds the upload MIME type into the signed request. `createOnly` binds a provider condition that rejects the upload when the object already exists; drivers that cannot enforce it throw instead of silently allowing an overwrite.
 
+The `cloudflare-r2` driver and the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the other drivers that use files-sdk) sign requests. A files-sdk driver signs a `GET` only when its provider issues a URL that expires after exactly `expiresIn` seconds, and a `PUT` only when its provider issues a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign the request, `blob.sign()` returns a `BLOB_OPERATION_FAILED` error and the `cause` explains the reason. The driver never returns a permanent public link instead.
+
 Cloudflare R2 signs through its S3-compatible HTTP credentials, including when normal reads and writes use a Workers binding. A binding alone cannot mint a presigned URL, so configure `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` through runtime environment values. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) accept expiries from 1 second through 7 days, and the [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
 
 ## Blob reference schemas

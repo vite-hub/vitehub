@@ -168,6 +168,8 @@ Blob operations return `[error, value]`. Missing objects return `[null, null]` f
 
 The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload.
 
+The `cloudflare-r2` driver and the files-sdk drivers sign requests. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
+
 ## S3-compatible storage
 
 Use `driver: "s3"` for production S3-compatible object storage. Use `driver: "minio"` for local or Docker Compose object storage, and use `driver: "cloudflare-r2"` for Cloudflare R2.
