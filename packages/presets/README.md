@@ -1,7 +1,7 @@
 # @vite-hub/presets
 
-`@vite-hub/presets` contains ready-made Agents that are built only from public
-ViteHub primitives. Each preset is a subpath. The package depends on
+`@vite-hub/presets` contains ready-made Agents that are built from ViteHub
+primitives. Each preset is a subpath. The package depends on
 [`@vite-hub/agent`](../agent/README.md); the Agent package does not know these presets.
 
 Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framework distribution.
@@ -22,6 +22,8 @@ Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framewo
   built-in Channel, and `channelMessageContextKey` reads the Channel message in `intercept`.
 - `@vite-hub/agent/server/github`: the GitHub host, pull request operations, dependency
   installation, and repair helpers.
+- `@vite-hub/agent/server/internal`: the Babysitter worker still reads Agent layer metadata
+  and the active provider Sandbox through this internal entry.
 
 ## Labeller
 

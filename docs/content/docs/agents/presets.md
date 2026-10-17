@@ -9,7 +9,7 @@ icon: i-lucide-copy
 
 An Agent preset is a reusable Agent Definition. It supplies defaults, instructions, and behavior. Your application selects the preset and supplies its model, credentials, and project settings.
 
-The ready-made presets are in the `@vite-hub/presets` package. Import them from `vite-hub/presets/<name>`. They use only public ViteHub primitives, so you can build the same workflows yourself.
+The ready-made presets are in the `@vite-hub/presets` package. Import them from `vite-hub/presets/<name>`. They are built from ViteHub primitives, such as Channels, Capabilities, and process hosts.
 
 ## Choose a preset
 
