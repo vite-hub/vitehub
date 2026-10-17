@@ -58,14 +58,13 @@ describe("Auth access handlers", () => {
     }
   })
 
-  it("preserves foreign cookie methods that require their Headers receiver", async () => {
+  it("uses the trusted foreign cookie accessor", async () => {
     const source = new ForeignResponse("Policy rejected", {
       status: 409,
       headers: [["x-policy", "custom"], ["set-cookie", "first=1"], ["set-cookie", "second=2"]],
     })
     const original = source.headers.getSetCookie
     const getSetCookie = vi.fn(function (this: typeof source.headers) {
-      expect(this).toBe(source.headers)
       return original.call(this)
     })
     Object.defineProperty(source.headers, "getSetCookie", { value: getSetCookie })
@@ -79,17 +78,20 @@ describe("Auth access handlers", () => {
     expect(result?.headers.get("x-policy")).toBe("custom")
     expect(result?.headers.getSetCookie()).toEqual(["first=1", "second=2"])
     await expect(result?.text()).resolves.toBe("Policy rejected")
-    expect(getSetCookie).toHaveBeenCalledOnce()
+    expect(getSetCookie).not.toHaveBeenCalled()
   })
 
-  it("rejects foreign cookie headers without a separate cookie accessor", async () => {
+  it("preserves foreign cookie headers when the instance accessor is absent", async () => {
     const source = new ForeignResponse("Policy rejected", { status: 409, headers: { "set-cookie": "first=1" } })
     Object.defineProperty(source.headers, "getSetCookie", { value: undefined })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => source as never }] },
     }))
 
-    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({
+      status: 409,
+      headers: { "set-cookie": "first=1" },
+    })
   })
 
   it("does not resolve Auth for unmatched requests", async () => {
