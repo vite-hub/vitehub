@@ -141,6 +141,18 @@ function isRequestLike(value: AuthRequest): value is Request {
           }
           catch (error) {
             if (!isBrandCheckError(error)) return false
+            // A caller can manufacture an accessor that throws a convincing
+            // cross-realm TypeError for both probe receivers.  Do not treat
+            // that exception alone as a Request brand.  Undici exposes a
+            // private state layout on the instance, so retain that
+            // independently implemented Request without trusting the
+            // caller-controlled error object.
+            const symbols = Object.getOwnPropertySymbols(value)
+            const symbolNames = new Set(symbols.map(symbol => symbol.description))
+            if (!(["dispatcher", "state", "signal", "headers"].every(name => symbolNames.has(name))
+              && symbols.length === 4)) {
+              return false
+            }
             // A genuine Web IDL accessor checks its internal slot even when
             // invoked on an object carrying the same prototype. Structural
             // spoofs commonly only throw for the null-prototype probe.
