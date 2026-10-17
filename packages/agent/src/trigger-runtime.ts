@@ -365,7 +365,7 @@ function hmacSignaturePreset(signature: AgentWebhookRegistrationDefinition["sign
 }
 
 /** Decodes a canonical base64 key. Returns `undefined` for malformed or empty input so verification fails closed. */
-function decodeBase64Key(value: string): Uint8Array<ArrayBuffer> | undefined {
+export function decodeBase64Key(value: string): Uint8Array<ArrayBuffer> | undefined {
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 === 1) return undefined
   let binary: string
   try {

@@ -7,6 +7,7 @@ import { deployedChannelWebhookUrl, loadChannelTargets, type ChannelTargetSignat
 import { agentChannelHistoryHeader } from "./channel-history.ts"
 import { agentChannelSyncProviderHeader } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { decodeBase64Key } from "../trigger-runtime.ts"
 
 interface ChannelHistoryCliContext {
   cwd: string
@@ -95,8 +96,14 @@ function historyHeaders(target: LoadedChannelTarget, body: string): Headers {
   const secret = registration.secretToken
   const timestamp = Math.floor(Date.now() / 1000)
   const signature: ChannelTargetSignature | undefined = registration.signature === "github-sha256" ? { preset: "hmac-sha256", prefix: "sha256=" } : registration.signature
+  let hmacSecret: string | Uint8Array = secret
+  if (signature !== undefined && !hasRuntimeType(signature, "string") && signature.secretEncoding === "base64") {
+    const decoded = decodeBase64Key(secret)
+    if (!decoded) throw agentDiagnostics.AGENT_R0524({ message: "Channel history webhook secret is not valid canonical base64." })
+    hmacSecret = decoded
+  }
   const value = signature !== undefined && !hasRuntimeType(signature, "string")
-    ? `${signature.prefix ?? ""}${createHmac("sha256", signature.secretEncoding === "base64" ? Buffer.from(secret, "base64") : secret).update(body).digest(signature.encoding ?? "hex")}`
+    ? `${signature.prefix ?? ""}${createHmac("sha256", hmacSecret).update(body).digest(signature.encoding ?? "hex")}`
     : signature === "stripe-sha256"
       ? `t=${timestamp},v1=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`
       : secret
