@@ -17,7 +17,6 @@ import * as markdownTemplate from "vite-hub/markdown-template"
 import { requireRateLimit } from "vite-hub/rate-limit"
 import * as scheduleDriver from "vite-hub/schedule/runtime/driver"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
-import * as cloudflareShell from "vite-hub/shell/providers/cloudflare"
 import * as justBashShell from "vite-hub/shell/providers/just-bash"
 import { defineWorkflow } from "vite-hub/workflow"
 import { defineWorkspace } from "vite-hub/workspace"
@@ -42,7 +41,6 @@ export const contract = {
     markdownTemplate,
     scheduleDriver,
     scheduleProcess,
-    cloudflareShell,
     justBashShell,
     cloudflareWorkspace,
     workspaceLoader,

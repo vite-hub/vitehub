@@ -24,7 +24,6 @@ import * as markdownTemplate from "vite-hub/markdown-template"
 import viteHubNuxtModule from "vite-hub/nuxt"
 import * as scheduleDriver from "vite-hub/schedule/runtime/driver"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
-import * as cloudflareShell from "vite-hub/shell/providers/cloudflare"
 import * as justBashShell from "vite-hub/shell/providers/just-bash"
 import * as cloudflareWorkspace from "vite-hub/workspace/cloudflare"
 import * as workspaceLoader from "vite-hub/workspace/loader"
@@ -47,7 +46,6 @@ export const appFacingModules = [
   markdownTemplate,
   scheduleDriver,
   scheduleProcess,
-  cloudflareShell,
   justBashShell,
   cloudflareWorkspace,
   workspaceLoader,

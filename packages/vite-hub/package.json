@@ -837,12 +837,6 @@
       "require": "./dist/shell.js",
       "default": "./dist/shell.js"
     },
-    "./shell/providers/cloudflare": {
-      "types": "./dist/shell/providers/cloudflare.d.ts",
-      "import": "./dist/shell/providers/cloudflare.js",
-      "require": "./dist/shell/providers/cloudflare.js",
-      "default": "./dist/shell/providers/cloudflare.js"
-    },
     "./shell/providers/just-bash": {
       "types": "./dist/shell/providers/just-bash.d.ts",
       "import": "./dist/shell/providers/just-bash.js",
