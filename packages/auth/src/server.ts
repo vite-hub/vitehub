@@ -317,7 +317,9 @@ function hasResponsePrototype(value: unknown): boolean {
       seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       const owner = prototype
-      if (constructor?.name === "Response"
+      if (typeof constructor === "function"
+        && constructor.name === "Response"
+        && constructor.prototype === owner
         && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
       prototype = Object.getPrototypeOf(prototype)
     }

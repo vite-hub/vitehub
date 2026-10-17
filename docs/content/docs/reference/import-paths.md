@@ -61,7 +61,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
 | `vite-hub/auth/vue` | Better Auth Vue client and normalized session composables. |
-| `vite-hub/blob` | Blob Runtime Helpers and Blob Store access. |
+| `vite-hub/blob` | Blob Runtime Helpers, Blob Store access, and the `image()` and `file()` Blob reference schemas. |
 | `vite-hub/blob/client` | Framework-neutral browser upload helpers: `uploadFiles()` and `createMultipartUploader()`. |
 | `vite-hub/blob/content-type` | Detect common image and PDF signatures from leading bytes before upload. |
 | `vite-hub/blob/vue` | Vue upload composables: `useUpload()` and `useMultipartUpload()`. |
@@ -151,7 +151,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/vue` | Agent Package | Vue Agent client handle and AI SDK chat composable. |
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
 | `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
-| `@vite-hub/blob` | Blob Package | Blob Runtime Helpers and Blob Store access. |
+| `@vite-hub/blob` | Blob Package | Blob Runtime Helpers, Blob Store access, and Blob reference schemas. |
 | `@vite-hub/blob/client` | Blob Package | Framework-neutral browser upload helpers. |
 | `@vite-hub/blob/content-type` | Blob Package | Detect common image and PDF signatures from leading bytes before upload. |
 | `@vite-hub/blob/vue` | Blob Package | Vue upload composables. |
