@@ -655,6 +655,11 @@ function isErrorValue(value: unknown): value is Error {
         // an actual stack value; structural checks below cover custom formatters
         // that intentionally return `undefined`.
         if (typeof stack === "string") {
+          // Preserve the non-spoofable intrinsic-brand evidence for the
+          // subsequent AggregateError classification pass.  Fallback
+          // classifications are intentionally never cached because proxies
+          // and other mutable values may change between observations.
+          brandedErrorValues.add(value)
           return true
         }
       }
