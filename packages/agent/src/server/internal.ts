@@ -68,8 +68,9 @@ interface ScheduledAgentTargetRunContext {
 }
 
 interface ScheduledAgentTargetDefinition {
+  cron: "* * * * *"
   handler: (context: ScheduledAgentTargetRunContext) => Promise<unknown>
-  options: { allowRuntimeSchedules: true }
+  options: { manual: true }
 }
 
 /** Adapts a discovered Agent to the schedule runtime's target contract. */
@@ -78,13 +79,14 @@ export function defineScheduledAgentTarget(
   runtimeContext: Partial<ResolvedAgentRuntimeContext> = {},
 ): ScheduledAgentTargetDefinition {
   return {
+    cron: "* * * * *",
     handler: async schedule => await runAgent(agent, {
       ...runtimeContext,
       memo: runtimeContext.memo ?? ((_, create) => create()),
       runtime: runtimeContext.runtime ?? "unknown",
       waitUntil: runtimeContext.waitUntil ?? schedule.waitUntil ?? (() => {}),
     }, {}, { schedule, output: "drained" }),
-    options: { allowRuntimeSchedules: true },
+    options: { manual: true },
   }
 }
 
