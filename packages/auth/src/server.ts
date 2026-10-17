@@ -339,42 +339,51 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
   }
 }
 
-function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
-  if (body === null) return true
-  if (Object(body) !== body) return false
-
+function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | false | undefined {
+  if (body === null || typeof body !== "object") return
   try {
-    const candidate = Object(body)
-    // Resolve the stream intrinsics from the body's own realm. Applying the
-    // getter performs the brand check and works across JavaScript realms.
-    if (Object.getOwnPropertyDescriptor(candidate, "getReader")) return false
-    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-    const getReader = ReadableStream.prototype.getReader
-    if (typeof locked !== "function" || typeof getReader !== "function") return false
-    if (Reflect.apply(locked, candidate, [])) return false
-    // Validate the native reader against a fresh stream. The candidate's
-    // inherited reader overrides are intentionally ignored.
-    const freshStream = new ReadableStream()
-    const reader = Reflect.apply(getReader, freshStream, [])
-    if (Object(reader) !== reader) return false
-    const readerObject = reader as object
-    if (typeof Reflect.get(readerObject, "read") !== "function"
-      || typeof Reflect.get(readerObject, "cancel") !== "function"
-      || typeof Reflect.get(readerObject, "releaseLock") !== "function") return false
-    Reflect.apply(Reflect.get(readerObject, "releaseLock"), readerObject, [])
-    return true
+    // Acquire the reader first so malformed body candidates are rejected by the
+    // intrinsic stream brand check before Fetch can coerce them during Response
+    // construction. This also validates the reader methods without dispatching
+    // any shadowed properties from the candidate stream.
+    const reader = Reflect.apply(ReadableStream.prototype.getReader, body, [])
+    const methods = getNativeAuthorizationReaderMethods(reader)
+    if (!methods) return false
+    Reflect.apply(methods.releaseLock, reader, [])
+    // A disturbed stream can be unlocked after its reader is released. The
+    // intrinsic Response bodyUsed state rejects that stream before acquiring a
+    // new reader, which would otherwise silently bridge an empty body.
+    const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+    if (typeof bodyUsed !== "function" || bodyUsed.call(new Response(body as ReadableStream<Uint8Array>))) return false
+    return ReadableStream.prototype.getReader
   }
   catch {
     return false
   }
 }
 
-function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  // Use native operations on native stream state, never caller-supplied reader methods.
-  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
+function getNativeAuthorizationReaderMethods(reader: object) {
+  const prototype = ReadableStreamDefaultReader.prototype
+  const closed = Object.getOwnPropertyDescriptor(prototype, "closed")?.get
+  const read = Object.getOwnPropertyDescriptor(prototype, "read")?.value
+  const cancel = Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
+  const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
+  if (typeof closed !== "function" || typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") return
+  // Intrinsic methods perform the reader brand check and cannot be shadowed by the source object.
+  Reflect.apply(closed, reader, [])
+  return { read, cancel, releaseLock }
+}
+
+function bridgeAuthorizationBody(
+  body: ReadableStream<Uint8Array>,
+  getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>,
+) {
+  // Use the already validated intrinsic method so shadowed stream properties cannot
+  // dispatch caller-controlled code during authorization response normalization.
   const reader = Reflect.apply(getReader, body, [])
-  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
-  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+  const methods = getNativeAuthorizationReaderMethods(reader)
+  if (!methods) throw new TypeError("Invalid ReadableStreamDefaultReader")
+  const { read, cancel, releaseLock } = methods
   let released = false
   const release = () => {
     if (released) return
@@ -384,12 +393,12 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, [])
+        const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
         if (result.done) {
           release()
           controller.close()
         }
-        else controller.enqueue(result.value)
+        else controller.enqueue(result.value as Uint8Array)
       }
       catch (error) {
         release()
@@ -452,10 +461,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeBodyMethod = body === null
-      || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
-    if (!isSerializableAuthorizationBody(body)) return
+    const nativeBodyReader = body === null ? true : getNativeAuthorizationBodyReader(body)
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
+    if (body !== null && typeof nativeBodyReader !== "function") return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
@@ -483,9 +491,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
+      : new Response(body as ReadableStream<Uint8Array> | null, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
-    const bridgedBody = bridgeAuthorizationBody(body)
+    if (typeof nativeBodyReader !== "function") return
+    const bridgedBody = bridgeAuthorizationBody(body as ReadableStream<Uint8Array>, nativeBodyReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
@@ -592,7 +601,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {

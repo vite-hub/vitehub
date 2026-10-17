@@ -604,7 +604,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       kit.addPlugin(generatedPlugin)
 
       const connectionsActor = sections.includes("connections")
-        ? await writeConsoleConnectionsActor(root)
+        ? await writeConsoleConnectionsActor(root, consoleAuthHandlers?.middleware)
         : undefined
       const alias = kit.config.alias ?? {}
       consoleConfig.nitro = {

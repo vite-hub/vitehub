@@ -478,9 +478,6 @@ function serializedQuery(query: Record<string, unknown> | undefined): Record<str
 }
 
 function serializeFetchSourceContent(value: unknown, responseType: FetchSourceResponseType): WorkspaceContent {
-  // Recognize byte arrays from other realms, but copy them into this realm before
-  // handing them to workspace storage. Returning a foreign Uint8Array preserves
-  // bytes but leaks its foreign prototype to consumers that expect native bytes.
   if (isWorkspaceBytes(value)) return value instanceof Uint8Array ? value : Uint8Array.from(value)
   if (responseType === "json") return JSON.stringify(value, null, 2) ?? "null"
   if (typeof value === "string") return value
