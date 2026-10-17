@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import { watch as watchFs, type FSWatcher } from "node:fs"
 import { createRequire } from "node:module"
-import { dirname, join, resolve, sep } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -16,7 +16,7 @@ import { mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCl
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
-import { renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { generatedDatabaseTypesFile, renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
@@ -141,6 +141,12 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       viteConfig.database = { ...configuredDatabase, ...viteOptions }
     }
     installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root }, serverDirs)
+    // Code in `shared/` can derive types from tables, so the shared tsconfig needs the generated registry too.
+    if (nuxtOptions.buildDir) {
+      const sharedTsConfig = ensureRecord(ensureRecord(nuxtOptions, "typescript"), "sharedTsConfig")
+      const include = Array.isArray(sharedTsConfig.include) ? sharedTsConfig.include : []
+      sharedTsConfig.include = [...new Set([...include, relative(nuxtOptions.buildDir, resolve(root, generatedDatabaseTypesFile))])]
+    }
 
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
@@ -245,14 +251,15 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             const alias = ensureRecord(config, "alias")
             alias["#vitehub/database/definition-runtime"] ??= resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/d1")
           }
-          if (runtimeProvider === "cloudflare" || runtimeProvider === "vercel") {
-            if (runtime) {
-              await writeGeneratedDatabaseArtifacts(runtime, {
-                alias: nuxtOptions.alias,
-                onFallback: message => console.warn(message),
-              })
-              await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
-            }
+          // `nuxt prepare` runs no Vite build, so generated types must exist on every preset after this hook.
+          if (runtime) {
+            await writeGeneratedDatabaseArtifacts(runtime, {
+              alias: nuxtOptions.alias,
+              onFallback: message => console.warn(message),
+            })
+          }
+          if (runtime && (runtimeProvider === "cloudflare" || runtimeProvider === "vercel")) {
+            await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
           }
           if (provider === "cloudflare" && runtime) mergeNitroConfigHyperdriveBindings(config, resolveCloudflareHyperdriveBindings(runtime))
           mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
