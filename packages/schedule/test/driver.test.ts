@@ -88,6 +88,54 @@ describe("Runtime Schedule Wake Driver", () => {
     await controller.close()
   })
 
+  it("catches up a Static Schedule minute that no process checked during a restart", async () => {
+    // The previous process stopped before its 15:00 scan, and this process starts at 15:01.
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const previous = new Date("2026-10-16T14:50:00.000Z")
+    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T14:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
+    const handler = vi.fn()
+    const controller = await installScheduleRuntime({
+      createDriver: createProcessScheduleWakeDriver({ now: () => new Date("2026-10-16T15:01:20.000Z") }),
+      registry: {},
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore,
+      staticRegistry: {
+        reconcile: async () => ({ cron: "*/10 * * * *", handler }),
+      },
+    })
+
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1))
+    await controller.close()
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date("2026-10-16T15:00:00.000Z") }))
+  })
+
+  it("does not catch up a Static Schedule that has no run, or minutes outside catchUpMs", async () => {
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const previous = new Date("2026-10-16T12:50:00.000Z")
+    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T12:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
+    const reconcile = vi.fn()
+    const fresh = vi.fn()
+    const controller = await installScheduleRuntime({
+      createDriver: createProcessScheduleWakeDriver({ catchUpMs: 30 * 60_000, now: () => new Date("2026-10-16T15:01:20.000Z") }),
+      registry: {},
+      runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
+      scheduleRunStore,
+      staticRegistry: {
+        fresh: async () => ({ cron: "*/10 * * * *", handler: fresh }),
+        reconcile: async () => ({ cron: "*/10 * * * *", handler: reconcile }),
+      },
+    })
+
+    await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(3))
+    await controller.close()
+    expect(reconcile.mock.calls.map(([context]) => context.scheduledAt.toISOString())).toEqual([
+      "2026-10-16T14:40:00.000Z",
+      "2026-10-16T14:50:00.000Z",
+      "2026-10-16T15:00:00.000Z",
+    ])
+    expect(fresh).not.toHaveBeenCalled()
+  })
+
   it("reconciles and dispatches Static and Runtime Schedules through one driver", async () => {
     const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     const scheduleRunStore = createMemoryScheduleRunStore()
