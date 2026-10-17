@@ -522,6 +522,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // self-consistent forged prototypes while still allowing implementations
     // whose own methods expose the same Headers data to be copied below.
     let branded = false
+    let trustedGet: ((this: Headers, name: string) => string | null) | undefined
+    let trustedForEach: ((this: Headers, callback: (value: string, key: string) => void) => void) | undefined
+    let trustedGetSetCookie: ((this: Headers) => string[]) | undefined
     // Only intrinsics obtained from trusted runtime integration may establish
     // the Headers brand. A constructor supplied by the candidate is fully
     // attacker-controlled, even when its prototype is self-consistent.
@@ -530,9 +533,16 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (UndiciHeaders) headerTargets.push(UndiciHeaders)
     for (const HeaderCtor of headerTargets) {
       try {
-        Reflect.apply(Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "get")!.value, headers, ["content-type"])
-        Reflect.apply(Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "forEach")!.value, headers, [() => {}])
+        const get = Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "get")!.value as typeof trustedGet
+        const forEach = Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "forEach")!.value as typeof trustedForEach
+        const getSetCookie = Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "getSetCookie")?.value as typeof trustedGetSetCookie
+        if (typeof get !== "function" || typeof forEach !== "function") continue
+        Reflect.apply(get, headers, ["content-type"])
+        Reflect.apply(forEach, headers, [() => {}])
         branded = true
+        trustedGet = get
+        trustedForEach = forEach
+        trustedGetSetCookie = typeof getSetCookie === "function" ? getSetCookie : undefined
         break
       }
       catch { /* try the next realm's intrinsic */ }
@@ -567,15 +577,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (!nativeCookieMethod) return
     const bodyReader = body === null ? undefined : getNativeAuthorizationBodyReader(body)
     if (body !== null && (!bodyReader || !isSerializableAuthorizationBody(body))) return
-    const forEach = Reflect.get(headerCarrier, "forEach")
-    const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
-    const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
+    if (!trustedGet || !trustedForEach) return
+    const cookies: unknown = trustedGetSetCookie ? Reflect.apply(trustedGetSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
-    // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
-    if (typeof getSetCookie !== "function" && Reflect.apply(Reflect.get(headerCarrier, "get"), headers, ["set-cookie"]) !== null) return
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
-    Reflect.apply(forEach, headers, [(value: string, key: string) => {
+    Reflect.apply(trustedForEach, headers, [(value: string, key: string) => {
       if (key.toLowerCase() === "set-cookie") {
         if (cookies.length === 0) combinedCookies = value
         return
