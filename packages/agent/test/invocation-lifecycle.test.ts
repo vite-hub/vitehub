@@ -5,6 +5,8 @@ const modelStream = vi.hoisted(() => vi.fn())
 
 vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   loadAiSdk: async () => ({
+    // This SDK double executes fixture responses without invoking a language model.
+    wrapLanguageModel: ({ model }: { model: unknown }) => model,
     ToolLoopAgent: class {
       async generate(...args: unknown[]) {
         return await modelGenerate(...args)
@@ -1427,7 +1429,7 @@ describe("Agent Invocation lifecycle completion", () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
     const finish = vi.fn(async () => { await gate })
-    const lifecycle = await openAgentInvocationLifecycle(finish)
+    const lifecycle = openAgentInvocationLifecycle(finish)
 
     const first = lifecycle.finish("first")
     const second = lifecycle.finish("second")
@@ -1436,5 +1438,33 @@ describe("Agent Invocation lifecycle completion", () => {
 
     await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined])
     expect(finish).toHaveBeenCalledWith("first")
+  })
+
+  it("aggregates the invocation error with the finish error it started", async () => {
+    const { openAgentInvocationLifecycle } = await import("../src/internal/invocation-lifecycle.ts")
+    const invocationError = new Error("invocation failed")
+    const finishError = new Error("finish failed")
+    const finish = vi.fn(async () => { throw finishError })
+    const lifecycle = openAgentInvocationLifecycle(finish)
+
+    const failure = await lifecycle.fail("error", invocationError, "both failed").catch(error => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(failure.message).toBe("both failed")
+    expect(failure.errors).toEqual([invocationError, finishError])
+    await expect(lifecycle.finish("success")).rejects.toBe(finishError)
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish).toHaveBeenCalledWith("error")
+  })
+
+  it("keeps the invocation error when an earlier finish owns the failure", async () => {
+    const { openAgentInvocationLifecycle } = await import("../src/internal/invocation-lifecycle.ts")
+    const invocationError = new Error("invocation failed")
+    const finishError = new Error("finish failed")
+    const lifecycle = openAgentInvocationLifecycle(async () => { throw finishError })
+
+    const finished = lifecycle.finish("success")
+    await expect(lifecycle.fail("error", invocationError, "both failed")).rejects.toBe(invocationError)
+    await expect(finished).rejects.toBe(finishError)
   })
 })

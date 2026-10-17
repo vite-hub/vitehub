@@ -12,9 +12,10 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
-import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./internal/cloudflare.ts"
+import { mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Binding, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
+import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
 import { renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDatabaseSchema, mergeLoadedSchemas } from "./internal/schema-tables.ts"
@@ -61,6 +62,7 @@ type NuxtLike = {
   hook?: {
     (name: "nitro:config", callback: (value: Record<string, unknown>) => Promise<void> | void): void
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
+    (name: "close", callback: () => Promise<void> | void): void
   }
   options: Record<string, unknown> & {
     alias?: Record<string, string>
@@ -144,6 +146,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     if (typeof hook === "function") {
       let localNitroConfig: Record<string, unknown> | undefined
       let localRuntimeRefresh = Promise.resolve()
+      let closed = false
       let contributions: CollectedDatabaseContribution[] = []
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
@@ -155,7 +158,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       ])
       const refreshLocalRuntime = () => {
         const refresh = async () => {
-          if (!localNitroConfig) return
+          if (!localNitroConfig || closed) return
           const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
@@ -174,7 +177,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
           // Nuxt's builder ignores node_modules, so watch each resolved dependency directly.
           const installContributionWatcher = (watchedFile: string) => {
-            if (contributionWatchers.has(watchedFile)) return
+            if (closed || contributionWatchers.has(watchedFile)) return
             try {
               const watcher = watchFs(watchedFile, (eventType) => {
                 if (eventType === "rename") {
@@ -183,7 +186,8 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
                   // Editors commonly replace files by rename; follow the new inode.
                   setTimeout(() => installContributionWatcher(watchedFile), 0)
                 }
-                void refreshLocalRuntime()
+                // A watcher has no caller to reject to, so a failed refresh is reported and the last runtime stays.
+                refreshLocalRuntime().catch(error => console.warn(`[vitehub] Database runtime refresh failed: ${error instanceof Error ? error.message : String(error)}`))
               })
               contributionWatchers.set(watchedFile, watcher)
             }
@@ -191,6 +195,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               // The Nuxt watch list remains the fallback when native watching is unavailable.
             }
           }
+          if (closed) return
           for (const watchedFile of contributionFiles) installContributionWatcher(watchedFile)
         }
         const queued = localRuntimeRefresh.then(refresh, refresh)
@@ -204,6 +209,11 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           if (definitionFiles.has(file) || contributionFiles.has(file) || [...definitionDirectories].some(directory => file === directory || file.startsWith(`${directory}${sep}`))) {
             await refreshLocalRuntime()
           }
+        })
+        hook("close", () => {
+          closed = true
+          for (const watcher of contributionWatchers.values()) watcher.close()
+          contributionWatchers.clear()
         })
       }
       hook("nitro:config", async (config) => {
@@ -244,6 +254,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
             }
           }
+          if (provider === "cloudflare" && runtime) mergeNitroConfigHyperdriveBindings(config, resolveCloudflareHyperdriveBindings(runtime))
           mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
         }
         if (!nuxtOptions.dev && provider === "cloudflare") {
@@ -340,15 +351,9 @@ async function installNitroLocalDatabaseRuntime(
     onFallback: (message: string) => console.warn(message),
   }
   const loadedContributionsByDatabase = new Map<string, Set<CollectedDatabaseContribution>>()
-  const loadedDefinitionSources = new Map<string, Set<string>>()
   for (const definition of runtime.definitions) {
     const sourceSchemas = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, tableNameOptions)))
     const parts = [{ schema: mergeLoadedSchemas(sourceSchemas), owner: `Database Definition ${definition.handler}` }]
-    const definitionLoaded = sourceSchemas.some((schema, index) =>
-      definition.schemaSources[index]?.handler === definition.handler && schema.loaded)
-    loadedDefinitionSources.set(definition.name, definitionLoaded
-      ? new Set(definition.schemaSources.filter((_, index) => sourceSchemas[index]!.loaded).map(source => source.handler))
-      : new Set())
     const loadedContributions = new Set<CollectedDatabaseContribution>()
     for (const contribution of runtime.tableContributionsByDatabase[definition.name] ?? []) {
       const schema = await loadContributedDatabaseSchema(contribution, file, tableNameOptions)
@@ -367,43 +372,38 @@ async function installNitroLocalDatabaseRuntime(
         : []))
   const layered = (definition: (typeof runtime.definitions)[number]) => definition.schemaSources.length > 1
   const merged = (index: number) => layered(runtime.definitions[index]!) || contributedSchemas[index]!.length > 0
-  const imports = runtime.definitions.flatMap((definition, index) => {
-    const loadedSources = loadedDefinitionSources.get(definition.name) ?? new Set<string>()
-    const definitionLoaded = loadedSources.has(definition.handler)
-    if (!definitionLoaded) return []
-    return [
-      `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
-      ...definition.schemaSources.flatMap((source, sourceIndex) => loadedSources.has(source.handler)
-        ? [`import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`]
-        : []),
-      ...contributedSchemas[index]!.map(({ contribution, variable }) => renderContributionImport(file, contribution, variable)),
-    ]
-  })
+  // A Definition that jiti cannot load still runs: Nitro resolves its aliases and Nuxt auto-imports.
+  const imports = runtime.definitions.flatMap((definition, index) => [
+    `import definition_${index} from ${JSON.stringify(pathToFileURL(definition.handler).href)}`,
+    ...layered(definition)
+      ? definition.schemaSources.map((source, sourceIndex) =>
+          `import schemaSource_${index}_${sourceIndex} from ${JSON.stringify(pathToFileURL(source.handler).href)}`)
+      : [],
+    ...contributedSchemas[index]!.map(({ contribution, variable }) => renderContributionImport(file, contribution, variable)),
+  ])
   const schemas = runtime.definitions.flatMap((definition, index) => {
-    if (!merged(index) || !(loadedDefinitionSources.get(definition.name)?.has(definition.handler))) return []
-    const loadedSources = loadedDefinitionSources.get(definition.name) ?? new Set<string>()
-    const definitionSchemas = definition.schemaSources
-      .map((source, sourceIndex) => loadedSources.has(source.handler) ? `...schemaSource_${index}_${sourceIndex}.schema` : undefined)
-      .filter((source): source is string => source !== undefined)
-    if (!definitionSchemas.length) definitionSchemas.push(`...definition_${index}.schema`)
+    if (!merged(index)) return []
+    const definitionSchemas = layered(definition)
+      ? definition.schemaSources.map((_, sourceIndex) => `...schemaSource_${index}_${sourceIndex}.schema`)
+      : [`...definition_${index}.schema`]
     return [`const schema_${index} = { ${[...definitionSchemas, ...contributedSchemas[index]!.map(({ variable }) => `...${variable}`)].join(", ")} }`]
   })
-  const entries = runtime.definitions.flatMap((definition, index) => {
-    if (!loadedDefinitionSources.get(definition.name)?.has(definition.handler)) return []
-    return [[
-      `  [${JSON.stringify(definition.name)}]: {`,
-      merged(index)
+  const entries = runtime.definitions.map((definition, index) => [
+    `  [${JSON.stringify(definition.name)}]: {`,
+    runtime.databases[definition.name]?.dialect === "postgresql"
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, merged(index) ? `{ ...definition_${index}, schema: schema_${index} }` : `definition_${index}`)},`
+      : merged(index)
         ? `    db: createDefinitionRuntime({ ...definition_${index}, schema: schema_${index} }, definitionDefaults),`
         : `    db: createDefinitionRuntime(definition_${index}, definitionDefaults),`,
-      `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
-      "  },",
-    ].join("\n")]
-  })
+    `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
+    "  },",
+  ].join("\n"))
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,
     imports: [
       `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
+      ...(usesPostgres(runtime) ? [`import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`] : []),
       ...imports,
       "",
       `const definitionDefaults = ${serializeGeneratedRegistry(runtime.definitionDefaults)}`,
@@ -562,24 +562,28 @@ function resolveNitroHostingProvider(config: Record<string, unknown>, nuxtOption
 
 async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, root: string) {
   const kit = createNitroServerKit(config)
-  kit.addHandler({ handler: generatedNitroDatabaseMiddleware, middleware: true, route: "/**" }, "start")
+  // No route: Nitro 2 mounts middleware by path prefix, so "/**" would never match. Both Nitro versions run route-less middleware for every request.
+  kit.addHandler({ handler: generatedNitroDatabaseMiddleware, middleware: true }, "start")
   config.handlers = kit.config.handlers
   const rollupConfig = isRecord(config.rollupConfig) ? { ...config.rollupConfig } : {}
   rollupConfig.external = mergeNitroExternal(rollupConfig.external, "cloudflare:workers")
   config.rollupConfig = rollupConfig
   await writeFileIfChanged(resolve(root, generatedNitroDatabaseMiddleware), [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
-    "import { setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
+    "import { runWithActiveCloudflareEnv, setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
     "",
     "const nativeEnv = (globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ ?? vitehubEnv",
     "",
-    "export default (event: unknown) => {",
+    "// h3 v2 passes next(). Running it inside the env scope gives each request its own database clients.",
+    "export default (event: unknown, next?: () => unknown) => {",
     "  const target = event as { env?: Record<string, unknown>, context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }, req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }",
     "  const mergedEnv = Object.assign({}, nativeEnv, target.req?.runtime?.cloudflare?.env, target.context?._platform?.cloudflare?.env, target.context?.cloudflare?.env, target.env)",
     "  for (const property of Reflect.ownKeys(nativeEnv)) {",
     "    if (!Object.hasOwn(mergedEnv, property)) Object.defineProperty(mergedEnv, property, { configurable: true, get: () => Reflect.get(nativeEnv as object, property) })",
     "  }",
-    "  setActiveCloudflareEnv(new Proxy(mergedEnv, { get: (target, property, receiver) => Reflect.has(target, property) ? Reflect.get(target, property, receiver) : undefined }))",
+    "  const env = new Proxy(mergedEnv, { get: (target, property, receiver) => Reflect.has(target, property) ? Reflect.get(target, property, receiver) : undefined })",
+    "  setActiveCloudflareEnv(env)",
+    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, next)",
     "}",
     "",
   ].join("\n"))
@@ -623,6 +627,12 @@ function mergeNitroCloudflareConfig(config: Record<string, unknown>, d1: Resolve
   const cloudflare = ensureRecord(nitro, "cloudflare")
   const wrangler = ensureRecord(cloudflare, "wrangler")
   wrangler.d1_databases = mergeCloudflareD1Bindings(wrangler.d1_databases, [d1.d1Database])
+}
+
+function mergeNitroConfigHyperdriveBindings(config: Record<string, unknown>, bindings: ReturnType<typeof resolveCloudflareHyperdriveBindings>) {
+  if (!bindings.length) return
+  const wrangler = ensureRecord(ensureRecord(config, "cloudflare"), "wrangler")
+  wrangler.hyperdrive = mergeCloudflareHyperdriveBindings(wrangler.hyperdrive, bindings)
 }
 
 function mergeNitroConfigCloudflareConfig(config: Record<string, unknown>, d1: ResolvedDatabaseNuxtD1Options) {

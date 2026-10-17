@@ -1,4 +1,3 @@
-import { resolve } from "node:path"
 import { createScheduleNitroConfig, hubSchedule } from "./vite.ts"
 
 import type { ScheduleVitePluginOptions } from "./vite.ts"
@@ -6,10 +5,7 @@ import type { ScheduleVitePluginOptions } from "./vite.ts"
 export interface ScheduleNuxtModuleOptions extends ScheduleVitePluginOptions {}
 
 type NuxtLike = {
-  hook?: {
-    (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>): void
-    (name: "prepare:types", handler: (context: { references: { path: string }[] }) => void): void
-  }
+  hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) => void
   options: {
     dev?: boolean
     nitro?: Record<string, unknown>
@@ -27,10 +23,6 @@ function isScheduleVitePlugin(value: unknown) {
 
 export default function viteHubScheduleNuxtModule(options: ScheduleNuxtModuleOptions = {}, nuxt?: NuxtLike): void {
   if (!nuxt) return
-
-  nuxt.hook?.("prepare:types", (context) => {
-    context.references.push({ path: resolve(nuxt.options.rootDir || process.cwd(), ".vitehub/schedule.d.ts") })
-  })
 
   nuxt.options.vite ??= {}
   const plugins = Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : []

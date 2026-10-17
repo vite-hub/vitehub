@@ -10,7 +10,6 @@ import {
 import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type WorkspaceShellResult } from "../src/ai.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as loader from "../src/loader.ts"
-import * as publish from "../src/publish.ts"
 import { custom, fetch, file, github, glob, markdown, mcpResources, source, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
 import { discoverViteWorkspaceDefinitions, hubWorkspace } from "../src/vite.ts"
 import type { DiscoveredWorkspaceDefinition } from "../src/vite.ts"
@@ -111,10 +110,6 @@ describe("workspace types", () => {
         },
       },
       loaders: [loader.files()],
-      publish: [
-        publish.virtualModule({ id: "#vitehub/workspaces/typed" }),
-        publish.github({ repo: "acme/app", token: () => "github-token" }),
-      ],
       rules: {
         "/**": { write: false },
         "/generated/**": {
@@ -293,19 +288,16 @@ describe("workspace types", () => {
     readonly.startSession()
     // @ts-expect-error read-only facade does not expose Source Sync
     readonly.sync({ sources: ["externalDocs"] })
-    // @ts-expect-error read-only facade does not expose publication
-    readonly.publish()
     expectTypeOf(writable.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(writable.tools.writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(writable.tools.write().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.startSession).toBeFunction()
-    expectTypeOf(writable.publish).toBeFunction()
     expectTypeOf(await writable.sync({ sources: ["externalDocs"] })).toMatchTypeOf<WorkspaceSourceSyncResult>()
     // @ts-expect-error workspace.sync requires explicit sources
     await runtimeWorkspace.sync()
     expectTypeOf(await runtimeWorkspace.sync({ sources: ["externalDocs"] })).toMatchTypeOf<WorkspaceSourceSyncResult>()
-    expectTypeOf(await runtimeWorkspace.sync({ details: "paths", publish: true, snapshot: { message: "sync docs" }, sources: "all" })).toMatchTypeOf<WorkspaceSourceSyncResult>()
+    expectTypeOf(await runtimeWorkspace.sync({ details: "paths", snapshot: { message: "sync docs" }, sources: "all" })).toMatchTypeOf<WorkspaceSourceSyncResult>()
     const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
     const githubWorkspaceOptions: WorkspaceModuleOptions = { store: { branch: "main", provider: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
     const lazyGithubWorkspaceOptions: WorkspaceModuleOptions = { store: { provider: "github", repository: () => "acme/app", token: () => "token" } }

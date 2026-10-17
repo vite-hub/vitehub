@@ -37,7 +37,6 @@ It also becomes the Worker name unless `nitro.cloudflare.wrangler.name` is set.
 | Credentials | Provider env vars for provisioning or host runtime secrets through Server Env. |
 | Runtime context | Runtime Host Context passed by the host integration, not app-owned global state. |
 | Agent state | Agent Package state provider configuration when Cloudflare-backed state is selected. |
-| Cloudflare Computer Boxes | App-owned Computer Durable Object, backend, bindings, migrations, and compatibility flags; ViteHub adapts the configured namespace at runtime. |
 
 ## Configure the preset
 
@@ -174,12 +173,6 @@ export default {
 ViteHub writes the generated `browser` binding, a compatible default `compatibility_date`, and the `nodejs_compat` flag. Browser Definitions import runtime helpers from `vite-hub/browser`; provider modules and the generated `wrangler.json` are not application import surfaces.
 
 `wrangler dev` can run Browser Run against a local browser. Set `browser: { remote: true }` to keep Worker code local while connecting its Browser binding to Cloudflare, which is useful when a proof must exercise the hosted Browser Run service.
-
-### Cloudflare Computer Boxes
-
-Cloudflare Computer is an optional preview runtime for [Boxes](/docs/agents/boxes). The application configures its `withWorkspace()` Durable Object, execution backends, Worker Loader or Container bindings, migrations, compatibility flags, and deployment lifecycle. Pass the configured Durable Object namespace to ViteHub with `{ kind: 'cloudflare-computer' }`. ViteHub does not create or modify Computer infrastructure.
-
-Keep the Computer filesystem and backend configuration in the Cloudflare integration. Box callers supply inputs and select a registered backend ID without importing Computer filesystem or execution APIs.
 
 ## Production notes
 

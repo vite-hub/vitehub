@@ -86,7 +86,7 @@ export function compactRealtimeAwareness(awareness: awarenessProtocol.Awareness)
  * Drops the entries of an awareness update that describe clients another peer owns. Stock y-websocket clients send
  * every awareness change they see, other people's too, so an echo is normal and must not close the connection.
  */
-export function dropForeignAwareness<Peer extends object>(update: Uint8Array, owners: ReadonlyMap<number, Peer>, peer: Peer): Uint8Array {
+function dropForeignAwareness<Peer extends object>(update: Uint8Array, owners: ReadonlyMap<number, Peer>, peer: Peer): Uint8Array {
   readAwarenessClientIds(update)
   const decoder = decoding.createDecoder(update)
   const length = decoding.readVarUint(decoder)

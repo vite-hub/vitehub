@@ -261,13 +261,69 @@ body {
   font-size: 0;
 }
 
-.vitehub-content-search-modal button[aria-label="Close"] svg {
+.vitehub-content-search-modal button[aria-label="Close"] .iconify {
   display: none;
 }
 
 .vitehub-content-search-modal button[aria-label="Close"]::before {
   font-size: 0.75rem;
   content: "ESC";
+}
+
+/* Group labels match the small uppercase section labels of the docs pages. */
+.vitehub-content-search-modal [role="group"] > [data-slot="label"] {
+  padding: 0.75rem 0.625rem 0.375rem;
+  color: var(--ui-text-dimmed);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* A result is a path line over its heading, then the matching text, like the docs catalog cards. */
+.vitehub-content-search-modal [role="option"] {
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.625rem;
+}
+
+.vitehub-content-search-modal [role="option"] [data-slot="itemLeadingIcon"] {
+  margin-top: 0.125rem;
+}
+
+.vitehub-content-search-modal [data-slot="itemLabel"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  overflow: visible;
+  white-space: normal;
+}
+
+.vh-search-path {
+  overflow: hidden;
+  color: var(--ui-text-dimmed);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vh-search-title {
+  color: var(--ui-text-highlighted);
+  font-weight: 500;
+  line-height: 1.25rem;
+}
+
+.vitehub-content-search-modal [role="option"] [data-slot="itemDescription"] {
+  margin-top: 0.125rem;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+
+.vitehub-content-search-modal mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ui-text-highlighted) 12%, transparent);
+  color: inherit;
 }
 
 /* Keep results above the bottom edge when the viewport is short, such as a tablet or phone in landscape. */
@@ -284,14 +340,78 @@ body {
   }
 }
 
+/* Touch screens have no Escape key, so the close button keeps its icon. */
+@media (pointer: coarse) {
+  .vitehub-content-search-modal button[aria-label="Close"] {
+    width: 2.25rem;
+    height: 2.25rem;
+    border: 0;
+  }
+
+  /* Nuxt UI renders the icon as an `.iconify` span with a CSS mask, not as an inline SVG. */
+  .vitehub-content-search-modal button[aria-label="Close"] .iconify {
+    display: block;
+  }
+
+  .vitehub-content-search-modal button[aria-label="Close"]::before {
+    content: none;
+  }
+}
+
+/*
+ * Phones open search as a full screen sheet, as native search does. Before the first letter it lists
+ * the docs sections, so the sheet is never empty.
+ * Do not reset `translate` here: the CSS minifier merges `translate: none` into `transform`,
+ * so the base `translate: -50%` stayed and pushed the modal off the left edge.
+ */
 @media (max-width: 640px) {
   .vitehub-content-search-modal {
-    top: 3.25rem !important;
-    left: 0.5rem !important;
-    right: auto !important;
-    width: calc(100dvw - 1rem) !important;
-    transform: none !important;
-    translate: none !important;
+    top: 0 !important;
+    width: 100vw !important;
+    /* Min and max height, because the modal's important `h-auto` utility wins over a height here. */
+    min-height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .vitehub-content-search-modal > [data-slot="root"],
+  .vitehub-content-search-modal [role="listbox"] {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .vitehub-content-search-modal:has(input:placeholder-shown) [role="listbox"] {
+    display: flex;
+  }
+
+  .vitehub-content-search-modal [data-slot="input"] {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .vitehub-content-search-modal [data-slot="input"] > input {
+    padding-inline-end: 5rem;
+  }
+
+  .vitehub-content-search-modal [data-slot="viewport"] {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .vitehub-content-search-modal button[aria-label="Close"] {
+    width: auto;
+    height: 2.25rem;
+    padding-inline: 0.5rem;
+    border: 0;
+    color: var(--ui-text-highlighted);
+  }
+
+  .vitehub-content-search-modal button[aria-label="Close"] .iconify {
+    display: none;
+  }
+
+  .vitehub-content-search-modal button[aria-label="Close"]::before {
+    font-size: 0.9375rem;
+    content: "Cancel";
   }
 }
 

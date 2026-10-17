@@ -56,11 +56,8 @@
     },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
-      "import": "./dist/cloudflare.js",
-      "require": "./dist/cloudflare.js",
-      "default": "./dist/cloudflare.js"
+      "import": "./dist/cloudflare.js"
     },
-
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js",
@@ -84,12 +81,6 @@
       "import": "./dist/nuxt.js",
       "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
-    },
-    "./publish": {
-      "types": "./dist/publish.d.ts",
-      "import": "./dist/publish.js",
-      "require": "./dist/publish.js",
-      "default": "./dist/publish.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
@@ -182,7 +173,7 @@
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",

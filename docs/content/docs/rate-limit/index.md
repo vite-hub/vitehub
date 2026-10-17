@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-gauge
 ---
 
+::agent-only{skill="rate-limit"}
+Use Rate Limit to guard an action with an atomic counter and a defined window. Put identity derivation in the caller or Agent Capability.
+
+Read [Get started](/docs/rate-limit/get-started), [Server API](/docs/rate-limit/server-api), [Hosts](/docs/rate-limit/hosts), or [Limits and errors](/docs/rate-limit/limits-and-errors).
+
+Choose a provider whose guarantees match the action. Memory is local to one process. Inspect `.vitehub/rate-limit/manifest.json` before a production deploy. Do not replace a Rate Limit with a KV read followed by a write.
+
+Prove allowed, rejected, reset, and provider failure behavior. Check the resolved window and enforcement mode in generated inspection state.
+::
+
 ::product-hero{tagline="One guard caps requests per client, user, or tenant, with atomic drivers: memory on Node, Cloudflare Rate Limiting on Cloudflare." hosts="Node, Docker, Cloudflare"}
   :::code-group
   ```ts [Route]

@@ -2,12 +2,12 @@ import { resolveViteHubBundleDefines } from "./esbuild.ts"
 import type { VercelFunctionRuntimePackage } from "./vercel-runtime-packages.ts"
 import type { ProviderDeploymentOutputContribution } from "./deployment-output.ts"
 
-export interface CloudflareQueueConsumer {
+interface CloudflareQueueConsumer {
   queue: string
   [key: string]: unknown
 }
 
-export interface CloudflareQueueProducer {
+interface CloudflareQueueProducer {
   binding: string
   queue: string
   [key: string]: unknown
@@ -19,7 +19,7 @@ export interface CloudflareR2Bucket {
   [key: string]: unknown
 }
 
-export interface CloudflareRateLimit {
+interface CloudflareRateLimit {
   name: string
   [key: string]: unknown
 }
@@ -344,14 +344,12 @@ export function createProviderOutputCatalog(): ProviderOutputCatalog {
   return new ProviderOutputCatalog()
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Config identity determines catalog ownership.
 export function getProviderOutputCatalog(config: object): ProviderOutputCatalog | undefined {
   // SAFETY: This module owns the optional catalog symbol on Vite config objects.
   const owner = config as ProviderOutputCatalogOwner
   return owner[providerOutputCatalog] ?? providerOutputCatalogs.get(config)
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- The Vite config object's identity is the complete catalog ownership contract.
 export function useProviderOutputCatalog(config: object & { define?: Record<string, unknown> }): ProviderOutputCatalog {
   // SAFETY: The symbol property is optional and stores only ProviderOutputCatalog values on config objects owned by this module.
   const owner = config as ProviderOutputCatalogOwner

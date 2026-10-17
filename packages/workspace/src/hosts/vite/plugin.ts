@@ -267,7 +267,6 @@ function babelNamespaceMemberNames(
   if (parent?.node.type === "MemberExpression" && parent.node.object === path.node) {
     if (!reachesRequestedExport(parent)) return []
     const name = parent.node.property?.name ?? parent.node.property?.value
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel member names cross the parser boundary as identifiers or literals.
     return typeof name === "string" ? [name] : []
   }
   if (
@@ -287,7 +286,6 @@ function babelNamespaceMemberNames(
       const references = parent.scope.getBinding(objectProperty.value.name)?.referencePaths ?? []
       if (!references.some(reachesRequestedExport)) return []
       const name = objectProperty.key?.name ?? objectProperty.key?.value
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel destructuring keys cross the parser boundary as identifiers or literals.
       return typeof name === "string" ? [name] : []
     }) ?? []
   }
@@ -446,7 +444,6 @@ function babelStringValue(node: BabelNode | undefined, path: BabelBindingPath, s
     && node.callee.property.name === "join"
   ) {
     const values = node.callee.object.elements?.map(element => babelStringValue(element ?? undefined, path, seen))
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel literal evaluation must validate every computed array element before joining it.
     if (values?.every(value => typeof value === "string")) return values.join("-")
   }
 }
@@ -548,7 +545,6 @@ function sourceImportsFeedingWorkspaceStore(
         visitor: {
           ExportNamedDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel export sources may be absent or non-string parser nodes.
             if (typeof specifier !== "string") return
             for (const exported of path.node.specifiers ?? []) {
               const exportedAs = String(exported.exported?.name ?? exported.exported?.value)
@@ -561,12 +557,10 @@ function sourceImportsFeedingWorkspaceStore(
           },
           ExportAllDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel export-all sources may be absent or non-string parser nodes.
             if (typeof specifier === "string" && exportedName !== "default") imports.push({ importedName: exportedName, specifier })
           },
           ImportDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel import sources may be absent or non-string parser nodes.
             if (typeof specifier !== "string") return
             for (const imported of path.node.specifiers ?? []) {
               if (imported.local?.type !== "Identifier" || !imported.local.name) continue
@@ -635,12 +629,10 @@ function sourceImportsFeedingWorkspaceStore(
                 : undefined
             if (assignedName !== exportedName) return
             const specifier = required.arguments[0]?.value
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
             if (typeof specifier !== "string") return
             const importedName = right?.type === "MemberExpression"
               ? right.property?.name ?? right.property?.value
               : "default"
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
             imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, specifier })
           },
           VariableDeclarator(path: BabelNodePath) {
@@ -661,7 +653,6 @@ function sourceImportsFeedingWorkspaceStore(
               && awaited.arguments?.length === 1
             ) {
               const specifier = awaited.arguments[0]?.value
-              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import arguments must be statically resolvable strings.
               if (typeof specifier !== "string") return
               if (path.node.id?.type === "ObjectPattern") {
                 // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
@@ -678,7 +669,6 @@ function sourceImportsFeedingWorkspaceStore(
                     : babelPathOrBindingIsExported(reference, exportedName))
                   if (!reaches) continue
                   const importedName = property.key?.name ?? property.key?.value
-                  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import destructuring keys cross the parser boundary.
                   imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
                 }
               }
@@ -689,7 +679,6 @@ function sourceImportsFeedingWorkspaceStore(
                 const reachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
                   ? babelPathReachesExportedStore(reference)
                   : babelPathOrBindingIsExported(reference, exportedName)
-                // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import member names cross the parser boundary.
                 if (typeof selectedDynamicImportName === "string" && binding?.referencePaths?.some(reachesRequestedExport)) {
                   imports.push({ importedName: selectedDynamicImportName, localName, specifier })
                 }
@@ -709,7 +698,6 @@ function sourceImportsFeedingWorkspaceStore(
               && required.arguments?.length === 1
             ) {
               const specifier = required.arguments[0]?.value
-              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
               if (typeof specifier !== "string") return
               // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
               const properties = (path.node.id as BabelNode & { properties?: BabelNode[] }).properties
@@ -727,7 +715,6 @@ function sourceImportsFeedingWorkspaceStore(
                 const importedName = property.computed
                   ? babelStringValue(key, path)
                   : property.key?.name ?? property.key?.value
-                // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS destructuring keys cross the parser boundary as identifiers or literals.
                 imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
               }
               return
@@ -743,7 +730,6 @@ function sourceImportsFeedingWorkspaceStore(
               || required.arguments?.length !== 1
             ) return
             const specifier = required.arguments[0]?.value
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
             if (typeof specifier !== "string") return
             const binding = path.scope.getBinding(path.node.id.name)
             const reachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
@@ -755,7 +741,6 @@ function sourceImportsFeedingWorkspaceStore(
             const selectedName = path.node.init?.type === "MemberExpression"
               ? path.node.init.property?.name ?? path.node.init.property?.value
               : "default"
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
             if (typeof selectedName === "string" && direct) imports.push({ importedName: selectedName, specifier })
             for (const name of selectedNames) imports.push({ importedName: name, localName: path.node.id.name, specifier })
           },
@@ -805,7 +790,6 @@ function babelEnvironmentKey(
     || node.object.property.name !== "env"
   ) return
   const key = node.property?.name ?? node.property?.value
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Environment member keys cross the parser boundary.
   return typeof key === "string" ? key : undefined
 }
 
@@ -875,7 +859,6 @@ function sourceInlineWorkspaceStoreOperations(
             const selectedName = argument?.type === "MemberExpression"
               ? argument.property?.name ?? argument.property?.value
               : undefined
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel member names cross the parser boundary as identifiers or literals.
             if (!localName || (selectedName !== undefined && typeof selectedName !== "string")) return
             const operation: InlineWorkspaceStoreOperation = {
               kind: "spread",
@@ -897,9 +880,7 @@ function sourceInlineWorkspaceStoreOperations(
             let value = babelStringValue(valueNode, path)
             const environmentValue = value === undefined && babelEnvironmentKey(valueNode, path) !== undefined
             if (environmentValue) value = babelEnvironmentValue(valueNode, path, env)
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property values cross the Babel boundary as unknown values.
             const stringValue = typeof value === "string" ? value : undefined
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property names cross the Babel boundary as unknown values.
             if (typeof name === "string") {
               operations.push({
                 kind: "property",
@@ -942,7 +923,6 @@ function reconstructCloudflareArtifactStore(
       continue
     }
     const imported = operation.localName === undefined ? undefined : importedValues.get(operation.localName)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Imported Workspace store properties cross the module-loader boundary as unknown values.
     if (typeof imported === "string") {
       reconstructed[operation.name] = imported
       continue

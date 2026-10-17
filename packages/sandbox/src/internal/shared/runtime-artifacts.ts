@@ -28,7 +28,7 @@ export interface GeneratedArtifact {
   ) => string | Promise<string>
 }
 
-export interface GeneratedArtifactLocation {
+interface GeneratedArtifactLocation {
   dst: string
   stableDst: string
 }
@@ -39,13 +39,13 @@ export interface EmittedArtifact extends GeneratedArtifact {
   stableDst: string
 }
 
-export interface FeatureAliasRegistration {
+interface FeatureAliasRegistration {
   key: string
   value?: string
   artifactKey?: string
 }
 
-export interface FeatureHandlerRegistration {
+interface FeatureHandlerRegistration {
   route: string
   method?: string
   handler?: string

@@ -171,7 +171,6 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
       throw new RealtimeWriteRejected("Realtime update depends on state this room does not have.")
     }
     if (options.readOnly && !Y.equalSnapshots(before, Y.snapshot(candidate))) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- `readOnly` is a flag or a rejection message.
       throw new RealtimeWriteRejected(typeof options.readOnly === "string" ? options.readOnly : "This realtime connection is read-only.")
     }
     if (options.protectStatus !== false && realtimeStatusFingerprint(candidate) !== realtimeStatusFingerprint(document)) {
@@ -218,7 +217,6 @@ function isDocumentAdapter(document: RealtimeDefinition["document"]): document i
 
 function duration(value: unknown, fallback: number, name: string): number {
   if (value === undefined) return fallback
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persistence timing comes from an untyped definition module.
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     throw realtimeErrorDiagnostics.REALTIME_R0015({ message: `Realtime persistence.${name} must be a non-negative number of milliseconds.` })
   }
@@ -431,7 +429,6 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
 }
 
 function text(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Identities and stored rows cross untyped boundaries.
   return typeof value === "string" && value ? value : undefined
 }
 
@@ -502,6 +499,26 @@ function localRefreshers(): Set<LocalRefreshRef> {
 export interface RealtimeDurableObjectNamespace {
   get(id: unknown): { fetch(request: Request): Promise<Response> }
   idFromName(name: string): unknown
+}
+
+function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false
+  const constructor = (globalThis as Record<string, unknown>).DurableObjectNamespace
+  const callable = (method: unknown) => {
+    if (typeof method !== "function") return false
+    try { return Function.prototype.toString.call(method) !== "function () { [native code] }" } catch { return false }
+  }
+  try {
+    if (typeof constructor === "function") {
+      if (!(value instanceof constructor)) return false
+      const get = Object.getOwnPropertyDescriptor(value, "get")
+      const id = Object.getOwnPropertyDescriptor(value, "idFromName")
+      return get?.get === undefined && id?.get === undefined && callable(get?.value) && callable(id?.value)
+    }
+    const get = Object.getOwnPropertyDescriptor(value, "get")
+    const id = Object.getOwnPropertyDescriptor(value, "idFromName")
+    return get?.get === undefined && id?.get === undefined && callable(get?.value) && callable(id?.value)
+  } catch { return false }
 }
 
 export interface RealtimeRefreshOptions {
@@ -600,7 +617,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       get(id: unknown): { fetch(request: Request): Promise<Response> }
       idFromName(name: string): unknown
     } | undefined
-    if (!binding || (typeof context === "object" && context !== null && "storage" in context)) return
+    if (!binding || !isRealtimeDurableObjectNamespace(binding) || (typeof context === "object" && context !== null && "storage" in context)) return
     let request = event.req
     if (request.headers.has(internalRefreshHeader)) {
       // Only refreshRealtimeDocument() may send it, straight to the Durable Object.

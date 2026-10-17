@@ -4,6 +4,7 @@ export default defineConfig({
   pack: {
     dts: true,
     entry: [
+      "src/abort.ts",
       "src/agent-workflow.ts",
       "src/arrays.ts",
       "src/cli.ts",
@@ -14,7 +15,6 @@ export default defineConfig({
       "src/dev-endpoint.ts",
       "src/dev-token.ts",
       "src/env.ts",
-      "src/effect.ts",
       "src/http-request.ts",
       "src/inspect.ts",
       "src/object.ts",
@@ -33,6 +33,7 @@ export default defineConfig({
       "src/build/deno-runtime-packages.ts",
       "src/build/esbuild.ts",
       "src/build/mode.ts",
+      "src/build/nitro-cache-bypass.ts",
       "src/build/paths.ts",
       "src/build/provider-output-sources.ts",
       "src/build/user-entry.ts",
@@ -44,6 +45,7 @@ export default defineConfig({
       "src/hosting.ts",
       "src/integrations/hex.ts",
       "src/runtime/app.ts",
+      "src/runtime/cache-bypass.ts",
       "src/runtime/cloudflare-env.ts",
       "src/runtime/cloudflare-hosted.ts",
       "src/runtime/random.ts",
