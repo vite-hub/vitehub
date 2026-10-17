@@ -13,7 +13,9 @@ import { inspectKVValue, kvValueType } from "./inspect-value.ts"
 import { isKVDevOperation, kvDevDefaultListLimit, kvDevHeader, kvDevHeaderValue, kvDevMaximumListLimit } from "../dev.ts"
 
 import type { KVDevRequestBody } from "../dev.ts"
-import type { KVDriver, KVResult, KVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { KVDriver, KVStorage, ResolvedKVModuleOptions } from "../types.ts"
 
 function isMissingKVConfig(error: unknown): boolean {
   const code = error instanceof Error && "code" in error ? error.code : undefined
@@ -121,17 +123,11 @@ export function listKVDevStores(): KVDevStore[] {
   return resolvedStores(kvConfig)
 }
 
-function errorCode(cause: unknown): string | undefined {
-  const code: unknown = cause instanceof Object ? Reflect.get(cause, "code") : undefined
-  return v.is(v.string(), code) ? code : undefined
-}
-
-function unwrap<TResult>(result: KVResult<TResult>): TResult {
-  if (result[0] === null) return result[1]
-  const error = result[0]
-  const cause = error.cause
-  const causeMessage = cause instanceof Error ? ` ${cause.message}` : ""
-  throw new KVDevRequestError(`${error.message}${causeMessage}`, 502, errorCode(cause) ?? error.code)
+function unwrap<TResult>(result: Result<TResult>): TResult {
+  const [error, value] = result
+  if (!error) return value
+  const cause = error.code === "KV_OPERATION_FAILED" && error.cause instanceof Error ? ` ${error.cause.message}` : ""
+  throw new KVDevRequestError(`${error.message}${cause}`, 502, error.code)
 }
 
 function ttlNotice(driver: KVDriver, ttl: number): string | undefined {

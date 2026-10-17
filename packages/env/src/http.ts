@@ -10,13 +10,11 @@ export type EnvManagementResolver = (
 ) => { key: string; management: EnvManagement } | undefined;
 
 function record(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parse untrusted JSON into a non-null object before validating its action-specific fields.
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function actor(value: unknown): EnvActor {
   if (
     !record(value) ||
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Actor IDs arrive through untrusted HTTP JSON and must be strings before bridge identifier validation.
     typeof value.id !== "string" ||
     (value.kind !== "user" && value.kind !== "agent" && value.kind !== "service")
   )
@@ -76,7 +74,6 @@ export function createEnvBridgeHandler(
       return response({ message: "Request origin is not allowed." }, 403);
     try {
       const input = await body(request);
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the bounded declaration path before passing HTTP input to the configured allowlist resolver.
       if (typeof input.path !== "string" || input.path.length > 256)
         throw envBridgeError("invalid");
       const target = resolve(input.path);
@@ -99,9 +96,7 @@ export function createEnvBridgeHandler(
         }
         case "replace": {
           if (
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replacement values must be strings; JSON objects and numbers cannot become credentials.
             typeof input.value !== "string" ||
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Conditional replacement accepts only a revision string or explicit null for creation.
             !(input.expectedRevision === null || typeof input.expectedRevision === "string")
           )
             throw envBridgeError("invalid");
@@ -117,7 +112,6 @@ export function createEnvBridgeHandler(
           });
         }
         case "activity": {
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional activity cursor is an event ID string, never an arbitrary JSON value.
           if (input.before !== undefined && typeof input.before !== "string")
             throw envBridgeError("invalid");
           return response({ events: await bridge.activity(context, key, input.before) });

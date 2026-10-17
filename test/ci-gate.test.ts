@@ -120,7 +120,7 @@ describe("CI merge gate", () => {
 
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
-      result: ["checks", "contracts-examples", "package-tests", "package-tests-success", "docs"].includes(name) ? "success" : "skipped",
+      result: ["checks", "workflow-lint", "contracts-examples", "package-tests", "package-tests-success", "docs"].includes(name) ? "success" : "skipped",
     }]))
     expect(runGate(results).status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
@@ -132,8 +132,8 @@ describe("CI merge gate", () => {
     }
   })
 
-  it.each(["checks", "contracts-examples", "package-tests", "package-tests-success", "docs", "docs-deploy"])("rejects skipped required job %s", (name) => {
-    const event = name === "checks" ? "pull_request" : "push"
+  it.each(["checks", "workflow-lint", "contracts-examples", "package-tests", "package-tests-success", "docs", "docs-deploy"])("rejects skipped required job %s", (name) => {
+    const event = name === "checks" || name === "workflow-lint" ? "pull_request" : "push"
     expect(runGate({ ...successfulJobs, [name]: { result: "skipped" } }, event).status).not.toBe(0)
   })
 

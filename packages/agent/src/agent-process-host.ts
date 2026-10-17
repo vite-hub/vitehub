@@ -16,7 +16,7 @@ export interface AgentProcessHostContext {
   dataDir: string
 }
 
-export interface AgentProcessHostHealth {
+interface AgentProcessHostHealth {
   status: "healthy" | "degraded"
   [key: string]: unknown
 }

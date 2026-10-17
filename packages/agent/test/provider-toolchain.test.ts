@@ -11,7 +11,7 @@ const inspectProvider = vi.hoisted(() => vi.fn())
 const prepareHostToolchain = vi.hoisted(() => vi.fn())
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore: vi.fn(), inspectProvider }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable: () => "/fake/codex" }))
-vi.mock("@vite-hub/box/_internal/toolchain", () => ({ prepareHostToolchain }))
+vi.mock("@vite-hub/sandbox/_internal/toolchain", () => ({ prepareHostToolchain }))
 
 import { defineAgent } from "../src/index.ts"
 import { createProviderAgentAdapter, inspectAgentProvider, localWorkspaceHost } from "../src/provider-agent.ts"
@@ -170,15 +170,15 @@ describe("driver.toolchain", () => {
     expect(status.missingCommands).toEqual(["vitehub-missing-command"])
   })
 
-  it("validates the declaration and rejects it with a Box", () => {
+  it("validates the declaration and rejects it with a Sandbox", () => {
     expect(() => defineAgent({
       driver: { kind: "codex", permissions: "allow-all", toolchain: { node: 22 } as never },
       name: "invalid-toolchain",
     })).toThrow(expect.objectContaining({ code: "AGENT_R0971" }))
     expect(() => defineAgent({
-      box: { runtime: "trusted-host", toolchain: "project" },
+      sandbox: { runtime: "trusted-host", toolchain: "project" },
       driver: { kind: "codex", permissions: "allow-all", toolchain: "project" },
-      name: "box-toolchain",
+      name: "sandbox-toolchain",
     })).toThrow(expect.objectContaining({ code: "AGENT_R0972" }))
   })
 })

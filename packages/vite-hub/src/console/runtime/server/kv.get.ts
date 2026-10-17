@@ -2,7 +2,8 @@ import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL } from "./request.ts"
 import { getConsoleKV } from "./kv.ts"
 
-import type { KVResult, KVStorage } from "@vite-hub/kv"
+import type { KVStorage } from "@vite-hub/kv"
+import type { Result } from "@vite-hub/runtime"
 import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
@@ -34,15 +35,12 @@ async function valueRequest(event: ConsoleRequestEvent): Promise<{ key: string; 
     if (Reflect.get(Object(error), "statusCode") === 413) throw error
     throw requestError(400, "Request body must be valid JSON.")
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console request bodies are untrusted JSON, so validate the object boundary before reading fields.
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw requestError(400, "Request body must be an object.")
   }
   const key = Reflect.get(body, "key")
   const store = Reflect.get(body, "store")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console request bodies are untrusted JSON, so validate the required key identity.
   if (typeof key !== "string") throw requestError(400, "key is required.")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console request bodies are untrusted JSON, so validate the optional store identity.
   if (store !== undefined && typeof store !== "string") throw requestError(400, "store must be a string.")
   return { key, store: store ?? null }
 }
@@ -56,16 +54,16 @@ function limitParameter(value: string | null): number {
   return parsed
 }
 
-function unwrap<TResult>(result: KVResult<TResult>): TResult {
-  if (result[0]) throw requestError(502, result[0].message)
-  return result[1]
+function unwrap<TResult>(result: Result<TResult>): TResult {
+  const [error, value] = result
+  if (error) throw requestError(502, error.message)
+  return value
 }
 
 function valueType(value: unknown): string {
   if (value === null) return "null"
   if (Array.isArray(value)) return "array"
   if (value instanceof Uint8Array) return "bytes"
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The type label intentionally reports the remaining JavaScript primitive representation.
   return typeof value
 }
 
@@ -114,28 +112,21 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
   }
 
   function serialize(input: unknown, depth: number, arrayValue: boolean, key: string, applyToJSON = true): boolean {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
     if (typeof input === "string") return appendString(input)
     if (input === null) return append("null")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
     if (typeof input === "number") return append(Number.isFinite(input) ? String(input) : "null")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON value categories are selected at this serialization boundary.
     if (typeof input === "boolean") return append(input ? "true" : "false")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON omits these values in objects and writes null for them in arrays.
     if (typeof input === "undefined" || typeof input === "function" || typeof input === "symbol") {
       return arrayValue ? append("null") : false
     }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify throws for bigint values.
     if (typeof input === "bigint") {
       const toJSON: unknown = Reflect.get(Object(input), "toJSON")
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
       if (applyToJSON && typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key, false)
       throw viteHubErrorDiagnostics.VITE_HUB_R0066({ message: "Cannot serialize bigint as JSON." })
     }
 
     // SAFETY: Primitive JSON categories returned above, so the remaining input is an object.
     const object = Object(input)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
     const toJSON: unknown = Reflect.get(object, "toJSON")
     if (applyToJSON && typeof toJSON === "function") {
       const replacement = toJSON.call(input, key)
@@ -164,13 +155,10 @@ function boundedJSONStringify(value: unknown): { truncated: boolean; value?: str
     for (const key in object) {
       if (!Object.prototype.hasOwnProperty.call(object, key)) continue
       let item: unknown = Reflect.get(object, key)
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.stringify consults toJSON only for object and BigInt property values, so this reproduces that serialization boundary.
       if (item !== null && (typeof item === "object" || typeof item === "bigint")) {
         const toJSON: unknown = Reflect.get(Object(item), "toJSON")
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional method is validated before invocation.
         if (typeof toJSON === "function") item = toJSON.call(item, key)
       }
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON omits unsupported object property values.
       if (typeof item === "undefined" || typeof item === "function" || typeof item === "symbol") continue
       if (!append(`${count === 0 ? "" : ","}\n${"  ".repeat(depth + 1)}`)) return false
       if (!appendString(key) || !append(": ") || !serialize(item, depth + 1, false, key, false)) return false
@@ -190,7 +178,6 @@ function formatValue(value: unknown): Pick<ConsoleKVValue, "format" | "truncated
   let format: "json" | "text" = "json"
   let rendered: string
   let truncated = false
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- KV drivers return unknown values, so string identity is validated at this formatting boundary.
   if (typeof value === "string") {
     format = "text"
     rendered = value
@@ -264,14 +251,12 @@ async function consoleKVHandler(event: ConsoleRequestEvent): Promise<
     store: selected.name,
     stores: inspection.stores,
   }
-  if (pageResult[0]) {
-    const cause = pageResult[0].cause
-    const errorCode = cursor && cause instanceof Object && "code" in cause && cause.code === "KV_CURSOR_EXPIRED"
-      ? "cursor_expired"
-      : undefined
-    return { ...response, error: pageResult[0].message, ...(errorCode ? { errorCode } : {}) }
+  const [pageError, page] = pageResult
+  if (pageError) {
+    // An invalid or expired cursor is retryable: the Console starts the listing again.
+    const errorCode = cursor && pageError.code === "KV_INVALID_CURSOR" ? "cursor_expired" : undefined
+    return { ...response, error: pageError.message, ...(errorCode ? { errorCode } : {}) }
   }
-  const page = pageResult[1]
   const listed = { ...response, keys: page.keys }
   return page.cursor ? { ...listed, cursor: page.cursor } : listed
 }

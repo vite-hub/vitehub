@@ -80,12 +80,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function string(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database inspection payloads are untrusted JSON.
   return typeof value === "string" ? value : undefined;
 }
 
 function finiteInteger(value: unknown): number | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database inspection payloads are untrusted JSON.
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
@@ -168,7 +166,6 @@ export function parseConsoleDatabase(value: unknown): ConsoleDatabase {
     throw viteHubErrorDiagnostics.VITE_HUB_R0042({ message: "The Console returned an invalid database inspection." });
   }
   const databases = source.databases.filter(
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Database inspection payloads are untrusted JSON.
     (name): name is string => typeof name === "string" && Boolean(name),
   );
   const tableEntries = source.tables.flatMap(

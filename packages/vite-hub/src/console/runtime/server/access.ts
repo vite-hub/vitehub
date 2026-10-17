@@ -63,26 +63,33 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
   if (value instanceof Response) return value
   if ((typeof value !== "object" && typeof value !== "function") || value === null) return
   try {
-    // Keep the trusted current-realm brand check as the first path.
-    const status = Response.prototype.status.call(value)
-    const statusText = Response.prototype.statusText.call(value)
-    const headers = Response.prototype.headers.call(value)
-    const bodyUsed = Response.prototype.bodyUsed.call(value)
-    Response.prototype.clone.call(value)
-    if (typeof status !== "number" || typeof statusText !== "string" || typeof bodyUsed !== "boolean") return
-    if (bodyUsed) return
-    const body = Response.prototype.body.call(value)
-    const init = { headers: new Headers(headers), status, statusText }
-    if (body === null) return new Response(null, init)
-    return new Response(body as BodyInit, init)
+    const candidate = value as object & { constructor?: unknown }
+    const constructor = candidate.constructor
+    if (typeof constructor !== "function" || constructor.name !== "Response") return
+    const prototype = constructor.prototype
+    if (prototype === null || typeof prototype !== "object") return
+    const native = (member: unknown): member is Function => typeof member === "function" && Function.prototype.toString.call(member).includes("[native code]")
+    const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get
+    const statusText = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get
+    const headers = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
+    const bodyUsed = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
+    const body = Object.getOwnPropertyDescriptor(prototype, "body")?.get
+    const clone = prototype.clone
+    if (![status, statusText, headers, bodyUsed, body, clone].every(native)) return
+    const responseStatus = Reflect.apply(status, value, [])
+    const responseStatusText = Reflect.apply(statusText, value, [])
+    const responseHeaders = Reflect.apply(headers, value, [])
+    const responseBodyUsed = Reflect.apply(bodyUsed, value, [])
+    if (typeof responseStatus !== "number" || typeof responseStatusText !== "string" || typeof responseBodyUsed !== "boolean" || responseBodyUsed) return
+    Reflect.apply(clone, value, [])
+    const responseBody = Reflect.apply(body, value, [])
+    const init = { headers: new Headers(responseHeaders), status: responseStatus, statusText: responseStatusText }
+    return responseBody === null ? new Response(null, init) : new Response(responseBody as BodyInit, init)
   }
   catch {
-    // Fetch response brand checks are realm-local. Without a trusted handoff
-    // from the foreign realm, structural fallbacks would accept forged objects.
     return
   }
 }
-
 /** Install the Console access policy. Generated Console output calls this before it serves a request. */
 export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if (!(policy instanceof Object) || !modes.has(policy.mode)) {
