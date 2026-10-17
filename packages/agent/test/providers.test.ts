@@ -2019,7 +2019,7 @@ describe("agent Vite plugin", () => {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            plugins: [schedulePlugin],
+            plugins: [schedulePlugin, { name: "@vite-hub/connections/vite" }, { name: "@vite-hub/database/vite" }],
             root,
           } as never,
         )
@@ -2031,6 +2031,9 @@ describe("agent Vite plugin", () => {
       const standaloneRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
       expect(standaloneRegistry).toContain('registry["agent/support"]')
       expect(standaloneRegistry).toContain('import("../../server/agents/support.ts")')
+      expect(standaloneRegistry).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
+      expect(standaloneRegistry).toContain("capabilities: { schedule: { schedules: vitehubSchedules } }")
+      expect(standaloneRegistry).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
@@ -3211,6 +3214,8 @@ export default defineAgent({
     expect(pkg.exports?.["./cloudflare/state"]).toEqual({
       types: "./dist/cloudflare/state.d.ts",
       import: "./dist/cloudflare/state.js",
+      require: "./dist/cloudflare/state.js",
+      default: "./dist/cloudflare/state.js",
     })
   })
 
@@ -3221,6 +3226,8 @@ export default defineAgent({
     expect(pkg.exports?.["./server/internal"]).toEqual({
       types: "./dist/server/internal.d.ts",
       import: "./dist/server/internal.js",
+      require: "./dist/server/internal.js",
+      default: "./dist/server/internal.js",
     })
   })
 
@@ -3266,6 +3273,8 @@ export default defineAgent({
     expect(pkg.exports?.["./output"]).toEqual({
       types: "./dist/output.d.ts",
       import: "./dist/output.js",
+      require: "./dist/output.js",
+      default: "./dist/output.js",
     })
   })
 })
