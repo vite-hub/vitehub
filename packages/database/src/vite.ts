@@ -444,8 +444,14 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       const provider = resolveHostedProvider(resolved)
       if (!provider) return
       const runtimeDir = resolve(databaseRoot(), HOSTED_RUNTIME_DIR)
+      if (!supportsHostedDatabaseRuntime(provider, runtimeConfig, readProvisionStateSync(resolved.root))) {
+        await Promise.all([
+          rm(resolve(runtimeDir, `${provider}-runtime.mjs`), { force: true }),
+          rm(resolve(runtimeDir, "definition-defaults.mjs"), { force: true }),
+        ])
+        return
+      }
       const definitionDefaults = await writeHostedDatabaseRuntimeModules(runtimeDir, runtimeConfig, [provider])
-      if (!supportsHostedDatabaseRuntime(provider, runtimeConfig, readProvisionStateSync(resolved.root))) return
       const runtimeModule = resolve(runtimeDir, `${provider}-runtime.mjs`)
       contributeProviderRuntime(providerOutput, {
         owner: "database",
