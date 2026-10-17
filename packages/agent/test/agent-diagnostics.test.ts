@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
-import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, ViteHubError } from "@vite-hub/runtime"
 
 import { defineCapability, normalizeCapabilities } from "../src/capability-runtime.ts"
 import { getAgentFromRegistry } from "../src/index.ts"
@@ -105,6 +105,23 @@ describe("Agent diagnostics", () => {
     expect(text).not.toContain("private provider response")
     expect(formatAgentError(JSON.parse(JSON.stringify(failure)))).toBe(text)
     expect(toAgentPublicError(failure, "http")).toEqual({ code: "INTERNAL", error: "Agent request failed." })
+  })
+
+  it("maps enforced budget failures with bounded details", () => {
+    const error = new ViteHubError("AGENT_BUDGET_EXCEEDED", "Agent budget exceeded.", {
+      details: {
+        limits: { tokens: { total: 100 }, usd: "1.25" },
+        exceeded: [{ actual: 120, limit: 100, metric: "totalTokens" }],
+      },
+    })
+    expect(toAgentPublicError(error, "http")).toEqual({
+      code: "AGENT_BUDGET_EXCEEDED",
+      error: "Agent budget exceeded.",
+      details: {
+        limits: { tokens: { total: 100 }, usd: "1.25" },
+        exceeded: [{ actual: 120, limit: 100, metric: "totalTokens" }],
+      },
+    })
   })
 
   it("keeps cancellation errors unchanged in tool reporting", async () => {
