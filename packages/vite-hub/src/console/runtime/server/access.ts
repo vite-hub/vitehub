@@ -121,6 +121,10 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         hasNativeConstructorLineage = typeof parentConstructor === "function"
           && parentConstructor.prototype === constructorParent
           && parentConstructor.name === "Function"
+          // A caller-created derived constructor can supply a Function-shaped
+          // parent. Require the intrinsic constructor source as an additional
+          // signal before accepting the foreign Response prototype.
+          && Function.prototype.toString.call(parentConstructor) === "function Function() { [native code] }"
         try {
           const constructed = new constructor()
           hasConstructibleResponse = constructed && typeof constructed === "object"
