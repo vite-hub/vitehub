@@ -25,7 +25,7 @@ output, not the host as a whole.
 | Queue      | Discovery only   | Cloudflare Queues     | Vercel Queues         | Cloudflare or Vercel | —              | Cloudflare or Vercel | —                     |
 | Rate Limit | `memory`         | Rate Limiting binding | —                     | —                    | —              | Cloudflare     | `memory`              |
 | Realtime   | `memory`         | Durable Objects       | —                     | —                    | —              | Host authority | `memory`              |
-| Sandbox    | Box provider     | Cloudflare Sandbox    | Vercel Sandbox        | Vercel Sandbox       | —              | Cloudflare or Vercel | Box provider          |
+| Sandbox    | Sandbox provider     | Cloudflare Sandbox    | Vercel Sandbox        | Vercel Sandbox       | —              | Cloudflare or Vercel | Sandbox provider          |
 | Schedule   | Local or process | Cron triggers         | Vercel Cron Jobs      | Scheduled functions  | Standalone `Deno.cron` | Provider Wake  | Process runtime       |
 | Workflow   | OpenWorkflow     | Cloudflare Workflows  | Vercel Workflow       | OpenWorkflow         | OpenWorkflow   | Host provider  | OpenWorkflow          |
 | Workspace  | Local or memory  | Artifacts or GitHub   | Vercel Blob or GitHub | GitHub               | GitHub         | Host store     | Local or GitHub       |

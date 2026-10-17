@@ -13,7 +13,6 @@ import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../s
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
 import { custom, defineWorkspace, file, github, glob, markdown, useWorkspace } from "../src/index.ts"
 import * as loader from "../src/loader.ts"
-import * as publish from "../src/publish.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { materializeWorkspaceSources } from "../src/sources/materialization.ts"
@@ -155,7 +154,7 @@ function archiveRequestAuthorization() {
   return authorization
 }
 
-describe("sources, loaders, and publishers", () => {
+describe("sources and loaders", () => {
   it("pins one revision while syncing a mounted build source", async () => {
     const root = await createRoot()
     let resolution = 0
@@ -1720,7 +1719,7 @@ describe("sources, loaders, and publishers", () => {
       .rejects.toThrow("could not access the repository or ref \"main\"")
   })
 
-  it("loads glob/file/custom sources and writes publish artifacts", async () => {
+  it("loads glob/file/custom sources", async () => {
     const root = await createRoot()
     await writeFile(join(root, "one.md"), "# One\n")
     await writeFile(join(root, "skip.txt"), "skip\n")
@@ -1750,10 +1749,6 @@ describe("sources, loaders, and publishers", () => {
           },
         }),
       ],
-      publish: [
-        publish.manifest({ path: "manifest.json" }),
-        publish.types({ path: "workspace.d.ts" }),
-      ],
     }))
 
     const workspace = useWorkspace("sources", { mode: "write" })
@@ -1762,8 +1757,6 @@ describe("sources, loaders, and publishers", () => {
 
     expect(customWrites).toBe(3)
     expect(await workspace.fs.glob("**/*")).toHaveLength(3)
-    expect(await readFile(join(root, "manifest.json"), "utf8")).toContain('"docs/one.md"')
-    expect(await readFile(join(root, "workspace.d.ts"), "utf8")).toContain('#vitehub/workspaces/sources')
   })
 
   it("ignores hidden files, .git, and node_modules when discovering glob sources by default", async () => {

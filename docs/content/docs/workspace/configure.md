@@ -126,7 +126,6 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 | `hooks` | `WorkspaceHooks` | Write lifecycle hooks. |
 | `plugins` | `WorkspacePlugin[]` | Bundled rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
-| `publish` | `WorkspacePublisher[]` | Publication behavior after snapshots or sync. |
 
 Instruction text reads scalar bindings with `{{ data.workspace.<name> }}` and file-backed bindings with `:insert{:markdown="data.workspace.<name>"}`. Only keys declared in `bindings` are available; ViteHub does not expose arbitrary Workspace files to Instruction Composition. See [Agent instructions](/docs/agents/instructions#insert-workspace-bindings).
 

@@ -77,8 +77,10 @@ const docsShellUi = {
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;
+    align-items: flex-start;
+    overflow-x: clip;
   }
-
+  /* The sidebars do not clip, so the expanded rail can cover the page. The z-index keeps it below the site header. */
   .vh-docs-shell > .vh-docs-desktop-nav {
     display: flex;
     position: sticky;
@@ -113,6 +115,10 @@ const docsShellUi = {
   :deep(.vh-docs-sidebars) {
     height: 100%;
     min-height: 0;
+    flex-direction: row;
+    overflow: visible;
+    border-right: 1px solid var(--ui-border);
+    width: max-content;
   }
 
   :deep(.vh-docs-panel) {
