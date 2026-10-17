@@ -142,26 +142,15 @@ function isResponseLike(value: unknown): value is Response {
   }
   catch { /* a foreign implementation may not share native internal slots */ }
   try {
-    let proto: object | null = Object.getPrototypeOf(value)
-    let body: Function | undefined
-    let statusGetter: Function | undefined
-    while (proto) {
-      const bodyDescriptor = Object.getOwnPropertyDescriptor(proto, "body")
-      const statusDescriptor = Object.getOwnPropertyDescriptor(proto, "status")
-      if (!body && typeof bodyDescriptor?.get === "function") body = bodyDescriptor.get
-      if (!statusGetter && typeof statusDescriptor?.get === "function") statusGetter = statusDescriptor.get
-      proto = Object.getPrototypeOf(proto)
-    }
     const headers = responseHeaders(value)
     const tag = Object.prototype.toString.call(value)
     const headersTag = headers && Object.prototype.toString.call(headers)
     const headersConstructor = headers && (headers as { constructor?: unknown }).constructor
-    const stateSymbols = Object.getOwnPropertySymbols(value)
-    const hasResponseState = stateSymbols.some(symbol => ["body", "aborted", "error"].includes(symbol.description ?? ""))
     return tag === "[object Response]"
-      && hasResponseState
-      && (typeof body === "function" || "body" in response)
-      && (typeof statusGetter === "function" || typeof response.status === "number")
+      && typeof response.status === "number"
+      && typeof response.statusText === "string"
+      && typeof response.bodyUsed === "boolean"
+      && "body" in response
       && headers !== undefined
       && typeof (headers as { get?: unknown }).get === "function"
       && (headersTag === "[object Headers]" || (typeof headersConstructor === "function" && headersConstructor.name === "Headers"))
