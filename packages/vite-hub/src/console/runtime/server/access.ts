@@ -110,6 +110,7 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   }
   if (policy.authorize !== undefined && typeof policy.authorize !== "function") {
     throw new TypeError("[vitehub] console.authorize must default-export a function.")
+  }
   if (policy.mode === "open" && !policy.authorize && productionRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
     globalThis.console?.warn(consoleOpenAccessWarning)
@@ -123,7 +124,7 @@ function productionRuntime(): boolean {
 
 /** Build the standard Fetch request passed to Console authorization and runtime contexts. */
 export function consoleRequest(event: ConsoleRequestEvent): Request {
-  if (event.req instanceof Request) return event.req
+  if (isRequestLike(event.req)) return event.req
   const headers = new Headers()
   const copyHeaders = (source: unknown, overwrite = true): void => {
     const setHeader = (name: string, value: string): void => {
@@ -150,6 +151,56 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
   copyHeaders(event.headers)
   copyHeaders(event.req?.headers, true)
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
+}
+
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object") return false
+  try {
+    const request = value as Record<string, unknown>
+    const headers = request.headers
+    return typeof request.method === "string"
+      && typeof request.url === "string"
+      && headers !== null
+      && typeof headers === "object"
+      && typeof (headers as { get?: unknown }).get === "function"
+      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof request[method] === "function")
+      && "body" in request && "bodyUsed" in request && "signal" in request
+  }
+  catch { return false }
+}
+
+function isResponseLike(value: unknown): value is Response {
+  if (value === null || typeof value !== "object") return false
+  if (value instanceof Response) return true
+  try {
+    const response = value as Record<string, unknown>
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
+    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
+    if (typeof status === "number" && headers && typeof (headers as { get?: unknown }).get === "function") return true
+  }
+  catch { /* a foreign implementation may not share native internal slots */ }
+  try {
+    const headers = responseHeaders(value)
+    const tag = Object.prototype.toString.call(value)
+    const headersTag = headers && Object.prototype.toString.call(headers)
+    const headersConstructor = headers && (headers as { constructor?: unknown }).constructor
+    const response = value as Record<string, unknown>
+    const responseConstructor = response.constructor
+    return (tag === "[object Response]" || (typeof responseConstructor === "function" && responseConstructor.name === "Response"))
+      && typeof response.status === "number"
+      && typeof response.statusText === "string"
+      && typeof response.bodyUsed === "boolean"
+      && "body" in response
+      && headers !== undefined
+      && typeof (headers as { get?: unknown }).get === "function"
+      && (headersTag === "[object Headers]" || (typeof headersConstructor === "function" && headersConstructor.name === "Headers"))
+      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof (value as Record<string, unknown>)[method] === "function")
+  }
+  catch { return false }
+}
+
+function responseHeaders(value: object): unknown {
+  try { return Reflect.get(value, "headers") } catch { return undefined }
 }
 
 function isSectionId(value: unknown): value is ConsoleSectionId {
@@ -189,7 +240,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       return rejection(500, "CONSOLE_AUTHORIZE_REQUIRED")
     }
     const result = await policy.authorize({ request: consoleRequest(event) })
-    if (result instanceof Response) return result
+    if (isResponseLike(result)) return result
     authorization = result
   }
   else {
@@ -209,6 +260,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     const response = await authorizationResponse(result)
     if (response) return response
     if (result === false) return rejection(403, "Forbidden.")
+
     if (result !== true) {
       const allowed = authorizedSections(result)
       if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")

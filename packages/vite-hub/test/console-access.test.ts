@@ -166,6 +166,8 @@ describe("Console access policies", () => {
 
     expect(result).toMatchObject({ status: 500 })
     await expect((result as Response).json()).resolves.toMatchObject({ status: 500 })
+  })
+
   it("rejects unknown legacy access and exposure values", () => {
     expect(() => resolveConsoleOptions({ access: "authz" })).toThrow(/console\.access/)
     expect(() => resolveConsoleOptions({ exposure: "prod" })).toThrow(/console\.exposure/)
