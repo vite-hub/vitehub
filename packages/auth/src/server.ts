@@ -384,83 +384,36 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const streamDescriptors = getNativeAuthorizationStreamDescriptors(body as object)
-  if (!streamDescriptors || Reflect.apply(streamDescriptors.locked, body, [])) return false
-  return true
-}
 
-function getNativeAuthorizationStreamDescriptors(body: object) {
+  const stream = body as object
   try {
-    // Host ReadableStream intrinsics perform an internal-slot check that works
-    // across realms and cannot be forged by an interposed prototype.
-    const getReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
-    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-    if (typeof getReader !== "function" || typeof locked !== "function") return
-    Reflect.apply(locked, body, [])
-    return {
-      getReader: getReader as (this: object) => ReadableStreamDefaultReader<Uint8Array>,
-      locked: locked as (this: object) => boolean,
+    // Response performs the platform ReadableStream brand check without
+    // consulting getReader, read, cancel, releaseLock, or closed properties.
+    // Identity distinguishes a genuine stream from a generic body value.
+    if (!hasNativeStreamBrand(stream)) return false
+    if (stream instanceof ReadableStream) {
+      const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      if (locked && Reflect.apply(locked, stream, []) !== false) return false
     }
+    return true
   }
   catch {
-    return
+    return false
   }
 }
 
-function getNativeAuthorizationReaderMethods(reader: object) {
-  const prototype = Object.getPrototypeOf(reader)
-  if (!prototype || typeof prototype !== "object") return
-  const closed = Object.getOwnPropertyDescriptor(prototype, "closed")?.get
-  const read = Object.getOwnPropertyDescriptor(prototype, "read")?.value
-  const cancel = Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
-  const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
-  if (typeof closed !== "function" || typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") return
-  // Intrinsic methods perform the reader brand check and cannot be shadowed by the source object.
-  Reflect.apply(closed, reader, [])
-  return { read, cancel, releaseLock }
-}
 
-function bridgeAuthorizationBody(
-  body: ReadableStream<Uint8Array>,
-  getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>,
-) {
-  // Use the already validated intrinsic method so shadowed stream properties cannot
-  // dispatch caller-controlled code during authorization response normalization.
-  const reader = Reflect.apply(getReader, body, [])
-  const methods = getNativeAuthorizationReaderMethods(reader)
-  if (!methods) throw new TypeError("Invalid ReadableStreamDefaultReader")
-  const { read, cancel, releaseLock } = methods
-  let released = false
-  const release = () => {
-    if (released) return
-    released = true
-    Reflect.apply(releaseLock, reader, [])
+function hasNativeStreamBrand(body: object): boolean {
+  try {
+    // Response's BodyInit conversion performs the platform ReadableStream brand
+    // check, including for streams created in another realm. A spoofed object is
+    // converted to a new stream, so identity distinguishes it from a real stream.
+    return new Response(body as ReadableStream).body === body
   }
-  const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
-        if (result.done) {
-          release()
-          controller.close()
-        }
-        else controller.enqueue(result.value as Uint8Array)
-      }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
-    },
-    async cancel(reason) {
-      try {
-        await Reflect.apply(cancel, reader, [reason])
-      }
-      finally {
-        release()
-      }
-    },
-  }, { highWaterMark: 0 })
-  return { stream, release }
+  catch {
+    return false
+  }
+
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
@@ -575,18 +528,17 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
 
-    // Preserve the standard error response before constructing a local response.
-    if (status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0) return Response.error()
-    if (body === null) return new Response(null, { status, statusText, headers: normalizedHeaders })
-    if (typeof bodyReader !== "function") return
-    const bridgedBody = bridgeAuthorizationBody(body, bodyReader)
-    try {
-      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
-    }
-    catch (error) {
-      bridgedBody.release()
-      throw error
-    }
+    // Validate status and native body state before acquiring reader ownership.
+    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
+      ? Response.error()
+      : new Response(body, { status, statusText, headers: normalizedHeaders })
+    if (body === null) return normalizedResponse
+    // Let the platform consume the stream through its internal capability
+    // boundary. Calling reader methods discovered from the candidate's
+    // prototype chain would allow a forged foreign prototype to cross this
+    // authorization boundary.
+    return new Response(body, { status, statusText, headers: normalizedHeaders })
+
   }
   catch {
     return
