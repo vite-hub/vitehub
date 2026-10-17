@@ -105,8 +105,14 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       // prototype. A caller-created prototype can copy the method and tag
       // descriptors, but cannot provide a genuine accessor-backed Response
       // surface while keeping all fields as arbitrary own values.
-      const hasPrototypeAccessor = accessors.some(method =>
-        typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function")
+      // One accessor is easy for a forged prototype to provide while placing
+      // the remaining fields on the instance. Require multiple accessors so
+      // the prototype itself carries a meaningful part of the implementation
+      // contract; this still accepts Fetch implementations that mix prototype
+      // accessors with own instance fields.
+      const prototypeAccessorCount = accessors.filter(method =>
+        typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function").length
+      const hasPrototypeAccessor = prototypeAccessorCount >= 2
       if (typeof cloneDescriptor?.value === "function"
         && hasResponseMethods
         && hasResponseAccessors
