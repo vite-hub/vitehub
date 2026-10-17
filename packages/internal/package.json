@@ -110,6 +110,12 @@
       "require": "./dist/source-scanner.js",
       "default": "./dist/source-scanner.js"
     },
+    "./standard-schema": {
+      "types": "./dist/standard-schema.d.ts",
+      "import": "./dist/standard-schema.js",
+      "require": "./dist/standard-schema.js",
+      "default": "./dist/standard-schema.js"
+    },
     "./vite-stage": {
       "types": "./dist/vite-stage.d.ts",
       "import": "./dist/vite-stage.js",
