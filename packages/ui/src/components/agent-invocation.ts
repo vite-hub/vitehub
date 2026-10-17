@@ -26,7 +26,6 @@ import { AgentInvocationTimeline, invocationTimeline } from "./agent-invocation-
 export { invocationActivities } from "../internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "../internal/invocation-conversation.ts";
 import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
-import { payloadText } from "../internal/payload-text.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
 import { AgentToolList } from "./agent-tool-list.ts";
@@ -130,6 +129,22 @@ function renderFolderIcon() {
 type InspectTarget = "agent" | "workspace";
 type InspectHandler = (target: InspectTarget, path?: string) => void;
 
+function payloadText(value: unknown): string {
+  if (hasRuntimeType(value, "string")) return value;
+  const ancestors: object[] = [];
+  try {
+    return JSON.stringify(value, function (this: unknown, _key, item: unknown) {
+      if (hasRuntimeType(item, "bigint")) return `${item}n`;
+      if (!hasRuntimeType(item, "object") || item === null) return item;
+      while (ancestors.length && ancestors.at(-1) !== this) ancestors.pop();
+      if (ancestors.includes(item)) return "[Circular]";
+      ancestors.push(item);
+      return item;
+    }, 2) ?? String(value);
+  } catch (error) {
+    return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
+  }
+}
 
 function payloadPreview(value: unknown, text: string): string {
   const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
@@ -1194,9 +1209,9 @@ function inspectorDisclosure(
 function renderConfiguration(
   configuration: AgentInvocationConfiguration,
   invocation: AgentInvocationView,
-  showSources: boolean,
   showCapabilities: boolean,
   selectTool: (name: string) => void,
+  showSources = true,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
@@ -1612,10 +1627,10 @@ export const AgentInvocationInspector = defineComponent({
   props: {
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
+    showSources: { default: true, type: Boolean },
     showCapabilities: { default: false, type: Boolean },
     showTimeline: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
-    showSources: { default: true, type: Boolean },
   },
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation));
@@ -1765,7 +1780,7 @@ export const AgentInvocationInspector = defineComponent({
             inspectorSection(
               "Run summary",
               h("dl", { class: "vh-invocation-inspector__metrics" }, [
-                h("div", [h("dt", "Messages"), h("dd", metrics.value.messages)]),
+                h("div", [h("dt", "Messages (including collapsed)"), h("dd", metrics.value.messages)]),
                 h("div", [h("dt", "Steps"), h("dd", metrics.value.steps)]),
                 h("div", [h("dt", "Tool calls"), h("dd", metrics.value.toolCalls)]),
                 totalTime ? h("div", [h("dt", "Total time"), h("dd", totalTime)]) : null,
@@ -1792,7 +1807,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showSources, props.showCapabilities, selectTool) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, selectTool, props.showSources) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",

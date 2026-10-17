@@ -24,5 +24,7 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     REALTIME_R0010: dynamicError,
     REALTIME_R0011: dynamicError,
     REALTIME_R0012: dynamicError,
+    REALTIME_R0014: dynamicError,
+    REALTIME_R0015: dynamicError,
   },
 })
