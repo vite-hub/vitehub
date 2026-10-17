@@ -124,8 +124,6 @@ describe("CI merge gate", () => {
     "contract-tests",
     "package-tests",
     "package-tests-success",
-    "consumer-contracts",
-    "consumer-contracts-success",
   ]
 
   it("accepts the checks intentionally skipped on pull requests", () => {
@@ -141,10 +139,13 @@ describe("CI merge gate", () => {
     expect(runGate({ ...successfulJobs, [name]: { result: "skipped" } }).status).not.toBe(0)
   })
 
-  it.each(["package-tests", "consumer-contracts"])("selects %s from the pull request change", (name) => {
-    const commands = workflow.jobs[name]?.steps.flatMap(step => step.run ? [step.run] : []).join("\n")
-    expect(commands).toContain("node test/run-package-task.mjs")
-    expect(commands).toContain("--affected \"$BASE_REF\" --list")
+  it("selects package tests from the pull request change", () => {
+    const commands = workflow.jobs["package-tests"]?.steps.flatMap(step => step.run ? [step.run] : []).join("\n")
+    expect(commands).toContain("node test/run-package-task.mjs test ${{ matrix.shard.args }} --affected \"$BASE_REF\" --list")
+  })
+
+  it("keeps consumer contracts on push", () => {
+    expect(workflow.jobs["consumer-contracts"]?.if).toBe("${{ github.event_name != 'pull_request' }}")
   })
 
   it.each(jobNames)("rejects a failed or cancelled %s job", (name) => {
