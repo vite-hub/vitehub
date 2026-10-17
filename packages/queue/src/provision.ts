@@ -16,7 +16,7 @@ function parseQueues(value: unknown): CloudflareQueue[] {
       || queue === null
       || typeof queue !== "object"
       || Array.isArray(queue))) {
-    throw queueErrorDiagnostics.QUEUE_R0011({ message: "Cloudflare provisioning returned an invalid queue list." })
+    throw queueErrorDiagnostics.QUEUE_PROVISION_FAILED()
   }
   // SAFETY: Queue fields are optional and consumers narrow queue_name before use.
   return value as CloudflareQueue[]

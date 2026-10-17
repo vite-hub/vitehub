@@ -13,6 +13,9 @@ import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer as createViteServer, type ViteDevServer } from "vite"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
+
+import { supportsHostedDatabaseRuntime } from "../src/internal/vite-build.ts"
 
 import {
   DB_VIRTUAL_DATABASES_ID,
@@ -100,30 +103,11 @@ afterEach(async () => {
 })
 
 describe("hubDb", () => {
-  it("inspects Database provider artifacts under the writer's nested Vite root", async () => {
-    const root = await createTempProject()
-    const appRoot = join(root, "app")
-    await writeFile(join(root, "package.json"), '{"type":"module"}')
-    await writeDefinition(appRoot, "src/report.database.ts", "report", { connection: "url: 'libsql://database.example'," })
-    await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
-    const plugin = hubDb()
-    await resolveConfigResolved(plugin)({ root: appRoot, command: "build", build: { outDir: "dist" }, resolve: { alias: [] }, plugins: [] })
-    for (const hook of [plugin.buildStart, plugin.buildEnd, plugin.closeBundle]) {
-      if (hook instanceof Function) await Reflect.apply(hook, {}, [])
-      else if (hook && hook.handler instanceof Function) await Reflect.apply(hook.handler, {}, [])
-    }
-    const entries = plugin.vitehub?.inspect?.()?.providerOutput ?? []
-    expect(entries.map(entry => entry.path)).toEqual([
-      join(appRoot, "dist/app/index.js"), join(appRoot, ".vercel/output/functions/__server.func/index.mjs"),
-    ])
-    for (const entry of entries) await expect(readFile(entry.path, "utf8")).resolves.toBeTruthy()
-  })
-
   it("does not inspect provider output without enabled Database Definitions", async () => {
     const rootDir = await createTempProject()
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
-    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
+    expect(plugin.vitehub?.inspect?.()).not.toHaveProperty("providerOutput")
 
     await writeDefinition(rootDir, "server/databases/config.ts")
     await resolveConfigResolved(plugin)({ database: false, root: rootDir })
@@ -136,34 +120,36 @@ describe("hubDb", () => {
     { name: "D1 binding", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name',", providers: ["cloudflare"] },
     { name: "D1 HTTP", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name', http: true,", providers: ["cloudflare", "vercel"] },
     { name: "D1 HTTP without a database name", connection: undefined, cloudflare: "databaseId: 'database-id', http: true,", providers: ["vercel"] },
-  ])("inspects supported provider output for $name", async ({ connection, cloudflare, providers }) => {
+  ])("supports the hosted runtime on the expected hosts for $name", async ({ connection, cloudflare, providers }) => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { connection, cloudflare })
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
-    expect(plugin.vitehub?.inspect?.()?.providerOutput?.map(output => output.description)).toEqual(
-      providers.map(provider => provider === "cloudflare" ? "Generated Cloudflare Database worker" : "Generated Vercel Database function"),
-    )
+    const runtime = plugin.api.getConfig()!
+    expect((["cloudflare", "vercel"] as const).filter(provider => supportsHostedDatabaseRuntime(provider, runtime, {}))).toEqual(providers)
   })
 
-  it("requires every Database Definition to support a provider", async () => {
+  it("requires every Database Definition to support a host", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/remote/config.ts", "notes", { connection: "url: 'libsql://database.example'," })
     await writeDefinition(rootDir, "server/databases/local/config.ts", "tasks", { connection: "url: 'file:local.db'," })
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
-    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
+    const runtime = plugin.api.getConfig()!
+    expect(supportsHostedDatabaseRuntime("cloudflare", runtime, {})).toBe(false)
+    expect(supportsHostedDatabaseRuntime("vercel", runtime, {})).toBe(false)
   })
 
-  it("reads provisioned D1 IDs when inspecting provider output", async () => {
+  it("reads provisioned D1 IDs for the Cloudflare hosted runtime", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "databaseName: 'database-name'," })
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ root: rootDir })
-    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
+    const runtime = plugin.api.getConfig()!
+    expect(supportsHostedDatabaseRuntime("cloudflare", runtime, readProvisionStateSync(rootDir))).toBe(false)
 
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "provisioned-database-id" } } }))
-    expect(plugin.vitehub?.inspect?.()?.providerOutput?.map(output => output.description)).toEqual(["Generated Cloudflare Database worker"])
+    expect(supportsHostedDatabaseRuntime("cloudflare", runtime, readProvisionStateSync(rootDir))).toBe(true)
   })
 
   it("merges discovered D1 bindings and migrations into Cloudflare Nitro output", async () => {
@@ -245,10 +231,6 @@ describe("hubDb", () => {
     middleware({ req: { runtime: { cloudflare: { env: nitro2Env } } } }, undefined)
     expect(getActiveCloudflareEnv()).toBe(nitro2Env)
     expect(getActiveCloudflareRequestScope()).toBeDefined()
-  })
-
-  it("serializes shared Provider Output finalization", () => {
-    expect(hubDb().closeBundle).toMatchObject({ order: "post", sequential: true })
   })
 
   it("routes Vite development queries through configured Cloudflare D1 HTTP", async () => {
@@ -499,7 +481,7 @@ describe("hubDb", () => {
     const plugin = hubDb()
     await resolveConfigResolved(plugin)({ logger: { warn }, resolve: { alias: [] }, root: rootDir })
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not load to list its tables"))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("The Database Definition \""))
     await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export { table_0 as notes }")
     const generate = (await resolveCliContributor(plugin))!.namespaces[0]!.features.find(feature => feature.name === "generate")!
     await expect(generate.run([], {
@@ -507,7 +489,7 @@ describe("hubDb", () => {
       spawn,
       stderr: { write: vi.fn() },
       stdout: { write: vi.fn() },
-    } as never)).rejects.toMatchObject({ code: "DATABASE_B0007" })
+    } as never)).rejects.toMatchObject({ code: "DATABASE_SCHEMA_LOAD_FAILED" })
     expect(spawn).not.toHaveBeenCalled()
   })
 
@@ -559,7 +541,6 @@ describe("hubDb", () => {
     const configResolved = resolveConfigResolved(plugin)
     await configResolved({ database: undefined, root: rootDir })
 
-    expect(plugin.vitehub?.inspect?.()?.providerOutput?.map(output => output.description)).toEqual(["Generated Cloudflare Database worker"])
     expect(plugin.api.getConfig()?.databases.default?.cloudflare?.databaseId).toBe("provisioned-database-id")
     expect(plugin.api.getConfig()?.definitionDefaults.cloudflareProjections.default).toEqual({
       binding: "DB",
@@ -575,7 +556,6 @@ describe("hubDb", () => {
     expect(unprovisioned?.databases.default?.cloudflare?.databaseId).toBeUndefined()
     expect(unprovisioned?.definitionDefaults.cloudflareProjections.default?.provisionedId).toBeUndefined()
     expect(unprovisioned?.definitionDefaults.cloudflareProjections.default?.binding).toBeUndefined()
-    expect(plugin.vitehub?.inspect?.()?.providerOutput).toEqual([])
   })
 
   it("writes one Drizzle config per named database migrations directory", async () => {

@@ -538,8 +538,8 @@ function withWorkspaceCommandRun(agent: AgentInput, command: { abortSignal?: Abo
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
   clone.run = async (context) => {
     if (!context.workspace) throw agentDiagnostics.AGENT_R0876({ message: "[vitehub] Agent Dev Loop command requires an Agent with a Workspace." })
-    const { resolveBox } = await import("@vite-hub/" + "box") as typeof import("@vite-hub/box")
-    const host = await (await resolveBox({ runtime: "trusted-host" }, {})).open({ signal: command.abortSignal })
+    const { resolveSandbox } = await import("@vite-hub/" + "sandbox") as typeof import("@vite-hub/sandbox")
+    const host = await (await resolveSandbox({ runtime: "trusted-host" }, {})).open({ signal: command.abortSignal })
     try {
       return await runWorkspaceDevCommand({
         abortSignal: command.abortSignal,

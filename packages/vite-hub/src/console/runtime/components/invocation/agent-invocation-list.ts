@@ -145,8 +145,6 @@ export const AgentInvocationList = defineComponent({
     /** Groups rows under Today, Yesterday, Previous 7 days, and Older. Requires `now`. */
     groupBy: String as PropType<"recency">,
     hasMore: Boolean,
-    /** @deprecated The flat list paginates independently of lifecycle status. */
-    remainingStatuses: { default: () => [], type: Array as PropType<readonly AgentInvocationStatus[]> },
     items: { required: true, type: Array as PropType<readonly AgentInvocationListItem[]> },
     loading: Boolean,
     now: Number,

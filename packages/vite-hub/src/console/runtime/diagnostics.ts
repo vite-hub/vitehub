@@ -10,7 +10,6 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_ACCESS_DENIED"
   | "CONSOLE_ACCESS_NOT_CONFIGURED"
   | "CONSOLE_AUTH_NOT_CONFIGURED"
-  | "CONSOLE_AUTHORIZE_REQUIRED"
   | "CONSOLE_CONFLICT"
   | "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_DEVELOPMENT_ONLY"
@@ -81,12 +80,6 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "Console access is not configured. The server has no Console access policy.",
       "Build the app with the ViteHub plugin, so the generated Console output installs its access policy.",
       `${consoleGuide}#protect-the-console-route`,
-      "docs",
-    ),
-    CONSOLE_AUTHORIZE_REQUIRED: code(
-      "A host-managed Console requires console.authorize.",
-      "Set console.authorize to a server file that default-exports defineConsoleAuthorize().",
-      `${consoleGuide}#how-each-mode-checks-a-request`,
       "docs",
     ),
     CONSOLE_AUTH_NOT_CONFIGURED: code(

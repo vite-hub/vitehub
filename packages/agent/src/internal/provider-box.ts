@@ -4,28 +4,28 @@ import { chmod, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { join } from "node:path"
 import type { Server, Socket } from "node:net"
-import type { BoxDefinition, BoxFile, BoxPlan, BoxProcess, BoxRuntimeDefinition, BoxSession } from "@vite-hub/box"
+import type { SandboxDefinition, SandboxFile, SandboxPlan, SandboxProcess, SandboxRuntimeDefinition, SandboxSession } from "@vite-hub/sandbox"
 
 import type { AgentInvocationContextStore } from "../types.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
-const activeBoxes = new WeakMap<AgentInvocationContextStore, ProviderBoxSession>()
+const activeSandboxes = new WeakMap<AgentInvocationContextStore, ProviderSandboxSession>()
 
-export function activeProviderBox(context: AgentInvocationContextStore) {
-  return activeBoxes.get(context)
+export function activeProviderSandbox(context: AgentInvocationContextStore) {
+  return activeSandboxes.get(context)
 }
 
-export function setActiveProviderBox(context: AgentInvocationContextStore, session: ProviderBoxSession) {
-  activeBoxes.set(context, session)
+export function setActiveProviderSandbox(context: AgentInvocationContextStore, session: ProviderSandboxSession) {
+  activeSandboxes.set(context, session)
   return () => {
-    if (activeBoxes.get(context) === session) activeBoxes.delete(context)
+    if (activeSandboxes.get(context) === session) activeSandboxes.delete(context)
   }
 }
 
-/** Environment names that a Box runtime owns. The relay never forwards them. */
-const boxRuntimeEnvironmentKeys = new Set([
+/** Environment names that a Sandbox runtime owns. The relay never forwards them. */
+const sandboxRuntimeEnvironmentKeys = new Set([
   "CODEX_HOME",
   "HOME",
   "INIT_CWD",
@@ -42,23 +42,23 @@ const frameStderr = 2
 const frameExit = 3
 const relayCleanupTimeoutMs = 1000
 
-export interface ProviderBoxSession {
+export interface ProviderSandboxSession {
   /** The session writes directly to the host checkout without a remote copy. */
   readonly localWorkspace?: boolean
   /** Home files and persisted state can contain credentials unknown to the relay. */
   readonly omitDiagnosticOutput?: boolean
-  /** Actual Box environment values, retained only for diagnostic redaction. */
+  /** Actual Sandbox environment values, retained only for diagnostic redaction. */
   readonly environment?: Readonly<Record<string, string | undefined>>
-  /** Absolute Home path inside the Box. */
+  /** Absolute Home path inside the Sandbox. */
   readonly home: string
-  /** Resolved Box workspace; a missing path means the Box owns its checkout. */
-  readonly workspace?: BoxPlan["workspace"]
-  readonly session: BoxSession
-  readonly spawn: NonNullable<BoxSession["spawn"]>
+  /** Resolved Sandbox workspace; a missing path means the Sandbox owns its checkout. */
+  readonly workspace?: SandboxPlan["workspace"]
+  readonly session: SandboxSession
+  readonly spawn: NonNullable<SandboxSession["spawn"]>
 }
 
-/** True when the Box runtime can reach loopback services of the ViteHub process. */
-export function boxSharesHostNetwork(runtime: BoxRuntimeDefinition): boolean {
+/** True when the Sandbox runtime can reach loopback services of the ViteHub process. */
+export function sandboxSharesHostNetwork(runtime: SandboxRuntimeDefinition): boolean {
   if (runtime === "trusted-host") return true
   if (isRuntimeRecord(runtime) && !("kind" in runtime) && runtime.network === "direct") return true
   if (!isRuntimeRecord(runtime) || !("kind" in runtime)) return false
@@ -67,23 +67,23 @@ export function boxSharesHostNetwork(runtime: BoxRuntimeDefinition): boolean {
 }
 
 /**
- * Resolve and open the Agent Box for one provider invocation.
- * Generated provider files are added to Box Home and cannot replace declared Home files.
+ * Resolve and open the Agent Sandbox for one provider invocation.
+ * Generated provider files are added to Sandbox Home and cannot replace declared Home files.
  */
-export async function openProviderBox<Context>(options: {
+export async function openProviderSandbox<Context>(options: {
   command: string
   context: Context
-  definition: BoxDefinition<Context>
+  definition: SandboxDefinition<Context>
   files: Readonly<Record<string, string | Uint8Array>>
   signal?: AbortSignal
-}): Promise<ProviderBoxSession> {
-  // SAFETY: The split specifier keeps @vite-hub/box optional for bundlers. It resolves to the @vite-hub/box module.
-  const { resolveBox } = await import("@vite-hub/" + "box") as typeof import("@vite-hub/box")
+}): Promise<ProviderSandboxSession> {
+  // SAFETY: The split specifier keeps @vite-hub/sandbox optional for bundlers. It resolves to the @vite-hub/sandbox module.
+  const { resolveSandbox } = await import("@vite-hub/" + "sandbox") as typeof import("@vite-hub/sandbox")
   const declared = options.definition.home?.files || {}
-  const generated: Record<string, BoxFile<Context>> = {}
+  const generated: Record<string, SandboxFile<Context>> = {}
   for (const [path, contents] of Object.entries(options.files)) {
     if (Object.hasOwn(declared, path)) {
-      throw agentDiagnostics.AGENT_R0950({ message: `[vitehub] Agent Box Home file ${path} is generated by the provider Driver. Remove it from box.home.files.` })
+      throw agentDiagnostics.AGENT_R0950({ message: `[vitehub] Agent Sandbox Home file ${path} is generated by the provider Driver. Remove it from sandbox.home.files.` })
     }
     generated[path] = { contents }
   }
@@ -93,23 +93,23 @@ export async function openProviderBox<Context>(options: {
     if (hasRuntimeType(resolved, "string")) environment[name] = resolved
     return resolved
   }]))
-  const box = await resolveBox({
+  const sandbox = await resolveSandbox({
     ...options.definition,
     env,
     home: { ...options.definition.home, files: { ...declared, ...generated } },
   }, options.context, { requires: [options.command] })
-  const session = await box.open({ signal: options.signal })
+  const session = await sandbox.open({ signal: options.signal })
   try {
     const spawn = session.spawn
     if (!spawn) {
-      throw agentDiagnostics.AGENT_R0951({ message: `[vitehub] Agent Box runtime ${box.plan.runtime} cannot start long-running processes. Use a Box runtime with process support, such as trusted-host or crabbox.` })
+      throw agentDiagnostics.AGENT_R0951({ message: `[vitehub] Agent Sandbox runtime ${sandbox.plan.runtime} cannot start long-running processes. Use a Sandbox runtime with process support, such as trusted-host or crabbox.` })
     }
     const home = await session.exec("sh", ["-c", "printf %s \"$HOME\""], { signal: options.signal })
     if (!home.ok || !home.stdout.startsWith("/")) {
-      throw agentDiagnostics.AGENT_R0952({ message: "[vitehub] Agent Box did not report an absolute HOME path." })
+      throw agentDiagnostics.AGENT_R0952({ message: "[vitehub] Agent Sandbox did not report an absolute HOME path." })
     }
     const omitDiagnosticOutput = Object.keys(declared).length > 0 || Object.keys(options.definition.home?.state ?? {}).length > 0
-    return { localWorkspace: box.plan.runtime === "trusted-host", environment, omitDiagnosticOutput, home: home.stdout, session, spawn: spawn.bind(session), workspace: box.plan.workspace }
+    return { localWorkspace: sandbox.plan.runtime === "trusted-host", environment, omitDiagnosticOutput, home: home.stdout, session, spawn: spawn.bind(session), workspace: sandbox.plan.workspace }
   }
   catch (error) {
     await session.close().catch(() => undefined)
@@ -117,25 +117,25 @@ export async function openProviderBox<Context>(options: {
   }
 }
 
-export interface ProviderBoxRelayOptions {
-  box: ProviderBoxSession
-  /** Command that starts the provider inside the Box. */
+export interface ProviderSandboxRelayOptions {
+  sandbox: ProviderSandboxSession
+  /** Command that starts the provider inside the Sandbox. */
   command: string
   /** File that receives launch diagnostics in the provider launch diagnostic format. */
   diagnosticPath: string
-  /** Select the environment forwarded to the Box process from the provider runtime environment. */
+  /** Select the environment forwarded to the Sandbox process from the provider runtime environment. */
   environment: (environment: Readonly<Record<string, string>>) => Record<string, string>
   /** Private directory for the relay socket and launcher. */
   launchRoot: string
-  /** Local provider working directory. Paths below it are mapped to the Box working directory. */
+  /** Local provider working directory. Paths below it are mapped to the Sandbox working directory. */
   localRoot: string
-  /** Local provider cwd, mapped into the Box before the provider is spawned. */
+  /** Local provider cwd, mapped into the Sandbox before the provider is spawned. */
   localCwd?: string
-  /** Remove provider arguments that name local paths the Box cannot read. */
+  /** Remove provider arguments that name local paths the Sandbox cannot read. */
   filterArgs?: (args: readonly string[], mapPath: (value: string) => string | undefined) => string[]
 }
 
-export interface ProviderBoxRelay {
+export interface ProviderSandboxRelay {
   /** Executable that the provider runtime starts instead of the provider binary. */
   readonly launcher: string
   close(): Promise<void>
@@ -143,14 +143,14 @@ export interface ProviderBoxRelay {
 
 /**
  * Start a local relay. The provider runtime starts the relay launcher as its provider binary.
- * The relay connects back over a private Unix socket, and the host starts the provider in the Box.
+ * The relay connects back over a private Unix socket, and the host starts the provider in the Sandbox.
  */
-export async function startProviderBoxRelay(options: ProviderBoxRelayOptions): Promise<ProviderBoxRelay> {
+export async function startProviderSandboxRelay(options: ProviderSandboxRelayOptions): Promise<ProviderSandboxRelay> {
   const token = randomBytes(32).toString("hex")
   const socketPath = join(options.launchRoot, "relay.sock")
   const relayPath = join(options.launchRoot, "relay.mjs")
   const launcherPath = join(options.launchRoot, "provider")
-  const processes = new Set<BoxProcess>()
+  const processes = new Set<SandboxProcess>()
   const sockets = new Set<Socket>()
   const handlers = new Set<Promise<void>>()
   const server: Server = createServer({ allowHalfOpen: true }, (socket) => {
@@ -179,8 +179,8 @@ export async function startProviderBoxRelay(options: ProviderBoxRelayOptions): P
     launcher: launcherPath,
     close() {
       return closing ??= (async () => {
-        // BoxProcess.kill() may wait for a provider that traps SIGTERM. Keep the
-        // relay bounded so the owning Box session can run its escalation path.
+        // SandboxProcess.kill() may wait for a provider that traps SIGTERM. Keep the
+        // relay bounded so the owning Sandbox session can run its escalation path.
         const killing = Promise.all([...processes].map(child => child.kill().catch(() => undefined)))
         await Promise.race([killing, boundedRelayCleanup()])
         for (const socket of sockets) socket.destroy()
@@ -202,50 +202,50 @@ function boundedRelayCleanup() {
 async function handleRelayConnection(
   socket: Socket,
   token: string,
-  options: ProviderBoxRelayOptions,
-  processes: Set<BoxProcess>,
+  options: ProviderSandboxRelayOptions,
+  processes: Set<SandboxProcess>,
 ) {
   const { args, env, input } = await readRelayHeader(socket, token)
-  const redact = (text: string) => options.box.omitDiagnosticOutput ? "[Box Home diagnostic output omitted]" : Object.values(options.box.environment ?? {}).filter((value): value is string => Boolean(value)).toSorted((left, right) => right.length - left.length)
+  const redact = (text: string) => options.sandbox.omitDiagnosticOutput ? "[Sandbox Home diagnostic output omitted]" : Object.values(options.sandbox.environment ?? {}).filter((value): value is string => Boolean(value)).toSorted((left, right) => right.length - left.length)
     .reduce((safe, value) => safe.replaceAll(value, "[REDACTED]"), text)
-  const boxCwd = options.box.session.cwd
-  const workspacePath = options.box.workspace?.path
+  const sandboxCwd = options.sandbox.session.cwd
+  const workspacePath = options.sandbox.workspace?.path
   const mirrorsLocalRoot = workspacePath === options.localRoot
   const mirrorsLocalCwd = workspacePath === options.localCwd
-  // An authoritative Box cwd can point at a separate host checkout. In that
+  // An authoritative Sandbox cwd can point at a separate host checkout. In that
   // case provider paths are anchored at the local provider cwd, while the
-  // process itself starts in the Box session cwd. Only a Box workspace that
+  // process itself starts in the Sandbox session cwd. Only a Sandbox workspace that
   // mirrors localRoot can preserve a nested provider suffix.
   const mappingRoot = workspacePath === undefined || (!mirrorsLocalRoot && !mirrorsLocalCwd)
     ? options.localCwd || options.localRoot
     : workspacePath
   const mapPath = (value: string) => mappingRoot && (value === mappingRoot
-    ? boxCwd
+    ? sandboxCwd
     : value.startsWith(`${mappingRoot}/`)
-      ? `${boxCwd}${value.slice(mappingRoot.length)}`
+      ? `${sandboxCwd}${value.slice(mappingRoot.length)}`
       : undefined)
-  const boxWorkingDirectory = mirrorsLocalRoot && options.localCwd !== undefined
+  const sandboxWorkingDirectory = mirrorsLocalRoot && options.localCwd !== undefined
     ? mapPath(options.localCwd)
-    : boxCwd
+    : sandboxCwd
   const textPathDelimiter = "[/\\\\\"'\\s,:;\\[\\]{}()?=#&|<>`]"
   const textPathLeftDelimiter = "[/\\\\\"'\\s,:;\\[\\]{}()?=#&|<>@`]"
   const mapTextPattern = mappingRoot
     ? new RegExp(`(^|${textPathLeftDelimiter})${escapeRegExp(mappingRoot)}(?=$|${textPathDelimiter})`, "g")
     : undefined
   const mapText = (value: string) => mapTextPattern
-    ? value.replace(mapTextPattern, (_match, prefix: string) => `${prefix}${boxCwd}`)
+    ? value.replace(mapTextPattern, (_match, prefix: string) => `${prefix}${sandboxCwd}`)
     : value
   const selectedArgs = options.filterArgs ? options.filterArgs(args, mapPath) : [...args]
   let disconnected = socket.destroyed
   socket.once("close", () => {
     disconnected = true
   })
-  let child: BoxProcess
+  let child: SandboxProcess
   try {
-    if (!boxWorkingDirectory) throw new Error("[vitehub] Agent Box provider cwd is outside the mapped provider checkout.")
+    if (!sandboxWorkingDirectory) throw new Error("[vitehub] Agent Sandbox provider cwd is outside the mapped provider checkout.")
     const environment = Object.fromEntries(Object.entries(options.environment(env)).map(([name, value]) => [name, mapText(value)]))
-    child = await options.box.spawn(options.command, selectedArgs.map(mapText), {
-      cwd: boxWorkingDirectory,
+    child = await options.sandbox.spawn(options.command, selectedArgs.map(mapText), {
+      cwd: sandboxWorkingDirectory,
       env: environment,
     })
   }
@@ -256,7 +256,7 @@ async function handleRelayConnection(
     socket.end(exitFrame(127))
     return
   }
-  // The launcher can disconnect while a remote Box starts the process. Stop the process that nobody reads.
+  // The launcher can disconnect while a remote Sandbox starts the process. Stop the process that nobody reads.
   if (disconnected) {
     await child.kill().catch(() => undefined)
     return
@@ -270,7 +270,7 @@ async function handleRelayConnection(
   if (!stdin) {
     await child.kill().catch(() => undefined)
     processes.delete(child)
-    const message = "[vitehub] Agent Box runtime does not forward process input."
+    const message = "[vitehub] Agent Sandbox runtime does not forward process input."
     await writeDiagnostic(options.diagnosticPath, { exitCode: 127, spawnError: message })
     socket.write(frame(frameStderr, Buffer.from(`${message}\n`)))
     socket.end(exitFrame(127))
@@ -371,7 +371,7 @@ async function readRelayHeader(socket: Socket, token: string) {
 }
 
 function invalidRelayConnection() {
-  return agentDiagnostics.AGENT_R0953({ message: "[vitehub] Agent Box relay received an invalid connection." })
+  return agentDiagnostics.AGENT_R0953({ message: "[vitehub] Agent Sandbox relay received an invalid connection." })
 }
 
 function sameToken(received: string, expected: string) {
@@ -380,7 +380,7 @@ function sameToken(received: string, expected: string) {
   return left.byteLength === right.byteLength && timingSafeEqual(left, right)
 }
 
-/** Forward provider input line by line so local paths map to Box paths without splitting a path. */
+/** Forward provider input line by line so local paths map to Sandbox paths without splitting a path. */
 async function pipeRelayInput(
   socket: Socket,
   initial: Buffer,
@@ -422,7 +422,7 @@ async function pipeRelayInput(
   }
   try {
     if (initial.byteLength) await Promise.race([push(initial), stopped])
-    // The relay can send its header, input, and end of input before the Box process starts.
+    // The relay can send its header, input, and end of input before the Sandbox process starts.
     // In that case the socket already emitted 'end' while readRelayHeader held it paused.
     if (!signal.aborted && !socket.readableEnded && !socket.destroyed) {
       await Promise.race([stopped, new Promise<void>((resolve, reject) => {
@@ -484,8 +484,8 @@ async function writeDiagnostic(path: string, diagnostic: Record<string, unknown>
   await writeFile(path, JSON.stringify(diagnostic), { mode: 0o600 }).catch(() => undefined)
 }
 
-/** Select the provider runtime environment for the Box process. */
-export function providerBoxEnvironment(options: {
+/** Select the provider runtime environment for the Sandbox process. */
+export function providerSandboxEnvironment(options: {
   /** Names resolved from driver.env. They are always forwarded. */
   explicit: readonly string[]
   /** Host process environment. Names from it stay on the host unless driver.env names them. */
@@ -498,7 +498,7 @@ export function providerBoxEnvironment(options: {
   const explicit = new Set(options.explicit)
   const selected: Record<string, string> = {}
   for (const [name, value] of Object.entries(options.received)) {
-    if (!environmentNamePattern.test(name) || boxRuntimeEnvironmentKeys.has(name)) continue
+    if (!environmentNamePattern.test(name) || sandboxRuntimeEnvironmentKeys.has(name)) continue
     // Values added by the provider runtime, such as the MCP bearer token, are forwarded.
     // Host values, such as PATH, stay on the host unless driver.env names them.
     if (name === "T3_MCP_BEARER_TOKEN" || explicit.has(name) || (options.prepared[name] === undefined && options.host[name] === undefined)) selected[name] = value
@@ -537,7 +537,7 @@ function writeOutput(stream, payload) {
   return new Promise((resolve, reject) => stream.write(payload, (error) => error ? reject(error) : resolve()))
 }
 socket.on("error", (error) => {
-  process.stderr.write("[vitehub] Agent Box relay failed: " + error.message + "\\n")
+  process.stderr.write("[vitehub] Agent Sandbox relay failed: " + error.message + "\\n")
 })
 socket.on("close", () => {
   process.stdin.unpipe(socket)
