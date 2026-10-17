@@ -109,6 +109,14 @@ describe("Node storage defaults", () => {
     expect(() => vitehub({ preset: "node", dataDir: "  " })).toThrow("non-empty")
   })
 
+  it("rejects malformed dataDir values with the configuration diagnostic", () => {
+    for (const preset of ["node", "cloudflare", "vercel", "netlify", "deno"] as const) {
+      for (const dataDir of [null, 1, {}, [], "", "  "]) {
+        expect(() => vitehub({ preset, dataDir } as unknown as ViteHubOptions)).toThrow("non-empty directory path")
+      }
+    }
+  })
+
   it("keeps existing defaults when no directory is supplied", () => {
     const options = { preset: "node" as const, agent: true }
     expect(withDataDir(options)).toBe(options)
@@ -130,6 +138,17 @@ describe("Console journal host defaults", () => {
     expect(plugin).toContain(`d1: { binding: "APP_DB",`)
     const withoutDefinition = await generatedConsolePlugin({ ...cloudflare, database: true }, "build")
     expect(withoutDefinition.plugin).not.toContain("cloudflare:workers")
+  })
+
+  it("reads the D1 binding from the only named Database and skips ambiguous ones", async () => {
+    const named = (name: string, binding: string) => `export default defineDatabase({ name: "${name}", cloudflare: { binding: "${binding}", databaseName: "${name}" }, schema: {} })\n`
+    const only = await generatedConsolePlugin({ ...cloudflare, database: true }, "build", { "server/databases/app/config.ts": named("app", "APP_DB") })
+    expect(only.plugin).toContain('d1: { binding: "APP_DB",')
+    const ambiguous = await generatedConsolePlugin({ ...cloudflare, database: true }, "build", {
+      "server/databases/app/config.ts": named("app", "APP_DB"),
+      "server/databases/audit/config.ts": named("audit", "AUDIT_DB"),
+    })
+    expect(ambiguous.plugin).not.toContain("cloudflare:workers")
   })
 
   it("reads the D1 binding from the Database project root", async () => {
