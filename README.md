@@ -103,7 +103,7 @@ import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node" }), nitro() as never],
+  plugins: [vitehub({ preset: "node", kv: true }), nitro() as never],
 });
 ```
 
