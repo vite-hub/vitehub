@@ -20,6 +20,7 @@ function isAuthDatabaseMetadata(value: unknown): boolean {
     || (
       isPlainObject(value)
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate metadata fields at the untrusted options boundary.
+      && Object.hasOwn(value, "name")
       && typeof value.name === "string"
       && Object.keys(value).every(key => key === "dedicated" || key === "name")
     )
@@ -30,6 +31,7 @@ function isAuthSecondaryStorageMetadata(value: unknown): boolean {
     || (
       isPlainObject(value)
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate metadata fields at the untrusted options boundary.
+      && Object.hasOwn(value, "store")
       && typeof value.store === "string"
       && Object.keys(value).every(key => key === "store")
     )

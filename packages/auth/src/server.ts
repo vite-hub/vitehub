@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-import { Response as UndiciResponse } from "undici"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -276,14 +275,34 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
+function responseGetter(value: object, property: string): (() => unknown) | undefined {
+  let prototype: object | null = value
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (descriptor?.get) return descriptor.get
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+}
+
+function responseMethod(value: object, property: string): ((this: object) => unknown) | undefined {
+  if (Object.prototype.hasOwnProperty.call(value, property)) return
+  let prototype: object | null = Object.getPrototypeOf(value) as object | null
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+}
+
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
+  if (result === true) return
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
-  if (result !== true) return createForbiddenResponse(context.request)
+  return createForbiddenResponse(context.request)
 }
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
@@ -333,7 +352,7 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
 async function getUndiciReadableStream(): Promise<typeof ReadableStream | undefined> {
   if (undiciReadableStreamPromise) return undiciReadableStreamPromise
   undiciReadableStreamPromise = import(/* @vite-ignore */ "undici")
-    .then(module => module.ReadableStream as typeof ReadableStream)
+    .then(module => (module as unknown as { ReadableStream?: typeof ReadableStream }).ReadableStream)
     .catch(() => undefined)
   return undiciReadableStreamPromise
 }
@@ -675,6 +694,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
+    // Response construction rejects bodies for these status codes. Check this
+    // before transferring a foreign stream so a rejected candidate retains
+    // ownership of its original body.
+    if (body !== null && (status === 204 || status === 205 || status === 304)) return
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }

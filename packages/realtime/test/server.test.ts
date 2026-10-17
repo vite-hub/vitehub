@@ -1173,9 +1173,10 @@ describe("tiptap-markdown documents", () => {
 })
 
 describe("workspace changes", () => {
-  it.each(["docs//file.md", "docs///file.md"])("rejects noncanonical path %s in every change field", (path) => {
+  it.each(["docs/.. /secret", "docs/.git /config", "docs/git~1/config", "vitehu~1/config", "docs//file.md", "docs///file.md"])("rejects unsafe or noncanonical path %s in every change field", (path) => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "delete", path }))).toBeUndefined()
+
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: path, to: "docs/new.md" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: path }))).toBeUndefined()
   })
@@ -1222,7 +1223,7 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(new Uint8Array([4, 1, 123]))).toBeUndefined()
   })
 
-  it.each(["docs/.git ", "docs/git~1/config", "vitehu~1/config"])("rejects protected Windows path %s", (path) => {
+  it.each(["docs/.. ", "C:secret", "docs/.git ", "git~1", "vitehu~1/config"])("rejects Windows-equivalent unsafe path %s", (path) => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: path, to: "docs/safe.md" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/safe.md", to: path }))).toBeUndefined()
