@@ -468,6 +468,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       providerOutput = useProviderOutputCatalog(config)
       runtimeConfig = blobConfig
       const hosting = getNitroHostingProvider(configuredNitro)
+        ?? blobConfig.hosting
         ?? (resolveNitroVercelFunctionName(config, "blob") ? "vercel" : undefined)
       if (config.command === "build") assertDriverSdksInstalled(blobConfig.blob, hosting === "cloudflare")
       await refreshBlobGeneratedFiles(
