@@ -67,6 +67,15 @@ it("retries an explicit GET when query fields precede the method", async () => {
   expect(calls).toHaveLength(2);
 });
 
+it("does not retry an explicit GET with a request body", async () => {
+  vi.useFakeTimers();
+  replies.push(gatewayPage());
+  const result = host().command(["api", "-f", "state=open", "--method", "GET", "--input", "payload.json", "repos/acme/app/issues"], { repository: "acme/app" }).catch((error: unknown) => error);
+  await vi.advanceTimersByTimeAsync(4_000);
+  expect(await result).toBeInstanceOf(Error);
+  expect(calls).toHaveLength(1);
+});
+
 it("retries an installation token that fails on a dropped connection", async () => {
   vi.useFakeTimers();
   let attempts = 0;

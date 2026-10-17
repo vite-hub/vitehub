@@ -250,6 +250,7 @@ function isRestRead(args: string[]): boolean {
   if (args[0] !== "api" || isGraphQLCommand(args)) return false
   let method: string | undefined
   let hasWriteArguments = false
+  let hasInput = false
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!
     if (argument === "-X" || argument === "--method") {
@@ -262,11 +263,12 @@ function isRestRead(args: string[]): boolean {
       if (method !== "GET") return false
       continue
     }
-    if (/^(?:-f|-F|--field|--raw-field|--input)(?:=|$)/.test(argument) || /^-[fF]./.test(argument)) {
+    if (/^(?:--input)(?:=|$)/.test(argument)) hasInput = true
+    if (/^(?:-f|-F|--field|--raw-field)(?:=|$)/.test(argument) || /^-[fF]./.test(argument)) {
       hasWriteArguments = true
     }
   }
-  return method === "GET" ? true : !hasWriteArguments
+  return method === "GET" ? !hasInput : !hasWriteArguments
 }
 
 const TRANSIENT_RETRY_DELAYS_MS = [1_000, 3_000]
