@@ -35,7 +35,7 @@ vi.mock("node:child_process", () => ({
 
 const tempDirs: string[] = []
 const workspaceSourceImport = pathToFileURL(join(import.meta.dirname, "../src/index.ts")).href
-const githubTokenEnvNames = ["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] as const
+const githubTokenEnvNames = ["VITEHUB_GITHUB_TOKEN", "FORGES_GITHUB_TOKEN"] as const
 
 async function createRoot() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-root-"))
@@ -120,7 +120,7 @@ function stubGitHubSource(files: Record<string, string>, options: StubGitHubSour
       return jsonResponse({ default_branch: defaultBranch, full_name: requestUrl.replace("https://api.github.com/repos/", "") })
     }
 
-    if (requestUrl.endsWith(`/commits/${defaultBranch}`)) {
+    if (requestUrl.includes("/commits/")) {
       return jsonResponse({ sha: "latest-commit-sha" })
     }
 
@@ -357,12 +357,12 @@ describe("sources, loaders, and publishers", () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
-    process.env.GITHUB_TOKEN = "first-token"
+    process.env.VITEHUB_GITHUB_TOKEN = "first-token"
 
     const githubSource = github({ repo: "acme/private" })
 
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-auth" })).resolves.toEqual(["docs/README.md"])
-    process.env.GITHUB_TOKEN = "second-token"
+    process.env.VITEHUB_GITHUB_TOKEN = "second-token"
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-auth" })).resolves.toEqual(["docs/README.md"])
 
     expect(archiveRequestAuthorizations()).toEqual([
@@ -373,7 +373,7 @@ describe("sources, loaders, and publishers", () => {
 
   it("resolves GitHub auth from local env files without mutating process env", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=env-file-token\n")
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -383,10 +383,10 @@ describe("sources, loaders, and publishers", () => {
     await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
 
     expect(archiveRequestAuthorization()).toBe("Bearer env-file-token")
-    expect(process.env.GITHUB_TOKEN).toBeUndefined()
+    expect(process.env.VITEHUB_GITHUB_TOKEN).toBeUndefined()
   })
 
-  it.each(["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GH_TOKEN"] as const)("resolves GitHub auth from %s before the GitHub CLI", async (name) => {
+  it.each(["VITEHUB_GITHUB_TOKEN", "FORGES_GITHUB_TOKEN"] as const)("resolves GitHub auth from %s before the GitHub CLI", async (name) => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -402,7 +402,7 @@ describe("sources, loaders, and publishers", () => {
 
   it("re-reads GitHub auth from local env files", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=first-env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=first-env-file-token\n")
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -410,7 +410,7 @@ describe("sources, loaders, and publishers", () => {
     const githubSource = github({ repo: "acme/private" })
 
     await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=second-env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=second-env-file-token\n")
     await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
 
     expect(archiveRequestAuthorizations()).toEqual([
@@ -421,11 +421,11 @@ describe("sources, loaders, and publishers", () => {
 
   it("prefers runtime GitHub auth over local env files", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=env-file-token\n")
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
-    process.env.GITHUB_TOKEN = "runtime-token"
+    process.env.VITEHUB_GITHUB_TOKEN = "runtime-token"
 
     const githubSource = github({ repo: "acme/private" })
 
@@ -436,11 +436,11 @@ describe("sources, loaders, and publishers", () => {
 
   it("prefers Cloudflare GitHub auth over local env files", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=env-file-token\n")
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
-    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
+    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { VITEHUB_GITHUB_TOKEN: "cloudflare-token" }
 
     const githubSource = github({ repo: "acme/private" })
 
@@ -453,7 +453,7 @@ describe("sources, loaders, and publishers", () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
-    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
+    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { VITEHUB_GITHUB_TOKEN: "cloudflare-token" }
 
     const githubSource = github({ auth: "explicit-token", repo: "acme/private" })
 
@@ -464,7 +464,7 @@ describe("sources, loaders, and publishers", () => {
 
   it("prefers explicit GitHub auth over local env files", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=env-file-token\n")
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -478,9 +478,9 @@ describe("sources, loaders, and publishers", () => {
 
   it("skips all GitHub auth fallbacks when auth is false", async () => {
     const root = await createRoot()
-    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
-    process.env.GITHUB_TOKEN = "runtime-token"
-    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
+    await writeFile(join(root, ".env"), "VITEHUB_GITHUB_TOKEN=env-file-token\n")
+    process.env.VITEHUB_GITHUB_TOKEN = "runtime-token"
+    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { VITEHUB_GITHUB_TOKEN: "cloudflare-token" }
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     })
@@ -543,7 +543,7 @@ describe("sources, loaders, and publishers", () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
     }, { apiStatus: 403 })
-    process.env.GITHUB_TOKEN = "stale-token"
+    process.env.VITEHUB_GITHUB_TOKEN = "stale-token"
 
     const githubSource = github({
       repo: "acme/app",

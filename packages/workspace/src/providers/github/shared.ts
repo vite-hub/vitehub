@@ -1,5 +1,15 @@
+import {
+  BranchMovedError,
+  forgeArchive,
+  forgeBlob,
+  forgeCommitFiles,
+  forgeEnv,
+  forgeErrorStatus,
+  forgeProvider,
+  readForgeEnv,
+} from "@vite-hub/forge";
+import type { ForgeFileChange, ForgeFileMode } from "@vite-hub/forge";
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
-import { Diagnostic } from "nostics";
 
 import { workspaceConflict, workspaceError } from "../../core/errors.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
@@ -14,172 +24,135 @@ export interface GitHubWorkspaceOptions {
   token?: GitHubWorkspaceOption;
 }
 
+export type GitHubProvider = Awaited<ReturnType<typeof forgeProvider>>;
+type GitHubRepoRef = Parameters<GitHubProvider["repos"]["get"]>[0];
+export type GitFileMode = ForgeFileMode;
+
+/** One file of the remote tree. `path` is from the repository root. */
 export interface GitHubTreeEntry {
-  mode?: string;
+  mode: GitFileMode;
   path: string;
   sha: string;
   size?: number;
-  type: string;
-}
-
-export interface GitHubTreeResponse {
-  tree: GitHubTreeEntry[];
-  truncated?: boolean;
 }
 
 export interface GitHubBranchState {
   branchExists: boolean;
   files: Map<string, GitHubTreeEntry>;
   refSha: string;
-  treeSha: string;
 }
 
 export interface GitHubFileUpdate {
-  bytes?: Uint8Array;
+  bytes: Uint8Array;
   fullPath: string;
-  gitSha: string;
-  mode?: string;
+  mode: GitFileMode;
 }
 
-export interface GitHubCommitResult {
-  commitSha: string;
-  treeSha: string;
+/** One GitHub repository and the Forge provider that reaches it. */
+export interface GitHubRepository {
+  /** `owner/repo`, for messages. */
+  name: string;
+  provider: () => Promise<GitHubProvider>;
+  ref: (provider: GitHubProvider) => GitHubRepoRef;
 }
 
-interface GitHubRefResponse {
-  object: { sha: string }
+export interface GitHubWorkspaceStoreTarget {
+  provider: "github";
+  branch: string;
+  repository: string;
 }
 
-interface GitHubRepositoryResponse {
-  default_branch: string
-}
-
-interface GitHubCommitResponse {
-  tree: { sha: string }
-}
-
-interface GitHubBlobResponse {
-  sha: string
-}
-
-const githubReadAttempts = 3
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
-  return typeof value === "string" && value.length > 0
-}
-
-function isGitHubRefResponse(value: unknown): value is GitHubRefResponse {
-  return isRecord(value) && isRecord(value.object) && isNonEmptyString(value.object.sha)
-}
-
-function isGitHubBlobResponse(value: unknown): value is GitHubBlobResponse {
-  return isRecord(value) && isNonEmptyString(value.sha)
-}
-
-function isGitHubRepositoryResponse(value: unknown): value is GitHubRepositoryResponse {
-  return isRecord(value) && isNonEmptyString(value.default_branch)
-}
-
-function isGitHubCommitResponse(value: unknown): value is GitHubCommitResponse {
-  return isRecord(value) && isRecord(value.tree) && isNonEmptyString(value.tree.sha)
-}
-
-function isGitHubTreeEntry(value: unknown): value is GitHubTreeEntry {
-  return isRecord(value)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
-    && typeof value.path === "string"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
-    && typeof value.type === "string"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
-    && (value.mode === undefined || typeof value.mode === "string")
-    && isNonEmptyString(value.sha)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
-    && (value.size === undefined || (typeof value.size === "number" && Number.isInteger(value.size) && value.size >= 0))
-}
-
-function isGitHubTreeResponse(value: unknown): value is GitHubTreeResponse {
-  return isRecord(value)
-    && Array.isArray(value.tree)
-    && value.tree.every(isGitHubTreeEntry)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
-    && (value.truncated === undefined || typeof value.truncated === "boolean")
-}
-
-function requireGitHubResponse<T>(value: unknown, valid: (value: unknown) => value is T, description: string): T {
-  if (!valid(value)) {
-    throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${description} response.`)
-  }
-  return value
-}
+const githubReadAttempts = 3;
 
 function retryDelay(response: Response, attempt: number): number {
-  const retryAfter = response.headers.get("retry-after")
+  const retryAfter = response.headers.get("retry-after");
   if (retryAfter) {
-    const seconds = Number(retryAfter)
-    if (Number.isFinite(seconds)) return Math.min(seconds * 1_000, 2_000)
-    const date = Date.parse(retryAfter)
-    if (Number.isFinite(date)) return Math.min(Math.max(date - Date.now(), 0), 2_000)
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds)) return Math.min(seconds * 1_000, 2_000);
+    const date = Date.parse(retryAfter);
+    if (Number.isFinite(date)) return Math.min(Math.max(date - Date.now(), 0), 2_000);
   }
-  return 100 * 2 ** attempt
+  return 100 * 2 ** attempt;
 }
 
-function retryableGitHubRead(response: Response) {
-  return response.status === 429 || response.status >= 500
-}
-
-async function waitForRetry(delay: number, signal?: AbortSignal) {
-  signal?.throwIfAborted()
+async function waitForRetry(delay: number, signal?: AbortSignal | null) {
+  signal?.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
     const aborted = () => {
-      clearTimeout(timeout)
-      reject(signal?.reason || new DOMException("The operation was aborted.", "AbortError"))
-    }
+      clearTimeout(timeout);
+      reject(signal?.reason || new DOMException("The operation was aborted.", "AbortError"));
+    };
     const timeout = setTimeout(() => {
-      signal?.removeEventListener("abort", aborted)
-      resolve()
-    }, delay)
-    signal?.addEventListener("abort", aborted, { once: true })
-  })
+      signal?.removeEventListener("abort", aborted);
+      resolve();
+    }, delay);
+    signal?.addEventListener("abort", aborted, { once: true });
+  });
 }
 
-export async function requestGitHub(input: string | URL, init: RequestInit = {}): Promise<Response> {
-  const method = (init.method || "GET").toUpperCase()
-  const retryable = method === "GET" || method === "HEAD"
+/** `fetch` that retries reads after a network error, a 429 or a 5xx response. The Forge provider sends every request through it. */
+export async function requestGitHub(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method || "GET").toUpperCase();
+  const retryable = method === "GET" || method === "HEAD";
   for (let attempt = 0; ; attempt++) {
-    init.signal?.throwIfAborted()
-    let response: Response
+    init.signal?.throwIfAborted();
+    let response: Response;
     try {
-      response = await fetch(input, init)
+      response = await fetch(input, init);
     }
     catch (error) {
-      if (!retryable || init.signal?.aborted || attempt + 1 >= githubReadAttempts) throw error
-      await waitForRetry(100 * 2 ** attempt, init.signal || undefined)
-      continue
+      if (!retryable || init.signal?.aborted || attempt + 1 >= githubReadAttempts) throw error;
+      await waitForRetry(100 * 2 ** attempt, init.signal);
+      continue;
     }
-    if (!retryable || !retryableGitHubRead(response) || attempt + 1 >= githubReadAttempts) return response
-    await response.body?.cancel().catch(() => undefined)
-    await waitForRetry(retryDelay(response, attempt), init.signal || undefined)
+    if (!retryable || (response.status !== 429 && response.status < 500) || attempt + 1 >= githubReadAttempts) return response;
+    await response.body?.cancel().catch(() => undefined);
+    await waitForRetry(retryDelay(response, attempt), init.signal);
   }
 }
 
-class GitHubRequestError extends Diagnostic {
-  constructor(message: string, readonly status: number) {
-    super({ code: "WORKSPACE_R0068", docs: "https://vitehub.dev/docs/reference/diagnostics", why: message }, GitHubRequestError);
-    this.name = "GitHubRequestError";
+/** A lazy connection: the repository name is checked on the first request. */
+export function connectGitHubRepository(repository: string, token: string, kind: "publisher" | "store"): GitHubRepository {
+  let provider: Promise<GitHubProvider> | undefined;
+  return {
+    name: repository,
+    provider: async () => {
+      splitGitHubRepository(repository, kind);
+      return await (provider ||= forgeProvider({ fetch: requestGitHub, forge: "github", token, userAgent: "vitehub-workspace" }));
+    },
+    ref: (client) => {
+      const { owner, repo } = splitGitHubRepository(repository, kind);
+      return { forge: client.forge, instance: client.instance, name: repo, owner };
+    },
+  };
+}
+
+/**
+ * Run one Forge call. A failed request becomes a Workspace error that keeps the Forge error as its cause.
+ * With `response`, a `TypeError` from the Forge response mapping becomes a malformed `response` error.
+ */
+export async function githubRequest<T>(
+  repository: GitHubRepository,
+  run: (provider: GitHubProvider, repo: GitHubRepoRef) => Promise<T>,
+  response?: string,
+): Promise<T> {
+  const provider = await repository.provider();
+  try {
+    return await run(provider, repository.ref(provider));
+  }
+  catch (error) {
+    const status = forgeErrorStatus(error);
+    if (status === undefined && response && error instanceof TypeError) {
+      throw workspaceError(`[vitehub] GitHub workspace returned a malformed ${response} response.`, { cause: error });
+    }
+    if (status === undefined) throw error;
+    throw workspaceError(`[vitehub] GitHub workspace request failed for ${repository.name}: ${status} ${error instanceof Error ? error.message : ""}`.trim(), { cause: error });
   }
 }
 
+/** The HTTP status of the GitHub request behind a Workspace error. */
 export function githubRequestStatus(error: unknown): number | undefined {
-  const cause = error instanceof GitHubRequestError
-    ? error
-    : error instanceof Error && error.cause instanceof GitHubRequestError ? error.cause : undefined;
-  return cause?.status;
+  return forgeErrorStatus(error) ?? (error instanceof Error ? forgeErrorStatus(error.cause) : undefined);
 }
 
 export function githubBranchMovedConflict(input: {
@@ -205,19 +178,6 @@ export function githubBranchMovedConflict(input: {
   );
 }
 
-export interface GitHubWorkspaceStoreTarget {
-  provider: "github";
-  branch: string;
-  repository: string;
-}
-
-export function processEnv(
-  env: Record<string, string | undefined>,
-  ...keys: string[]
-): string | undefined {
-  return keys.map((key) => env[key]).find((value) => typeof value === "string" && value.length > 0);
-}
-
 export function resolveGitHubOption(value: GitHubWorkspaceOption | undefined): string | undefined {
   const resolved = typeof value === "function" ? value() : value;
   return typeof resolved === "string" ? resolved.trim() || undefined : resolved;
@@ -227,14 +187,20 @@ function isMaskedGitHubTokenOption(value: string): boolean {
   return value === "********" || value === "<redacted>" || value === "[redacted]";
 }
 
-function activeCloudflareEnv(
-  keys: string[],
-  accept: (value: string) => boolean = () => true,
+/** The first location value that is set, from the active Cloudflare bindings and then from `env`. */
+function readLocationEnv(name: string, env: Record<string, string | undefined>): string | undefined {
+  const binding = getActiveCloudflareBinding<unknown>(name);
+  if (typeof binding === "string" && binding.trim()) return binding.trim();
+  return env[name]?.trim() || undefined;
+}
+
+/** The Server Env GitHub token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`, from the active Cloudflare bindings and then from `env`. */
+export function readGitHubEnvToken(
+  env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
 ): string | undefined {
-  return keys
-    .map((key) => getActiveCloudflareBinding<unknown>(key))
-    .map((value) => typeof value === "string" ? value.trim() : undefined)
-    .find((value): value is string => typeof value === "string" && value.length > 0 && accept(value));
+  const binding = readForgeEnv(forgeEnv.github.token, name => getActiveCloudflareBinding<unknown>(name));
+  if (binding && !isMaskedGitHubTokenOption(binding)) return binding;
+  return readForgeEnv(forgeEnv.github.token, env);
 }
 
 export function requireGitHubOption(
@@ -269,10 +235,6 @@ export function joinGitPath(...parts: string[]): string {
   return parts.join("/").replaceAll("\\", "/").split("/").filter(Boolean).join("/");
 }
 
-function encodeGitHubRef(ref: string): string {
-  return ref.split("/").map(encodeURIComponent).join("/");
-}
-
 export function resolveGitHubWorkspaceRoot(root: string, workspaceName: string): string {
   return normalizeSafeWorkspacePath(joinGitPath(root.replaceAll("<workspace>", workspaceName)), {
     allowEmpty: true,
@@ -298,6 +260,7 @@ function toHex(bytes: Uint8Array): string {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/** The Git blob sha of `bytes`. Workspace digests are Git blob shas, so local writes compare with the remote tree. */
 export async function gitBlobSha(bytes: Uint8Array): Promise<string> {
   const prefix = new TextEncoder().encode(`blob ${bytes.byteLength}\0`);
   const input = new Uint8Array(prefix.byteLength + bytes.byteLength);
@@ -306,13 +269,8 @@ export async function gitBlobSha(bytes: Uint8Array): Promise<string> {
   return toHex(new Uint8Array(await globalThis.crypto.subtle.digest("SHA-1", input)));
 }
 
-export function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-  }
-  const encode = (globalThis as { btoa?: (input: string) => string }).btoa;
-  return encode ? encode(binary) : Buffer.from(bytes).toString("base64");
+export function gitFileMode(value: unknown): GitFileMode {
+  return value === "120000" || value === "100755" ? value : "100644";
 }
 
 export function resolveGitHubRepositoryOption(
@@ -322,17 +280,7 @@ export function resolveGitHubRepositoryOption(
   return (
     resolveGitHubOption(options.repository) ||
     resolveGitHubOption(options.repo) ||
-    activeCloudflareEnv([
-      "WORKSPACE_GITHUB_REPOSITORY",
-      "VITEHUB_WORKSPACE_GITHUB_REPOSITORY",
-      "GITHUB_REPOSITORY",
-    ]) ||
-    processEnv(
-      env,
-      "WORKSPACE_GITHUB_REPOSITORY",
-      "VITEHUB_WORKSPACE_GITHUB_REPOSITORY",
-      "GITHUB_REPOSITORY",
-    )
+    readLocationEnv("VITEHUB_WORKSPACE_GITHUB_REPOSITORY", env)
   );
 }
 
@@ -342,17 +290,7 @@ export function resolveGitHubBranchOption(
 ): string {
   return (
     resolveGitHubOption(options.branch) ||
-    activeCloudflareEnv([
-      "WORKSPACE_GITHUB_BRANCH",
-      "VITEHUB_WORKSPACE_GITHUB_BRANCH",
-      "GITHUB_BRANCH",
-    ]) ||
-    processEnv(
-      env,
-      "WORKSPACE_GITHUB_BRANCH",
-      "VITEHUB_WORKSPACE_GITHUB_BRANCH",
-      "GITHUB_BRANCH",
-    ) ||
+    readLocationEnv("VITEHUB_WORKSPACE_GITHUB_BRANCH", env) ||
     "main"
   );
 }
@@ -364,8 +302,7 @@ export function resolveGitHubRootOption(
 ): string {
   return resolveGitHubWorkspaceRoot(
     resolveGitHubOption(options.root) ||
-      activeCloudflareEnv(["WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT"]) ||
-      processEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ||
+      readLocationEnv("VITEHUB_WORKSPACE_GITHUB_ROOT", env) ||
       ".vitehub/workspaces/<workspace>",
     workspaceName,
   );
@@ -377,225 +314,97 @@ export function resolveGitHubTokenOption(
 ): string | undefined {
   const token = resolveGitHubOption(options.token);
   if (token && !isMaskedGitHubTokenOption(token)) return token;
-  const bindingToken = activeCloudflareEnv([
-    "WORKSPACE_GITHUB_TOKEN",
-    "VITEHUB_WORKSPACE_GITHUB_TOKEN",
-    "GITHUB_TOKEN",
-    "GH_TOKEN",
-  ], value => !isMaskedGitHubTokenOption(value));
-  if (bindingToken) return bindingToken;
-  return (
-    processEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
-  );
+  return readGitHubEnvToken(env);
 }
 
-export async function requestGitHubJson<T>(
-  repository: string,
-  token: string,
-  path: string,
-  init: RequestInit | undefined,
-  parse: (value: unknown) => T,
-): Promise<T>
-export async function requestGitHubJson(
-  repository: string,
-  token: string,
-  path: string,
-  init?: RequestInit,
-): Promise<unknown>
-export async function requestGitHubJson<T>(
-  repository: string,
-  token: string,
-  path: string,
-  init?: RequestInit,
-  parse?: (value: unknown) => T,
-): Promise<T | unknown> {
-  const value = (await requestGitHubJsonResponse(repository, token, path, init)).value
-  return parse ? parse(value) : value
-}
-
-/** Read a JSON response and retain headers for APIs that expose pagination in Link. */
-export async function requestGitHubJsonResponse(
-  repository: string,
-  token: string,
-  path: string,
-  init?: RequestInit,
-): Promise<{ value: unknown, headers: Headers }> {
-  const response = await requestGitHub(`https://api.github.com${path}`, {
-    ...init,
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      "user-agent": "vitehub-workspace",
-      "x-github-api-version": "2022-11-28",
-      ...init?.headers,
-    },
+/** The bytes of one remote file. A symlink is read by its blob, so the bytes are the link target and not the file it points at. */
+export async function readGitHubFile(
+  repository: GitHubRepository,
+  entry: Pick<GitHubTreeEntry, "mode" | "path" | "sha">,
+  ref: string,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  return await githubRequest(repository, async (provider, repo) => {
+    if (entry.mode === "120000") return await forgeBlob(provider, repo, entry.sha, { signal });
+    const file = await provider.contents.file(repo, entry.path, { ref, signal });
+    return file.encoding === "binary" ? file.content : new TextEncoder().encode(file.content);
   });
-
-  if (!response.ok) {
-    const cause = new GitHubRequestError(
-      `[vitehub] GitHub workspace request failed for ${repository}: ${response.status} ${response.statusText} ${await response.text().catch(() => "")}`,
-      response.status,
-    );
-    throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
-  }
-  return { value: await response.json(), headers: response.headers };
 }
 
-export async function readGitHubRawFile(input: {
-  path: string;
-  ref: string;
-  repository: string;
-  token: string;
-}): Promise<Uint8Array> {
-  const { owner, repo } = splitGitHubRepository(input.repository, "store");
-  const path = input.path.split("/").map(encodeURIComponent).join("/");
-  const response = await requestGitHub(
-    `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(input.ref)}/${path}`,
-    {
-      headers: {
-        authorization: `Bearer ${input.token}`,
-        "user-agent": "vitehub-workspace",
-      },
-    },
-  );
-  if (!response.ok) {
-    const cause = new GitHubRequestError(
-      `[vitehub] GitHub workspace raw file request failed for ${input.repository}: ${response.status} ${response.statusText}`,
-      response.status,
-    );
-    throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
-  }
-  return new Uint8Array(await response.arrayBuffer());
+export async function readGitHubArchive(repository: GitHubRepository, ref: string, signal?: AbortSignal): Promise<Uint8Array> {
+  return await githubRequest(repository, async (provider, repo) => {
+    const stream = await forgeArchive(provider, repo, { ref, signal });
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  });
 }
 
-export async function readGitHubArchive(input: {
-  ref: string;
-  repository: string;
-  signal?: AbortSignal;
-  token: string;
-}): Promise<Uint8Array> {
-  const { owner, repo } = splitGitHubRepository(input.repository, "store");
-  const response = await requestGitHub(
-    `https://codeload.github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tar.gz/${encodeURIComponent(input.ref)}`,
-    {
-      headers: {
-        authorization: `Bearer ${input.token}`,
-        "user-agent": "vitehub-workspace",
-      },
-      signal: input.signal,
-    },
-  );
-  if (!response.ok) {
-    const cause = new GitHubRequestError(
-      `[vitehub] GitHub workspace archive request failed for ${input.repository}: ${response.status} ${response.statusText}`,
-      response.status,
-    );
-    throw workspaceError("[vitehub] GitHub workspace request failed.", { cause });
-  }
-  return new Uint8Array(await response.arrayBuffer());
-}
-
-export function findGitHubRemoteFiles(
-  tree: GitHubTreeResponse,
+/** The files and symlinks of the tree at `ref`, by their Workspace path under `root`. */
+export async function readGitHubTree(
+  repository: GitHubRepository,
+  ref: string,
   root: string,
   kind: "publisher" | "store",
-): Map<string, GitHubTreeEntry> {
-  if (tree.truncated) {
-    throw workspaceError(
-      `[vitehub] GitHub workspace ${kind} could not compare the remote tree because GitHub returned a truncated tree.`,
-    );
-  }
-
-  const files = new Map<string, GitHubTreeEntry>();
-  for (const entry of tree.tree) {
-    if (entry.type !== "blob") continue;
-    const path = workspacePathFromGitPath(entry.path, root);
-    if (path) files.set(path, entry);
-  }
-  return files;
+): Promise<Map<string, GitHubTreeEntry>> {
+  return await githubRequest(repository, async (provider, repo) => {
+    const tree = provider.contents.tree(repo, { recursive: true, ref });
+    const files = new Map<string, GitHubTreeEntry>();
+    for await (const entry of tree) {
+      if (entry.type !== "file" && entry.type !== "symlink") continue;
+      if (!entry.sha) throw workspaceError("[vitehub] GitHub workspace returned a malformed tree response.");
+      const path = workspacePathFromGitPath(entry.path, root);
+      if (path) files.set(path, { mode: gitFileMode(entry.mode), path: entry.path, sha: entry.sha, size: entry.size });
+    }
+    if (tree.warnings.some(warning => warning.code === "tree_truncated")) {
+      throw workspaceError(
+        `[vitehub] GitHub workspace ${kind} could not compare the remote tree because GitHub returned a truncated tree.`,
+      );
+    }
+    return files;
+  }, "tree");
 }
 
+function isMissingRef(error: unknown): boolean {
+  const status = githubRequestStatus(error);
+  return status === 404 || status === 422;
+}
+
+/** The head of `branch`, or of the default branch when `branch` does not exist yet, and the files under `root`. */
 export async function readGitHubBranchState(input: {
   branch: string;
   kind: "publisher" | "store";
-  paths?: string[];
-  repository: string;
+  repository: GitHubRepository;
   root: string;
-  token: string;
 }): Promise<GitHubBranchState> {
-  const { owner, repo } = splitGitHubRepository(input.repository, input.kind);
+  const resolve = async (branch: string) => {
+    const sha = await githubRequest(input.repository, async (provider, repo) => await provider.contents.resolveRef(repo, `heads/${branch}`), "commit");
+    if (!sha) throw workspaceError("[vitehub] GitHub workspace returned a malformed commit response.");
+    return sha;
+  };
   let branchExists = true;
-  let ref: GitHubRefResponse;
+  let refSha: string;
   try {
-    ref = requireGitHubResponse(await requestGitHubJson(
-      input.repository,
-      input.token,
-      `/repos/${owner}/${repo}/git/ref/heads/${encodeGitHubRef(input.branch)}`,
-    ), isGitHubRefResponse, "branch reference");
+    refSha = await resolve(input.branch);
   }
   catch (error) {
-    if (githubRequestStatus(error) !== 404) throw error;
-    const repository = requireGitHubResponse(await requestGitHubJson(
-      input.repository,
-      input.token,
-      `/repos/${owner}/${repo}`,
-    ), isGitHubRepositoryResponse, "repository");
-    ref = requireGitHubResponse(await requestGitHubJson(
-      input.repository,
-      input.token,
-      `/repos/${owner}/${repo}/git/ref/heads/${encodeGitHubRef(repository.default_branch)}`,
-    ), isGitHubRefResponse, "default branch reference");
+    if (!isMissingRef(error)) throw error;
+    const repository = await githubRequest(input.repository, async (provider, repo) => await provider.repos.get(repo), "repository");
+    if (!repository.defaultBranch) throw workspaceError("[vitehub] GitHub workspace returned a malformed repository response.");
+    refSha = await resolve(repository.defaultBranch);
     branchExists = false;
   }
-  const current = requireGitHubResponse(await requestGitHubJson(
-    input.repository,
-    input.token,
-    `/repos/${owner}/${repo}/git/commits/${ref.object.sha}`,
-  ), isGitHubCommitResponse, "commit");
-  if (input.paths) {
-    const entries = await Promise.all(input.paths.map(async (path) => {
-      const fullPath = joinGitPath(input.root, path);
-      const encodedPath = fullPath.split("/").map(encodeURIComponent).join("/");
-      try {
-        const entry = await requestGitHubJson(
-          input.repository,
-          input.token,
-          `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref.object.sha)}`,
-          { headers: { accept: "application/vnd.github.object+json" } },
-        );
-        return requireGitHubResponse(entry, isGitHubTreeEntry, "content");
-      }
-      catch (error) {
-        if (githubRequestStatus(error) === 404) return undefined;
-        throw error;
-      }
-    }));
-    return {
-      branchExists,
-      files: new Map(input.paths.flatMap((path, index) => {
-        const entry = entries[index];
-        return entry?.type === "file" ? [[path, entry] as const] : [];
-      })),
-      refSha: ref.object.sha,
-      treeSha: current.tree.sha,
-    };
-  }
-  const tree = requireGitHubResponse(await requestGitHubJson(
-    input.repository,
-    input.token,
-    `/repos/${owner}/${repo}/git/trees/${current.tree.sha}?recursive=1`,
-  ), isGitHubTreeResponse, "tree");
   return {
     branchExists,
-    files: findGitHubRemoteFiles(tree, input.root, input.kind),
-    refSha: ref.object.sha,
-    treeSha: current.tree.sha,
+    files: await readGitHubTree(input.repository, refSha, input.root, input.kind),
+    refSha,
   };
 }
 
+/**
+ * Write and delete files in one commit on `branch`, and return the commit sha.
+ * A branch that does not exist yet is created from `parentSha`.
+ * Rejects with a Workspace conflict when the branch no longer points at `parentSha`.
+ */
 export async function commitGitHubChanges(input: {
-  baseTreeSha: string;
   branch: string;
   branchExists: boolean;
   deletePaths: string[];
@@ -603,125 +412,47 @@ export async function commitGitHubChanges(input: {
   kind?: "publisher" | "store";
   message: string;
   parentSha: string;
-  repository: string;
-  token: string;
-}): Promise<GitHubCommitResult> {
-  const kind = input.kind || "store";
-  const { owner, repo } = splitGitHubRepository(input.repository, kind);
-  const blobs = await Promise.all(
-    input.files.map((file) =>
-      file.bytes
-        ? createGitHubBlob({
-            bytes: file.bytes,
-            kind,
-            repository: input.repository,
-            token: input.token,
-          })
-        : { sha: file.gitSha },
-    ),
-  );
-  const tree = await requestGitHubJson(
-
-    input.repository,
-    input.token,
-    `/repos/${owner}/${repo}/git/trees`,
-    {
-      body: JSON.stringify({
-        base_tree: input.baseTreeSha,
-        tree: [
-          ...input.files.map((file, index) => ({
-            mode: file.mode || "100644",
-            path: file.fullPath,
-            sha: blobs[index]!.sha,
-            type: "blob",
-          })),
-          ...input.deletePaths.map((path) => ({ mode: "100644", path, sha: null, type: "blob" })),
-        ],
-      }),
-      method: "POST",
-    },
-  ) as { sha: string };
-  const commit = await requestGitHubJson(
-    input.repository,
-    input.token,
-    `/repos/${owner}/${repo}/git/commits`,
-    {
-      body: JSON.stringify({
-        message: input.message,
-        parents: [input.parentSha],
-        tree: tree.sha,
-      }),
-      method: "POST",
-    },
-  ) as { sha: string };
-  if (input.branchExists) {
-    try {
-      await requestGitHubJson(
-        input.repository,
-        input.token,
-        `/repos/${owner}/${repo}/git/refs/heads/${encodeGitHubRef(input.branch)}`,
-        {
-          body: JSON.stringify({ force: false, sha: commit.sha }),
-          method: "PATCH",
-        },
-      );
-    }
-    catch (error) {
-      const status = githubRequestStatus(error);
-      if (status === 409) {
-        throw githubBranchMovedConflict({
-          branch: input.branch,
-          expectedHead: input.parentSha,
-          kind,
-          repository: input.repository,
-        });
-      }
-      throw error;
-    }
+  /** Remote modes, so a write that changes or keeps a mode other than `100644` sends it. */
+  remoteModes?: ReadonlyMap<string, GitFileMode>;
+  repository: GitHubRepository;
+}): Promise<string> {
+  // A change without a mode goes through `commitFiles()`, which cannot set a mode.
+  // Send modes only when one write needs a mode other than `100644`.
+  const needsModes = input.files.some(file => file.mode !== "100644" || (input.remoteModes?.get(file.fullPath) ?? "100644") !== "100644");
+  const changes: ForgeFileChange[] = [
+    ...input.files.map(file => ({ content: file.bytes, path: file.fullPath, ...(needsModes ? { mode: file.mode } : {}) })),
+    ...input.deletePaths.map(path => ({ content: null, path })),
+  ];
+  try {
+    return await githubRequest(input.repository, async (provider, repo) => await forgeCommitFiles(provider, repo, {
+      branch: input.branch,
+      changes,
+      message: input.message,
+      ...(input.branchExists ? { expectedHead: input.parentSha } : { createFrom: input.parentSha }),
+    }));
   }
-  else {
-    await requestGitHubJson(
-      input.repository,
-      input.token,
-      `/repos/${owner}/${repo}/git/refs`,
-      {
-        body: JSON.stringify({ ref: `refs/heads/${input.branch}`, sha: commit.sha }),
-        method: "POST",
-      },
-    );
+  catch (error) {
+    if (error instanceof BranchMovedError || (error instanceof Error && error.cause instanceof BranchMovedError)) {
+      throw githubBranchMovedConflict({
+        branch: input.branch,
+        expectedHead: input.parentSha,
+        kind: input.kind || "store",
+        repository: input.repository.name,
+      });
+    }
+    throw error;
   }
-  return { commitSha: commit.sha, treeSha: tree.sha };
 }
 
-export async function createGitHubBlob(input: {
-  bytes: Uint8Array;
-  kind?: "publisher" | "store";
-  repository: string;
-  token: string;
-}): Promise<{ sha: string }> {
-  const kind = input.kind || "store";
-  const { owner, repo } = splitGitHubRepository(input.repository, kind);
-  const response = await requestGitHubJson(
-    input.repository,
-    input.token,
-    `/repos/${owner}/${repo}/git/blobs`,
-    {
-      body: JSON.stringify({ content: toBase64(input.bytes), encoding: "base64" }),
-      method: "POST",
-    },
-  )
-  return requireGitHubResponse(response, isGitHubBlobResponse, "blob")
-}
-
-export async function createGitHubFileUpdate(
+export function createGitHubFileUpdate(
   path: string,
   root: string,
   content: string | Uint8Array,
-): Promise<GitHubFileUpdate & { bytes: Uint8Array }> {
-  const bytes = contentToBytes(content);
+  mode: GitFileMode = "100644",
+): GitHubFileUpdate {
   return {
-    bytes,
+    bytes: contentToBytes(content),
     fullPath: joinGitPath(root, path),
-    gitSha: await gitBlobSha(bytes),
+    mode,
   };
 }

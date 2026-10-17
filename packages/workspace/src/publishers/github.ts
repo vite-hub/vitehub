@@ -2,7 +2,9 @@ import { workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
 import {
   commitGitHubChanges,
+  connectGitHubRepository,
   createGitHubFileUpdate,
+  gitBlobSha,
   isWorkspaceFileEntry,
   readGitHubBranchState,
   requireGitHubOption,
@@ -11,6 +13,7 @@ import {
   resolveGitHubRepositoryOption,
   resolveGitHubRootOption,
   resolveGitHubTokenOption,
+  type GitHubFileUpdate,
   type GitHubWorkspaceStoreTarget,
 } from "../providers/github/shared.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
@@ -34,9 +37,7 @@ export interface GitHubPublisherOptions {
   token?: GitHubPublisherOption
 }
 
-interface GitHubPublisherFile extends WorkspaceFile {
-  bytes: Uint8Array
-  fullPath: string
+interface GitHubPublisherFile extends WorkspaceFile, GitHubFileUpdate {
   gitSha: string
 }
 
@@ -62,11 +63,12 @@ async function readFiles(ctx: PublishContext, root: string): Promise<GitHubPubli
   return await Promise.all(entries.filter(isWorkspaceFileEntry).map(async (entry) => {
     const file = await ctx.store.readFile(entry.path)
     if (!file) throw workspaceError(`[vitehub] Workspace file disappeared before GitHub publish: ${entry.path}.`)
-    const update = await createGitHubFileUpdate(entry.path, root, file.content)
+    const update = createGitHubFileUpdate(entry.path, root, file.content)
     return {
       ...file,
       path: normalizeWorkspacePath(entry.path),
       ...update,
+      gitSha: await gitBlobSha(update.bytes),
     }
   }))
 }
@@ -88,13 +90,12 @@ export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher
       const files = await readFiles(ctx, root)
       const nextPaths = new Set(files.map(file => file.path))
 
+      const client = connectGitHubRepository(repository, token, "publisher")
       const remote = await readGitHubBranchState({
         branch,
         kind: "publisher",
-        paths: options.deleteUntracked === false ? files.map(file => file.path) : undefined,
-        repository,
+        repository: client,
         root,
-        token,
       })
       const changedFiles = files.filter(file => remote.files.get(file.path)?.sha !== file.gitSha)
       const deletePaths = options.deleteUntracked === false
@@ -106,7 +107,6 @@ export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher
       if (!changedFiles.length && !deletePaths.length) return
 
       await commitGitHubChanges({
-        baseTreeSha: remote.treeSha,
         branch,
         branchExists: remote.branchExists,
         deletePaths,
@@ -114,8 +114,8 @@ export function github(options: GitHubPublisherOptions = {}): WorkspacePublisher
         kind: "publisher",
         message: resolveMessage(options, ctx),
         parentSha: remote.refSha,
-        repository,
-        token,
+        remoteModes: new Map([...remote.files.values()].map(entry => [entry.path, entry.mode])),
+        repository: client,
       })
     },
   }

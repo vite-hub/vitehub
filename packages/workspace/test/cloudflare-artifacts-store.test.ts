@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { checkGlobCwd, seedGlobCwdStore } from "./glob-cwd-checks.ts"
+import { createFakeGitHub } from "./fake-github.ts"
 
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { sha256 } from "../src/core/path.ts"
@@ -280,112 +281,39 @@ describe("Cloudflare Artifacts workspace store", () => {
   })
 
   it("configures GitHub Workspace Stores through the hosted runtime", async () => {
-    const requests: Array<{ headers: Headers; method: string; path: string }> = []
-    setActiveCloudflareEnv({ GITHUB_TOKEN: "github-token" })
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
-        const url = new URL(input instanceof Request ? input.url : String(input))
-        const method = init.method || "GET"
-        requests.push({ headers: new Headers(init.headers), method, path: url.pathname })
-
-        if (url.pathname === "/repos/onmax/repo/git/ref/heads/main") {
-          return new Response(JSON.stringify({ object: { sha: "base-sha" } }), {
-            headers: { "content-type": "application/json" },
-          })
-        }
-        if (url.pathname === "/repos/onmax/repo/git/commits/base-sha") {
-          return new Response(JSON.stringify({ tree: { sha: "tree-sha" } }), {
-            headers: { "content-type": "application/json" },
-          })
-        }
-        if (url.pathname === "/repos/onmax/repo/git/trees/tree-sha") {
-          return new Response(JSON.stringify({
-            tree: [{ path: "mirror/tasks/todo.md", sha: "blob-sha", size: 6, type: "blob" }],
-          }), {
-            headers: { "content-type": "application/json" },
-          })
-        }
-        if (url.pathname === "/onmax/repo/base-sha/mirror/tasks/todo.md") {
-          return new Response("hello\n", {
-            headers: { "content-type": "application/octet-stream" },
-          })
-        }
-        return new Response("not found", { status: 404 })
-      }),
-    )
+    const fake = createFakeGitHub()
+    fake.seed("mirror/tasks/todo.md", "hello\n")
+    setActiveCloudflareEnv({ VITEHUB_GITHUB_TOKEN: "github-token" })
+    vi.stubGlobal("fetch", fake.fetch)
 
     const { configureHostedWorkspaceRuntime } = await import("../src/hosted.ts")
     const { useWorkspace } = await import("../src/runtime.ts")
     configureHostedWorkspaceRuntime({
-      store: {
-        branch: "main",
-        provider: "github",
-        repository: "onmax/repo",
-        root: "mirror",
-      },
+      store: { branch: "main", provider: "github", repository: "onmax/repo", root: "mirror" },
     })
-    setWorkspaceRegistry({
-      mirror: async () => ({ default: defineWorkspace({}) }),
-    })
+    setWorkspaceRegistry({ mirror: async () => ({ default: defineWorkspace({}) }) })
 
     const workspace = useWorkspace("mirror")
     await expect(workspace.fs.readFile("tasks/todo.md")).resolves.toBe("hello\n")
-    expect(requests[0]?.headers.get("authorization")).toBe("Bearer github-token")
-    expect(
-      requests.find(request => request.path === "/onmax/repo/base-sha/mirror/tasks/todo.md")?.headers.get("authorization"),
-    ).toBe("Bearer github-token")
+    expect(fake.requests[0]?.headers.get("authorization")).toBe("Bearer github-token")
+    expect(fake.requests.some(request => request.path.includes("/contents/mirror/tasks/todo.md"))).toBe(true)
   })
 
   it("preserves explicit GitHub tokens in the Cloudflare runtime", async () => {
-    const requests: Array<{ headers: Headers; method: string; path: string }> = []
-    setActiveCloudflareEnv({ GITHUB_TOKEN: "fallback-token" })
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
-        const url = new URL(input instanceof Request ? input.url : String(input))
-        const method = init.method || "GET"
-        requests.push({ headers: new Headers(init.headers), method, path: url.pathname })
-
-        if (url.pathname === "/repos/onmax/repo/git/ref/heads/main") {
-          return new Response(JSON.stringify({ object: { sha: "base-sha" } }), {
-            headers: { "content-type": "application/json" },
-          })
-        }
-        if (url.pathname === "/repos/onmax/repo/git/commits/base-sha") {
-          return new Response(JSON.stringify({ tree: { sha: "tree-sha" } }), {
-            headers: { "content-type": "application/json" },
-          })
-        }
-        if (url.pathname === "/repos/onmax/repo/git/trees/tree-sha") {
-          return new Response(JSON.stringify({
-            tree: [],
-          }), {
-            headers: { "content-type": "application/json" },
-          })
-        }
-        return new Response("not found", { status: 404 })
-      }),
-    )
+    const fake = createFakeGitHub()
+    setActiveCloudflareEnv({ VITEHUB_GITHUB_TOKEN: "fallback-token" })
+    vi.stubGlobal("fetch", fake.fetch)
 
     const { configureCloudflareWorkspaceRuntime } = await import("../src/cloudflare.ts")
     const { useWorkspace } = await import("../src/runtime.ts")
     configureCloudflareWorkspaceRuntime({
-      store: {
-        branch: "main",
-        provider: "github",
-        repository: "onmax/repo",
-        root: "mirror",
-        token: "explicit-token",
-      },
+      store: { branch: "main", provider: "github", repository: "onmax/repo", root: "mirror", token: "explicit-token" },
     })
-    setWorkspaceRegistry({
-      mirror: async () => ({ default: defineWorkspace({}) }),
-    })
+    setWorkspaceRegistry({ mirror: async () => ({ default: defineWorkspace({}) }) })
 
     const workspace = useWorkspace("mirror")
     await expect(workspace.fs.list("", { recursive: true })).resolves.toEqual([])
-    expect(requests[0]?.headers.get("authorization")).toBe("Bearer explicit-token")
+    expect(fake.requests[0]?.headers.get("authorization")).toBe("Bearer explicit-token")
   })
 
   it("rejects traversal and reserved public paths", async () => {

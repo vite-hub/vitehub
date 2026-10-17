@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto"
+
+import { createFakeGitHub, fakeSha } from "./fake-github.ts"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkspace } from "../src/core/workspace.ts"
@@ -7,22 +9,16 @@ import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { workspaceStoreTarget } from "../src/storage/target.ts"
 import { createCurrentSnapshotFromStore } from "../src/storage/utils.ts"
 
-const requests: Array<{ body?: unknown, headers: Headers, method: string, path: string }> = []
-let refSha = "base-sha"
-let remoteTreeSha = "base-tree"
+const requests: Array<{ body?: Record<string, unknown>; headers: Headers; method: string; operation?: string; path: string }> = []
+let fake: ReturnType<typeof createFakeGitHub>
 let remoteTree: Array<{ path: string, sha: string, type: "blob" }> = []
-let commitIndex = 0
-let treeIndex = 0
-let mirrorRefSha: string | undefined
+let externalTreeSynced = false
 let mirrorRefStatus = 404
 let malformedResponsePath: string | undefined
 let malformedResponse: unknown
 
 function gitBlobSha(bytes: Uint8Array): string {
-  return createHash("sha1")
-    .update(`blob ${bytes.byteLength}\0`)
-    .update(bytes)
-    .digest("hex")
+  return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex")
 }
 
 function textSha(content: string): string {
@@ -30,83 +26,32 @@ function textSha(content: string): string {
 }
 
 function jsonResponse(value: unknown) {
-  return new Response(JSON.stringify(value), {
-    headers: { "content-type": "application/json" },
-    status: 200,
-  })
+  return new Response(JSON.stringify(value), { headers: { "content-type": "application/json" }, status: 200 })
 }
 
 beforeEach(() => {
   requests.length = 0
-  refSha = "base-sha"
-  remoteTreeSha = "base-tree"
+  fake = createFakeGitHub()
+  fake.respond(request => request.path === malformedResponsePath ? jsonResponse(malformedResponse) : undefined)
+  fake.respond(request => request.path === "/repos/onmax/repo/commits/heads/mirror" && mirrorRefStatus !== 404 && fake.head("mirror") === undefined
+    ? new Response("missing mirror branch", { status: mirrorRefStatus, statusText: "Internal Server Error" })
+    : undefined)
   remoteTree = []
-  commitIndex = 0
-  treeIndex = 0
-  mirrorRefSha = undefined
+  externalTreeSynced = false
   mirrorRefStatus = 404
   malformedResponsePath = undefined
   malformedResponse = undefined
   vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
-    const url = new URL(input instanceof Request ? input.url : String(input))
-    const method = init.method || "GET"
-    const body = typeof init.body === "string" ? JSON.parse(init.body) as {
-      content?: string
-      force?: boolean
-      ref?: string
-      sha?: string | null
-      tree?: Array<{ path: string, sha: string | null, type: "blob" }>
-    } : undefined
-    requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname })
-
-    if (url.pathname === malformedResponsePath) return jsonResponse(malformedResponse)
-
-    if (url.pathname === "/repos/onmax/repo/git/ref/heads/mirror") {
-      if (mirrorRefSha) return jsonResponse({ object: { sha: mirrorRefSha } })
-      return new Response("missing mirror branch", {
-        status: mirrorRefStatus,
-        statusText: mirrorRefStatus === 404 ? "Not Found" : "Internal Server Error",
-      })
+    if (!externalTreeSynced) {
+      fake.setBranch("main", fakeSha("base-sha"), remoteTree.map(entry => ({ ...entry, mode: "100644", size: 0 })))
+      externalTreeSynced = true
     }
-    if (url.pathname === "/repos/onmax/repo") return jsonResponse({ default_branch: "main" })
-    if (url.pathname === "/repos/onmax/repo/git/ref/heads/main") return jsonResponse({ object: { sha: refSha } })
-    if (url.pathname === "/repos/onmax/repo/git/ref/heads/feature/audio") return jsonResponse({ object: { sha: refSha } })
-    if (url.pathname.startsWith("/repos/onmax/repo/git/commits/")) return jsonResponse({ tree: { sha: remoteTreeSha } })
-    if (url.pathname.startsWith("/repos/onmax/repo/contents/")) {
-      const path = decodeURIComponent(url.pathname.slice("/repos/onmax/repo/contents/".length))
-      const entry = remoteTree.find(item => item.path === path)
-      return entry
-        ? jsonResponse({ ...entry, type: "file" })
-        : new Response("missing file", { status: 404, statusText: "Not Found" })
-    }
-    if (url.pathname === "/repos/onmax/repo/git/trees/base-tree" && method === "GET") return jsonResponse({ tree: remoteTree })
-    if (url.pathname.startsWith("/repos/onmax/repo/git/trees/tree-sha-") && method === "GET") return jsonResponse({ tree: remoteTree })
-    if (url.pathname === "/repos/onmax/repo/git/blobs" && method === "POST" && body?.content) {
-      return jsonResponse({ sha: gitBlobSha(Buffer.from(body.content, "base64")) })
-    }
-    if (url.pathname === "/repos/onmax/repo/git/trees" && method === "POST") {
-      for (const entry of body?.tree || []) {
-        remoteTree = remoteTree.filter(item => item.path !== entry.path)
-        if (entry.sha) remoteTree.push({ path: entry.path, sha: entry.sha, type: "blob" })
-      }
-      remoteTreeSha = `tree-sha-${++treeIndex}`
-      return jsonResponse({ sha: remoteTreeSha })
-    }
-    if (url.pathname === "/repos/onmax/repo/git/commits" && method === "POST") return jsonResponse({ sha: `commit-sha-${++commitIndex}` })
-    if (url.pathname === "/repos/onmax/repo/git/refs" && method === "POST") {
-      if (body?.ref === "refs/heads/mirror" && body.sha) mirrorRefSha = body.sha
-      return jsonResponse({})
-    }
-    if (url.pathname === "/repos/onmax/repo/git/refs/heads/mirror" && method === "PATCH") {
-      if (body?.sha) mirrorRefSha = body.sha
-      return jsonResponse({})
-    }
-    if (url.pathname === "/repos/onmax/repo/git/refs/heads/feature/audio" && method === "PATCH") {
-      if (body?.sha) refSha = body.sha
-      return jsonResponse({})
-    }
-
-    return new Response("not found", { status: 404 })
+    // The fake records the request before its first await, so the index belongs to this call when requests run in parallel.
+    const index = fake.requests.length
+    const pending = fake.fetch(input, init)
+    const request = fake.requests[index]
+    if (request) requests.push(request)
+    return await pending
   }))
 })
 
@@ -147,17 +92,12 @@ describe("GitHub workspace publisher", () => {
 
     await workspace.snapshot({ name: "chore: transcribe audio" })
 
-    const audioSha = textSha("hola")
-    expect(requests.map(request => request.path)).toContain("/repos/onmax/repo/git/ref/heads/feature/audio")
-    expect(requests.map(request => request.path)).not.toContain("/repos/onmax/repo/git/ref/heads/feature%2Faudio")
-    expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
-      base_tree: "base-tree",
-      tree: [{ mode: "100644", path: "workspace/root/inbox/audio.md", sha: audioSha, type: "blob" }],
-    })
-    expect(requests.find(request => request.path.endsWith("/git/commits"))?.body).toMatchObject({
-      message: "chore: transcribe audio",
-      parents: ["base-sha"],
-      tree: "tree-sha-1",
+    expect(requests.map(request => request.path)).toContain("/repos/onmax/repo/commits/heads/feature/audio")
+    expect(fake.commitInputs()[0]).toMatchObject({
+      branch: { branchName: "feature/audio", repositoryNameWithOwner: "onmax/repo" },
+      expectedHeadOid: fakeSha("base-sha"),
+      fileChanges: { additions: [{ path: "workspace/root/inbox/audio.md", contents: Buffer.from("hola").toString("base64") }] },
+      message: { headline: "chore: transcribe audio" },
     })
     expect(requests.every(request => request.headers.get("user-agent") === "vitehub-workspace")).toBe(true)
   })
@@ -178,24 +118,27 @@ describe("GitHub workspace publisher", () => {
     await workspace.snapshot({ name: "first publish" })
 
     expect(requests.map(request => request.path)).toEqual(expect.arrayContaining([
-      "/repos/onmax/repo/git/ref/heads/mirror",
+      "/repos/onmax/repo/commits/heads/mirror",
       "/repos/onmax/repo",
-      "/repos/onmax/repo/git/ref/heads/main",
+      "/repos/onmax/repo/commits/heads/main",
+      "/repos/onmax/repo/git/refs",
+      "/graphql",
     ]))
-    expect(requests.find(request => request.path.endsWith("/git/trees") && request.method === "POST")?.body)
-      .toMatchObject({ base_tree: "base-tree" })
-    expect(requests.find(request => request.path.endsWith("/git/commits") && request.method === "POST")?.body)
-      .toMatchObject({ parents: ["base-sha"] })
-    expect(requests.find(request => request.path === "/repos/onmax/repo/git/refs" && request.method === "POST")?.body)
-      .toEqual({ ref: "refs/heads/mirror", sha: "commit-sha-1" })
-    expect(requests.some(request => request.method === "PATCH")).toBe(false)
+    expect(fake.commitInputs()[0]).toMatchObject({
+      branch: { branchName: "mirror" },
+      expectedHeadOid: fakeSha("base-sha"),
+      message: { headline: "first publish" },
+    })
 
     requests.length = 0
     await workspace.writeFile("inbox/second.md", "second")
     await workspace.snapshot({ name: "second publish" })
 
-    expect(requests.find(request => request.path.endsWith("/git/refs/heads/mirror") && request.method === "PATCH")?.body)
-      .toEqual({ force: false, sha: "commit-sha-2" })
+    expect(fake.commitInputs().at(-1)).toMatchObject({
+      branch: { branchName: "mirror" },
+      expectedHeadOid: fakeSha("commit-sha-1"),
+      message: { headline: "second publish" },
+    })
     expect(requests.some(request => request.path === "/repos/onmax/repo/git/refs" && request.method === "POST")).toBe(false)
   })
 
@@ -214,11 +157,11 @@ describe("GitHub workspace publisher", () => {
     await workspace.writeFile("inbox/first.md", "first")
     await expect(workspace.snapshot()).rejects.toMatchObject({
       code: "WORKSPACE_FAILED",
-      message: "[vitehub] GitHub workspace request failed.",
+      message: expect.stringContaining("[vitehub] GitHub workspace request failed for onmax/repo"),
     })
     expect(requests.map(request => request.path)).toEqual(Array.from(
       { length: 3 },
-      () => "/repos/onmax/repo/git/ref/heads/mirror",
+      () => "/repos/onmax/repo/commits/heads/mirror",
     ))
   })
 
@@ -241,11 +184,7 @@ describe("GitHub workspace publisher", () => {
     await workspace.rm("inbox/audio.md")
     await workspace.snapshot({ name: "delete audio" })
 
-    expect(requests.map(request => request.path)).not.toContain("/repos/onmax/repo/git/blobs")
-    expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
-      base_tree: "tree-sha-1",
-      tree: [{ mode: "100644", path: "workspace/root/inbox/audio.md", sha: null, type: "blob" }],
-    })
+    expect(fake.commitInputs().at(-1)?.fileChanges.deletions).toEqual([{ path: "workspace/root/inbox/audio.md" }])
   })
 
   it("publishes deletions from the remote tree without local publisher state", async () => {
@@ -264,10 +203,7 @@ describe("GitHub workspace publisher", () => {
 
     await workspace.snapshot({ name: "delete remote audio" })
 
-    expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
-      base_tree: "base-tree",
-      tree: [{ mode: "100644", path: "workspace/root/inbox/audio.md", sha: null, type: "blob" }],
-    })
+    expect(fake.commitInputs()[0]?.fileChanges.deletions).toEqual([{ path: "workspace/root/inbox/audio.md" }])
   })
 
   it("preserves remote-only files when untracked deletion is disabled", async () => {
@@ -291,15 +227,7 @@ describe("GitHub workspace publisher", () => {
     await workspace.writeFile("inbox/audio.md", "hola", { mediaType: "text/markdown" })
     await workspace.snapshot({ name: "update transcript" })
 
-    expect(requests.find(request => request.path.endsWith("/git/trees"))?.body).toMatchObject({
-      base_tree: "base-tree",
-      tree: [{
-        mode: "100644",
-        path: "workspace/root/inbox/audio.md",
-        sha: textSha("hola"),
-        type: "blob",
-      }],
-    })
+    expect(fake.commitInputs()[0]?.fileChanges.additions).toEqual([{ path: "workspace/root/inbox/audio.md", contents: Buffer.from("hola").toString("base64") }])
   })
 
   it("checks only workspace paths when untracked deletion is disabled", async () => {
@@ -320,15 +248,13 @@ describe("GitHub workspace publisher", () => {
     await workspace.writeFile("inbox/audio.md", "hola", { mediaType: "text/markdown" })
     await workspace.snapshot()
 
-    const contentsRequest = requests.find(request => request.path === "/repos/onmax/repo/contents/workspace/root/inbox/audio.md")
-    expect(contentsRequest?.headers.get("accept")).toBe("application/vnd.github.object+json")
-    expect(requests.some(request => request.path.endsWith("/git/trees/base-tree"))).toBe(false)
-    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+    expect(fake.commitInputs()).toEqual([])
+    expect(requests.filter(request => request.method !== "GET" && request.operation !== "RepositoryId")).toEqual([])
   })
 
   it.each([undefined, null, ""])("rejects a content response with SHA %j before publishing", async (sha) => {
-    malformedResponsePath = "/repos/onmax/repo/contents/workspace/root/file.md"
-    malformedResponse = { path: "workspace/root/file.md", sha, type: "file" }
+    malformedResponsePath = `/repos/onmax/repo/git/trees/${fakeSha("base-sha")}`
+    malformedResponse = { tree: [{ path: "workspace/root/file.md", sha, type: "blob" }] }
     const workspace = createWorkspace({
       name: "docs",
       store: { provider: "memory" },
@@ -344,9 +270,9 @@ describe("GitHub workspace publisher", () => {
 
     await expect(workspace.snapshot()).rejects.toMatchObject({
       code: "WORKSPACE_FAILED",
-      message: "[vitehub] GitHub workspace returned a malformed content response.",
+      message: expect.stringContaining("GitHub workspace returned a malformed tree response."),
     })
-    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+    expect(requests.filter(request => request.method !== "GET" && request.operation !== "RepositoryId")).toEqual([])
   })
 
   it("skips publishing when deletion is disabled and only remote files are untracked", async () => {
@@ -366,7 +292,7 @@ describe("GitHub workspace publisher", () => {
 
     await workspace.snapshot()
 
-    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+    expect(requests.filter(request => request.method !== "GET" && request.operation !== "RepositoryId")).toEqual([])
   })
 
   it("skips unchanged snapshots after comparing the remote tree", async () => {
@@ -387,7 +313,7 @@ describe("GitHub workspace publisher", () => {
 
     await workspace.snapshot({ name: "unchanged" })
 
-    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+    expect(requests.filter(request => request.method !== "GET" && request.operation !== "RepositoryId")).toEqual([])
   })
 
   it("keeps direct publication content-addressed", async () => {
@@ -408,7 +334,7 @@ describe("GitHub workspace publisher", () => {
 
     await workspace.publish({ name: "unchanged publish" })
 
-    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+    expect(requests.filter(request => request.method !== "GET" && request.operation !== "RepositoryId")).toEqual([])
   })
 
   it("rejects direct publication to the active GitHub Store branch", async () => {
@@ -433,7 +359,7 @@ describe("GitHub workspace publisher", () => {
     await expect(workspace.publish()).rejects.toThrow(
       "GitHub publisher cannot publish to onmax/repo@feature/audio while it backs the active GitHub Workspace Store",
     )
-    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+    expect(requests.filter(request => request.method !== "GET" && request.operation !== "RepositoryId")).toEqual([])
   })
 
   it("uses the loaded GitHub Store target when dynamic options change", async () => {
@@ -458,7 +384,7 @@ describe("GitHub workspace publisher", () => {
     await expect(workspace.publish()).rejects.toThrow(
       "GitHub publisher cannot publish to onmax/repo@feature/audio while it backs the active GitHub Workspace Store",
     )
-    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+    expect(requests.filter(request => request.method !== "GET" && request.operation !== "RepositoryId")).toEqual([])
   })
 
   it("does not fall back to GitHub config when the live Store uses another provider", async () => {
@@ -503,6 +429,6 @@ describe("GitHub workspace publisher", () => {
 
     await workspace.snapshot()
 
-    expect(requests.filter(request => request.method !== "GET")).toEqual([])
+    expect(requests.filter(request => request.method !== "GET" && request.operation !== "RepositoryId")).toEqual([])
   })
 })

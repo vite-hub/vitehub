@@ -1,6 +1,7 @@
 import { defu } from "defu"
 import { resolve } from "node:path"
 
+import { forgeEnv, readForgeEnv } from "@vite-hub/forge"
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import { workspaceError } from "../core/errors.ts"
@@ -103,19 +104,19 @@ export function resolveGitHubWorkspaceStore(
   input: Pick<WorkspaceResolutionInput, "runtime"> = {},
 ): GitHubWorkspaceStoreOptions {
   const branch = gitHubWorkspaceOption(config.branch)
-    ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH")
+    ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_BRANCH")
   const root = gitHubWorkspaceOption(config.root)
-    ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT")
+    ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_ROOT")
   return {
     branch: branch ?? (input.runtime ? undefined : "main"),
     provider: "github",
     repository: gitHubWorkspaceOption(config.repository)
       ?? gitHubWorkspaceOption(config.repo)
-      ?? readEnv(env, "WORKSPACE_GITHUB_REPOSITORY", "VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "GITHUB_REPOSITORY"),
+      ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_REPOSITORY"),
     root: root ?? (input.runtime ? undefined : ".vitehub/workspaces/<workspace>"),
     token: input.runtime
       ? gitHubWorkspaceOption(config.token)
-        ?? readEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+        ?? readForgeEnv(forgeEnv.github.token, env)
         ?? MASKED_WORKSPACE_RUNTIME_VALUE
       : MASKED_WORKSPACE_RUNTIME_VALUE,
   }

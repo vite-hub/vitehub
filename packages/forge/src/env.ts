@@ -42,3 +42,21 @@ export const forgeEnv: ForgeEnv = {
     webhookSecret: { names: ["VITEHUB_FORGEJO_WEBHOOK_SECRET", "FORGES_FORGEJO_WEBHOOK_SECRET"], secret: true },
   },
 } satisfies Record<ForgeKind, Record<string, ForgeEnvField>>
+
+/**
+ * The first value of `field` that is set, in its lookup order.
+ * `env` is a record, such as `process.env`, or a reader, such as a Cloudflare binding lookup. Default: `process.env`.
+ */
+export function readForgeEnv(field: ForgeEnvField, env: Record<string, unknown> | ((name: string) => unknown) = globalThis.process?.env ?? {}): string | undefined {
+  for (const name of field.names) {
+    const value: unknown = env instanceof Function ? env(name) : env[name]
+    if (!isString(value)) continue
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
+  }
+}
+
+function isString(value: unknown): value is string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Env and binding values cross an untrusted host boundary as unknown values.
+  return typeof value === "string"
+}

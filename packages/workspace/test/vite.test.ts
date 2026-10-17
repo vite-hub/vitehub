@@ -949,7 +949,7 @@ describe("hubWorkspace", () => {
 
   it("does not serialize absent or blank GitHub fallbacks over Cloudflare runtime bindings", async () => {
     const root = await createViteRoot()
-    vi.stubEnv("GITHUB_REPOSITORY", "vite-hub/build-repository")
+    vi.stubEnv("VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "vite-hub/build-repository")
     vi.stubEnv("NITRO_PRESET", "cloudflare-module")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
@@ -973,7 +973,7 @@ describe("hubWorkspace", () => {
 
   it("preserves build-time GitHub fallbacks for non-Cloudflare runtimes", async () => {
     const root = await createViteRoot()
-    vi.stubEnv("GITHUB_REPOSITORY", "vite-hub/build-repository")
+    vi.stubEnv("VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "vite-hub/build-repository")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const config = mergedConfigHook(plugin.config) as (config: {
