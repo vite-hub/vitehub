@@ -55,6 +55,8 @@ describe("CI merge gate", () => {
     const commands = workflow.jobs["contracts-examples"]?.steps.flatMap(step => step.run ? [step.run] : [])
     expect(commands).toEqual([
       "vp run build",
+      "git diff --exit-code -- 'packages/*/package.json' || {\n  echo \"::error::vp run build rewrote package.json exports. Run it locally and commit the result.\"\n  exit 1\n}\n",
+      "vp run package:metadata",
       "vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts",
       "vp run --ignore-depends-on examples:verify",
     ])
@@ -88,13 +90,13 @@ describe("CI merge gate", () => {
     expect(marker?.if).toBeUndefined()
   })
 
-  it("runs docs workspace tests on pull requests", () => {
+  it("runs docs workspace tests on pushes", () => {
     const docs = workflow.jobs.docs
-    expect(docs?.if).toBeUndefined()
+    expect(docs?.if).toBe("${{ github.event_name != 'pull_request' }}")
     expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs test")).toBe(true)
   })
 
-  it.each(["pull_request", "push"])("rejects a partial package test rerun with failed shards on %s", (event) => {
+  it.each(["push", "workflow_dispatch"])("rejects a partial package test rerun with failed shards on %s", (event) => {
     const result = runGate({
       ...successfulJobs,
       "package-tests": { result: "success" },
@@ -131,7 +133,7 @@ describe("CI merge gate", () => {
   })
 
   it.each(["checks", "contracts-examples", "package-tests", "package-tests-success", "docs", "docs-deploy"])("rejects skipped required job %s", (name) => {
-    const event = name === "docs-deploy" ? "push" : "pull_request"
+    const event = name === "checks" ? "pull_request" : "push"
     expect(runGate({ ...successfulJobs, [name]: { result: "skipped" } }, event).status).not.toBe(0)
   })
 

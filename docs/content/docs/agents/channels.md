@@ -462,7 +462,7 @@ Install the matching `@chat-adapter/*` package when a built-in Channel uses prov
 
 Built-in Channels read credentials from Server Env under `env.server.<channel>`. ViteHub discovers built-in Channel factories in Agent definitions and declares their fields automatically, so applications usually need no separate Env declaration. Explicit Channel options take precedence over Env values. Declare a field yourself when the host variable name or provider differs from the default.
 
-Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. Use the canonical name when the vendor name is taken, for example `VITEHUB_GITHUB_TOKEN` in CI. See [Server Env variable names](/docs/env/configure).
+Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. `github()`, `gitlab()` and `forgejo()` read the `VITEHUB_` name, then the `FORGES_` name of the [`forges`](https://forges.link/reference/environment-variables) library: `github()` reads `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. They do not read `GH_TOKEN` or `GITHUB_TOKEN`. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. See [Server Env variable names](/docs/env/configure).
 
 Use [Server Env](/docs/env) to inspect the discovered fields and their required or secret status. When a Channel is defined outside a discovered Agent file, declare its Env fields explicitly.
 
@@ -514,6 +514,8 @@ export default defineAgent({
 Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default; ViteHub never publishes reasoning as progress.
 
 Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. `steer` queues overlapping messages and preserves that Workflow handoff. Other overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
+
+When the Chat SDK adapter supports native replies, a non-streaming reply answers the message that started the Invocation. Telegram is the built-in adapter with this support: the reply quotes the triggering message, so the user can see which photo or question it answers. Inline delivery, finish hook replies, and durable Workflow delivery use the same rule. Replies that the adapter streams while the Agent writes them, retries after a host restart, and adapters without native replies post a new message in the thread. Thread history and delivery custody record the reply like any other posted message.
 
 For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message. `messages.loading` selects manual delivery, so it cannot be combined with `messages.stream` or `messages.commentary`. Set `messages.final.delivery: 'new-message'` to post the final answer separately and then remove the loading placeholder.
 

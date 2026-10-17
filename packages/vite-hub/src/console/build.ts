@@ -1,6 +1,6 @@
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { inspectDatabaseDefinitions } from "@vite-hub/database/vite"
-import { discoverScheduleDefinitions } from "@vite-hub/schedule/vite"
+import { collectScheduleContributions, discoverScheduleDefinitions } from "@vite-hub/schedule/vite"
 
 import { consoleContributedSections } from "./contributions.ts"
 
@@ -34,10 +34,12 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   const content: Record<ConsoleSectionId, ConsoleSectionContent> = {}
   if (sections.includes("databases")) {
     content.databases = {
-      definitions: inspectDatabaseDefinitions({
+      definitions: await inspectDatabaseDefinitions({
+        plugins: options.plugins,
         projectRoot,
         rootDir: options.databaseDiscoveryRoot ?? options.discoveryRoot,
         serverDirs: options.databaseDiscoveryRoot ? undefined : serverDirs,
+        viteRoot: options.discoveryRoot,
       }),
       kind: "definition-catalog",
     }
@@ -48,6 +50,11 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   }
   const manualSchedules = sections.includes("schedules")
     ? discoverScheduleDefinitions({
+        contributions: await collectScheduleContributions(options.plugins, {
+          projectRoot: options.scheduleDiscoveryRoot ?? projectRoot,
+          root: options.discoveryRoot,
+          serverDirs,
+        }),
         rootDir: options.discoveryRoot,
         serverDirs,
         serverRootDir: options.scheduleDiscoveryRoot ?? projectRoot,

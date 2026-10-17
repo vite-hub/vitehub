@@ -1,11 +1,13 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-
+import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
+import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
+import type { AuthRuntimeEnvResolver } from "./runtime-state.ts"
 
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
@@ -30,8 +32,6 @@ export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
 
-type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
-
 function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
   return Boolean(options && Object.keys(options).length > 0)
 }
@@ -47,10 +47,8 @@ function hasConfiguredPublicUrl(): boolean {
     && Boolean(__VITEHUB_PUBLIC_URL__?.url || Object.keys(__VITEHUB_PUBLIC_URL__?.agents ?? {}).length)
 }
 
-let authRuntimeEnvResolver: AuthRuntimeEnvResolver | undefined
-
 export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined): void {
-  authRuntimeEnvResolver = resolver
+  getAuthRuntimeState().envResolver = resolver
 }
 
 interface RequestInitWithDuplex extends RequestInit {
@@ -71,18 +69,13 @@ function toRequest(request: AuthRequest): Request {
   return new Request(request.url, init)
 }
 
-function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
-  // SAFETY: AuthRequestInput is a request or an own-property host wrapper; inherited req values must not replace the request.
-  return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
-}
-
 export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
   request: Pick<Request, "headers" | "url">,
   runtimeOptions: AuthRuntimeOptions = {},
   event?: unknown,
 ): AuthRuntimeOptions {
-  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).requestRuntimeOptions
+  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).requestRuntimeOptions
 }
 
 function resolveDefaultDefinition(): AuthDefinition {
@@ -96,7 +89,7 @@ export function createBetterAuthOptions(
   definition: AuthDefinition,
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
-  return resolveAuthOptions(definition, { runtimeOptions, env: authRuntimeEnvResolver }).providerOptions
+  return resolveAuthOptions(definition, { runtimeOptions, env: getAuthRuntimeState().envResolver }).providerOptions
 }
 
 function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
@@ -121,16 +114,22 @@ export function createAuthForRequest(
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): ViteHubAuth {
-  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).providerOptions) as ViteHubAuth
+  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).providerOptions) as ViteHubAuth
 }
 
 export function handleAuthRequest(
   definition: AuthDefinition,
-  request: AuthRequest,
+  input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
-  event?: unknown,
+  event: unknown = input,
 ): Promise<Response> {
+  const request = unwrapAuthRequest(input)
   return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+}
+
+/** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
+export function toAuthRequest(input: AuthRequestInput): AuthRequest {
+  return unwrapAuthRequest(input)
 }
 
 export function createAuthHandler(
@@ -169,7 +168,7 @@ export function getAuthForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition)
   }
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).providerOptions)
+  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeState().envResolver }).providerOptions)
 }
 
 export async function assertAuthOrigin(
@@ -189,8 +188,7 @@ export function handleAuth(
   input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
 ): Promise<Response> {
-  const request = unwrapAuthRequest(input)
-  return handleAuthRequest(resolveDefaultDefinition(), request, runtimeOptions, input)
+  return handleAuthRequest(resolveDefaultDefinition(), input, runtimeOptions, input)
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
@@ -229,7 +227,7 @@ async function createSignInResponse(
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
   const origin = new URL(options.baseURL as string).origin
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
-  const basePath = normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)
+  const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
   const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
@@ -261,7 +259,7 @@ async function createSignInResponse(
 
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: authRuntimeEnvResolver })
+  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: getAuthRuntimeState().envResolver })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   return { auth, options, request, session }
@@ -275,26 +273,196 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
+function responseGetter(value: object, property: string): (() => unknown) | undefined {
+  let prototype: object | null = value
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (descriptor?.get) return descriptor.get
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+}
+
+function responseMethod(value: object, property: string): ((this: object) => unknown) | undefined {
+  if (Object.prototype.hasOwnProperty.call(value, property)) return
+  let prototype: object | null = Object.getPrototypeOf(value) as object | null
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+}
+
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
+  if (result === true) return
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
-  if (result !== true) return createForbiddenResponse(context.request)
+  return createForbiddenResponse(context.request)
+}
+
+const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
+
+const authorizationResponsePrototypeLimit = 32
+
+function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
+  try {
+    let current: object | null = Object(value)
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(current)) throw new Error("Cyclic authorization response prototype")
+      seen.add(current)
+      const descriptor = Object.getOwnPropertyDescriptor(current, key)
+      if (descriptor) return descriptor
+      current = Object.getPrototypeOf(current)
+    }
+    if (current) throw new Error("Authorization response prototype chain is too deep")
+  }
+  catch {
+    // Fail the whole snapshot rather than treating malformed reflection as a missing method.
+    throw new Error("Malformed authorization response prototype")
+  }
+}
+
+let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+
+async function getUndiciResponse(): Promise<typeof Response | undefined> {
+  if (undiciResponsePromise) return undiciResponsePromise
+  undiciResponsePromise = import(/* @vite-ignore */ "undici")
+    .then(module => module.Response as typeof Response)
+    .catch(() => undefined)
+  return undiciResponsePromise
+}
+
+async function hasResponsePrototype(value: unknown): Promise<boolean> {
+  const targets = new Set<object>([Response.prototype])
+  const UndiciResponse = await getUndiciResponse()
+  if (UndiciResponse) targets.add(UndiciResponse.prototype)
+  try {
+    let current = Object.getPrototypeOf(Object(value))
+    const seen = new Set<object>()
+    for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (targets.has(current)) return true
+      if (seen.has(current)) return false
+      seen.add(current)
+      current = Object.getPrototypeOf(current)
+    }
+    return false
+  }
+  catch {
+    return false
+  }
+}
+
+async function copyAuthorizationBody(body: unknown): Promise<ReadableStream<Uint8Array> | null | undefined> {
+  if (body === null) return null
+  if (Object(body) !== body) return
+  if (Object.prototype.hasOwnProperty.call(body, "getReader")) return
+  try {
+    const clone = structuredClone as (value: unknown, options?: { transfer?: unknown[] }) => unknown
+    const cloned = clone(body, { transfer: [body] })
+    if (Object(cloned) !== cloned) return
+    // Transferability alone is insufficient: ArrayBuffer and other values can
+    // also be transferred. The intrinsic stream accessor performs an
+    // unforgeable ReadableStream brand check on the cloned value.
+    const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    if (typeof lockedGetter !== "function") return
+    Reflect.apply(lockedGetter, cloned, [])
+    return cloned as ReadableStream<Uint8Array>
+  }
+  catch {
+    return
+  }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
-  if (value instanceof Response) return value
+  if (value === null || Object(value) !== value) return
   try {
-    if (Object.prototype.toString.call(value) !== "[object Response]") return
-    // SAFETY: Foreign responses are untrusted. Copy their data into a local
-    // Response so adapters only receive native Headers and body operations.
-    const response = value as Response
-    const headers = new Headers(response.headers)
-    const body = response.body === null ? null : new Uint8Array(await response.arrayBuffer())
-    return new Response(body, { headers, status: response.status, statusText: response.statusText })
+    const candidate = Object(value)
+    if (!await hasResponsePrototype(candidate)) return
+    // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
+    const status: unknown = Reflect.get(candidate, "status")
+    const statusText: unknown = Reflect.get(candidate, "statusText")
+    const headers: unknown = Reflect.get(candidate, "headers")
+    const body: unknown = Reflect.get(candidate, "body")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
+    if (typeof statusText !== "string") return
+    if (headers === null || Object(headers) !== headers) return
+    // Response construction rejects bodies for these status codes. Check this
+    // before transferring a foreign stream so a rejected candidate retains
+    // ownership of its original body.
+    if (body !== null && (status === 204 || status === 205 || status === 304)) return
+
+    const headerCarrier = Object(headers)
+    const snapshot = { status, statusText, headers, body }
+    const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
+      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+    let nativeProperties = false
+    let nativeBodyUnused = false
+    try {
+      nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
+        const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+        return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
+      })
+      const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyUnused = Boolean(bodyUsedGetter && !Reflect.apply(bodyUsedGetter, candidate, []))
+        && (body === null || Boolean(lockedGetter && !Reflect.apply(lockedGetter, body, [])))
+    }
+    catch {
+      // A proxy can expose native descriptors without owning native response state.
+    }
+    const nativeHeaderMethods = ["get", "forEach"].every(key =>
+      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    // A foreign implementation must carry its own native Headers methods.
+    // Accepting a foreign Response prototype paired with current-realm Headers
+    // would make a user-defined Response-shaped object indistinguishable from
+    // a genuine cross-runtime response.
+    const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
+    const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
+      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod) return value
+    const forEach = Reflect.get(headerCarrier, "forEach")
+    const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
+    const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
+    if (!Array.isArray(cookies)) return
+    // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
+    if (typeof getSetCookie !== "function" && Reflect.apply(Reflect.get(headerCarrier, "get"), headers, ["set-cookie"]) !== null) return
+    const normalizedHeaders = new Headers()
+    let combinedCookies: string | undefined
+    Reflect.apply(forEach, headers, [(value: string, key: string) => {
+      if (key.toLowerCase() === "set-cookie") {
+        if (cookies.length === 0) combinedCookies = value
+        return
+      }
+      normalizedHeaders.append(key, value)
+    }])
+    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // followed by another cookie assignment at the cookie-pair boundary proves that
+    // multiple values were merged. Assignment-like text after an extension attribute
+    // can still be part of that attribute's value, so do not reject it as a merge.
+    if (combinedCookies !== undefined) {
+      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      normalizedHeaders.append("set-cookie", combinedCookies)
+    }
+    for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
+
+    // Validate non-body constructor inputs before transferring a foreign stream.
+    if (status === 0 && (statusText !== "" || body !== null || [...normalizedHeaders].length !== 0)) return
+    if (status !== 0) new Response(null, { status, statusText, headers: normalizedHeaders })
+
+    const normalizedBody = await copyAuthorizationBody(body)
+    if (normalizedBody === undefined) return
+
+    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
+      ? Response.error()
+      : new Response(normalizedBody, { status, statusText, headers: normalizedHeaders })
+    return normalizedResponse
   }
   catch {
     return
@@ -320,7 +488,8 @@ async function checkAuthRequest(
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
     const routes = authAccessRoutes(options, routeIndexes)
     for (const [index, route] of routes.entries()) {
-      const authorize = route instanceof Object ? route.authorize : undefined
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route configuration crosses JavaScript realms; runtime object narrowing preserves foreign authorize callbacks.
+      const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
         return reject(createForbiddenResponse(request))
       }
@@ -415,7 +584,8 @@ export function createAuthAccessHandler(
     index,
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
-    path: route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route,
+    // Request URLs keep the application base path, so match each route below it.
+    path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
     recursive: route.route.endsWith("/**"),
   }))
 

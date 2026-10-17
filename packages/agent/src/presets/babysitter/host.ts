@@ -67,16 +67,16 @@ export async function cleanupLegacyBabysitterCheckouts(dataDir: string): Promise
   return entries.length;
 }
 
-/** GitHub App settings from `env.server.github` or the GITHUB_APP_* variables. */
+/** GitHub App settings from `env.server.github` or the VITEHUB_GITHUB_* variables. */
 export async function readGitHubAppEnvironment(context: Pick<AgentCallbackContext, "cloudflare"> = {}) {
   // SAFETY: channelEnv reads only the Cloudflare bindings from its context; Node hosts have none.
   const env = await channelEnv("github", context as AgentCallbackContext);
   const appId = Number(envString(env.appId));
-  const keyPath = envString(env.appPrivateKeyPath);
-  const privateKey = normalizePrivateKey(envString(env.appPrivateKey) ?? (keyPath ? (await readFile(keyPath, "utf8")).trim() : undefined));
-  const installation = envString(env.appInstallationId);
+  const keyPath = envString(env.privateKeyPath);
+  const privateKey = normalizePrivateKey(envString(env.privateKey) ?? (keyPath ? (await readFile(keyPath, "utf8")).trim() : undefined));
+  const installation = envString(env.installationId);
   if (!Number.isSafeInteger(appId) || appId <= 0 || !privateKey) {
-    throw new Error("[vitehub] The Babysitter needs a GitHub App: set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY (or GITHUB_APP_PRIVATE_KEY_PATH).");
+    throw new Error("[vitehub] The Babysitter needs a GitHub App: set VITEHUB_GITHUB_APP_ID and VITEHUB_GITHUB_PRIVATE_KEY (or VITEHUB_GITHUB_PRIVATE_KEY_PATH).");
   }
   const app: GitHubAppEnvironment = { appId, privateKey };
   if (installation) app.installationId = Number(installation);
@@ -84,7 +84,7 @@ export async function readGitHubAppEnvironment(context: Pick<AgentCallbackContex
   const configuredInstallations = envString(env.appInstallations);
   if (configuredInstallations) {
     const mappings: unknown = JSON.parse(configuredInstallations);
-    if (!isRuntimeRecord(mappings) || Array.isArray(mappings)) throw new Error("GITHUB_APP_INSTALLATIONS must be an owner-to-installation object.");
+    if (!isRuntimeRecord(mappings) || Array.isArray(mappings)) throw new Error("VITEHUB_GITHUB_APP_INSTALLATIONS must be an owner-to-installation object.");
     app.installations = Object.fromEntries(Object.entries(mappings).map(([owner, id]) => {
       const installationId = Number(id);
       if (!Number.isSafeInteger(installationId) || installationId <= 0) throw new Error(`Invalid GitHub installation for ${owner}.`);

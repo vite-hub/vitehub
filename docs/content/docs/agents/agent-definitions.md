@@ -39,6 +39,23 @@ export default defineAgent({
 
 For application-supplied execution, use exactly one structural Driver variant: `{ model }`, `{ run }`, or [`{ ask }`](/docs/agents/agent-drivers#use-an-ask-driver).
 
+## Bound an Invocation budget
+
+Use the top-level `budget` option for per-invocation token and cost limits. ViteHub installs the same inspectable `budget` Capability used by reusable Capability lists:
+
+```ts [server/agents/review.ts]
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  budget: {
+    tokens: { total: 80_000, output: 12_000 },
+    usd: '0.10',
+    mode: 'observe',
+  },
+})
+```
+
+The default `observe` mode records limits and exceedance in the `budget` finish extension. `mode: 'enforce'` fails the Invocation after its normalized usage is available. See [Budget](/docs/agents/capabilities/budget) for provider support and the difference between an Invocation budget, Driver capacity, and host admission.
+
 ## Add abilities and context
 
 Capabilities decide which runtime abilities the selected Driver receives. Workspace context decides which files and Sources those abilities can reach.
@@ -300,7 +317,7 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `data` | Validates structured Invocation input and types `data` at call sites and in hooks. |
 | `intercept` | Finishes an Invocation with app-computed output before the Driver runs. |
 | `channels` | Declares named Agent Channels and generated routes. |
-| `github` | Sets the Agent GitHub identity, for example `createGitHubHost()`. Provider Drivers receive its `access().env`, and pull request checkouts and `git()` use its token. Defaults to the identity passed as `github({ app })`. |
+| `github` | Sets the Agent GitHub identity, for example `createGitHubHost()`. Every Invocation gets it, including streamed runs. Provider Drivers receive its `access().env`, and pull request checkouts and `git()` use its token. Defaults to the identity passed as `github({ app })`. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
 | `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
 | `runtime` | Selects inline or Workflow-backed hosted execution. |

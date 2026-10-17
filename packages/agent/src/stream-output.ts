@@ -1,3 +1,4 @@
+import { isResponse } from "./internal/response.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
@@ -32,7 +33,7 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
 }
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
-  return value instanceof Response
+  return isResponse(value)
     && value.body !== null
     && value.headers.get("x-vercel-ai-ui-message-stream") === "v1"
 }
@@ -63,6 +64,17 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
       enqueueFrames(controller)
     },
   }))
+}
+
+/** Normalize a UI message stream response so lifecycle handling can observe its events. */
+export function normalizeUIMessageStreamResponse(value: unknown): (Response & { body: ReadableStream<Uint8Array> }) | undefined {
+  if (!isUIMessageStreamResponse(value)) return undefined
+  return createAgentUIMessageStreamResponse({
+    headers: value.headers,
+    status: value.status,
+    statusText: value.statusText,
+    stream: normalizeUiMessageStream(uiMessageStreamFromResponse(value)),
+  })
 }
 
 export function createAgentUIMessageStream(options: {
@@ -105,7 +117,7 @@ export function createAgentUIMessageStreamResponse(options: {
   status?: number
   statusText?: string
   stream: ReadableStream<unknown>
-}): Response {
+}): Response & { body: ReadableStream<Uint8Array> } {
   const headers = new Headers(options.headers)
   for (const [key, value] of Object.entries(uiMessageStreamHeaders)) {
     if (!headers.has(key)) headers.set(key, value)
@@ -119,11 +131,12 @@ export function createAgentUIMessageStreamResponse(options: {
       controller.enqueue(encoder.encode(`data: ${JSON.stringify(part)}\n\n`))
     },
   }))
+  // SAFETY: Constructing a Response with a ReadableStream always creates a non-null body.
   return new Response(stream, {
     headers,
     status: options.status,
     statusText: options.statusText,
-  })
+  }) as Response & { body: ReadableStream<Uint8Array> }
 }
 
 export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {

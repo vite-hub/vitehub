@@ -47,6 +47,35 @@ pnpm nuxt dev
 pnpm nuxt build
 ```
 
+## Nuxt layers
+
+ViteHub scans the server directory of the application and of every layer it
+extends. A layer can own an Auth Definition, Database tables, Agents, or any
+other Definition. The application needs no extra code to use them.
+
+```txt [File tree]
+app/
+  nuxt.config.ts          # extends: ['../layers/accounts', '../layers/blog']
+layers/
+  accounts/
+    server/auth.ts
+    server/databases/config.ts   # users table
+  blog/
+    server/databases/config.ts   # posts table
+```
+
+The application takes precedence over its layers:
+
+- An Auth Definition in the application replaces the layer Definitions. Two
+  layers with an Auth Definition fail discovery until the application defines one.
+- Database Definitions with the same name merge into one database. Read
+  [Tables from Nuxt layers](/docs/database/configure#tables-from-nuxt-layers).
+- Other Definitions keep one identity per name. Two layers, or a layer and the
+  application, with the same identity fail discovery and list both files.
+
+Run `pnpm vitehub inspect definitions` to see the file that supplies each
+Definition.
+
 ## Differences from the Vite integration
 
 | Concern | Nuxt behavior |
@@ -56,6 +85,7 @@ pnpm nuxt build
 | Database on Cloudflare | With the `cloudflare` preset, `database` defaults to `driver: 'd1'`. This configures one D1 host resource that Nitro and Nuxt Content share. |
 | Console | The Console runs as Nuxt pages. Install `@nuxt/ui`, `@iconify-json/lucide`, and `@iconify-json/ph`. Read [Console](/docs/development/console). |
 | Server auto-imports | When Nitro auto-imports are on, server code can use `kv` (with `kv`), `blob` (with `blob`), and `db` and `schema` (with `database`) without an import. Explicit `vite-hub/*` imports also work. An entry with the same name from another source fails module setup. |
+| Database tables from modules | A Nuxt module adds Database tables with the same Vite plugin contribution as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. Read [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
 | Connections | Not supported by the Nuxt module yet. `connections` fails during module setup. Use the Vite integration for Connections. |
 
 ## Inspect the output
