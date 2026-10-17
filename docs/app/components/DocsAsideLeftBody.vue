@@ -84,6 +84,19 @@ function isActive(path: string) {
       </NuxtLink>
     </section>
 
+    <section v-if="section.id === 'getting-started' || section.category === 'Platform'" class="vh-docs-sidebar-related" aria-label="Build and deploy">
+      <h2 class="vh-docs-sidebar-heading">Build and deploy</h2>
+      <NuxtLink
+        v-for="platformSection in platformSections"
+        :key="platformSection.id"
+        :to="platformSection.path"
+        class="vh-docs-sidebar-link"
+      >
+        <UIcon :name="sidebarSectionIcon(platformSection)" class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{{ platformSection.title }}</span>
+      </NuxtLink>
+    </section>
+
     <NuxtLink to="/docs" class="vh-docs-sidebar-link vh-docs-sidebar-catalog-link">
       <UIcon name="i-ph-squares-four-light" class="size-4 shrink-0" />
       <span class="min-w-0 truncate">Browse all docs</span>

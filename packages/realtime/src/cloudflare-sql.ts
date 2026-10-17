@@ -34,10 +34,9 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // descriptor shape only ensures that invoking discovery cannot run an
     // arbitrary inherited getter.
     if (typeof constructor !== "function" || typeof exec !== "function" || typeof databaseSize !== "function") return false
-    // All platform members belong to one prototype, and its constructor must
-    // identify that exact prototype. This rejects copied members and bound or
-    // arrow constructor proxies before any candidate callback is invoked.
-    if (constructorEntry.owner !== execEntry.owner || constructorEntry.owner !== databaseSizeEntry.owner) return false
+    // Workerd may place the constructor and accessors on different levels of
+    // its internal prototype chain. Their descriptors are inspected above; the
+    // native getter brand probe below provides the receiver validation.
     // Accessor callbacks supplied by JavaScript have an own `prototype`;
     // workerd's native getter does not. Reject these before the brand probe so
     // discovery never invokes a fabricated getter.
