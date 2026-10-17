@@ -893,7 +893,6 @@ function isResponseLike(value: unknown): value is Response {
     // prototype. Real Fetch implementations expose the Response constructor
     // under this stable name; reject arbitrary constructor names before the
     // remaining structural checks can route a generic result here.
-    if (!ownResponseTag && constructorDescriptor.value.name !== "Response") return false
     // Fetch Response constructors expose the standard static factories. A
     // caller-created self-linked function can copy the name and prototype
     // link, but it must not be accepted as a platform Response constructor
@@ -936,13 +935,17 @@ function isResponseLike(value: unknown): value is Response {
     // that surface keeps objects with caller-controlled own body fields out of
     // the Response branch even when the field happens to contain a real stream.
     let bodyAccessor = false
-    let bodyPrototype: object | null = ownResponseTag ? value : Object.getPrototypeOf(value) as object | null
+    let bodyPrototype: object | null = Object.getPrototypeOf(value) as object | null
     const visitedBodyPrototypes = new Set<object>()
     while (bodyPrototype && !visitedBodyPrototypes.has(bodyPrototype)) {
       visitedBodyPrototypes.add(bodyPrototype)
       const descriptor = Object.getOwnPropertyDescriptor(bodyPrototype, "body")
       if (descriptor) {
-        bodyAccessor = hasRuntimeType(descriptor.get, "function") || (ownResponseTag && "value" in descriptor)
+        // The body must be exposed through the implementation's accessor.
+        // Accepting an own data property here lets a caller-created object
+        // manufacture the complete own-tag shape without any Response body
+        // implementation behind it.
+        bodyAccessor = hasRuntimeType(descriptor.get, "function")
         break
       }
       bodyPrototype = Object.getPrototypeOf(bodyPrototype) as object | null
@@ -963,6 +966,10 @@ function isResponseLike(value: unknown): value is Response {
         // The other supported Fetch implementation may own this response.
       }
     }
+    // The supported independent ponyfill uses its own constructor name. An
+    // own-tagged value claiming to be `Response` without the host brand is a
+    // caller-created structural spoof.
+    if (ownResponseTag && !trustedResponse && constructorDescriptor.value.name === "Response") return false
     if (!trustedResponse && !ownResponseTag) return false
     const status = read("status")
     const statusText = read("statusText")
