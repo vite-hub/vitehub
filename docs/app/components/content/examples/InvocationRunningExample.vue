@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AgentInvocationView } from "@vite-hub/ui";
+type AgentInvocationView = Record<string, any> & { id: string; status: string; traceId: string; observations: readonly unknown[]; createdAt: string; updatedAt: string };
 
 const now = useState("ui-running-clock", () => Date.now());
 onMounted(() => {

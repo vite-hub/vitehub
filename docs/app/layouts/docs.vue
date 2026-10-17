@@ -60,18 +60,22 @@ const hasPanel = computed(
   .vh-docs-shell {
     display: flex;
     align-items: flex-start;
-    /* Clip the expanded rail horizontally without creating a vertical scroll ancestor for sticky navigation. */
-    overflow-x: clip;
+    overflow: clip;
   }
 
-  /* The sidebars do not clip, so the expanded rail can cover the page. The z-index keeps it below the site header. */
   .vh-docs-shell > .vh-docs-desktop-nav {
-    position: sticky;
-    z-index: 10;
-    top: var(--ui-header-height);
     display: flex;
-    flex: none;
+    position: sticky;
+    top: var(--ui-header-height);
     height: calc(100dvh - var(--ui-header-height));
+    max-height: calc(100dvh - var(--ui-header-height));
+    min-height: calc(100dvh - var(--ui-header-height));
+    flex: 0 0 auto;
+  }
+
+  .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-sidebars) {
+    width: max-content;
+    height: 100%;
   }
 
   .vh-docs-content {
@@ -81,13 +85,17 @@ const hasPanel = computed(
   :deep(.vh-docs-sidebars) {
     height: 100%;
     min-height: 0;
-    flex-direction: row;
-    overflow: visible;
-    border-right: 1px solid var(--ui-border);
   }
 
   :deep(.vh-docs-panel) {
     max-height: calc(100dvh - var(--ui-header-height));
+  }
+
+  /* Keep the actual sidebar element's columns and border constrained to the viewport. */
+  :deep(.vh-docs-sidebars) {
+    flex-direction: row;
+    overflow: visible;
+    border-right: 1px solid var(--ui-border);
   }
 }
 </style>

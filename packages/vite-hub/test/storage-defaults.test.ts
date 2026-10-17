@@ -109,6 +109,14 @@ describe("Node storage defaults", () => {
     expect(() => vitehub({ preset: "node", dataDir: "  " })).toThrow("non-empty")
   })
 
+  it("rejects malformed dataDir values with the configuration diagnostic", () => {
+    for (const preset of ["node", "cloudflare", "vercel", "netlify", "deno"] as const) {
+      for (const dataDir of [null, 1, {}, [], "", "  "]) {
+        expect(() => vitehub({ preset, dataDir } as unknown as ViteHubOptions)).toThrow("non-empty directory path")
+      }
+    }
+  })
+
   it("keeps existing defaults when no directory is supplied", () => {
     const options = { preset: "node" as const, agent: true }
     expect(withDataDir(options)).toBe(options)

@@ -97,6 +97,7 @@ const movedLearningPages = new Map(Object.entries({
 }));
 
 export const docsPageRedirects = {
+  "/docs/getting-started/built-for-vue": "/docs/ui/built-for-vue",
   "/blog/agents": "/docs/getting-started/first-agent",
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/evlog": "/docs/agents/observability",

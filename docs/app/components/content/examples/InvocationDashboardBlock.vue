@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import {
-  agentInvocationContext,
-  agentInvocationTitle,
-  type AgentInvocationListItem,
-  type AgentInvocationView,
-} from "@vite-hub/ui";
+type AgentInvocationView = Record<string, any> & { id: string; status: string; title?: string; agentName?: string; annotations?: Record<string, any> };
+type AgentInvocationListItem = { id: string; status: string; title: string; context?: string; agent?: string; project?: string; provider?: string; startedAt?: string; updatedAt?: string };
+const agentInvocationTitle = (invocation: AgentInvocationView) => invocation.title ?? invocation.agentName ?? invocation.id;
+const agentInvocationContext = (invocation: AgentInvocationView) => String(invocation.annotations?.["github.repository"] ?? invocation.id);
 import { computed, onMounted, ref } from "vue";
 
 // Serialize the SSR clock, then refresh it once on the client so static pages stay current.
 const now = useState("ui-dashboard-clock", () => Date.now());
+onMounted(() => { now.value = Date.now(); });
 
 // Reset synthetic timestamps in the browser after prerendered state hydrates.
 onMounted(() => {

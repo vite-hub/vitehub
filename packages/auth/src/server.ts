@@ -1,5 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
+import { Response as UndiciResponse } from "undici"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -331,20 +332,41 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       seen.add(current)
       current = Object.getPrototypeOf(current)
     }
+    return false
   }
   catch {
     return false
   }
-  return false
 }
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
-  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-  if (!locked || Reflect.apply(locked, body, [])) return false
-  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
-  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+
+  try {
+    const candidate = Object(body)
+    // Resolve the stream intrinsics from the body's own realm. Applying the
+    // getter performs the brand check and works across JavaScript realms.
+    if (Object.getOwnPropertyDescriptor(candidate, "getReader")) return false
+    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    const getReader = ReadableStream.prototype.getReader
+    if (typeof locked !== "function" || typeof getReader !== "function") return false
+    if (Reflect.apply(locked, candidate, [])) return false
+    // Validate the native reader against a fresh stream. The candidate's
+    // inherited reader overrides are intentionally ignored.
+    const freshStream = new ReadableStream()
+    const reader = Reflect.apply(getReader, freshStream, [])
+    if (Object(reader) !== reader) return false
+    const readerObject = reader as object
+    if (typeof Reflect.get(readerObject, "read") !== "function"
+      || typeof Reflect.get(readerObject, "cancel") !== "function"
+      || typeof Reflect.get(readerObject, "releaseLock") !== "function") return false
+    Reflect.apply(Reflect.get(readerObject, "releaseLock"), readerObject, [])
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
@@ -407,33 +429,32 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     let nativeProperties = false
+    let nativeBodyUnused = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
         const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
         return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
+      const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyUnused = Boolean(bodyUsedGetter && !Reflect.apply(bodyUsedGetter, candidate, []))
+        && (body === null || Boolean(lockedGetter && !Reflect.apply(lockedGetter, body, [])))
     }
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    // A foreign implementation must carry its own native Headers methods.
+    // Accepting a foreign Response prototype paired with current-realm Headers
+    // would make a user-defined Response-shaped object indistinguishable from
+    // a genuine cross-runtime response.
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    let nativeBodyState = false
-    try {
-      const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
-      const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-      nativeBodyState = bodyUsed !== undefined
-        && !Reflect.apply(bodyUsed, candidate, [])
-        && (body === null || (locked !== undefined && !Reflect.apply(locked, body, [])))
-    }
-    catch {
-      // A proxy can expose native descriptors without owning native response state.
-    }
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
+    const nativeBodyMethod = body === null
+      || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
