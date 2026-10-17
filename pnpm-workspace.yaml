@@ -110,8 +110,8 @@ catalogs:
     "@aws-sdk/s3-request-presigner": ^3.1146.0
     "@azure/identity": ^4.13.3
     "@azure/storage-blob": ^12.34.0
-    "@google-cloud/storage": ^7.22.0
-    "@googleapis/drive": ^20.2.0
+    "@google-cloud/storage": ^8.4.0
+    "@googleapis/drive": ^26.0.2
     "@microsoft/microsoft-graph-client": ^3.0.7
     "@supabase/storage-js": ^2.117.2
     "@upstash/redis": ^1.39.0
@@ -119,8 +119,8 @@ catalogs:
     aws4fetch: ^1.0.20
     box-typescript-sdk-gen: ^1.19.1
     dropbox: ^10.47.0
-    files-sdk: ^2.6.2
-    google-auth-library: ^10.9.1
+    files-sdk: ^3.1.1
+    google-auth-library: ^11.3.1
     unstorage: 2.0.0-alpha.10
     uploadthing: ^7.7.4
   tooling:

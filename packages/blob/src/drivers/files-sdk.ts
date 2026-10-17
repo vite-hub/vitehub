@@ -5,7 +5,7 @@ import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedBlobStoreConfig } from "../types.ts"
-import type { Adapter, Files, StoredFile, UploadResult } from "files-sdk"
+import type { Adapter, FileInfo, Files } from "files-sdk"
 
 type FilesCtor = typeof import("files-sdk").Files
 type FilesInstance = Files<Adapter>
@@ -56,19 +56,19 @@ function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
   }
 }
 
-function mapStoredFile(file: StoredFile): BlobObject {
+function mapFileInfo(file: FileInfo): BlobObject {
   return {
-    contentType: file.type,
+    contentType: file.contentType,
     customMetadata: file.metadata || {},
     httpEtag: file.etag,
-    httpMetadata: file.type ? { contentType: file.type } : {},
+    httpMetadata: file.contentType ? { contentType: file.contentType } : {},
     pathname: file.key,
     size: file.size,
     uploadedAt: file.lastModified ? new Date(file.lastModified) : new Date(),
   }
 }
 
-function mapUploadResult(result: UploadResult, fallback: BlobPutOptions): BlobObject {
+function mapUploadResult(result: FileInfo, fallback: BlobPutOptions): BlobObject {
   const contentType = result.contentType || fallback.contentType
   return {
     contentType,
@@ -145,7 +145,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
     },
     async head(pathname) {
       try {
-        return mapStoredFile(await (await files()).head(pathname))
+        return mapFileInfo(await (await files()).head(pathname))
       }
       catch (error) {
         if (isNotFound(error)) return null
@@ -195,7 +195,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
               folders.add(item.key.slice(0, prefix.length + firstSlash + 1))
               continue
             }
-            blobs.push(mapStoredFile(item))
+            blobs.push(mapFileInfo(item))
             if (blobs.length >= limit) break
           }
 
@@ -245,7 +245,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       }
 
       return {
-        blobs: result.items.map(mapStoredFile),
+        blobs: result.items.map(mapFileInfo),
         cursor: result.cursor,
         hasMore: Boolean(result.cursor),
       }
