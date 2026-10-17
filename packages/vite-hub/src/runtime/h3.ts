@@ -102,7 +102,6 @@ function isRequest(value: unknown): value is Request {
                 // unrelated receiver; checking several prevents a forged
                 // bodyUsed-only prototype from being accepted.
                 const accessors = ["bodyUsed", "headers", "url", "method"] as const
-                const currentRealmRequest = new Request("https://example.test")
                 // Probe with opaque receivers created after inspecting the
                 // candidate. A caller-controlled accessor can distinguish a
                 // few known probe objects, but it cannot make those objects
@@ -115,9 +114,12 @@ function isRequest(value: unknown): value is Request {
                     valid = false
                     break
                   }
-                  // Web IDL accessors reject unrelated receivers, then
-                  // accept requests from their own realm and the candidate.
-                  for (const receiver of [{}, ...unrelatedReceivers, currentRealmRequest]) {
+                  // Web IDL accessors reject unrelated receivers, then accept
+                  // requests from their own realm and the candidate. A
+                  // current-realm Request is deliberately not used as a
+                  // rejection probe: implementations are allowed to expose
+                  // accessors that only recognize their own realm's objects.
+                  for (const receiver of [{}, ...unrelatedReceivers]) {
                     try {
                       accessor.call(receiver)
                       valid = false
