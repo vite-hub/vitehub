@@ -760,10 +760,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
 
     // Validate status and native body state before acquiring reader ownership.
-    const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
-      ? Response.error()
-      : new Response(body as ReadableStream<Uint8Array> | null, { status, statusText, headers: normalizedHeaders })
-    if (body === null) return normalizedResponse
+    // Do not construct a Response around a non-null stream here: the Response
+    // constructor acquires the stream's reader, which would prevent the bridge
+    // below from acquiring it again.
+    if (body === null) {
+      return status === 0 && statusText === "" && [...normalizedHeaders].length === 0
+        ? Response.error()
+        : new Response(null, { status, statusText, headers: normalizedHeaders })
+    }
     const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
