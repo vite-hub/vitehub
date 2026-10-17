@@ -20,7 +20,7 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md"].includes(page.name) && !/^layout: tutorial$/m.test(page.source) && !page.name.startsWith("blocks/"),
+  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -119,6 +119,27 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
+  it("renders component references through the shared article layout", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
+
+    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
+    expect(article).toContain('<ContentRenderer :value="page" />');
+    expect(article).toContain('v-if="tocLinks.length"');
+    expect(article).toContain('aria-label="Page outline"');
+    expect(article).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 6rem)");
+  });
+
+  it("uses the wide component layout without the desktop outline", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
+
+    expect(page).toContain("<DocsArticle v-else-if=\"page\"");
+    expect(layout).toContain("vh-docs-main");
+    expect(layout).toContain("lg:!flex lg:!flex-row");
+    expect(layout).toContain("max-width: none;");
+  });
+
   it("gives invocation previews fixed-height containing blocks", () => {
     const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
     const inspector = readFileSync(
@@ -165,13 +186,14 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow-x: clip;");
-    expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toContain("hidden lg:block");
-    expect(layout).toContain("overflow: visible;");
-    expect(layout).toContain('<UPageAside class="vh-docs-aside">');
-    expect(layout).toMatch(/\.vh-docs-aside \{\s*display: none;/);
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
+    expect(layout).toContain("overflow: hidden;")
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/)
+    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav")
+    const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"))
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/)
+    expect(desktopStyles).toMatch(/\.vh-docs-shell > \.vh-docs-desktop-nav\s*\{[^}]*display: flex;/)
+    expect(desktopStyles).toMatch(/\.vh-docs-content\s*\{[^}]*flex: 1;/)
+    expect(layout).toContain("flex: 1;")
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { scheduleDevHeader, scheduleDevHeaderValue } from "../src/dev.ts"
-import { defineScheduleTarget, schedules } from "../src/index.ts"
+import { defineSchedule, defineScheduleTarget, schedules } from "../src/index.ts"
 import {
   handleScheduleDevRequest as handleAuthorizedScheduleDevRequest,
   inspectRuntimeSchedules,
@@ -293,4 +293,35 @@ describe("Schedule dev request handler", () => {
     expect(response.status).toBe(409)
     expect((await readBody(response)).error?.message).toContain("No Schedule registry is installed")
   })
+
+  it("runs a manual Static Schedule Definition from the registry and records the run", async () => {
+    const effect = vi.fn()
+    const registry = {
+      fail: async () => defineSchedule("0 9 * * *", () => { throw new Error("Bearer abc.def.ghi rejected") }, { manual: true }),
+      locked: async () => defineSchedule("0 9 * * *", effect),
+      sync: async () => ({ default: defineSchedule("0 9 * * *", effect, { manual: true }) }),
+    }
+    const run = (id: string) => handleAuthorizedScheduleDevRequest(devRequest({ id, operation: "run-static" }), { authorize: async () => true, registry })
+
+    const succeeded = await run("sync")
+    expect(succeeded.status).toBe(200)
+    const body = await readBody(succeeded)
+    expect(body.run).toEqual({ completedAt: expect.any(String), id: expect.stringMatching(/^srun_manual_sync_/), scheduleId: "sync", startedAt: expect.any(String), status: "succeeded" })
+    expect(effect).toHaveBeenCalledTimes(1)
+    expect(await listRuntimeScheduleRuns("sync")).toMatchObject([{ id: body.run?.id, status: "succeeded" }])
+
+    const failed = await run("fail")
+    expect(failed.status).toBe(200)
+    const failure = await failed.text()
+    expect(JSON.parse(failure)).toMatchObject({ run: { error: { message: "Bearer [redacted] rejected" }, status: "failed" } })
+    expect(failure).not.toContain("abc.def.ghi")
+
+    expect(await run("locked").then(async response => [response.status, await readBody(response)])).toEqual([403, { error: { code: "SCHEDULE_MANUAL_RUN_DISABLED", message: expect.any(String) } }])
+    expect((await run("missing")).status).toBe(404)
+    expect(effect).toHaveBeenCalledTimes(1)
+    expect((await handleScheduleDevRequest(devRequest({ id: "sync", operation: "run-static" }))).status).toBe(409)
+    expect((await handleAuthorizedScheduleDevRequest(devRequest({ id: "sync", operation: "run-static" }), { authorize: async () => false, registry })).status).toBe(403)
+    expect(effect).toHaveBeenCalledTimes(1)
+  })
 })
+

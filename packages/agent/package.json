@@ -301,6 +301,7 @@
     "@yarnpkg/parsers": "catalog:tooling",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/env": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/runtime": "workspace:*",

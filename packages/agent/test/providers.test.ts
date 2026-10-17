@@ -5047,6 +5047,7 @@ describe("server helpers", () => {
       },
       driver: { run },
       messages: {
+        ...(options.isBot ? { allowBots: true } : {}),
         ...(options.identity ? { identity: options.identity } : {}),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         ...(options.transcripts ? { transcripts: { maxPerUser: 50, retention: "30d" as const } } : {}),
@@ -6194,6 +6195,55 @@ describe("server helpers", () => {
       await handler(request(2104, 789, false, true), "telegram", options)
       expect(run).toHaveBeenCalledTimes(replyToSubscribedThreads ? 2 : 1)
       expect(deliveryKinds).toEqual(replyToSubscribedThreads ? ["mention", "subscribed"] : ["mention"])
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    { allowBots: undefined, multipleChannels: false },
+    { allowBots: true, multipleChannels: false },
+    { allowBots: true, multipleChannels: true },
+  ])("admits messages from other bots only with allowBots: $allowBots, multiple Channels: $multipleChannels", async ({ allowBots, multipleChannels }) => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-bot-authors-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "accepted")
+    const filter = vi.fn(() => true)
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture omits host-only context that these routes do not inspect.
+      defineAgent({
+        messages: { state, stream: false, triggerHistory: "none" },
+        channels: {
+          ...multipleChannels ? { web: webChat() } : {},
+          telegram: testTelegram(telegram, {
+            adapter: () => adapter as never,
+            messages: { ...allowBots === undefined ? {} : { allowBots }, filter },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    const request = (id: number, isBot: boolean) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ update_id: id, message: {
+        chat: { id: 791, type: "group" },
+        from: { id: isBot ? 999 : 123, username: isBot ? "other-bot" : "maxi", is_bot: isBot },
+        isMention: true,
+        message_id: id,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+    const options = { agentName: "support" }
+    try {
+      await expect(handler(request(2200, true), "telegram", options)).resolves.toMatchObject({ status: 200 })
+      expect(run).toHaveBeenCalledTimes(allowBots ? 1 : 0)
+      expect(filter).toHaveBeenCalledTimes(allowBots ? 1 : 0)
+      await handler(request(2201, false), "telegram", options)
+      expect(run).toHaveBeenCalledTimes(allowBots ? 2 : 1)
+      const deliveries = await handler.deliveries(request(2201, false), "telegram", options)
+      expect(deliveries.find(delivery => delivery.sourceId === "2200")?.status).toBe(allowBots ? "completed" : "rejected")
     } finally {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })

@@ -10,7 +10,7 @@ import { createAgentInspectionMetadata, defineAgent, defineCapability, resolveAg
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { createMessage, getMessageText } from "../src/messages.ts"
 
-import type { AgentToolSet } from "../src/index.ts"
+import type { AgentCapabilityRuntimeContext, AgentToolSet } from "../src/index.ts"
 import type { Message } from "../src/messages.ts"
 
 const schedule = {
@@ -608,6 +608,100 @@ describe("channelDelivery()", () => {
     else {
       expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_REQUIRED" })
     }
+  })
+
+  it("resolves options once per invocation from the invocation context", async () => {
+    const channel = createChannel()
+    const resolveOptions = vi.fn(async (context: AgentCapabilityRuntimeContext) => {
+      const value = context.invocation.input.get().context as { recipient: string }
+      return { recipient: value.recipient }
+    })
+    const delivery = channelDelivery({ channel, maxCalls: 2, options: resolveOptions })
+    const agent = defineAgent({
+      extends: agentCalling(async (tools) => {
+        await tools.send_message!.execute!({ message: "One" })
+        await tools.send_message!.execute!({ message: "Two" })
+      }),
+      capabilities: [delivery],
+    })
+
+    await expect(runAgent(agent, { context: { recipient: "user:a" }, prompt: "Write" })).resolves.toEqual([null, "done"])
+    await expect(runAgent(agent, { context: { recipient: "user:b" }, prompt: "Write" })).resolves.toEqual([null, "done"])
+    expect(resolveOptions).toHaveBeenCalledTimes(2)
+    expect(channel.send.mock.calls).toEqual([
+      ["One", { recipient: "user:a" }],
+      ["Two", { recipient: "user:a" }],
+      ["One", { recipient: "user:b" }],
+      ["Two", { recipient: "user:b" }],
+    ])
+  })
+
+  it.each([
+    ["throw", false], ["throw", true],
+    ["rejection", false], ["rejection", true],
+  ] as const)("fails the invocation before the Driver runs when options %s, dryRun=%s", async (failure, dryRun) => {
+    const channel = createChannel()
+    const run = vi.fn()
+    const cause = new Error("Missing thread ID")
+    const agent = defineAgent({
+      runtime: false,
+      driver: { run },
+      capabilities: [channelDelivery({
+        channel,
+        options: failure === "throw" ? () => { throw cause } : () => Promise.reject(cause),
+        required: true,
+      })],
+    })
+
+    const [error, result] = await runAgent(agent, { dryRun, prompt: "Write" })
+    expect(result).toBeNull()
+    expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_OPTIONS", details: { tool: "send_message" }, message: "[vitehub] send_message could not resolve its send options." })
+    expect((error as Error).cause).toBe(cause)
+    expect(run).not.toHaveBeenCalled()
+    expect(channel.send).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])("reports each delivery to onDelivered, dryRun=%s", async (dryRun) => {
+    const channel = createChannel()
+    const onDelivered = vi.fn()
+    const agent = defineAgent({
+      extends: agentCalling(async (tools) => {
+        await tools.send_message!.execute!({ message: " Draft " })
+      }),
+      capabilities: [channelDelivery({ channel, format: message => `Formatted: ${message}`, onDelivered, options: { recipient: "user:1" } })],
+    })
+
+    await expect(runAgent(agent, { dryRun, prompt: "Write" })).resolves.toEqual([null, "done"])
+    expect(onDelivered).toHaveBeenCalledTimes(1)
+    const [message, receipt, context] = onDelivered.mock.calls[0]!
+    expect(message).toBe("Draft")
+    expect(receipt).toEqual({ deliveryId: dryRun ? expect.stringMatching(/^dry-run:/) : "delivery-1", dryRun, text: "Formatted: Draft" })
+    expect(context.invocation.input.get().dryRun).toBe(dryRun)
+    expect(channel.send).toHaveBeenCalledTimes(dryRun ? 0 : 1)
+  })
+
+  it.each([false, true])("does not ask the model to resend when onDelivered fails, dryRun=%s", async (dryRun) => {
+    const channel = createChannel()
+    const cause = new Error("Could not record the delivery")
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      extends: agentCalling(async (tools) => {
+        await expect(tools.send_message!.execute!({ message: "Draft" })).resolves.toEqual({ deliveryId: dryRun ? expect.stringMatching(/^dry-run:/) : "delivery-1", sent: true })
+      }),
+      capabilities: [channelDelivery({ channel, onDelivered: () => { throw cause }, options: { recipient: "user:1" }, required: true })],
+      invocations,
+    })
+
+    const [error, result] = await runAgent(agent, { dryRun, prompt: "Write" })
+    expect(result).toBeNull()
+    expect(error).toMatchObject({ code: "CHANNEL_DELIVERY_HOOK_FAILED", details: { deliveryId: dryRun ? expect.stringMatching(/^dry-run:/) : "delivery-1", dryRun, tool: "send_message" } })
+    expect((error as Error).cause).toBe(cause)
+    expect(channel.send).toHaveBeenCalledTimes(dryRun ? 0 : 1)
+    const page = await invocations.list()
+    const record = await invocations.get(page.invocations[0]!.id)
+    expect(record?.observations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "agent.channel.delivery.effect", attributes: expect.objectContaining({ "channel.effect.content": "Draft" }) }),
+    ]))
   })
 
   it("rejects invalid options", () => {

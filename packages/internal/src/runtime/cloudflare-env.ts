@@ -11,9 +11,33 @@ const activeEnvStorageKey = Symbol.for("vitehub.cloudflare.env-storage")
 const runtimeGlobal = globalThis as typeof globalThis & Record<symbol, unknown>
 const activeEnvStorage = (runtimeGlobal[activeEnvStorageKey] ||= new AsyncLocalStorage<{ env: CloudflareWorkerEnv | undefined }>()) as AsyncLocalStorage<{ env: CloudflareWorkerEnv | undefined }>
 
+const globalEnvProbe = Symbol("vitehub.cloudflare.global-env-probe")
+
+/**
+ * Under the Nitro Cloudflare dev server, `cloudflare:workers` exports unenv's env proxy, which reads every key from
+ * `globalThis.__env__`. Storing that proxy in `__env__` makes it read itself, and the next read overflows the stack.
+ */
+function readsGlobalEnv(env: CloudflareWorkerEnv): boolean {
+  const scope = globalThis as { __env__?: CloudflareWorkerEnv }
+  const owned = Object.hasOwn(scope, "__env__")
+  const previous = scope.__env__
+  scope.__env__ = { [globalEnvProbe]: true }
+  try {
+    return Reflect.get(env, globalEnvProbe) === true
+  }
+  catch {
+    return false
+  }
+  finally {
+    if (owned) scope.__env__ = previous
+    else delete scope.__env__
+  }
+}
+
 export function setActiveCloudflareEnv(env: CloudflareWorkerEnv | undefined): void {
   activeEnv = env
-  ;(globalThis as { __env__?: CloudflareWorkerEnv }).__env__ = env
+  // Keep the host's bindings in `__env__` when env is a view of `__env__` itself.
+  if (!env || !readsGlobalEnv(env)) (globalThis as { __env__?: CloudflareWorkerEnv }).__env__ = env
   try {
     activeEnvStorage.enterWith({ env })
   }

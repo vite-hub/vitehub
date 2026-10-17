@@ -48,6 +48,14 @@ async function createTempProject() {
   return rootDir
 }
 
+// Inside the repository, so a Definition can import `@vite-hub/database` and Drizzle when it loads.
+async function createLoadableProject() {
+  await mkdir(join(import.meta.dirname, "../../../.vitest-tmp"), { recursive: true })
+  const rootDir = await mkdtemp(join(import.meta.dirname, "../../../.vitest-tmp/postgres-"))
+  tempDirs.push(rootDir)
+  return rootDir
+}
+
 async function writePostgresDefinition(rootDir: string, path: string, lines: string[]) {
   const file = join(rootDir, path)
   await mkdir(dirname(file), { recursive: true })
@@ -174,7 +182,7 @@ describe("Postgres build configuration", () => {
   })
 
   it("generates a postgresql Drizzle Kit config and a typed registry", async () => {
-    const rootDir = await createTempProject()
+    const rootDir = await createLoadableProject()
     await writePostgresDefinition(rootDir, "server/databases/config.ts", [
       "  dialect: 'postgresql',",
       "  connection: { url: process.env.DATABASE_URL },",
@@ -187,6 +195,7 @@ describe("Postgres build configuration", () => {
     expect(drizzleConfig).toContain("dialect: \"postgresql\"")
     expect(drizzleConfig).toContain("url: process.env[\"DATABASE_URL\"]")
     expect(drizzleConfig).toContain("out: \"server/databases/migrations\"")
+    await expect(readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")).resolves.toContain("export { table_0 as notes }")
     const types = await readFile(join(rootDir, ".vitehub/types/database.d.ts"), "utf8")
     expect(types).toContain("dialect: \"postgresql\"")
   })

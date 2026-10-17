@@ -63,7 +63,7 @@ icon: i-lucide-plug
   :::
 
   :::product-feature-item{title="The credential goes only to declared origins" icon="i-lucide-shield-alert" to="/docs/connections/configure#provider-origins"}
-  Other origins fail with `CONNECTIONS_ORIGIN_NOT_ALLOWED` and get no credential.
+  Other origins fail with `CONNECTION_INVALID` and get no credential.
   :::
 
   :::product-feature-item{title="API keys get the same rules and activity" icon="i-lucide-key-round" to="/docs/connections/configure#api-key-connections"}

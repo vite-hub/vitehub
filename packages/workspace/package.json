@@ -56,11 +56,8 @@
     },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
-      "import": "./dist/cloudflare.js",
-      "require": "./dist/cloudflare.js",
-      "default": "./dist/cloudflare.js"
+      "import": "./dist/cloudflare.js"
     },
-
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js",
@@ -157,6 +154,10 @@
       "import": "./dist/runtime/workspace.js",
       "require": "./dist/runtime/workspace.js",
       "default": "./dist/runtime/workspace.js"
+    },
+    "./internal/path": {
+      "types": "./dist/internal/path.d.ts",
+      "import": "./dist/internal/path.js"
     },
     "./internal/stores/github": {
       "types": "./dist/providers/github/store.d.ts",

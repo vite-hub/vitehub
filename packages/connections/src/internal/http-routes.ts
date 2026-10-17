@@ -6,6 +6,7 @@ import { ConnectionError, isConnectionError } from "../errors.ts";
 import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts";
 import { connectionsRuntimeFor } from "./http-access.ts";
 import { managementErrorBody } from "./http-diagnostics.ts";
+import { page, readCookie, requestReturnPath, RETURN_COOKIE } from "./http-page.ts";
 
 import type { ConnectionsRuntime } from "../runtime.ts";
 import type { ConnectionsAccess } from "./http-access.ts";
@@ -77,32 +78,6 @@ export function errorResponse(error: unknown): Response {
   return json({ error: managementErrorBody("CONNECTION_FAILED", "The Connections request failed.") }, 500);
 }
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
-}
-
-export function page(title: string, message: string, status: number): Response {
-  return new Response(
-    `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="font-family:system-ui;margin:4rem auto;max-width:32rem"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></body>`,
-    {
-      headers: {
-        "cache-control": "no-store",
-        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
-        "content-type": "text/html; charset=utf-8",
-      },
-      status,
-    },
-  );
-}
-
-function cookie(request: Request, key: string): string | undefined {
-  for (const part of request.headers.get("cookie")?.split(";") ?? []) {
-    const [cookieName, ...value] = part.trim().split("=");
-    if (cookieName === key) return value.join("=");
-  }
-  return undefined;
-}
-
 /**
  * The same-origin check of the action route. `url` is the request URL that the server sees. Behind a
  * TLS-terminating proxy that the server does not trust, it can be `http:` while the browser sends an `https:` Origin.
@@ -170,32 +145,40 @@ const connect: ConnectionsRoute = {
     const runtime = connectionsRuntimeFor(access);
     const { request } = access;
     const url = new URL(request.url);
+    const returnTo = requestReturnPath(request);
+    const failure = (message: string, status: number, code?: string) =>
+      page({ code, message, outcome: "error", returnTo, status, title: "Connection failed" });
     // A foreign page must not start a flow in the name of the signed-in manager.
     if (request.headers.get("sec-fetch-site") === "cross-site")
-      return page("Connection failed", "Start the connection from this application.", 403);
+      return failure("Start the connection from this application.", 403);
     let connectionName: string;
     try {
       connectionName = decodeURIComponent(url.pathname.replace(/\/+$/, "").slice(`${base}/connect/`.length));
     } catch {
-      return page("Connection failed", "The Connection name is invalid.", 400);
+      return failure("The Connection name is invalid.", 400, "CONNECTION_INVALID");
     }
     const connection = v.safeParse(name, connectionName);
-    if (!connection.success) return page("Connection failed", "The Connection name is invalid.", 400);
+    if (!connection.success) return failure("The Connection name is invalid.", 400, "CONNECTION_INVALID");
     const authorization = await runtime().authorize({
       actor: access.actor,
       name: connection.output,
       redirectUri: `${url.origin}${base}/callback`,
     });
-    return new Response(null, {
-      headers: {
-        "cache-control": "no-store",
-        location: authorization.url,
-        "set-cookie": `${STATE_COOKIE}=${authorization.state}; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=600${url.protocol === "https:" ? "; Secure" : ""}`,
-      },
-      status: 302,
-    });
+    const secure = url.protocol === "https:" ? "; Secure" : "";
+    const headers = new Headers({ "cache-control": "no-store", location: authorization.url });
+    headers.append("set-cookie", `${STATE_COOKIE}=${authorization.state}; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
+    // The callback page returns to the Console page that started the flow.
+    headers.append(
+      "set-cookie",
+      returnTo
+        ? `${RETURN_COOKIE}=${encodeURIComponent(returnTo)}; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=600${secure}`
+        : `${RETURN_COOKIE}=; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=0`,
+    );
+    return new Response(null, { headers, status: 302 });
   },
 };
+
+const PROVIDER_ERROR = /^[\w.-]{1,64}$/;
 
 const callback: ConnectionsRoute = {
   id: "callback",
@@ -204,25 +187,44 @@ const callback: ConnectionsRoute = {
   async handle(access, base) {
     const runtime = connectionsRuntimeFor(access);
     const url = new URL(access.request.url);
+    const returnTo = requestReturnPath(access.request);
+    const failure = (title: string, message: string, status: number, code: string) =>
+      page({ code, message, outcome: "error", returnTo, status, title });
     const state = url.searchParams.get("state");
     const code = url.searchParams.get("code");
-    if (url.searchParams.get("error"))
-      return page("Connection cancelled", "The provider did not grant access.", 400);
+    const providerError = url.searchParams.get("error");
+    if (providerError) {
+      if (providerError === "access_denied")
+        return failure("Connection cancelled", "The provider did not grant access.", 400, "CONNECTION_AUTHORIZATION_CANCELLED");
+      // Only a short error code from the provider reaches the page, never its free text.
+      const reported = PROVIDER_ERROR.test(providerError) ? ` with ${providerError}` : "";
+      return failure("Connection failed", `The provider stopped the authorization${reported}.`, 502, "CONNECTION_PROVIDER");
+    }
     // The state must come from a start request in this browser, by the same manager.
     // `complete()` consumes the state and checks the manager that started the flow.
-    if (!state || !code || !isViteHubSecretEqual(state, cookie(access.request, STATE_COOKIE)))
-      return page(
+    if (!state || !code || !isViteHubSecretEqual(state, readCookie(access.request, STATE_COOKIE)))
+      return failure(
         "Connection failed",
-        "The authorization response does not match this browser. Start the connection again.",
+        "The authorization response does not match this browser.",
         400,
+        "CONNECTION_STATE_MISMATCH",
       );
-    const result = await runtime().complete({ actor: access.actor, code, state });
-    const response = page(
-      "Connected",
-      `Connection "${result.name}" is connected${result.account?.email ? ` as ${result.account.email}` : ""}. You can close this tab.`,
-      200,
-    );
+    let result: Awaited<ReturnType<ConnectionsRuntime["complete"]>>;
+    try {
+      result = await runtime().complete({ actor: access.actor, code, state });
+    } catch (error) {
+      if (!isConnectionError(error)) throw error;
+      return failure("Connection failed", error.message, errorStatus(error), error.code);
+    }
+    const response = page({
+      message: `${result.name} is connected${result.account?.email ? ` as ${result.account.email}` : ""}.`,
+      outcome: "success",
+      returnTo,
+      status: 200,
+      title: "Connected",
+    });
     response.headers.append("set-cookie", `${STATE_COOKIE}=; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=0`);
+    response.headers.append("set-cookie", `${RETURN_COOKIE}=; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=0`);
     return response;
   },
 };

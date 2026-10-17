@@ -44,7 +44,8 @@ Both surfaces redact values under secret-named keys in Schedule input, and crede
 | Host | `vitehub schedule` | Console Schedules page |
 | --- | --- | --- |
 | Vite + Nitro | Supported. The endpoint forwards each operation into the Nitro dev environment. | Definitions and Runtime Schedules. |
-| Nuxt | Not supported. Nitro does not run in the Vite process. | Definitions and Runtime Schedules. |
+| Nuxt with Nitro 3 | Supported. Nitro runs in the Vite process, so the endpoint works as on Vite + Nitro. Use `--url http://localhost:3000`, or `--server` for `schedule run`. | Definitions and Runtime Schedules. |
+| Nuxt with Nitro 2 | Not supported. Nitro does not run in the Vite process. | Definitions and Runtime Schedules. |
 | Plain Vite without Nitro | Not supported. The endpoint returns status 501. | Not available. |
 | Deployed runtime | Not exposed. The endpoint exists only on the Development Server. | Definitions and Runtime Schedules, when the Console is enabled. |
 

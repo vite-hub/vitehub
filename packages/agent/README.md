@@ -256,6 +256,7 @@ Pass `--json` for the structured inspection contract.
 ## Capabilities
 
 - A `webChat()` Channel exposes the Agent through the conventional `/api/_vitehub/agents/[agent]/chat` dispatcher. Use `webChat({ route: false })` when an Agent should not answer it, or `chat()` when an app-owned trigger needs Chat History and `chat.message` behavior without Channel-owned route exposure; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).
+- `defineChannel(kind, { instructions })`, and the same option on built-in Channels such as `github()` and `teams()`, adds trusted Markdown after the Agent instructions for each Invocation that the Channel starts. Agent inspection lists it. See [Add instructions to one Channel](https://vitehub.dev/docs/agents/channels#add-instructions-to-one-channel).
 - `defineChannel(kind, { message })` declares the methods that `agent:finish` and `agent:error` hooks call through `event.message`, typed from the Agent's `channels`. Set `dryRun: true` in the Invocation input to record write methods in the trace instead of calling the provider; see [Act on the Channel message in hooks](https://vitehub.dev/docs/agents/channels#act-on-the-channel-message-in-hooks).
 - Built-in GitHub `webhook` and `dev` Triggers supply `{ repository, pullRequest, run, trigger }` as Channel message data. Custom `message.data` schemas must accept this pull request context.
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
@@ -265,7 +266,7 @@ Pass `--json` for the structured inspection contract.
 - `createTranscription()` composes remote asynchronous submission and completion through a provider-neutral driver; `elevenLabsScribe()` is the built-in Scribe v2 adapter.
 - `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`. Transient transport failures skip the affected server and record `vitehub.mcp.warnings` in the Invocation input context. Read them with `getMcpWarnings(input)`. Set `unavailableNotice: true` to append a notice to the final chat reply. Authentication, configuration, cancellation, protocol, and integrity failures remain fatal. Executor failures remain fatal. Outside an Invocation, `callMcpTool(server, name, args)` from `@vite-hub/agent/mcp` calls one tool on the same server entry and returns `[error, value]`.
 - `kv()`, `blob()`, `db()`, and `email()` expose [`@vite-hub/kv`](../kv/README.md), [`@vite-hub/blob`](../blob/README.md), [`@vite-hub/database`](../database/README.md), and [`@vite-hub/email`](../email/README.md).
-- `channelDelivery({ channel, options })` adds one `send_message` tool that sends through a Channel client from `useChannel()` to an application-selected recipient. Its name must be unique among Capability tools. It limits calls with `maxCalls` (default `1`) and can fail the Invocation with `required: true` when the Agent never sends.
+- `channelDelivery({ channel, options })` adds one `send_message` tool that sends through a Channel client from `useChannel()` to an application-selected recipient. Its name must be unique among Capability tools. It limits calls with `maxCalls` (default `1`) and can fail the Invocation with `required: true` when the Agent never sends. `options` can be a function of the Capability context that resolves once per Invocation, before the Driver runs and also in a dry run; a throw fails the Invocation with `CHANNEL_DELIVERY_OPTIONS`. `onDelivered(message, receipt, context)` runs after each successful or dry-run send with a `ChannelDeliveryReceipt` (`{ deliveryId, dryRun, text }`). When it throws, the delivery still counts, the model still receives the receipt, and the Invocation fails with `CHANNEL_DELIVERY_HOOK_FAILED` when it finishes.
 - `sandbox()` and `schedule()` expose [`@vite-hub/sandbox`](../sandbox/README.md) and [`@vite-hub/schedule`](../schedule/README.md).
 - `usage()` requests provider usage metadata, estimates missing cost from Models.dev, and exposes the normalized Agent Usage Record through its typed Finish Extension. Its `metadata.pricing` flag is false when `pricing: false` disables estimation.
 - `skills()`, `access()`, `memory()`, `fetch()`, `llmRoute()`, and `llmGate()` cover prompt skills, workspace scope, durable notes, HTTP reads, and pre-run decisions.
@@ -340,6 +341,8 @@ for the code format and an application catalog example.
 
 Non-streaming chat replies answer the triggering message as a native reply when the Chat SDK adapter supports it, such as Telegram `reply_parameters`. Natively streamed replies, retries after a host restart, and adapters without native replies post a new thread message.
 
+Chat Channels ignore messages from bot authors before `messages.filter` and record them as rejected deliveries. Set `messages.allowBots: true` on an Agent or a built-in Channel to admit other bots. The Agent's own messages are always ignored.
+
 Set `messages.replyToSubscribedThreads: true` on an Agent or a built-in Channel to answer human replies without an @mention in subscribed threads. The default is `false`. Mentions subscribe the conversation. Programmatically created bot threads must be subscribed through the same Agent chat state before replies can be admitted. Unmentioned messages in other threads and messages from other bots remain ignored. `messages.filter` receives `deliveryKind: "subscribed"` for these replies. Provider permissions must still allow the bot to receive channel messages.
 
 ## Chat state
@@ -403,7 +406,7 @@ GitHub pull request Channels use `pullRequest.workspace.mount` for a custom repo
 
 Provider Drivers get the mount as a real Git checkout of the exact head SHA, with `origin`, the fetched base branch, and a local head branch that tracks the pull request branch. A declared GitHub Source of the same repository and scope at the same mount is replaced for the Invocation; a different repository or scope fails with an error that names the Source. Checkout setup rejects a head branch without an explicit head repository, including pull requests from deleted forks.
 
-Set `defineAgent({ github })` to a GitHub identity such as `createGitHubHost()`. Provider Drivers receive its `access().env` (`GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit identity) before `driver.env`, and the pull request checkout and `git()` use the same credentials. `github({ app: host })` uses the identity for Channel API calls and also sets `defineAgent({ github })` when it is omitted.
+Set `defineAgent({ github })` to a GitHub identity such as `createGitHubHost()`. Every Invocation of the Agent gets it, including streamed runs. A runtime context that already sets `githubIdentity` keeps its own. Provider Drivers receive its `access().env` (`GH_TOKEN`, `GITHUB_TOKEN`, a Git credential helper, and the commit identity) before `driver.env`, and the pull request checkout and `git()` use the same credentials. `github({ app: host })` uses the identity for Channel API calls and also sets `defineAgent({ github })` when it is omitted.
 
 Channels with `history: { collection, key, thread?, invocationItem? }` export Collection items through `vitehub channels history`. Use repeatable `--query key=value`, optional `--thread`, and `--invocations` for retained runs and unformatted deliveries. Live and replayed triggers annotate the item key and thread. `channelDelivery` records dry-run writes without sending. Declared `webhooks.path` values receive the same authenticated requests as built-in webhook routes. See the [Channel history guide](../../docs/content/docs/agents/channels.md#replay-channel-history).
 
@@ -914,11 +917,11 @@ Agent State. Hosts start in production builds, or in development only with
 `VITEHUB_AGENT_PROCESS_HOSTS=1`, so a development server does not repair real
 PRs by accident.
 
-The host reads the GitHub App from `env.server.github` or `GITHUB_APP_ID`,
-`GITHUB_APP_PRIVATE_KEY` (or `GITHUB_APP_PRIVATE_KEY_PATH`), and
-`GITHUB_WEBHOOK_SECRET`. It resolves the App installation of each repository and
-commits as the App's bot. `GITHUB_APP_INSTALLATION_ID` pins the installation for
-`GITHUB_APP_OWNER`. `GITHUB_APP_INSTALLATIONS` accepts a JSON object mapping owner
+The host reads the GitHub App from `env.server.github` or `VITEHUB_GITHUB_APP_ID`,
+`VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and
+`VITEHUB_GITHUB_WEBHOOK_SECRET`. It resolves the App installation of each repository and
+commits as the App's bot. `VITEHUB_GITHUB_INSTALLATION_ID` pins the installation for
+`VITEHUB_GITHUB_APP_OWNER`. `VITEHUB_GITHUB_APP_INSTALLATIONS` accepts a JSON object mapping owner
 names to installation IDs. Other owners resolve their own installation. The host
 ignores an environment installation ID without an owner.
 A delivery without a configured webhook secret is rejected. Only the commit
