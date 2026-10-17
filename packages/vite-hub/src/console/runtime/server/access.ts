@@ -77,9 +77,40 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     return new Response(body as BodyInit, init)
   }
   catch {
-    // A foreign realm's native accessors may reject the current realm's
-    // internal-slot brand check. Do not fall back to proxyable structural
-    // checks; malformed authorization results must fail closed.
+    // Use the candidate's own Response constructor for values created by a
+    // separate realm. Its native accessors perform the Fetch brand check for
+    // that realm, while instanceof rejects response-shaped plain objects.
+    let prototype: object | null = Object.getPrototypeOf(value)
+    while (prototype !== null) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
+      const constructor = descriptor?.value
+      if (typeof constructor === "function" && constructor.name === "Response" && constructor.prototype === prototype) {
+        if (!(value instanceof constructor)) return
+        const find = (name: string): PropertyDescriptor | undefined => {
+          let current: object | null = prototype
+          while (current !== null) {
+            const found = Object.getOwnPropertyDescriptor(current, name)
+            if (found) return found
+            current = Object.getPrototypeOf(current)
+          }
+        }
+        const foreignStatus = find("status")?.get
+        const foreignStatusText = find("statusText")?.get
+        const foreignHeaders = find("headers")?.get
+        const foreignBodyUsed = find("bodyUsed")?.get
+        const foreignClone = find("clone")?.value
+        if (![foreignStatus, foreignStatusText, foreignHeaders, foreignBodyUsed, foreignClone].every(item => typeof item === "function")) return
+        const status = Reflect.apply(foreignStatus, value, [])
+        const statusText = Reflect.apply(foreignStatusText, value, [])
+        const headers = Reflect.apply(foreignHeaders, value, [])
+        const bodyUsed = Reflect.apply(foreignBodyUsed, value, [])
+        if (typeof status !== "number" || typeof statusText !== "string" || typeof bodyUsed !== "boolean" || bodyUsed) return
+        const cloned = Reflect.apply(foreignClone, value, [])
+        if (!(cloned instanceof constructor)) return
+        return value as Response
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
     return
   }
 }
@@ -165,16 +196,6 @@ function authorizedSections(result: unknown): readonly ConsoleSectionId[] | unde
   const sections: unknown[] = result.sections
   if (!sections.every(isSectionId)) return
   return Object.freeze([...new Set(sections)])
-}
-
-function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRouteScope {
-  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
-  if ("section" in routeScope) {
-    const section = routeScope.section
-    if (section instanceof Function || (typeof section === "string" && section.length > 0)) return
-  }
-  if ("anySection" in routeScope && routeScope.anySection === true) return
-  throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
 }
 
 async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: boolean } = {}): Promise<ConsoleAccess | Response> {
