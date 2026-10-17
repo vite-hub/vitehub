@@ -416,8 +416,25 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
       }
       const key = readEntryKey(normalized)
       if (key !== "databaseId" && key !== "databaseName") continue
-      const value = readEntryValue(normalized)?.trim() ?? key
-      ownership = value === "undefined" ? false : true
+      const rawValue = readEntryValue(normalized)?.trim()
+      if (rawValue === "undefined") {
+        ownership = false
+        continue
+      }
+      if (rawValue === undefined) {
+        const referenced = readOpaqueDeclarationExpression(key, source)?.trim()
+        if (!referenced) {
+          ownership = undefined
+          continue
+        }
+        if (referenced === "undefined") {
+          ownership = false
+          continue
+        }
+        ownership = true
+        continue
+      }
+      ownership = true
     }
     return ownership
   }

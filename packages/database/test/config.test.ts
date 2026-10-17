@@ -374,6 +374,23 @@ describe("resolveDBViteConfig", () => {
     }
   })
 
+  it("checks opaque shorthand resource properties that resolve to undefined", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const databaseId = undefined",
+        "const databaseName = undefined",
+        "const cloudflare = { databaseId, databaseName, binding: 'DB_SHARED' }",
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+  })
+
   it("does not check opaque HTTP-only references as native D1 bindings", async () => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {
