@@ -684,7 +684,7 @@ export interface DiscordChannelOptions<TRuntimeConfig extends AgentRuntimeConfig
  */
 export interface TeamsAdapterOptions {
   apiUrl?: string
-  appId?: string
+  appId?: MaybeResolvable<string, AgentCallbackContext<AgentRuntimeConfig>>
   appPassword?: string | { unseal: () => string }
   appTenantId?: string
   appType?: "MultiTenant" | "SingleTenant"
