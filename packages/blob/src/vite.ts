@@ -33,6 +33,7 @@ import type { BlobModuleOptions, BlobServeConfig } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import { findMissingFilesSdkPeers } from "./internal/files-sdk-peers.ts"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 
@@ -367,6 +368,16 @@ async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConf
   await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase, authorizeModule))
 }
 
+function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"]) {
+  if (!blob) return
+  const stores = Object.values(blob.stores ?? { default: blob.store })
+  const missing = findMissingFilesSdkPeers(stores.map(store => store.driver))
+  if (!missing.length) return
+  const lines = missing.map(({ driver, peers }) => `The "${driver}" blob driver requires ${peers.join(", ")}.`)
+  const install = [...new Set(missing.flatMap(({ peers }) => peers))].join(" ")
+  throw blobErrorDiagnostics.BLOB_B0004({ message: `[vitehub] ${lines.join(" ")} Install it in your app with: pnpm add ${install}` })
+}
+
 export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
   const importBase = internalOptions.importBase ?? blobPackageName
   const nitroOwned = internalOptions.nitroOwned === true
@@ -446,6 +457,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       providerOutput = useProviderOutputCatalog(config)
       runtimeConfig = blobConfig
+      if (config.command === "build") assertDriverSdksInstalled(blobConfig.blob)
       const hosting = getNitroHostingProvider(configuredNitro)
         ?? (resolveNitroVercelFunctionName(config, "blob") ? "vercel" : undefined)
       await refreshBlobGeneratedFiles(
