@@ -7,7 +7,7 @@ import type {
   AgentInvocationContextValues,
 } from "../index.ts";
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterRules } from "../channels.ts";
-import type { BuiltInAgentDriverName } from "../types.ts";
+import type { AgentBoxDefinition, BuiltInAgentDriverName } from "../types.ts";
 import { createBabysitterPassResultSchema } from "./babysitter/result.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
@@ -31,9 +31,29 @@ export interface BabysitterLifecycleOptions {
   labels?: BabysitterLifecycleLabels;
 }
 
+/** Where one pass runs. A pass without a Box uses the host checkout and the configured `box`. */
+export interface BabysitterPlacementLease {
+  /** Box for this pass, for example a custom runtime on another host. */
+  box?: AgentBoxDefinition;
+  /** Called once when the pass finishes, fails or is cancelled. */
+  release(): void;
+}
+
+/** Chooses a host for each pass before the Babysitter installs dependencies on this one. */
+export interface BabysitterPlacement {
+  place(pullRequest: { repository: string; number: number }): BabysitterPlacementLease | Promise<BabysitterPlacementLease>;
+  /** Passes currently placed on other hosts. They hold a concurrency slot but no local memory. */
+  remoteActive?(): number;
+}
+
 export interface BabysitterOptions {
   /** Process admission policy. Concurrency remains the preset hard maximum. */
   capacity?: Pick<import("../runtime/process.ts").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
+  /**
+   * Places each pass on this host or in a Box before host dependency installation. Box passes
+   * skip the host install; the Box installs through `refreshDependencies` when it provides one.
+   */
+  placement?: BabysitterPlacement;
   /** Select PRs with the same rules as the GitHub Channel. */
   filter: GitHubPullRequestFilter;
   /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
@@ -101,7 +121,8 @@ export type BabysitterInstall = boolean | {
   /**
    * Reuse the node_modules trees of a detected pnpm install across passes with the same lockfile,
    * using independent copy-on-write copies on Linux. `directory` defaults to `BABYSITTER_INSTALL_CACHE` or
-   * `<tmpdir>/vitehub-install-cache` and must share a filesystem with the pass workspaces.
+   * `<tmpdir>/vitehub-install-cache` and must share a filesystem with the pass workspaces. The default
+   * directory is used only when it supports reflinks; a configured `directory` is used on any filesystem.
    * `entries` defaults to `BABYSITTER_INSTALL_CACHE_ENTRIES` or 8. `false` disables the cache.
    */
   cache?: false | { directory?: string; entries?: number };
@@ -265,9 +286,11 @@ export const babysitter: BabysitterAgent = defineAgent({
     admission: {} as BabysitterAdmissionOptions,
     // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented lifecycle options.
     lifecycle: {} as BabysitterLifecycleOptions,
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- No placement keeps every pass on this host.
+    placement: undefined as BabysitterPlacement | undefined,
     autoMerge: false,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission, placement }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -288,6 +311,10 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     if (!validInstall(install)) {
       throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
+    }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Placement callbacks come from user configuration at this runtime boundary.
+    if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function"))) {
+      throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive? } functions.");
     }
     if (!validBabysitterAdmission(admission)) {
       throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");

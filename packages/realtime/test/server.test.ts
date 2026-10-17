@@ -1221,10 +1221,18 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(new Uint8Array([4, 1, 123]))).toBeUndefined()
   })
 
-  it.each(["docs/.. ", "C:secret", "docs/.git ", "git~1", "vitehu~1/config"])("rejects Windows-equivalent unsafe path %s", (path) => {
+  it.each([
+    "docs/.. ",
+    "docs/.git ",
+    "docs/.GIT./config",
+    "docs/git~1",
+    "docs/.git:config",
+    ".vitehub./config",
+    "vitehu~1/config",
+  ])("rejects Windows-normalized traversal and metadata aliases: %s", (path) => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: path, to: "docs/safe.md" }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/safe.md", to: path }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: path, to: "docs/new.md" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: path }))).toBeUndefined()
   })
 
   it("encodes definition and document room keys without delimiter collisions", () => {

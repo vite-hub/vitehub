@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 4400ms; --scene-delay: -1452ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: visible;
+}
+.line,
+.ink-line,
+.card {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.line {
+  opacity: 0.55;
+}
+.ink-line {
+  opacity: 0.85;
+}
+.dashed {
+  stroke-dasharray: 2.5 3;
+}
+.soft,
+.job,
+.command,
+.budget,
+.ink,
+.token,
+.band,
+.pointer {
+  fill: currentColor;
+}
+.soft {
+  opacity: 0.35;
+}
+.ink,
+.token,
+.pointer {
+  opacity: 0.85;
+}
+.token,
+.band,
+.ghost,
+.q-in,
+.blob-next {
+  opacity: 0;
+}
+.a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: var(--ease-move);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.sb-process { animation-name: sb-process; }
+.sb-token { animation-name: sb-token; }
+.sb-wall { animation-name: sb-wall; }
+@media (prefers-reduced-motion: reduce) {
+  .a {
+    animation: none;
+  }
+}
+@keyframes sb-process {
+  0%, 8% { opacity: 0.35; }
+  14%, 60% { opacity: 0.85; }
+  74%, 100% { opacity: 0.35; }
+}
+@keyframes sb-token {
+  0%, 12% { opacity: 0; transform: translateX(0); }
+  16% { opacity: 0.85; transform: translateX(0); animation-timing-function: cubic-bezier(0.5, 0, 1, 1); }
+  30% { opacity: 0.85; transform: translateX(8px); animation-timing-function: var(--ease-out); }
+  44% { opacity: 0.5; transform: translateX(1px); }
+  50%, 100% { opacity: 0; transform: translateX(0); }
+}
+@keyframes sb-wall {
+  0%, 28% { opacity: 0; }
+  32% { opacity: 0.8; }
+  56%, 100% { opacity: 0; }
+}
+</style>
+      <rect x="6" y="6" width="28" height="28" rx="3" class="line dashed" />
+      <path d="M34 9v22" class="ink-line ghost a sb-wall" />
+      <rect x="16" y="16" width="8" height="8" rx="1.5" class="soft a sb-process" />
+      <circle cx="24" cy="20" r="2" class="token a sb-token" />
+      <rect x="44" y="14" width="12" height="12" rx="2" class="soft" />
+</svg>

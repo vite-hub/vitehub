@@ -151,14 +151,13 @@ When the Channel declares message methods, also return `message`: JSON data that
 
 ### Report a failed webhook delivery
 
-When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the Agent has a state provider, ViteHub queues the webhook delivery and retries a failed execution. A delivery gets three execution attempts. Add `failed` to the Trigger to report the failure to the provider when the queue stops retrying.
+When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the Agent has a state provider, ViteHub queues the webhook delivery and retries a failed execution. The Invocation runs under the delivery ID: an unset `run.runId` defaults to `deliveryId` and an unset `run.channelId` to the Channel, so every retry of one delivery is the same Invocation. A delivery gets three execution attempts. Add `failed` to the Trigger to report the failure to the provider when the queue stops retrying.
 
 ```ts
 defineChannelTrigger({
   input: ticketOpened,
   invoke: (context, event) => ({
     input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
-    run: { runId: event.ticketId },
     webhook: { concurrencyLimit: 1, deliveryId: event.ticketId },
   }),
   async failed(event) {

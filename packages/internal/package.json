@@ -164,6 +164,12 @@
       "require": "./dist/runtime/random.js",
       "default": "./dist/runtime/random.js"
     },
+    "./runtime/cache-bypass": {
+      "types": "./dist/runtime/cache-bypass.d.ts",
+      "import": "./dist/runtime/cache-bypass.js",
+      "require": "./dist/runtime/cache-bypass.js",
+      "default": "./dist/runtime/cache-bypass.js"
+    },
     "./secret": {
       "types": "./dist/secret.d.ts",
       "import": "./dist/secret.js",
@@ -294,7 +300,7 @@
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
     "effect": "catalog:effect",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",

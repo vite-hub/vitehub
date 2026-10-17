@@ -485,12 +485,14 @@ describe("ViteHub Nuxt integration", () => {
 
     const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
     expect(plugins.map(plugin => plugin.name)).toEqual([
+      "vite-hub/nitro-file-url",
+      "vite-hub/nitro-cache-bypass",
       "existing-nitro-plugin",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite",
     ])
-    const kvResolver = plugins[1]!
-    const blobResolver = plugins[2]!
+    const kvResolver = plugins[3]!
+    const blobResolver = plugins[4]!
     const context = { marker: "nitro-context" }
     expect(Reflect.apply(kvResolver.resolveId as Function, context, ["#vitehub/kv/config"])).toBe("\0#vitehub/kv/config")
     expect(Reflect.apply(kvResolver.load as Function, context, ["\0#vitehub/kv/config"])).toBe(
@@ -747,6 +749,19 @@ describe("ViteHub Nuxt integration", () => {
     }, application.nuxt)
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
     expect(generated).toContain(`d1: { binding: "${config ? "APP_DB" : "DB"}",`)
+    await application.runCloseHook()
+  })
+
+  it.each([
+    { content: true, dialect: "" },
+    { content: false, dialect: 'dialect: "postgresql",' },
+  ])("adds the default Cloudflare D1 host resource only for SQLite Definitions: $dialect", async ({ content, dialect }) => {
+    await mkdir("/tmp/vitehub-nuxt/custom-server/databases", { recursive: true })
+    await writeFile("/tmp/vitehub-nuxt/custom-server/databases/config.ts", `export default defineDatabase({ ${dialect} schema: {} })\n`)
+    const application = createNuxt(true)
+    await viteHubNuxtModule({ preset: "cloudflare", database: true }, application.nuxt)
+
+    expect(Boolean((application.nuxt.options as { content?: { database?: unknown } }).content?.database)).toBe(content)
     await application.runCloseHook()
   })
 
@@ -2563,6 +2578,12 @@ describe("ViteHub Nuxt integration", () => {
       },
       replace: {
         __VITEHUB_AGENT_APP_ROOT__: JSON.stringify("/tmp/vitehub-nuxt"),
+      },
+      rollupConfig: {
+        plugins: [
+          expect.objectContaining({ name: "vite-hub/nitro-file-url" }),
+          expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),
+        ],
       },
       sandbox: true,
       workflows: true,

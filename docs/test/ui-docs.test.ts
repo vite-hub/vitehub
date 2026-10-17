@@ -119,6 +119,17 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
+  it("renders component references through the shared article layout", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
+
+    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
+    expect(article).toContain('<ContentRenderer :value="page" />');
+    expect(article).toContain('v-if="tocLinks.length"');
+    expect(article).toContain('aria-label="Page outline"');
+    expect(article).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 6rem)");
+  });
+
   it("uses the wide component layout without the desktop outline", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
@@ -174,13 +185,17 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
+    expect(layout).toContain(":deep(.vh-docs-aside)");
+    expect(layout).toContain("overflow-x: clip;");
     expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: hidden;");
-    expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toMatch(/<UPageAside class="vh-docs-aside(?: hidden lg:block)?">/);
-    expect(layout).toContain("flex-direction: column;");
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
-    expect(layout).toContain("flex: 1;");
+    expect(layout).toContain("overflow: hidden;")
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/)
+    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav")
+    const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"))
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/)
+    expect(desktopStyles).toMatch(/\.vh-docs-shell > \.vh-docs-desktop-nav\s*\{[^}]*display: flex;/)
+    expect(desktopStyles).toMatch(/\.vh-docs-content\s*\{[^}]*flex: 1;/)
+    expect(layout).toContain("flex: 1;")
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {

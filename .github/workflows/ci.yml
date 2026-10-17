@@ -19,6 +19,7 @@ jobs:
     name: ci
     needs:
       - checks
+      - workflow-lint
       - contracts-examples
       - contract-tests
       - package-tests
@@ -77,6 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
 
@@ -84,6 +86,30 @@ jobs:
       # Formatting currently loads generated fixture configs, so the full format
       # check remains on the push-to-main validation path.
       - run: vp check --no-fmt
+
+      # zizmor and actionlint do not check these inputs. The script explains why.
+      - name: Check transient package executors and Docker actions
+        run: node .github/scripts/check-ci-inputs.mjs
+
+  # zizmor audits workflow security: template injection, unpinned actions and
+  # images, persisted credentials, and token permissions. actionlint checks
+  # workflow syntax and expressions, and runs shellcheck on every run: block.
+  workflow-lint:
+    name: workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+        with:
+          version: 1.31.1
+          advanced-security: false
+          annotations: true
+      - uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+        with:
+          args: -color
 
   # Split from checks, which took 9 minutes because typecheck, contracts and
   # examples each ran a full build in sequence.
@@ -95,6 +121,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
@@ -128,6 +155,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
@@ -167,6 +195,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
@@ -198,6 +227,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
@@ -220,6 +250,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - name: Build Agent test dependencies
@@ -236,6 +268,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - run: vp run --filter vitehub-docs test
@@ -271,6 +305,8 @@ jobs:
       queue: max
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - name: Download Worker bundle
@@ -294,7 +330,7 @@ jobs:
 
       - name: Check the live site
         run: |
-          for attempt in 1 2 3 4 5 6; do
+          for _ in 1 2 3 4 5 6; do
             if curl --fail --silent --show-error --max-time 30 -o /dev/null "https://vitehub.dev/raw/docs/getting-started.md?deploy=${GITHUB_SHA}"; then
               echo "vitehub.dev serves ${GITHUB_SHA}."
               exit 0
@@ -328,6 +364,8 @@ jobs:
           - 8080:8080
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - name: Cloudflare output contract
@@ -342,7 +380,9 @@ jobs:
           KV_REST_API_TOKEN: local-srh-token
           KV_REST_API_URL: http://127.0.0.1:8079
           TURSO_DATABASE_URL: http://127.0.0.1:8080
+      # The exact version pins the CLI. Moving it into .github/ci-tools would
+      # add its large dependency tree to the workspace lockfile.
       - name: Install Netlify CLI
-        run: npm install -g netlify-cli@23.15.1
+        run: npm install -g netlify-cli@23.15.1 # zizmor: ignore[adhoc-packages]
       - name: Netlify end-to-end
         run: vp run e2e:netlify

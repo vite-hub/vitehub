@@ -41,7 +41,7 @@ import { hydrateFailedCiEvidence } from "../../server/github-inbox/ci-evidence.t
 import type { PullRequestWake } from "../../server/github-inbox/wait-state.ts";
 import { createHash } from "node:crypto";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
-import type { BabysitterAgent, BabysitterPassResult } from "../babysitter.ts";
+import type { BabysitterAgent, BabysitterPassResult, BabysitterPlacementLease } from "../babysitter.ts";
 import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } from "../../agent-layers.ts";
 import { importBoxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
@@ -828,6 +828,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           passController.signal,
         ]);
         let providerDirectory: string | undefined;
+        let placementLease: BabysitterPlacementLease | undefined;
+        // A pass placed in a Box installs there; the host checkout keeps no dependencies.
+        const hostInstall = () => presetOptions.install !== false && !placementLease?.box;
         let modelWorkParked = false;
         const parkBlockedModelWork = async () => {
           const currentAdmission = await options.admission?.();
@@ -1115,7 +1118,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                     await prepareGitHubRepairBase(directory, { expectedHead: pullRequest.headRefOid, base, signal: abortSignal, fetch: { url: `https://github.com/${repository}.git`, env: prepared.env } });
                     preparedMergeBase = base;
                   }
-                  if (presetOptions.install !== false) {
+                  if (hostInstall()) {
                     // Dependency conflicts must be resolved before the explicit refresh tool can install.
                     try { await installDependencies(directory, abortSignal, owner, nodeOptions); }
                     catch (error) { if (!preparedMergeBase || abortSignal.aborted || !(error instanceof GitHubWorkspaceInstallError) || !(error.cause instanceof GitHubDependencyConflictError)) throw error; }
@@ -1152,7 +1155,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   await assertLease();
                   await assertRepairBase();
                   const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
-                  if (presetOptions.install !== false && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) {
+                  if (hostInstall() && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) {
                     await installDependencies(providerDirectory, abortSignal, owner, undefined);
                   }
                   await assertLease();
@@ -1161,8 +1164,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
                   await assertLease();
                   await assertRepairBase();
-                  if (presetOptions.install !== false) await assertGitHubDependenciesCurrent(providerDirectory);
-                  const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies: presetOptions.install !== false });
+                  if (hostInstall()) await assertGitHubDependenciesCurrent(providerDirectory);
+                  const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies: hostInstall() });
                   await assertLease();
                   return head;
                 },
@@ -1261,6 +1264,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // the host identity, but dropping the whole map loses other
               // channel-scoped capabilities needed by repair passes.
               const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
+              // Placement runs once per pass, before any host install, and never overrides a configured Box.
+              if (presetOptions.placement && !workerSettings.box) {
+                placementLease ??= await presetOptions.placement.place({ repository, number });
+                if (placementLease.box) workerSettings.box = placementLease.box;
+              }
               if (workerSettings.box) providerDirectory = checkout;
               const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
               const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
@@ -1471,7 +1479,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // Preserve the declared head across check progress. Wait evaluation
             // still wakes new failures or feedback from the observed snapshot.
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" },
-              wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
+              wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : undefined) } });
           } else if (assessed) {
             outcome = "waiting";
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" }, wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
@@ -1538,6 +1546,19 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         } finally {
           clearTimeout(pushedAt);
           stopPullRequestWatch();
+          try {
+            await placementLease?.release();
+          } catch (error) {
+            // Placement is user supplied; a failed release must not strand the
+            // durable inbox claim or the in-memory owner slot.
+            // Error reporting is user supplied too, so it must not interrupt
+            // the cleanup below when the reporter itself throws.
+            try {
+              schedulerError("babysitter.placement.release.failed", error, owner);
+            } catch {
+              // Cleanup remains authoritative even when reporting fails.
+            }
+          }
           // A rejected or ambiguous host merge retains its durable attempt
           // fence, but a finished owner must never retain a queue lease.
           // Normal finish/release paths have already cleared this token.

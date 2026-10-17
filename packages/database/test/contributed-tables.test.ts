@@ -110,7 +110,7 @@ describe("collectDatabaseContributions", () => {
     [{ databases: [{ definition: { module: "" }, name: "history" }] }, "`definition.module` of Database tables \"history\" must be a non-empty string"],
     [{ databases: [{ definition: { export: "", module: "pkg" }, name: "history" }] }, "`definition.export`"],
     [{ databases: [{ database: " default ", definition: { module: "pkg" }, name: "history" }] }, "`database`"],
-    [{ databases: [{ definition: { module: "pkg" }, dialect: "mysql", name: "history" }] }, "`dialect` of \"history\" must be one of \"sqlite\""],
+    [{ databases: [{ definition: { module: "pkg" }, dialect: "mysql", name: "history" }] }, "`dialect` of \"history\" must be one of \"sqlite\", \"postgresql\""],
     [{ databases: [{ module: "pkg", name: "history" }] }, "needs `definition: { module, export? }`"],
   ])("rejects invalid contributions %#", async (vitehub, message) => {
     await expect(collectDatabaseContributions([{ name: "broken/vite", vitehub }], context)).rejects.toMatchObject({
@@ -128,13 +128,12 @@ describe("contribution targets", () => {
   })
 
   it("fails when the target Database uses another dialect", () => {
-    // SAFETY: Only one dialect exists today, so the test widens the type to cover the check.
-    const postgres = "postgresql" as unknown as "sqlite"
-    expect(() => resolveDatabaseContributionTargets(["default"], contributions({ ...historyContribution, dialect: postgres }), { default: "sqlite" })).toThrow(expect.objectContaining({
+    expect(() => resolveDatabaseContributionTargets(["default"], contributions({ ...historyContribution, dialect: "postgresql" }), { default: "sqlite" })).toThrow(expect.objectContaining({
       code: "DATABASE_B0011",
       message: expect.stringContaining("use the \"postgresql\" dialect, but Database \"default\" uses \"sqlite\""),
     }))
     expect(resolveDatabaseContributionTargets(["default"], contributions({ ...historyContribution, dialect: "sqlite" }), { default: "sqlite" }).default).toHaveLength(1)
+    expect(resolveDatabaseContributionTargets(["default"], contributions({ ...historyContribution, dialect: "postgresql" }), { default: "postgresql" }).default).toHaveLength(1)
   })
 
   it.each([
@@ -154,6 +153,28 @@ describe("contribution targets", () => {
     expect(() => resolveDBViteConfig(undefined, rootDir, { contributions: contributions(historyContribution) })).toThrow(expect.objectContaining({ code: "DATABASE_B0011" }))
     expect(resolveDBViteConfig(false, rootDir, { contributions: contributions(historyContribution) })).toBeUndefined()
   })
+
+  it("targets the implicit default Database when the app has no Database Definition", async () => {
+    const rootDir = await createProject({})
+
+    const config = resolveDBViteConfig(undefined, rootDir, { contributions: contributions(historyContribution), implicitDefault: true })
+
+    expect(config?.databaseNames).toEqual(["default"])
+    expect(config?.tableContributionsByDatabase.default).toEqual([expect.objectContaining({ database: "default", name: historyContribution.name })])
+
+    // drizzle-kit writes the migration where `server/databases/config.ts` would keep it.
+    await writeGeneratedDatabaseArtifacts(config!)
+    await execFileAsync(process.execPath, [
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      "generate",
+      "--config",
+      config!.generatedDrizzleConfigFile,
+    ], { cwd: rootDir })
+    const migrationsDir = join(rootDir, "server/databases/migrations")
+    const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
+    const sql = await readFile(join(migrationsDir, migration), "utf8")
+    expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `history_refs`", "CREATE TABLE `history_revisions`"])
+  }, 60_000)
 })
 
 describe("contributed tables in generated artifacts", () => {
