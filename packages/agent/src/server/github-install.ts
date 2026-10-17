@@ -137,7 +137,7 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     }
     catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT" && command === "corepack") {
-        throw new Error("Babysitter host installation requires Corepack in PATH. Install Corepack on the trusted host; Node 25 and newer do not bundle it.", { cause: error });
+        throw new Error("Pull request workspace installation requires Corepack in PATH. Install Corepack on the trusted host; Node 25 and newer do not bundle it.", { cause: error });
       }
       throw error;
     }

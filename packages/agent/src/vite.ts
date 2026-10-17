@@ -1956,7 +1956,7 @@ async function generateAgentWebhookRouteHandler(
     ...generatedRuntimeHelpers(),
     ...(options.cloudflareState ? generatedCloudflareChatStateHelper() : []),
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
-    ...(options.libsqlState ? ["/** Agent State for contributed process hosts, such as the Babysitter's PR inbox. */", "export const agentProcessHostState = () => chatStateFromLibsql()"] : []),
+    ...(options.libsqlState ? ["/** Agent State for contributed process hosts. */", "export const agentProcessHostState = () => chatStateFromLibsql()"] : []),
     "",
     ...routeCapabilities.setup,
     ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
@@ -3001,7 +3001,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         projectModule
         && !normalizedId.includes("/node_modules/")
         && resolvesWorkerConditions(this.environment?.config.resolve.conditions)
-        && usesProviderAgentDriver(code, await parseTypeScript())
+        && usesProviderAgentDriver(code, await parseTypeScript(), normalizedId)
       ) {
         throw agentDiagnostics.AGENT_B0019({ files: [relative(resolved.root, normalizedId)] })
       }
@@ -3144,7 +3144,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (processHostAgents.length) {
         const hosting = denoOutput ? "deno" : resolveAgentHosting(config)
         if (hosting) {
-          throw agentDiagnostics.AGENT_B0022({ message: `[vitehub] Agent ${processHostAgents.map(name => `"${name}"`).join(", ")} uses a preset that runs a long-lived process host, such as the Babysitter. ${hosting} cannot run it; deploy with the Node server preset.` })
+          throw agentDiagnostics.AGENT_B0022({ message: `[vitehub] Agent ${processHostAgents.map(name => `"${name}"`).join(", ")} uses a preset that runs a long-lived process host. ${hosting} cannot run it; deploy with the Node server preset.` })
         }
         if (!installWebhookQueue) {
           throw agentDiagnostics.AGENT_B0023({ message: `[vitehub] Agent ${processHostAgents.map(name => `"${name}"`).join(", ")} stores its process host state in Agent State. Use the sqlite, libsql, or auto Agent State provider.` })
