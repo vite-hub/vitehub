@@ -481,17 +481,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       }
       catch { /* try the next realm's intrinsic */ }
     }
-    if (!branded) {
-      // Other Web runtimes expose their own native Headers intrinsics. Invoke
-      // the carrier's own methods to validate those internal slots without
-      // depending on a fixed runtime whitelist.
-      try {
-        Reflect.apply(headersGet, headers, ["content-type"])
-        Reflect.apply(headersForEach, headers, [() => {}])
-        branded = true
-      }
-      catch { return }
-    }
+    // Do not fall back to invoking methods supplied by the candidate. Those
+    // methods are ordinary JavaScript and can be forged to look self-consistent;
+    // only trusted Web intrinsics provide a non-spoofable internal-slot check.
+    if (!branded) return
     const snapshot = { status, statusText, headers, body }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
