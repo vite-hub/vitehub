@@ -410,14 +410,10 @@ function isDateValue(value: unknown): value is Date {
 function hasNativeDateJSONHook(value: object): boolean {
   const nativeSource = /\[native code\]/
   const isNative = (hook: unknown): boolean => hasRuntimeType(hook, "function") && nativeSource.test(Function.prototype.toString.call(hook))
-  const serializationFails = (): boolean => {
-    try {
-      JSON.stringify(value)
-      return false
-    }
-    catch {
-      return true
-    }
+  const isBoundCustomHook = (hook: unknown): boolean => {
+    if (!hasRuntimeType(hook, "function")) return false
+    const descriptor = Reflect.getOwnPropertyDescriptor(hook, "name")
+    return !!descriptor && "value" in descriptor && String(descriptor.value).startsWith("bound ")
   }
   const findDescriptor = (start: object, key: string): PropertyDescriptor | undefined => {
     let current: object | null = start
@@ -444,7 +440,7 @@ function hasNativeDateJSONHook(value: object): boolean {
     if (!getTimeDescriptor && !toISOStringDescriptor) {
       if (toJSONDescriptor) return false
       const hook = Reflect.get(value, "toJSON")
-      return hasRuntimeType(hook, "function") ? serializationFails() : isNative(hook)
+      return hasRuntimeType(hook, "function") ? !isBoundCustomHook(hook) : isNative(hook)
     }
     if (!isNative(getTime) || !isNative(toISOString)) return false
     let prototype: object | null = Reflect.getPrototypeOf(value)
@@ -453,7 +449,7 @@ function hasNativeDateJSONHook(value: object): boolean {
       visited.add(prototype)
       const descriptor = Reflect.getOwnPropertyDescriptor(prototype, "toJSON")
       if (descriptor) {
-        if ("value" in descriptor) return hasRuntimeType(descriptor.value, "function") ? serializationFails() : false
+        if ("value" in descriptor) return hasRuntimeType(descriptor.value, "function") ? !isBoundCustomHook(descriptor.value) : false
         // An accessor may expose the native hook while hiding its value from
         // descriptor inspection. Treat it as unsafe once native Date methods
         // identify the surrounding object as a Date proxy.
@@ -463,7 +459,7 @@ function hasNativeDateJSONHook(value: object): boolean {
     }
     // Hidden prototype proxies still expose the native Date methods.
     const hook = Reflect.get(value, "toJSON")
-    return hasRuntimeType(hook, "function") ? serializationFails() : isNative(hook)
+    return hasRuntimeType(hook, "function") ? !isBoundCustomHook(hook) : isNative(hook)
   }
   catch {
     return false
