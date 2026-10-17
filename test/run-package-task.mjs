@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import { appendFile, readdir, readFile } from "node:fs/promises"
 import { constants } from "node:os"
 import { join, resolve } from "node:path"
@@ -12,6 +12,27 @@ const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
   "@vite-hub/runtime",
 ])
 
+// Package tests that read files outside their own package directory. A change
+// under one of these paths runs the tests of the named packages.
+const OUTSIDE_TEST_INPUTS = Object.freeze([
+  ["docs/content/", ["@vite-hub/ui", "vite-hub"]],
+  ["fixtures/tutorials/", ["@vite-hub/agent"]],
+  ["playground/console/", ["vite-hub"]],
+  ["playground/vite/", ["@vite-hub/blob", "@vite-hub/internal", "@vite-hub/queue", "@vite-hub/workflow"]],
+])
+// Package tests do not read these paths. Any other path outside a package,
+// such as the lockfile or a root config, runs the tests of every package.
+const NO_PACKAGE_TEST_INPUTS = Object.freeze([
+  /^\.github\/(?!actions\/)/,
+  /^docs\//,
+  /^fixtures\/(?:consumer|docs-hosts)\//,
+  /^skills\//,
+  /^test\/(?!run-package-task\.mjs$)/,
+  /^[^/]+\.md$/,
+  /^LICENSE$/,
+  /^vitest\.config\.ts$/,
+])
+
 function parseList(value) {
   return value ? value.split(",").map(entry => entry.trim()).filter(Boolean) : []
 }
@@ -21,7 +42,9 @@ function parseArguments(argv) {
   if (!task) throw new Error("Usage: node test/run-package-task.mjs <task> [options]")
 
   const options = {
+    affectedBase: undefined,
     excludedNames: [],
+    list: false,
     maxParallel: DEFAULT_MAX_PARALLEL,
     packageNames: undefined,
     parallelSafePackages: DEFAULT_PARALLEL_SAFE_PACKAGES,
@@ -29,11 +52,16 @@ function parseArguments(argv) {
     workspaceRoot: process.cwd(),
   }
 
-  for (let index = 0; index < rest.length; index += 2) {
+  for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index]
-    const value = rest[index + 1]
+    if (flag === "--list") {
+      options.list = true
+      continue
+    }
+    const value = rest[++index]
     if (!value) throw new Error(`Missing value for ${flag}`)
-    if (flag === "--workspace") options.workspaceRoot = resolve(value)
+    if (flag === "--affected") options.affectedBase = value
+    else if (flag === "--workspace") options.workspaceRoot = resolve(value)
     else if (flag === "--packages") {
       options.packageNames = parseList(value)
       if (options.packageNames.length === 0) throw new Error("--packages must name at least one package")
@@ -61,7 +89,7 @@ async function loadPackages(workspaceRoot) {
     .map(async (entry) => {
       const dir = join(packagesDir, entry.name)
       const manifest = JSON.parse(await readFile(join(dir, "package.json"), "utf8"))
-      return { dir, manifest, name: manifest.name }
+      return { dir, manifest, name: manifest.name, path: `packages/${entry.name}` }
     }))
   return packages.sort((left, right) => left.name.localeCompare(right.name))
 }
@@ -96,6 +124,55 @@ function selectPackages(packages, task, requestedNames, excludedNames = []) {
     packageByName,
     selected: selectedNames.map(name => packageByName.get(name)).sort((left, right) => left.name.localeCompare(right.name)),
   }
+}
+
+function changedFiles(workspaceRoot, base) {
+  // The three-dot range compares HEAD with its merge base, so commits that
+  // landed on the base branch after the fork do not count.
+  const output = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", `${base}...HEAD`], {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+  })
+  return output.split("\0").filter(Boolean)
+}
+
+// Returns the packages that own a changed file, plus every package that
+// depends on them. A file that no rule explains selects every package.
+export function affectedPackageNames(packages, files) {
+  const packageByName = new Map(packages.map(pkg => [pkg.name, pkg]))
+  const packageByPath = new Map(packages.map(pkg => [pkg.path, pkg]))
+  const allNames = packages.map(pkg => pkg.name)
+  const changed = new Set()
+  for (const file of files) {
+    const owner = /^packages\/[^/]+(?=\/)/.exec(file)?.[0]
+    if (owner) {
+      const pkg = packageByPath.get(owner)
+      if (!pkg) return allNames
+      changed.add(pkg.name)
+      continue
+    }
+    const outside = OUTSIDE_TEST_INPUTS.find(([prefix]) => file.startsWith(prefix))
+    if (outside) {
+      for (const name of outside[1]) if (packageByName.has(name)) changed.add(name)
+      continue
+    }
+    if (NO_PACKAGE_TEST_INPUTS.some(pattern => pattern.test(file))) continue
+    return allNames
+  }
+
+  const dependents = new Map(allNames.map(name => [name, []]))
+  for (const pkg of packages) {
+    for (const dependency of workspaceDependencies(pkg, packageByName)) dependents.get(dependency).push(pkg.name)
+  }
+  const affected = new Set()
+  const pending = [...changed]
+  while (pending.length > 0) {
+    const name = pending.pop()
+    if (affected.has(name)) continue
+    affected.add(name)
+    pending.push(...dependents.get(name))
+  }
+  return [...affected].sort((left, right) => left.localeCompare(right))
 }
 
 function buildClosure(selected, packageByName) {
@@ -261,7 +338,21 @@ function renderSummary(task, packages, buildResults, taskResults) {
 export async function runPackageTask(options) {
   const workspaceRoot = resolve(options.workspaceRoot ?? process.cwd())
   const packages = await loadPackages(workspaceRoot)
-  const { packageByName, selected } = selectPackages(packages, options.task, options.packageNames, options.excludedNames)
+  const selection = selectPackages(packages, options.task, options.packageNames, options.excludedNames)
+  const { packageByName } = selection
+  let selected = selection.selected
+  if (options.affectedBase) {
+    const affected = new Set(affectedPackageNames(packages, changedFiles(workspaceRoot, options.affectedBase)))
+    selected = selected.filter(pkg => affected.has(pkg.name))
+  }
+  if (options.list) {
+    console.log(selected.map(pkg => pkg.name).join(","))
+    return { exitCode: 0, failures: [], markdown: "", output: "" }
+  }
+  if (selected.length === 0) {
+    console.log(`No package changed since ${options.affectedBase} defines ${options.task}.`)
+    return { exitCode: 0, failures: [], markdown: "", output: "" }
+  }
   const controller = options.controller ?? new AbortController()
   const execute = options.execute ?? ((pkg, phase, executionOptions) => executePackage(pkg, phase, {
     ...executionOptions,

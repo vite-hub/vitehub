@@ -62,7 +62,7 @@ Start with the affected package's full `test` script so every package-owned test
 corepack pnpm --dir packages/vite-hub run test
 ```
 
-For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run -t <package>#build` commands for builds it already completed.
+For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. To run the package tests that a pull request runs, use `node test/run-package-task.mjs test --affected origin/main`. It selects the packages that the branch changes and the packages that depend on them. Add `--list` to print the selection without running it. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run -t <package>#build` commands for builds it already completed.
 
 For one regression, build first, then run from the package directory so Vitest uses its package config:
 

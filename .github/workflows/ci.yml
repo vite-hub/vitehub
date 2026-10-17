@@ -42,17 +42,12 @@ jobs:
         run: |
           node <<'NODE'
           const results = JSON.parse(process.env.CI_RESULTS)
-          // Pull requests use a fast, always-reporting gate. The full
-          // integration matrix still runs on every push to main. Keep this
-          // aggregate job required so skipped PR-only jobs never leave a
-          // branch protection check pending.
+          // Pull requests run the contract, package, and consumer tests that
+          // their change can affect. The full integration matrix still runs
+          // on every push to main. Keep this aggregate job required so
+          // skipped PR-only jobs never leave a branch protection check pending.
           const skippedPullRequestJobs = new Set([
             "contracts-examples",
-            "contract-tests",
-            "package-tests",
-            "package-tests-success",
-            "consumer-contracts",
-            "consumer-contracts-success",
             "windows-agent-credentials",
             "docs",
             "verify-providers",
@@ -69,8 +64,9 @@ jobs:
           }
           NODE
 
-  # Keep the required PR path small. The push-to-main run below still executes
-  # the complete contracts, package, docs, consumer, and provider matrix.
+  # Pull requests run the jobs below that their change can affect. The
+  # push-to-main run executes the complete contracts, package, docs,
+  # consumer, and provider matrix.
   checks:
     name: fast checks
     runs-on: ubuntu-latest
@@ -148,26 +144,43 @@ jobs:
 
       - run: vp run --ignore-depends-on examples:verify
 
+  # The docs host fixtures take about 8 of the 10 minutes. A pull request runs
+  # them only when it changes docs, root tests, fixtures, or a manifest.
   contract-tests:
     name: contract tests
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Select contract tests
+        id: scope
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if git diff --quiet "$BASE_REF...HEAD" -- docs fixtures/docs-hosts test package.json 'packages/*/package.json' pnpm-lock.yaml; then
+            echo "exclude=test/docs-host-fixtures.test.ts" >> "$GITHUB_OUTPUT"
+          fi
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
-      - run: vp run test:contracts
+      - if: ${{ steps.scope.outputs.exclude == '' }}
+        run: vp run test:contracts
+      - name: Contracts without docs host fixtures
+        if: ${{ steps.scope.outputs.exclude != '' }}
+        env:
+          EXCLUDE: ${{ steps.scope.outputs.exclude }}
+        run: vp run build && vp test --config vitest.config.ts --exclude "$EXCLUDE"
 
   # Package tests were one 22-minute job. Agent test files run serially, so
   # Vitest splits them across three jobs. Workflow's playground builds take
   # about 4 minutes and set the floor. The last shard excludes the named
-  # packages, so a new package always runs somewhere.
+  # packages, so a new package always runs somewhere. A pull request tests
+  # only the packages it changes and their dependents. A shard without one
+  # passes after checkout and does not install dependencies.
   package-tests:
     name: package tests (${{ matrix.shard.name }})
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -197,10 +210,28 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: ./.github/actions/setup
-      - uses: ./.github/actions/setup-deno
-      - run: node test/run-package-task.mjs test ${{ matrix.shard.args }}
+      - name: Select changed packages
+        id: changed
+        if: ${{ github.event_name == 'pull_request' }}
         env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          packages="$(node test/run-package-task.mjs test ${{ matrix.shard.args }} --affected "$BASE_REF" --list)"
+          echo "Changed packages in this shard: ${packages:-none}"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+      - if: ${{ github.event_name != 'pull_request' || steps.changed.outputs.packages != '' }}
+        uses: ./.github/actions/setup
+      - if: ${{ github.event_name != 'pull_request' || steps.changed.outputs.packages != '' }}
+        uses: ./.github/actions/setup-deno
+      - if: ${{ github.event_name != 'pull_request' }}
+        run: node test/run-package-task.mjs test ${{ matrix.shard.args }}
+        env:
+          VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
+      - name: Test changed packages
+        if: ${{ steps.changed.outputs.packages != '' }}
+        run: node test/run-package-task.mjs test --packages "$PACKAGES"
+        env:
+          PACKAGES: ${{ steps.changed.outputs.packages }}
           VITEHUB_TEST_SHARD: ${{ matrix.shard.test-shard }}
 
   # Keep the default success() condition, as for consumer contracts: needs
@@ -214,9 +245,10 @@ jobs:
     steps:
       - run: echo 'All package test shards passed'
 
+  # Each shard takes about 5 minutes. A pull request runs them when it changes
+  # a package or the consumer tests and fixtures.
   consumer-contracts:
     name: consumer contracts (${{ matrix.shard }})
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -229,9 +261,24 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: ./.github/actions/setup
-      - uses: ./.github/actions/setup-deno
-      - run: vp run test:consumer --shard=${{ matrix.shard }}
+      - name: Select consumer contracts
+        id: scope
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          packages="$(node test/run-package-task.mjs build --affected "$BASE_REF" --list)"
+          if [ -n "$packages" ] || ! git diff --quiet "$BASE_REF...HEAD" -- test fixtures/consumer; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No package or consumer contract input changed."
+          fi
+      - if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+      - if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.run == 'true' }}
+        uses: ./.github/actions/setup-deno
+      - if: ${{ github.event_name != 'pull_request' || steps.scope.outputs.run == 'true' }}
+        run: vp run test:consumer --shard=${{ matrix.shard }}
 
   # Keep the default success() condition: needs alone can lose failed matrix
   # shards after a partial rerun. This marker requires the whole matrix to pass.
