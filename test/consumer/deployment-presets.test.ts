@@ -13,7 +13,7 @@ import { createBuilder, resolveConfig, type Plugin, type PluginOption } from "vi
 import { vitehub } from "vite-hub"
 import { expect, it } from "vitest"
 
-import { createCloudflareRateLimitBindings } from "../../packages/rate-limit/src/internal/provider-output.ts"
+import { createCloudflareRateLimitBindings } from "../../packages/rate-limit/src/internal/cloudflare-bindings.ts"
 
 const execFile = promisify(execFileCallback)
 
