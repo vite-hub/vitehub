@@ -61,6 +61,12 @@ function isRequest(value: unknown): value is Request {
             const descriptor = descriptors[name]
             return !descriptor || typeof descriptor.get !== "function"
           })) return false
+          // A foreign Request must not merely inherit this realm's methods on a
+          // caller-controlled prototype. Such copied methods brand-check the
+          // receiver against this realm's internal slots and identify a spoof,
+          // rather than a genuine foreign Request implementation.
+          const nativeClone = Object.getOwnPropertyDescriptor(Request.prototype, "clone")?.value
+          if (descriptors.clone?.value === nativeClone) return false
           bodyGetter.call(value)
           const headers = descriptors.headers.get?.call(value)
           const headersPrototype = headers && Object.getPrototypeOf(headers)
