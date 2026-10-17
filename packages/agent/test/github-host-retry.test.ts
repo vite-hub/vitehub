@@ -49,6 +49,15 @@ it("does not repeat a write, a rate limit or a client error", async () => {
   }
 });
 
+it("retries an explicit GET with query fields", async () => {
+  vi.useFakeTimers();
+  replies.push(gatewayPage(), '{"ok":true}');
+  const result = host().command(["api", "-X", "GET", "repos/acme/app/issues", "-f", "state=open"], { repository: "acme/app" });
+  await vi.advanceTimersByTimeAsync(1_000);
+  await expect(result).resolves.toMatchObject({ stdout: '{"ok":true}' });
+  expect(calls).toHaveLength(2);
+});
+
 it("retries an installation token that fails on a dropped connection", async () => {
   vi.useFakeTimers();
   let attempts = 0;
