@@ -4,6 +4,8 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
+  getDocsRailCatalog,
+  getDocsSectionKind,
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
@@ -50,6 +52,21 @@ describe("docs product navigation", () => {
     expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
   });
 
+  it("keeps the rail concise while retaining Platform in the catalog", () => {
+    expect(getDocsRailCatalog(docsManifest.sections).map(group => group.category))
+      .toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
+    expect(getDocsCatalog(docsManifest.sections).some(group => group.category === "Platform")).toBe(true);
+  });
+
+  it("labels product sections for the catalog consumer", () => {
+    const kind = (id: string) => getDocsSectionKind(docsManifest.sections.find(section => section.id === id)!);
+    expect(kind("kv")).toBe("Server Primitive");
+    expect(kind("agents")).toBe("Agent runtime");
+    expect(kind("ui")).toBe("UI components");
+    expect(kind("getting-started")).toBe("Getting started");
+    expect(kind("reference")).toBe("Platform");
+  });
+
   it("orders every Server Primitive section by the product page template", () => {
     const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
 
@@ -63,11 +80,10 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
-      // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
+      // Template pages keep their order when related topic pages sit between them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
       const templateIndexes = templateTitles.map(title => titles.indexOf(title));
       expect(templateIndexes, sectionId).toEqual([...templateIndexes].sort((left, right) => left - right));
-      expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -100,6 +116,7 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
+      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
