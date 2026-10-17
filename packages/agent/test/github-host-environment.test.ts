@@ -17,7 +17,7 @@ import { createGitHubHost } from "../src/server/github-host.ts";
 it("isolates provider credentials and git directories across concurrent checkouts", async () => {
   let token = 0
   const host = createGitHubHost({
-    credentials: ({ repository }) => ({ token: `${repository ?? "default"}:${++token}`, rateLimitKey: repository ?? "test" }),
+    credentials: ({ repository }) => ({ token: `${repository ?? "default"}:${++token}` }),
     identity: { login: "worker" },
   });
   let release!: () => void;

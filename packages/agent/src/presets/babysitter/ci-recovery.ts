@@ -1,8 +1,8 @@
 import * as v from "valibot";
 import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
-import type { GitHubHost } from "../../server/github.ts";
-import type { Claim, PullRequestInbox, Snapshot } from "../../server/github-inbox.ts";
-import { actionLocation, failed } from "../../server/github-inbox/ci-evidence.ts";
+import { forgeErrorStatus, repoRef, type ForgeProvider } from "@vite-hub/forge";
+import type { Claim, PullRequestInbox, Snapshot } from "./inbox/store.ts";
+import { actionLocation, failed } from "./inbox/ci-evidence.ts";
 
 export function hasFailedActions(snapshot: Snapshot): boolean {
   const head = snapshot.pr?.head?.sha;
@@ -24,10 +24,12 @@ const permissionFailure = (reason: string): boolean => /\b403\b|forbidden|resour
 export async function rerunFailedActions(
   inbox: Pick<PullRequestInbox, "meta" | "setMeta">,
   claim: Claim,
-  command: GitHubHost["command"],
+  forge: Pick<ForgeProvider, "ci" | "forge" | "instance" | "request">,
   now = Date.now(),
+  signal?: AbortSignal,
 ): Promise<CiRecoveryResult | undefined> {
   const { repository } = claim.snapshot;
+  const repo = repoRef(forge, repository);
   const headSha = claim.snapshot.pr?.head?.sha;
   if (!headSha) return undefined;
   const runs = new Map<number, RecoveryRun>();
@@ -61,8 +63,8 @@ export async function rerunFailedActions(
     try {
       // Check-run payloads do not contain run_attempt. Read the actual workflow
       // before requesting a rerun or deciding that a prior rerun has finished.
-      const response = await command(["api", `repos/${repository}/actions/runs/${run.runId}`], { repository, timeout: 60_000 });
-      const current = v.parse(workflowRunSchema, JSON.parse(response.stdout));
+      const workflowRun = await forge.ci.run({ forge: forge.forge, instance: forge.instance, repo, id: String(run.runId) }, { signal });
+      const current = v.parse(workflowRunSchema, workflowRun.raw);
       if (current.head_sha !== headSha || current.status !== "completed" || !failed(current)) {
         waiting.push({ ...run, reason: "Waiting for current failed check evidence from the workflow run." });
         continue;
@@ -88,17 +90,19 @@ export async function rerunFailedActions(
       await inbox.setMeta(metadataKey, { status: "pending", runId: run.runId, headSha, runAttempt: current.run_attempt, attemptedAt: now });
       fenced = true;
       const endpoint = current.conclusion === "cancelled" ? "rerun" : "rerun-failed-jobs";
-      await command(["api", "-X", "POST", `repos/${repository}/actions/runs/${run.runId}/${endpoint}`], { repository, timeout: 60_000 });
+      // forges CI is read-only, so it cannot rerun a workflow run.
+      await forge.request("POST", `/repos/${repository}/actions/runs/${run.runId}/${endpoint}`, { signal });
       posted = true;
       await inbox.setMeta(metadataKey, { status: "succeeded", runId: run.runId, headSha, runAttempt: current.run_attempt, attemptedAt: now });
       rerun.push(run);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      const permission = permissionFailure(reason);
+      const status = forgeErrorStatus(error);
+      const permission = status === 403 || permissionFailure(reason);
       // A failed reconciliation read must not overwrite a successful POST and
       // allow another rerun after the retry window.
       // Server errors leave delivery ambiguous; retain the pre-request fence.
-      const rejected = /\bHTTP[ :]+4\d\d\b/i.test(reason);
+      const rejected = status !== undefined && status >= 400 && status < 500;
       if (!fenced || (!succeeded && !posted && (permission || rejected))) {
         const retryAt = now + (permission ? 15 * 60_000 : 2 * 60_000);
         await inbox.setMeta(metadataKey, { status: permission ? "blocked" : "failed", runId: run.runId, headSha, attemptedAt: now, retryAt, reason });

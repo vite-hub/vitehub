@@ -423,12 +423,6 @@
       "require": "./dist/agent/server/github.js",
       "default": "./dist/agent/server/github.js"
     },
-    "./agent/server/github-inbox": {
-      "types": "./dist/agent/server/github-inbox.d.ts",
-      "import": "./dist/agent/server/github-inbox.js",
-      "require": "./dist/agent/server/github-inbox.js",
-      "default": "./dist/agent/server/github-inbox.js"
-    },
     "./agent/state/sqlite": {
       "types": "./dist/agent/state/sqlite.d.ts",
       "import": "./dist/agent/state/sqlite.js",

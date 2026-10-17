@@ -3,14 +3,14 @@ import { parseProviderBudget, parseProgressBudget, validateBudgets, requireEvide
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import * as v from 'valibot'
-import { isRuntimeNumber, isRuntimeString } from '../../internal/runtime-value.ts'
-import { isRuntimeRecord } from '../../internal/runtime-type.ts'
+import { isRuntimeNumber, isRuntimeString } from '../../../internal/runtime-value.ts'
+import { isRuntimeRecord } from '../../../internal/runtime-type.ts'
 import { createNodeSqliteInboxStorage, type PullRequestInboxExecutor, type PullRequestInboxRow, type PullRequestInboxStorage } from './storage.ts'
-import type { AgentRunActivity } from '../../types.ts'
+import type { AgentRunActivity } from '../../../types.ts'
 import { isStatusDeliveryCurrent, statusProjectionText, statusAcknowledgementSchema, statusDeliverySchema, statusOutboxPrefix, statusSentPrefix, statusWriterPrefix, statusTargetKey, workerBlockerPrefix, type StatusDelivery } from './status-delivery.ts'
 
-import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '../../channels.ts'
-import { matchesGitHubPullRequestFilter } from '../../internal/github-pull-request-filter.ts'
+import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '../../../channels.ts'
+import { matchesGitHubPullRequestFilter } from '../../../internal/github-pull-request-filter.ts'
 import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
 
 export type Snapshot = {
@@ -43,7 +43,7 @@ export interface GitHubInboxSummary {
   stackBlocked?: boolean; stackParent?: { number: number; state: string }
 }
 export type Claim = { token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity }
-export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; requestId?: string; enqueued?: boolean }
+export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; enqueued?: boolean }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const statusContentKey = (snapshot: Snapshot, head = snapshot.wait?.headSha ?? snapshot.pr?.head?.sha) =>
   digest([head, snapshot.generation, snapshot.status, snapshot.lastResult])
@@ -626,18 +626,7 @@ export class PullRequestInbox {
     // SAFETY: the required fields were validated above before this DirectMergeAttempt assertion.
     return attempt as DirectMergeAttempt
   }
-  /** Save the provider's request identity without releasing the merge fence. */
-  async recordDirectMergeRequest(repository: string, number: number, token: string, requestId: string): Promise<boolean> {
-    if (!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(requestId)) throw new TypeError('Expected an asynchronous merge UUID.')
-    return await this.transaction(async tx => {
-      const key = this.directMergeKey(repository, number)
-      const attempt = await this.metaIn(tx, key)
-      if (!isRuntimeRecord(attempt) || attempt.token !== token || attempt.asynchronous !== true) return false
-      await this.setMetaIn(tx, key, { ...attempt, requestId })
-      return true
-    })
-  }
-  /** Preserve a final enqueued result, including an immediate response without a UUID. */
+  /** Preserve a final enqueued result. */
   async recordDirectMergeEnqueued(repository: string, number: number, token: string): Promise<boolean> {
     return await this.transaction(async tx => {
       const key = this.directMergeKey(repository, number)

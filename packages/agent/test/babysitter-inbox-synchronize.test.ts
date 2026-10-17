@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { PullRequestInbox } from '../src/server/github-inbox/store.ts'
+import { PullRequestInbox } from '../src/presets/babysitter/inbox/store.ts'
 
 const repository = 'vite-hub/vitehub'
 const pullRequest = (head: string, updatedAt: string) => ({

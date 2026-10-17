@@ -2,10 +2,31 @@ import * as v from 'valibot'
 import { parseEvidence, parsePullRequest, parseThread, type GitHubReviewThread, type GitHubEvidence, type GitHubDelivery, type GitHubPullRequestRecord } from './types.ts'
 import { createHash } from 'node:crypto'
 import { type Claim, type PullRequestInbox, type Snapshot } from './store.ts'
+import { listReviewThreads, repoRef, type GitHubProvider } from '@vite-hub/forge'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
 export type ReadThreads = (repository: string, number: number) => Promise<GitHubReviewThread[]>
 export type ReadGraphql = (query: string, variables: Record<string, string | number | null>) => Promise<unknown>
+
+/** Read review conversations through the Forge GitHub gap helper. */
+export async function readForgePullRequestThreads(provider: GitHubProvider, repository: string, number: number): Promise<GitHubReviewThread[]> {
+  const repo = repoRef(provider, repository)
+  const ref = { forge: provider.forge, instance: provider.instance, repo, kind: 'pull_request' as const, number: String(number) }
+  const threads = await listReviewThreads(provider, ref)
+  return threads.map(thread => ({
+    id: thread.id,
+    node_id: thread.id,
+    isResolved: thread.resolved,
+    isOutdated: thread.outdated,
+    ...(thread.path === undefined ? {} : { path: thread.path }),
+    ...(thread.line === undefined ? {} : { line: thread.line }),
+    ...(thread.originalLine === undefined ? {} : { originalLine: thread.originalLine }),
+    ...(thread.startLine === undefined ? {} : { startLine: thread.startLine }),
+    ...(thread.originalStartLine === undefined ? {} : { originalStartLine: thread.originalStartLine }),
+    comments: thread.comments.map(comment => ({ id: comment.restId ?? comment.id, node_id: comment.id })),
+    resolutionSource: 'forge',
+  }))
+}
 const index = (items: GitHubEvidence[]) => Object.fromEntries(items.map(item => [String(item.id), item]))
 const pageInfo = v.object({ hasNextPage: v.boolean(), endCursor: v.nullish(v.string()) })
 const commentConnection = v.object({ nodes: v.array(v.object({ id: v.string(), databaseId: v.nullish(v.number()) })), pageInfo })

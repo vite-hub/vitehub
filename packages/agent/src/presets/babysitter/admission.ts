@@ -1,6 +1,6 @@
 import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
 import type { AgentInvocations } from "../../invocations.ts";
-import type { Snapshot } from "../../server/github-inbox.ts";
+import type { Snapshot } from "./inbox/store.ts";
 import { statfs } from "node:fs/promises";
 import { tmpdir } from "node:os";
 /** A reason to stop model passes, returned by `admission.check`. */

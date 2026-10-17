@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PullRequestInbox, type Snapshot } from "../src/server/github-inbox.ts";
+import { PullRequestInbox, type Snapshot } from "../src/presets/babysitter/inbox/store.ts";
 import { createCheckWait, hasPendingChecks, reviewCheckRunning, shouldKeepWaiting, wakeReasons, type BabysitterWaitPolicy } from "../src/presets/babysitter/wait.ts";
 import { snapshotCheckEvidence } from "../src/presets/babysitter/merge.ts";
 import { stackRetargetBase } from "../src/presets/babysitter/stack.ts";

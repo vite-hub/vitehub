@@ -1,4 +1,4 @@
-import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
+import type { BranchRules } from "@vite-hub/forge";
 export type GitHubRequiredCheck = { context: string; appId: number | null };
 export type GitHubRequiredCheckPolicy = {
   repository: string;
@@ -10,65 +10,8 @@ export type GitHubRequiredCheckPolicy = {
   reason?: string;
   classicSource?: "protection-endpoint" | "branch-summary" | "unprotected-branch";
 };
-export type GitHubCheckPolicyResponse = {
-  status: number;
-  data?: unknown;
-  /** Rules only: rel="next" target relative to the complete API base, including its pathname; null when absent. */
-  nextPage?: string | null;
-};
-export type GitHubReadCheckPolicy = (path: string) => Promise<GitHubCheckPolicyResponse>;
-type RecordValue = Record<string, unknown>;
-const record = (value: unknown): RecordValue | undefined =>
-  isRuntimeRecord(value) && !Array.isArray(value) ? value : undefined;
-const appId = (value: unknown): number | null => {
-  if (value === undefined || value === null || value === -1) return null;
-  if (!hasRuntimeType(value, "number") || !Number.isInteger(value) || value < 0)
-    throw new Error("Invalid required-check integration ID");
-  return value;
-};
-function check(value: unknown, source: "rule" | "classic"): GitHubRequiredCheck {
-  const item = record(value);
-  if (!item || !hasRuntimeType(item.context, "string") || !item.context.trim())
-    throw new Error("Incomplete required-check context");
-  return {
-    context: item.context,
-    appId: appId(source === "rule" ? item.integration_id : item.app_id),
-  };
-}
-function rulesChecks(data: unknown): GitHubRequiredCheck[] {
-  if (!Array.isArray(data)) throw new Error("Incomplete active branch rules response");
-  return data.flatMap((value) => {
-    const rule = record(value);
-    if (!rule || !hasRuntimeType(rule.type, "string"))
-      throw new Error("Incomplete active branch rule");
-    if (rule.type === "workflows" || rule.type === "required_workflows")
-      throw new Error("Required workflow rules cannot be reduced to check contexts");
-    if (rule.type !== "required_status_checks") return [];
-    const parameters = record(rule.parameters);
-    if (!Array.isArray(parameters?.required_status_checks))
-      throw new Error("Incomplete ruleset required-check parameters");
-    return parameters.required_status_checks.map((item: unknown) => check(item, "rule"));
-  });
-}
-function classicChecks(data: unknown): GitHubRequiredCheck[] {
-  const policy = record(data);
-  if (
-    !policy ||
-    !Array.isArray(policy.contexts) ||
-    (policy.checks !== undefined && !Array.isArray(policy.checks))
-  )
-    throw new Error("Incomplete classic status-check protection");
-  const bound: GitHubRequiredCheck[] = (Array.isArray(policy.checks) ? policy.checks : []).map(
-    (item: unknown) => check(item, "classic"),
-  );
-  for (const context of policy.contexts) {
-    if (!hasRuntimeType(context, "string") || !context.trim())
-      throw new Error("Incomplete classic required-check context");
-    // contexts repeats the check names but loses their app binding.
-    if (!bound.some((item) => item.context === context)) bound.push({ context, appId: null });
-  }
-  return bound;
-}
+/** Read the branch rules of one branch, for example with `branchRules()` from `@vite-hub/forge`. */
+export type GitHubReadBranchRules = (repository: string, branch: string) => Promise<BranchRules>;
 
 export interface GitHubRequiredCheckPolicyReader {
   read(repository: string, branch: string): Promise<GitHubRequiredCheckPolicy>;
@@ -78,42 +21,12 @@ export interface GitHubRequiredCheckPolicyReader {
 
 /** Cache authoritative policy, including explicit unknown results; never infer CI requirements from names. */
 export function createGitHubRequiredCheckPolicyReader(
-  read: GitHubReadCheckPolicy,
+  read: GitHubReadBranchRules,
   options: { clock?: () => number; ttlMs?: number; failureTtlMs?: number } = {},
 ): GitHubRequiredCheckPolicyReader {
   const clock = options.clock ?? Date.now;
   const cache = new Map<string, { expires: number; value: GitHubRequiredCheckPolicy }>();
   const active = new Map<string, Promise<GitHubRequiredCheckPolicy>>();
-  const request = async (path: string): Promise<GitHubCheckPolicyResponse> => {
-    try {
-      return await read(path);
-    } catch {
-      return { status: 0 };
-    }
-  };
-  const requestAllRules = async (path: string): Promise<GitHubCheckPolicyResponse> => {
-    const pages: unknown[] = [];
-    let next = `${path}?per_page=100&page=1`;
-    const visited = new Set<string>();
-    for (let page = 1; page <= 1000; page++) {
-      if (visited.has(next)) return { status: 0 };
-      visited.add(next);
-      const response = await request(next);
-      if (response.status !== 200 || !Array.isArray(response.data)) return response;
-      pages.push(...response.data);
-      if (response.nextPage === null) return { status: 200, data: pages };
-      if (
-        !hasRuntimeType(response.nextPage, "string") ||
-        !response.nextPage.trim() ||
-        response.nextPage.startsWith("/") ||
-        response.nextPage.includes("\\") ||
-        /^[a-z][a-z\d+.-]*:/i.test(response.nextPage)
-      )
-        return { status: 0 };
-      next = response.nextPage;
-    }
-    return { status: 0 };
-  };
   async function fetch(repository: string, branch: string): Promise<GitHubRequiredCheckPolicy> {
     const base: GitHubRequiredCheckPolicy = {
       repository,
@@ -123,69 +36,10 @@ export function createGitHubRequiredCheckPolicyReader(
       fetchedAt: new Date(clock()).toISOString(),
       required: [],
     };
-    const prefix = `repos/${repository}`,
-      encodedBranch = encodeURIComponent(branch);
-    const [rules, classic] = await Promise.all([
-      requestAllRules(`${prefix}/rules/branches/${encodedBranch}`),
-      request(`${prefix}/branches/${encodedBranch}/protection/required_status_checks`),
-    ]);
     try {
-      if (rules.status !== 200)
-        throw new Error(`Active branch rules unavailable (HTTP ${rules.status})`);
-      const required = rulesChecks(rules.data);
-      let classicSource: GitHubRequiredCheckPolicy["classicSource"] = "protection-endpoint";
-      if (classic.status === 200) required.push(...classicChecks(classic.data));
-      else if (classic.status === 403 || classic.status === 404) {
-        // Get-a-branch is documented with the complete required-status-check
-        // summary (contexts + checks/app IDs) and only needs Contents:read.
-        // This avoids demanding Administration:read from the worker App.
-        const branchState = await request(`${prefix}/branches/${encodedBranch}`);
-        const branch = record(branchState.data);
-        if (branchState.status !== 200) throw new Error("Branch protection summary unavailable");
-        if (branch?.protected === false) classicSource = "unprotected-branch";
-        else {
-          const protection = record(branch?.protection);
-          const summary = record(protection?.required_status_checks);
-          if (branch?.protected !== true || protection?.enabled !== true)
-            throw new Error("Branch protection summary is incomplete");
-          classicSource = "branch-summary";
-          // Other classic protection rules do not imply required status checks.
-          if ("required_status_checks" in protection) {
-            if (
-              !summary ||
-              !Array.isArray(summary.contexts) ||
-              !Array.isArray(summary.checks) ||
-              !["everyone", "non_admins", "off"].includes(String(summary.enforcement_level))
-            )
-              throw new Error(
-                "Classic protection response is ambiguous; branch summary is incomplete",
-              );
-            if (
-              summary.enforcement_level === "off" &&
-              (summary.contexts.length || summary.checks.length)
-            )
-              throw new Error("Disabled status-check summary contains ambiguous requirements");
-            const checks = summary.checks;
-            if (
-              summary.contexts.some(
-                (context) => !checks.some((item) => record(item)?.context === context),
-              )
-            )
-              throw new Error("Branch summary omits required-check integration bindings");
-            required.push(...classicChecks(summary));
-          }
-        }
-      } else throw new Error(`Classic protection unavailable (HTTP ${classic.status})`);
-      return {
-        ...base,
-        status: "known",
-        classicSource,
-        required: [
-          ...new Map(
-            required.map((item) => [`${item.context}\0${item.appId ?? "*"}`, item]),
-          ).values(),
-        ],
-      };
+      const rules = await read(repository, branch);
+      if (rules.requiredWorkflows) throw new Error("Required workflow rules cannot be reduced to check contexts");
+      return { ...base, status: "known", classicSource: rules.classicSource, required: rules.requiredChecks };
     } catch (error) {
       return {
         ...base,

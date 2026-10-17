@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { github } from "../src/channels.ts";
 import { publishAgentActivity } from "../src/index.ts";
-import { PullRequestInbox } from "../src/server/github-inbox.ts";
-import type { StatusDelivery } from "../src/server/github-inbox/status-delivery.ts";
+import { PullRequestInbox } from "../src/presets/babysitter/inbox/store.ts";
+import type { StatusDelivery } from "../src/presets/babysitter/inbox/status-delivery.ts";
 import { createBabysitterStatusRecovery } from "../src/presets/babysitter/status-recovery.ts";
 const head = 'a'.repeat(40)
 const repository = 'acme/app'
