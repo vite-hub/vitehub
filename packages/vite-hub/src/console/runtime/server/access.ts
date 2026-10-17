@@ -62,6 +62,11 @@ function rejection(status: number, code: ConsoleDiagnosticCode, message?: string
 function responsePrototype(value: object): { prototype: object, status: () => unknown, clone: (...args: never[]) => unknown } | undefined {
   let prototype: object | null = value
   while (prototype) {
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    if (typeof constructor !== "function" || constructor.prototype !== prototype || constructor.name !== "Response") {
+      prototype = Object.getPrototypeOf(prototype)
+      continue
+    }
     const status = Object.getOwnPropertyDescriptor(prototype, "status")?.get
     const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
     if (typeof status === "function" && typeof clone === "function") {
@@ -171,40 +176,6 @@ function isRequestLike(value: unknown): value is Request {
   catch { return false }
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
-  if (value instanceof Response) return true
-  try {
-    const response = value as Record<string, unknown>
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
-    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
-    if (typeof status === "number" && headers && typeof (headers as { get?: unknown }).get === "function") return true
-  }
-  catch { /* a foreign implementation may not share native internal slots */ }
-  try {
-    const headers = responseHeaders(value)
-    const tag = Object.prototype.toString.call(value)
-    const headersTag = headers && Object.prototype.toString.call(headers)
-    const headersConstructor = headers && (headers as { constructor?: unknown }).constructor
-    const response = value as Record<string, unknown>
-    const responseConstructor = response.constructor
-    return (tag === "[object Response]" || (typeof responseConstructor === "function" && responseConstructor.name === "Response"))
-      && typeof response.status === "number"
-      && typeof response.statusText === "string"
-      && typeof response.bodyUsed === "boolean"
-      && "body" in response
-      && headers !== undefined
-      && typeof (headers as { get?: unknown }).get === "function"
-      && (headersTag === "[object Headers]" || (typeof headersConstructor === "function" && headersConstructor.name === "Headers"))
-      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof (value as Record<string, unknown>)[method] === "function")
-  }
-  catch { return false }
-}
-
-function responseHeaders(value: object): unknown {
-  try { return Reflect.get(value, "headers") } catch { return undefined }
-}
-
 function isSectionId(value: unknown): value is ConsoleSectionId {
   return typeof value === "string" && value.length > 0
 }
@@ -242,7 +213,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       return rejection(500, "CONSOLE_AUTHORIZE_REQUIRED")
     }
     const result = await policy.authorize({ request: consoleRequest(event) })
-    if (isResponseLike(result)) return result
+    const response = await authorizationResponse(result)
+    if (response) return response
     authorization = result
   }
   else {
