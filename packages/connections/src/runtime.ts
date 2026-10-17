@@ -1,6 +1,7 @@
 import { connectionEnvAccess } from "@vite-hub/env/internal/connections"
 import * as v from "valibot"
 
+import { createRequestScheduler } from "./requests.ts"
 import { createConnectionTransport } from "./transport.ts"
 import { isApiKeyProvider } from "./api-key.ts"
 import { ConnectionError, isConnectionError, isEnvBridgeError, normalizeConnectionError } from "./errors.ts"
@@ -196,6 +197,7 @@ async function readResponse(response: Response): Promise<unknown> {
 /** Create the Connections runtime. Applications normally use `useConnection()` instead. */
 export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): ConnectionsRuntime {
   const request = options.fetch ?? ((input: Parameters<typeof fetch>[0], init?: RequestInit) => fetch(input, init))
+  const scheduler = createRequestScheduler()
   const now = options.now ?? Date.now
   const refreshing = new Map<string, Promise<StoredToken>>()
   // Provider revocation can invalidate an entire grant. Serialize token
@@ -637,7 +639,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const resolveContext = () => (context ??= (async () => {
       const actor = callerActor(options)
       const loaded = await definition(name)
-      return { actor, definition: loaded, name, options, transport: createConnectionTransport(name, loaded, request) }
+      return { actor, definition: loaded, name, options, transport: createConnectionTransport(name, loaded, request, scheduler) }
     })())
     return {
       async call(action: string, input?: unknown, callOptions?: { signal?: AbortSignal }): Promise<unknown> {
@@ -659,6 +661,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       actions: connectionActions(loaded),
       connectedAt: state?.connectedAt,
       credential: isApiKeyProvider(loaded.provider) ? "api-key" : "oauth2",
+      ...(loaded.provider.mcp ? { mcp: loaded.provider.mcp } : {}),
       name,
       provider: loaded.provider.id,
       refreshedAt: state?.refreshedAt,
@@ -1017,7 +1020,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       const stored = v.parse(approvalInputSchema, approval.input)
       const loaded = await definition(approval.name)
       const context: CallContext = {
-        transport: createConnectionTransport(approval.name, loaded, request),
+        transport: createConnectionTransport(approval.name, loaded, request, scheduler),
         actor: approval.actor,
         approved: true,
         approvedGrantId: stored.grantId,

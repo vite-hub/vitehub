@@ -383,6 +383,7 @@ export type {
   McpCapabilityOptions,
   McpClient,
   McpClientConfig,
+  McpConnectionServerConfig,
   McpServerConfig,
   McpToolFingerprints,
   McpToolInputSchema,
