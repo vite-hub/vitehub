@@ -21,6 +21,7 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
 }));
 const componentPages = pages.filter(
   (page) => !["index.md", "installation.md"].includes(page.name) && !/^layout: tutorial$/m.test(page.source) && !page.name.startsWith("blocks/"),
+
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -119,6 +120,17 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
+  it("uses the wide component layout without the desktop outline", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const styles = readFileSync(resolve(docsRoot, "app/assets/main.css"), "utf8");
+
+    expect(page).toContain('path.startsWith("/docs/ui/")');
+    expect(page).toContain('root: "lg:!grid-cols-1 lg:!gap-0"');
+    expect(page).toContain('<DocsAsideRight v-if="!isUiPage"');
+    expect(styles).toContain(".docs-ui-page-shell");
+    expect(styles).toContain("max-width: 68rem");
+  });
+
   it("gives invocation previews fixed-height containing blocks", () => {
     const invocation = readFileSync(resolve(examplesRoot, "InvocationExample.vue"), "utf8");
     const inspector = readFileSync(
@@ -165,13 +177,12 @@ describe("UI documentation", () => {
     expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow-x: clip;");
-    expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toContain("hidden lg:block");
+    expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: visible;");
     expect(layout).toContain('<UPageAside class="vh-docs-aside">');
     expect(layout).toMatch(/\.vh-docs-aside \{\s*display: none;/);
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
+
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {

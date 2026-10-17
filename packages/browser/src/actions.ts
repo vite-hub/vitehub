@@ -28,15 +28,23 @@ function normalizeInput(input: BrowserActionInput): Record<string, unknown> {
 
 function actionTimeoutMs(input: Record<string, unknown>): number {
   let requestedTimeoutMs = 0
+  const ancestors = new WeakSet<object>()
   const visit = (value: unknown) => {
     if (!value || typeof value !== "object") return
-    for (const [key, nestedValue] of Object.entries(value)) {
-      if ((key === "timeout" || key.endsWith("Timeout")) && typeof nestedValue === "number" && nestedValue > 0) {
-        requestedTimeoutMs += Math.min(nestedValue, MAX_PROVIDER_TIMEOUT_MS)
+    if (ancestors.has(value)) return
+    ancestors.add(value)
+    try {
+      for (const [key, nestedValue] of Object.entries(value)) {
+        if ((key === "timeout" || key.endsWith("Timeout")) && typeof nestedValue === "number" && nestedValue > 0) {
+          requestedTimeoutMs += Math.min(nestedValue, MAX_PROVIDER_TIMEOUT_MS)
+        }
+        else {
+          visit(nestedValue)
+        }
       }
-      else {
-        visit(nestedValue)
-      }
+    }
+    finally {
+      ancestors.delete(value)
     }
   }
   visit(input)

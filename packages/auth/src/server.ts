@@ -569,7 +569,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null
       || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    if (value instanceof Response && bodyUsed !== true && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (bodyUsed === true && body !== null) return
     if (!isSerializableAuthorizationBody(body)) return
     const headerMethods = authorizationHeaderMethods(headerCarrier)

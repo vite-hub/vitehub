@@ -158,6 +158,10 @@
       "require": "./dist/runtime/workspace.js",
       "default": "./dist/runtime/workspace.js"
     },
+    "./internal/path": {
+      "types": "./dist/internal/path.d.ts",
+      "import": "./dist/internal/path.js"
+    },
     "./internal/stores/github": {
       "types": "./dist/providers/github/store.d.ts",
       "import": "./dist/providers/github/store.js",
