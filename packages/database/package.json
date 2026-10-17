@@ -85,6 +85,12 @@
       "require": "./dist/runtime/d1.js",
       "default": "./dist/runtime/d1.js"
     },
+    "./runtime/default-database": {
+      "types": "./dist/runtime/default-database.d.ts",
+      "import": "./dist/runtime/default-database.js",
+      "require": "./dist/runtime/default-database.js",
+      "default": "./dist/runtime/default-database.js"
+    },
     "./runtime/hosted": {
       "types": "./dist/runtime/hosted.d.ts",
       "import": "./dist/runtime/hosted.js",

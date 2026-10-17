@@ -11,6 +11,7 @@ import {
 } from "@vite-hub/internal/definition-catalog"
 import { findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
+import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
 import { createRuntimeEnvConfigValue, resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { cloudflareOptions, mergeCloudflareConfig, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareHyperdriveBindingName } from "./internal/cloudflare.ts"
@@ -479,7 +480,37 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   }
 }
 
-export function discoverDatabaseDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredDatabaseDefinition[] {
+const implicitDefaultSource = "implicit-default"
+
+/**
+ * The empty default Database of an app that enables `database` without a Database Definition, for example for the
+ * tables of Connections. It is `defineDatabase({ schema: {} })` from a module that this package ships.
+ */
+function implicitDefaultDatabase(): DiscoveredDatabaseDefinition {
+  const handler = resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/default-database")
+  return { handler, mode: "default", name: "default", schemaSources: [{ handler, tableNames: [] }], source: implicitDefaultSource, tableNames: [] }
+}
+
+/** Reports whether a discovered Definition is the implicit default Database, which the app does not own. */
+export function isImplicitDefaultDatabase(definition: Pick<DiscoveredDatabaseDefinition, "source">): boolean {
+  return definition.source === implicitDefaultSource
+}
+
+export interface DatabaseDiscoveryOptions {
+  /**
+   * Without a Database Definition, return the implicit default Database. The Vite plugin sets it: an enabled
+   * database always has a default Database.
+   */
+  implicitDefault?: boolean
+  serverDirs?: string[]
+}
+
+export function discoverDatabaseDefinitions(rootDir: string, options: DatabaseDiscoveryOptions = {}): DiscoveredDatabaseDefinition[] {
+  const definitions = discoverAppDatabaseDefinitions(rootDir, options)
+  return definitions.length || !options.implicitDefault ? definitions : [implicitDefaultDatabase()]
+}
+
+function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscoveryOptions): DiscoveredDatabaseDefinition[] {
   const serverDirs = options.serverDirs ?? [resolve(rootDir, "server")]
   const found = [
     ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
@@ -508,9 +539,13 @@ function isWithinDirectory(directory: string, file: string) {
   return Boolean(path) && !path.startsWith("..") && !isAbsolute(path)
 }
 
-/** Keeps migrations in the application, also when a Nuxt layer owns the database options. */
+/**
+ * Keeps migrations in the application, also when a Nuxt layer owns the database options. The implicit default
+ * Database uses the directory that `server/databases/config.ts` would use.
+ */
 function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition, serverDirs: string[] | undefined) {
   const [appServerDir, ...layerServerDirs] = serverDirs ?? []
+  if (isImplicitDefaultDatabase(definition)) return relative(rootDir, resolve(appServerDir ?? resolve(rootDir, "server"), "databases", "migrations"))
   const ownedByLayer = appServerDir !== undefined && !isWithinDirectory(appServerDir, definition.handler)
     && layerServerDirs.some(directory => isWithinDirectory(directory, definition.handler))
   const directory = ownedByLayer
@@ -583,6 +618,8 @@ export function resolveDBViteConfig(
   context: {
     /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
     contributions?: readonly CollectedDatabaseContribution[]
+    /** Without a Database Definition, resolve the implicit default Database. See `discoverDatabaseDefinitions()`. */
+    implicitDefault?: boolean
     provisionRoot?: string
     serverDirs?: string[]
   } = {},

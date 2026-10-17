@@ -256,6 +256,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     if (!resolved) return
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
       contributions,
+      implicitDefault: true,
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
     })
@@ -350,6 +351,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
             kind: "database",
             label: "Databases",
             list: () => inspectDatabaseDefinitions({
+              implicitDefault: true,
               plugins: resolved?.plugins,
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
               rootDir: databaseRoot(),

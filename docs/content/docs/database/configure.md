@@ -49,6 +49,8 @@ A Database Definition keeps the Database Table Schema next to the server code th
 
 A project uses either one Default Database or a set of Named Databases. Mixing both modes, or declaring two Default Databases, fails discovery.
 
+An enabled Vite Database without a Definition is one empty Default Database. It works like `server/databases/config.ts` with `defineDatabase({ schema: {} })`: it uses `database.connection`, keeps migrations in `server/databases/migrations`, receives contributed tables, and is listed by `vitehub inspect` and the Console. Connections use it for their tables. The Nuxt module does not add it.
+
 ```ts [src/database.ts]
 import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'

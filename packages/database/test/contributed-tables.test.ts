@@ -153,6 +153,28 @@ describe("contribution targets", () => {
     expect(() => resolveDBViteConfig(undefined, rootDir, { contributions: contributions(historyContribution) })).toThrow(expect.objectContaining({ code: "DATABASE_B0011" }))
     expect(resolveDBViteConfig(false, rootDir, { contributions: contributions(historyContribution) })).toBeUndefined()
   })
+
+  it("targets the implicit default Database when the app has no Database Definition", async () => {
+    const rootDir = await createProject({})
+
+    const config = resolveDBViteConfig(undefined, rootDir, { contributions: contributions(historyContribution), implicitDefault: true })
+
+    expect(config?.databaseNames).toEqual(["default"])
+    expect(config?.tableContributionsByDatabase.default).toEqual([expect.objectContaining({ database: "default", name: historyContribution.name })])
+
+    // drizzle-kit writes the migration where `server/databases/config.ts` would keep it.
+    await writeGeneratedDatabaseArtifacts(config!)
+    await execFileAsync(process.execPath, [
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      "generate",
+      "--config",
+      config!.generatedDrizzleConfigFile,
+    ], { cwd: rootDir })
+    const migrationsDir = join(rootDir, "server/databases/migrations")
+    const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
+    const sql = await readFile(join(migrationsDir, migration), "utf8")
+    expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual(["CREATE TABLE `history_refs`", "CREATE TABLE `history_revisions`"])
+  }, 60_000)
 })
 
 describe("contributed tables in generated artifacts", () => {

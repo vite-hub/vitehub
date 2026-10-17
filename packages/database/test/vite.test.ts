@@ -776,6 +776,23 @@ describe("hubDb", () => {
     }
   })
 
+  it("uses and inspects the implicit default Database when the app has no Database Definition", async () => {
+    const rootDir = await createTempProject()
+
+    const plugin = hubDb({ connection: { url: "file:/data/database/sqlite.db" } })
+    await resolveConfigResolved(plugin)({ root: rootDir })
+
+    expect(plugin.api.getConfig()?.databases.default).toMatchObject({
+      connection: { url: "file:/data/database/sqlite.db" },
+      migrationsDir: "server/databases/migrations",
+    })
+    const inspect = plugin.vitehub?.inspect
+    const inspection = typeof inspect === "function" ? await inspect() : undefined
+    const [definition] = await inspection!.definitions![0]!.list()
+    expect(definition).toMatchObject({ name: "default", source: "implicit-default" })
+    expect(definition?.fields).toContainEqual(expect.objectContaining({ label: "Definition", value: expect.stringContaining("Implicit") }))
+  })
+
   it("lets top-level config disable the database plugin", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts")
