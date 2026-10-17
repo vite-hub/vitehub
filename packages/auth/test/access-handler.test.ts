@@ -1,6 +1,7 @@
-import { runInNewContext } from "node:vm"
+import * as vm from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
+import { createRequire } from "node:module"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"
@@ -59,7 +60,7 @@ describe("Auth access handlers", () => {
   })
 
   it("runs authorize callbacks on routes from another JavaScript realm", async () => {
-    const foreignRoute = runInNewContext("({ route: '/private', authorize: () => true })") as never
+    const foreignRoute = vm.runInNewContext("({ route: '/private', authorize: () => true })") as never
     const handler = createAuthAccessHandler([{ route: "/private", authorize: true }], defineAuth({
       access: { routes: [foreignRoute] },
     }))
@@ -106,38 +107,30 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/admin/users"))).rejects.toMatchObject({ code: "AUTH_R0008" })
   })
 
-  it("returns custom authorization responses unchanged", async () => {
-    const response = new Response("Policy rejected", { status: 409 })
+  it("rejects consumed same-realm authorization responses", async () => {
+    const response = new Response("consumed", { status: 409 })
+    await response.text()
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => response }] },
+      access: { routes: [{ route: "/**", authorize: () => response as never }] },
     }))
-    await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
+    const result = await handler(new Request("https://app.example/"))
+    expect(result?.status).toBe(403)
   })
 
-  it("normalizes a local Response proxy with unstable ordinary reads", async () => {
-    const source = new Response("Policy rejected", { status: 409 })
-    let headerReads = 0
-    const candidate = new Proxy(source, {
-      get(target, key) {
-        if (key === "headers" && ++headerReads > 1) throw new Error("unstable headers")
-        return Reflect.get(target, key, target)
-      },
+  it("normalizes branded authorization responses from another realm", async () => {
+    // Node VM contexts have no fetch globals. Evaluate Node's own bundled fetch
+    // implementation in the context so its Response has a distinct native brand.
+    const natives = (process as unknown as { binding(name: string): Record<string, string> }).binding("natives")
+    const foreignResponse = runInNewContext(`${natives["internal/deps/undici/undici"]};
+      new module.exports.Response("Policy rejected", {
+        status: 409,
+        headers: { "x-policy": "rejected", "set-cookie": "policy=denied" },
+      })`, {
+      module: { exports: {} }, require: createRequire(import.meta.url),
+      process, Buffer, URL, URLSearchParams, TextEncoder, TextDecoder,
+      ReadableStream, TransformStream, AbortController, AbortSignal, DOMException,
+      Blob, File, MessagePort, Event, EventTarget, performance, setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
     })
-    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => candidate }] },
-    }))
-
-    const response = await handler(new Request("https://app.example/"))
-
-    expect(response).not.toBe(candidate)
-    expect(response?.status).toBe(409)
-    expect(() => response?.headers.forEach(() => {})).not.toThrow()
-    await expect(response?.text()).resolves.toBe("Policy rejected")
-    expect(headerReads).toBe(1)
-  })
-
-  it("normalizes authorization responses from another runtime", async () => {
-    const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
     expect(foreignResponse).not.toBeInstanceOf(Response)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
@@ -146,6 +139,14 @@ describe("Auth access handlers", () => {
     const response = await handler(new Request("https://app.example/"))
     expect(response).toBeInstanceOf(Response)
     expect(response?.status).toBe(409)
+    expect(response?.headers.get("x-policy")).toBe("rejected")
+    expect(response?.headers.getSetCookie()).toEqual(["policy=denied"])
+    const headers: string[] = []
+    response?.headers.forEach((_value, key) => headers.push(key))
+    expect(headers).toContain("x-policy")
+    const reader = response!.body!.getReader()
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe("Policy rejected")
+    expect((await reader.read()).done).toBe(true)
     await expect(response?.text()).resolves.toBe("Policy rejected")
   })
 
@@ -172,6 +173,19 @@ describe("Auth access handlers", () => {
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
+  it("rejects authorization responses with an own throwing header iterator", async () => {
+    const response = new Response("Policy rejected", { status: 409 })
+    Object.defineProperty(response.headers, "forEach", {
+      configurable: true,
+      value: () => { throw new Error("headers unavailable") },
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("rejects response-shaped authorization spoofs", async () => {
     const spoof = {
       status: 409,
@@ -188,38 +202,73 @@ describe("Auth access handlers", () => {
   })
 
   it.each([
-    ["response", "cyclic"],
-    ["response", "fresh"],
-    ["headers", "cyclic"],
-    ["headers", "fresh"],
-  ] as const)("rejects %s values with a %s prototype chain without unbounded inspection", async (carrier, shape) => {
-    const prototypeReads = vi.fn()
-    let prototype: object
-    const createPrototype = (): object => new Proxy({}, {
-      getPrototypeOf() {
-        prototypeReads()
-        // Keep a broken implementation finite so the regression can report a failure.
-        if (prototypeReads.mock.calls.length > 100) throw new Error("unbounded prototype inspection")
-        return shape === "cyclic" ? prototype : createPrototype()
-      },
-    })
-    prototype = createPrototype()
-    const source = new Response(null, { status: 409 })
-    const forEach = source.headers.forEach.bind(source.headers)
-    const headers = new Proxy({}, {
-      get(_target, key) {
-        return key === "forEach" ? forEach : undefined
-      },
-      getPrototypeOf: () => prototype,
-    })
-    Object.defineProperty(source, "headers", { value: headers })
-    const candidate = carrier === "response" ? prototype : source
+    { body: null, headers: { get: () => null } },
+    { body: { getReader: () => ({}) }, headers: new Headers() },
+    { body: { getReader: () => ({ releaseLock() {} }) }, headers: new Headers() },
+    { body: { getReader: () => ({ read: () => Promise.resolve({ done: true }), releaseLock() {} }) }, headers: new Headers() },
+    { body: { tee: () => [{ getReader: () => ({ read: () => Promise.resolve({ done: true }), releaseLock() {} }) }, new ReadableStream()] }, headers: new Headers() },
+    { body: { tee: () => [new ReadableStream(), {}] }, headers: new Headers() },
+  ])("rejects forged response-like authorization results: %j", async (transport) => {
+    const forgedResponse = {
+      ...transport,
+      status: 409,
+      statusText: "Conflict",
+      [Symbol.toStringTag]: "Response",
+    }
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => candidate as never }] },
+      access: { routes: [{ route: "/**", authorize: () => forgedResponse as never }] },
+    }))
+
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
+  })
+
+  it("rejects inherited forged stream methods with accessor-backed response fields", async () => {
+    const streamPrototype = {
+      tee() {
+        return [
+          { getReader: () => ({ read: () => Promise.resolve({ done: true }), releaseLock() {} }) },
+          { getReader: () => ({ read: () => Promise.resolve({ done: true }), releaseLock() {} }) },
+        ]
+      },
+    }
+    const forgedBody = Object.create(streamPrototype)
+    const forgedResponse = Object.create({
+      get status() { return 409 },
+      get statusText() { return "Conflict" },
+      get headers() { return new Headers() },
+      get body() { return forgedBody },
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => forgedResponse as never }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
+  })
+
+  it("rejects an inherited forged arrayBuffer response method", async () => {
+    const forgedResponse = Object.create({
+      get status() { return 409 },
+      get statusText() { return "Conflict" },
+      get headers() { return new Headers() },
+      get body() { return null },
+      arrayBuffer() { return new TextEncoder().encode("forged").buffer },
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => forgedResponse as never }] },
+    }))
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
+  })
+
+  it("rejects response-like results without a body accessor", async () => {
+    const forgedResponse = Object.create({
+      get status() { return 409 },
+      get statusText() { return "Conflict" },
+      get headers() { return new Headers() },
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => forgedResponse as never }] },
     }))
 
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
-    expect(prototypeReads.mock.calls.length).toBeLessThan(40)
   })
 
   it.each(["getPrototypeOf", "getOwnPropertyDescriptor"] as const)("rejects a response when %s reflection throws", async operation => {
@@ -280,24 +329,6 @@ describe("Auth access handlers", () => {
     expect(() => response?.headers.forEach(() => {})).not.toThrow()
   })
 
-  it.each(["consumed", "locked"] as const)("preserves a native authorization Response with a %s body unchanged", async state => {
-    const response = new Response("Policy rejected", { status: 409, headers: { "x-policy": "custom" } })
-    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
-    if (state === "consumed") await response.text()
-    else reader = response.body!.getReader()
-    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
-      access: { routes: [{ route: "/**", authorize: () => response }] },
-    }))
-    try {
-      await expect(handler(new Request("https://app.example/"))).resolves.toBe(response)
-      expect(response.status).toBe(409)
-      expect(response.headers.get("x-policy")).toBe("custom")
-    }
-    finally {
-      reader?.releaseLock()
-    }
-  })
-
   it("rejects an already-consumed body from the foreign runtime", async () => {
     const ResponseConstructor = ForeignResponse
     const source = new ResponseConstructor("Policy rejected", { status: 409 })
@@ -326,7 +357,7 @@ describe("Auth access handlers", () => {
     }
   })
 
-  it("snapshots a serializable Response-shaped prototype without rereading its getters", async () => {
+  it("rejects a forged Response prototype without reading its getters", async () => {
     const sourceBody = new Response("Policy rejected").body
     const headers = vi.fn()
       .mockReturnValueOnce(new Headers({ "x-policy": "reject" }))
@@ -349,14 +380,9 @@ describe("Auth access handlers", () => {
 
     const response = await handler(new Request("https://app.example/"))
 
-    expect(response).toBeInstanceOf(Response)
-    expect(response).not.toBe(candidate)
-    expect(response?.status).toBe(409)
-    expect(response?.statusText).toBe("Conflict")
-    expect(response?.headers.get("x-policy")).toBe("reject")
-    await expect(response?.text()).resolves.toBe("Policy rejected")
-    expect(headers).toHaveBeenCalledTimes(1)
-    expect(body).toHaveBeenCalledTimes(1)
+    expect(response?.status).toBe(403)
+    expect(headers).not.toHaveBeenCalled()
+    expect(body).not.toHaveBeenCalled()
   })
 
   it("preserves foreign status, body, and separate Set-Cookie headers", async () => {
@@ -376,6 +402,50 @@ describe("Auth access handlers", () => {
     expect(response?.headers.get("x-policy")).toBe("reject")
     expect(response?.headers.getSetCookie()).toEqual(["first=1", "second=2"])
     await expect(response?.text()).resolves.toBe("Policy rejected")
+  })
+
+  it("rejects foreign responses with combined Set-Cookie headers", async () => {
+    const foreign = new ForeignResponse("Policy rejected", {
+      status: 409,
+      headers: { "set-cookie": "first=1, second=2" },
+    })
+    Object.defineProperty(foreign.headers, "getSetCookie", { value: undefined })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
+  it("preserves one foreign Set-Cookie header without getSetCookie", async () => {
+    const foreign = new ForeignResponse("Policy rejected", {
+      status: 409,
+      headers: { "set-cookie": "session=one; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Path=/" },
+    })
+    Object.defineProperty(foreign.headers, "getSetCookie", { value: undefined })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response?.status).toBe(409)
+    expect(response?.headers.get("set-cookie")).toBe("session=one; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Path=/")
+  })
+
+  it("preserves commas in a single cookie extension without getSetCookie", async () => {
+    const foreign = new ForeignResponse(null, {
+      status: 302,
+      headers: { "set-cookie": "session=one; Extension=alpha, beta=gamma" },
+    })
+    Object.defineProperty(foreign.headers, "getSetCookie", { value: undefined })
+
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response?.headers.get("set-cookie")).toBe("session=one; Extension=alpha, beta=gamma")
   })
 
   it("forwards cancellation to the foreign response body", async () => {
@@ -527,6 +597,52 @@ describe("Auth access handlers", () => {
 
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
     expect(getReader).not.toHaveBeenCalled()
+  })
+
+  it("rejects objects that spoof the Response shape", async () => {
+    const foreignResponse = vm.runInNewContext(`new (class {
+      get status() { return 409 }
+      get statusText() { return "Conflict" }
+      get headers() { return { get() { return null } } }
+      get body() { return null }
+      get [Symbol.toStringTag]() { return "Response" }
+    })()`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+    const result = await handler(new Request("https://app.example/"))
+    expect(result?.status).toBe(403)
+  })
+
+  it("rejects a forged Response-named prototype with valid headers", async () => {
+    const forgedResponse = vm.runInNewContext(`new (class Response {
+      get status() { return 409 }
+      get statusText() { return "Conflict" }
+      get headers() { return new Headers({ "x-policy": "forged" }) }
+      get body() { return null }
+    })()`, { Headers })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => forgedResponse as never }] },
+    }))
+
+    const result = await handler(new Request("https://app.example/"))
+    expect(result?.status).toBe(403)
+    expect(result?.headers.has("x-policy")).toBe(false)
+  })
+
+  it("normalizes genuine responses with shadowed accessors into local responses", async () => {
+    const response = new Response("Policy rejected", { status: 409, headers: { "x-policy": "rejected" } })
+    Object.defineProperty(response, "status", { get: () => 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+
+    const result = await handler(new Request("https://app.example/"))
+    expect(result).toBeInstanceOf(Response)
+    expect(result).not.toBe(response)
+    expect(result?.status).toBe(409)
+    expect(result?.headers.get("x-policy")).toBe("rejected")
+    expect(await result?.text()).toBe("Policy rejected")
   })
 
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {

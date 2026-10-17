@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto"
-import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
-import { resolve } from "node:path"
+import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { createRequire } from "node:module"
+import { dirname, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
@@ -11,6 +13,7 @@ import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
 import { createDbCliContributor } from "./cli.ts"
+import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, resolveCloudflareD1Bindings } from "./internal/cloudflare.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
@@ -19,11 +22,14 @@ import { dbPackageName, generateProviderOutputs, prepareProviderOutputs, shouldC
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions } from "./inspect.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
+import { resolveSourceImport } from "./internal/source-dependencies.ts"
 
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
+import type { CollectedDatabaseContribution, DatabaseContributingPlugin } from "./contributions.ts"
+import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
@@ -31,6 +37,17 @@ export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
 const DB_VIRTUAL_DEFINITION_DEFAULTS_ID = "#vitehub/database/definition-defaults"
 export const DB_VITE_PLUGIN_NAME = "@vite-hub/database/vite"
 export { inspectDatabaseDefinitions, type DatabaseInspectionOptions } from "./inspect.ts"
+export { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "./contributions.ts"
+export type {
+  CollectedDatabaseContribution,
+  DatabaseContributingPlugin,
+  DatabaseContribution,
+  DatabaseContributionContext,
+  DatabaseContributionFactory,
+  DatabaseContributionFields,
+  DefaultDatabaseResolution,
+  ResolvedDatabaseContribution,
+} from "./contributions.ts"
 
 const DB_INTERNAL_VIRTUAL_SCHEMA_ID = "virtual:vitehub/database/schema"
 const DB_INTERNAL_VIRTUAL_DATABASES_ID = "virtual:vitehub/database/databases"
@@ -47,7 +64,7 @@ export interface DBVitePluginAPI {
 }
 
 interface DBCliContributingPlugin {
-  vitehub?: {
+  vitehub?: NonNullable<DatabaseContributingPlugin["vitehub"]> & {
     cli?: () => Promise<ViteHubCliContributor | undefined>
     inspect?: () => ViteHubInspectionContributor | undefined
   }
@@ -69,6 +86,10 @@ export type DBVitePlugin = Plugin & DBCliContributingPlugin & {
 }
 
 const mergeNoExternal = createNoExternalAddition(dbPackageName)
+
+function viteStringAliases(alias: ResolvedConfig["resolve"]["alias"] | undefined): Record<string, string> {
+  return Object.fromEntries((alias ?? []).flatMap(entry => String(entry.find) === entry.find ? [[String(entry.find), entry.replacement]] : []))
+}
 
 function resolveDatabaseVirtualId(id: string) {
   if (id === DB_VIRTUAL_SCHEMA_ID || id === DB_INTERNAL_VIRTUAL_SCHEMA_ID) return RESOLVED_DB_VIRTUAL_SCHEMA_ID
@@ -122,6 +143,53 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
   ].join("\n")
 }
 
+
+function normalizeModulePath(id: string) {
+  return normalize(id.split("?", 1)[0]!)
+}
+
+function moduleGraphContainsFile(server: Pick<ViteDevServer, "moduleGraph">, entry: string, changedFile: string, affected: readonly ModuleNode[] = []) {
+  const root = server.moduleGraph.getModuleById(entry)
+  const pending: ModuleNode[] = root ? [root] : []
+  const visited = new Set<ModuleNode>()
+  while (pending.length) {
+    const module = pending.pop()!
+    if (visited.has(module)) continue
+    visited.add(module)
+    if (module.id && normalizeModulePath(module.id) === changedFile) return true
+    pending.push(...module.importedModules)
+  }
+  // For an unloaded changed file, Vite may provide an affected importer node but
+  // no module node for the file. Walk those nodes' importers to find the entry.
+  const importerSearch: ModuleNode[] = [...affected]
+  const importerVisited = new Set<ModuleNode>()
+  while (importerSearch.length) {
+    const module = importerSearch.pop()!
+    if (importerVisited.has(module)) continue
+    importerVisited.add(module)
+    if (module.id && normalizeModulePath(module.id) === normalizeModulePath(entry)) return true
+    importerSearch.push(...module.importers)
+  }
+  return false
+}
+
+async function collectSourceDependencies(file: string, require: NodeRequire, files: Set<string>, seen = new Set<string>()) {
+  file = normalize(file)
+  if (seen.has(file)) return
+  seen.add(file)
+  files.add(file)
+  let source: string
+  try { source = await readFile(file, "utf8") } catch { return }
+  const imports = source.matchAll(/(?:from\s*["']|import\s*\(\s*["']|import\s*["']|export\s+[^;]*?from\s*["'])([^"']+)["']/g)
+  for (const match of imports) {
+    try {
+      const resolved = resolveSourceImport(match[1]!, file, require)
+      if (resolved) await collectSourceDependencies(normalize(resolved), require, files, seen)
+    }
+    catch { /* unresolved aliases are handled by the host module graph */ }
+  }
+}
+
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let nitroOptions: DatabaseNitroHost["options"] | undefined
   let nitroMigrations: Array<{ source: string, target: string }> = []
@@ -130,6 +198,10 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
+  let contributions: CollectedDatabaseContribution[] = []
+  let contributionFiles = new Set<string>()
+  let contributionDependencyFiles = new Set<string>()
+  let contributionDirectories = new Set<string>()
 
   function resolvedOptions() {
     return resolved?.database ?? options
@@ -152,14 +224,24 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       : serverDirs
   }
 
-  async function refreshRuntimeConfig() {
+  function tableNameOptions(strict = false): DatabaseTableNameOptions {
+    const logger = resolved?.logger
+    return {
+      alias: viteStringAliases(resolved?.resolve?.alias),
+      onFallback: strict ? undefined : message => logger ? logger.warn(message) : console.warn(message),
+    }
+  }
+
+  // `vitehub db generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
+  async function refreshRuntimeConfig(options: { strict?: boolean } = {}) {
     if (!resolved) return
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
+      contributions,
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
     })
     if (runtimeConfig) {
-      await writeGeneratedDatabaseArtifacts(runtimeConfig)
+      await writeGeneratedDatabaseArtifacts(runtimeConfig, tableNameOptions(options.strict))
     } else {
       await removeGeneratedDatabaseTypes(databaseRoot())
     }
@@ -204,7 +286,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     api: {
       getConfig: () => runtimeConfig,
       isEnabled: () => resolvedOptions() !== false,
-      refresh: refreshRuntimeConfig,
+      refresh: () => refreshRuntimeConfig(),
     },
     nitro: {
       name: "@vite-hub/database/cloudflare-bindings",
@@ -232,9 +314,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
             kind: "database",
             label: "Databases",
             list: () => inspectDatabaseDefinitions({
+              plugins: resolved?.plugins,
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
               rootDir: databaseRoot(),
               serverDirs: databaseServerDirs(),
+              viteRoot: resolved?.root,
             }),
           }],
           providerOutput: runtime ? [
@@ -250,6 +334,28 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
+      contributions = resolvedOptions() === false
+        ? []
+        : await collectDatabaseContributions(config.plugins, { projectRoot: resolveViteHubProjectRoot(config.root), root: config.root, serverDirs: databaseServerDirs() })
+      const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
+      contributionFiles = new Set(contributions.flatMap(contribution => {
+        try {
+          return [normalize(require.resolve(contribution.definition.module))]
+        }
+        catch {
+          return []
+        }
+      }))
+      contributionDependencyFiles = new Set()
+      for (const file of contributionFiles) await collectSourceDependencies(file, require, contributionDependencyFiles)
+      contributionDirectories = new Set()
+      for (const file of contributionFiles) {
+        // Keep the fallback directory check local to the contribution entry.
+        // Transitive imports are covered by the module-graph traversal below;
+        // walking broad ancestors (such as the project root) causes unrelated
+        // edits to regenerate the database during development.
+        contributionDirectories.add(dirname(file))
+      }
       await refreshRuntimeConfig()
       mergeNitroCloudflareD1Bindings()
     },
@@ -269,18 +375,27 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     async handleHotUpdate(context) {
       if (!runtimeConfig) return
 
-      const changedFile = normalize(context.file)
-      const isDatabaseUpdate = runtimeConfig.definitions.some(definition => definition.schemaSources.some(source => normalize(source.handler) === changedFile))
+      const changedFile = normalizeModulePath(context.file)
+      // Definitions and contributed table modules can import the changed file.
+      const isDatabaseUpdate = [...runtimeConfig.definitions.map(definition => definition.handler), ...contributionDependencyFiles].some(file =>
+        normalizeModulePath(file) === changedFile
+        || moduleGraphContainsFile(context.server, file, changedFile, context.modules),
+      ) || [...contributionDirectories].some(directory => changedFile === directory || changedFile.startsWith(`${normalizeModulePath(directory)}/`))
       if (!isDatabaseUpdate) return
 
       await refreshRuntimeConfig()
 
-      const schemaModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_SCHEMA_ID)
-      const databasesModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DATABASES_ID)
-      const definitionDefaultsModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID)
-      if (schemaModule) context.server.moduleGraph.invalidateModule(schemaModule)
-      if (databasesModule) context.server.moduleGraph.invalidateModule(databasesModule)
-      if (definitionDefaultsModule) context.server.moduleGraph.invalidateModule(definitionDefaultsModule)
+      // Vite only soft-invalidates the importers of a changed file and keeps their old code.
+      // The refresh rewrites the generated schemas, so they must load again from disk.
+      for (const id of [
+        RESOLVED_DB_VIRTUAL_SCHEMA_ID,
+        RESOLVED_DB_VIRTUAL_DATABASES_ID,
+        RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID,
+        ...Object.values(runtimeConfig?.generatedSchemaFilesByDatabase ?? {}),
+      ]) {
+        const module = context.server.moduleGraph.getModuleById(id)
+        if (module) context.server.moduleGraph.invalidateModule(module)
+      }
     },
     async buildEnd(error) {
       if (error) {
@@ -297,7 +412,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         const contributionRuntimeConfig = runtimeConfig
         const contributionProviderOutput = providerOutput
         const generation = providerOutputGenerations.get(this)
-        await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig)
+        await writeGeneratedDatabaseArtifacts(contributionRuntimeConfig, tableNameOptions())
         artifactDir = resolve(contributionResolved.root, ".vitehub/database-generations", randomUUID())
         const contributionArtifactDir = artifactDir
         const retainedSources = await retainProviderOutputSources({

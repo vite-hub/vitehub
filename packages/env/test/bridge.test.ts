@@ -255,10 +255,12 @@ it("sanitizes malformed grants returned by a custom access store", async () => {
   await expect(bridge.permissions(agent, "key")).rejects.toMatchObject({
     code: "ENV_BRIDGE_OPERATION_FAILED",
   });
+
 });
 it("rejects malformed grant permissions through the public bridge error", async () => {
   const { bridge } = setup();
   await expect(bridge.grant(admin, { actor: agent.actor, key: "key", permissions: undefined as never })).rejects.toMatchObject({ code: "ENV_BRIDGE_INVALID" });
+ f1827ce977864dea471f7c1c3b1925e14a0c2818
 });
 
 describe("Env access grants", () => {

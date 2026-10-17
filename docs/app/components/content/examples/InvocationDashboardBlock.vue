@@ -5,10 +5,13 @@ import {
   type AgentInvocationListItem,
   type AgentInvocationView,
 } from "@vite-hub/ui";
-import { computed, onMounted, onUnmounted, ref } from "vue";
 
-// Serialize the SSR clock, then refresh it once on the client so static pages stay current.
+import { computed, onMounted, onUnmounted, ref } from "vue";
+ f1827ce977864dea471f7c1c3b1925e14a0c2818
+
+// Keep the server clock through hydration, then refresh prerendered timestamps.
 const now = useState("ui-dashboard-clock", () => Date.now());
+
 const clock = ref<ReturnType<typeof setInterval>>();
 onMounted(() => {
   now.value = Date.now();
@@ -19,11 +22,12 @@ onMounted(() => {
 onUnmounted(() => {
   if (clock.value) clearInterval(clock.value);
 });
+ f1827ce977864dea471f7c1c3b1925e14a0c2818
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
-const invocations = computed<AgentInvocationView[]>(() => [
+const invocations = shallowRef<AgentInvocationView[]>([
   {
     agentName: "reviewer",
     annotations: { "github.pullRequest": 1011, "github.repository": "vite-hub/vitehub" },
@@ -139,6 +143,28 @@ const invocations = computed<AgentInvocationView[]>(() => [
     updatedAt: time(2280),
   },
 ]);
+
+function refreshDates(value: unknown, offset: number): void {
+  if (Array.isArray(value)) {
+    value.forEach((item) => refreshDates(item, offset));
+  } else if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      if (typeof item === "string" && /T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(item)) {
+        (value as Record<string, unknown>)[key] = new Date(Date.parse(item) + offset).toISOString();
+      } else {
+        refreshDates(item, offset);
+      }
+    }
+  }
+}
+
+onMounted(() => {
+  const refreshedAt = Date.now();
+  const refreshedInvocations = structuredClone(invocations.value);
+  refreshDates(refreshedInvocations, refreshedAt - now.value);
+  now.value = refreshedAt;
+  invocations.value = refreshedInvocations;
+});
 
 // Map full records to list summaries with the display helpers the Console uses.
 const items = computed<AgentInvocationListItem[]>(() =>

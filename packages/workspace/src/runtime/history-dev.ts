@@ -49,20 +49,22 @@ function isoTime(value: string): string {
 
 function describeRevision(revision: WorkspaceRevision): WorkspaceHistoryDevRevision {
   const author = revision.metadata?.author
-  return {
+  const result: WorkspaceHistoryDevRevision = {
     ...revision,
     createdAt: isoTime(revision.createdAt),
-    ...(hasRuntimeType(author, "string") && author ? { author } : {}),
   }
+  if (hasRuntimeType(author, "string") && author) result.author = author
+  return result
 }
 
 function describeFile(entry: WorkspaceEntry): WorkspaceHistoryDevFile {
-  return {
+  const result: WorkspaceHistoryDevFile = {
     path: entry.path,
-    ...(entry.size === undefined ? {} : { size: entry.size }),
-    ...(entry.mediaType === undefined ? {} : { mediaType: entry.mediaType }),
-    ...(entry.digest === undefined ? {} : { digest: entry.digest }),
   }
+  if (entry.size !== undefined) result.size = entry.size
+  if (entry.mediaType !== undefined) result.mediaType = entry.mediaType
+  if (entry.digest !== undefined) result.digest = entry.digest
+  return result
 }
 
 function encodeContent(bytes: Uint8Array): Pick<WorkspaceHistoryDevContent, "content" | "encoding"> {
@@ -84,7 +86,7 @@ async function listHistory(workspace: string, history: WorkspaceHistoryReader, r
       workspace,
       ref: request.ref,
       revisions: page.revisions.map(describeRevision),
-      ...(page.cursor ? { cursor: page.cursor } : {}),
+      cursor: page.cursor,
       more: Boolean(page.cursor),
     }
   }
@@ -152,7 +154,9 @@ export async function readWorkspaceHistoryDev(request: WorkspaceHistoryDevReques
 }
 
 function failure(status: number, message: string, code?: string): Response {
-  return Response.json({ error: { ...(code ? { code } : {}), message: redactInspectionText(message) } }, { headers: { "cache-control": "no-store" }, status })
+  const error: { code?: string, message: string } = { message: redactInspectionText(message) }
+  if (code) error.code = code
+  return Response.json({ error }, { headers: { "cache-control": "no-store" }, status })
 }
 
 /** Answers one history request with JSON. Failures use `{ error: { code?, message } }`. */
