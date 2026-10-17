@@ -63,7 +63,11 @@ type ConsoleNitroConfig = {
  * - `auth: { ... }`: Console Auth, with a server file, inline GitHub, or `{ provider: "cloudflare-access" }`.
  */
 export interface ConsoleOptions {
-  auth: false | "app" | ConsoleAuthConfig
+  auth?: false | "app" | ConsoleAuthConfig
+  /** @deprecated Use `auth`. Kept for older integrations. */
+  access?: "auth" | "local" | "open"
+  /** @deprecated Use `auth` and `authorize`. */
+  exposure?: "host-managed" | "open"
   /**
    * Server file that default-exports `defineConsoleAuthorize()`. Every Console data route calls it after the `auth` check.
    * It returns `true`, `false`, a `Response`, or `{ sections }` to allow only some Console sections.
@@ -85,7 +89,23 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (value === true) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0003({ message: '[vitehub] console: true is not supported. Choose who can open the Console: console: { auth: false } for no sign-in, or console: { auth: "app" } to use your app Auth.' })
   }
-  if (!(value instanceof Object) || Array.isArray(value) || !("auth" in value)) {
+  if (!(value instanceof Object) || Array.isArray(value)) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
+  }
+  const legacy = value as { access?: string, exposure?: string, auth?: unknown }
+  if (legacy.access !== undefined && legacy.access !== "auth" && legacy.access !== "local" && legacy.access !== "open") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.access must be "auth", "local", or "open". Use console.auth instead.' })
+  }
+  if (legacy.exposure !== undefined && legacy.exposure !== "host-managed" && legacy.exposure !== "open") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.exposure must be "host-managed" or "open". Use console.auth instead.' })
+  }
+  if (!("auth" in value) && (legacy.access !== undefined || legacy.exposure !== undefined)) {
+    // Host-managed exposure delegates authorization to the host and must not
+    // trigger the app-auth discovery/assertion path during plugin setup.
+    const auth = legacy.exposure === "host-managed" ? false : legacy.access === "auth" ? "app" : legacy.access === "local" ? false : false
+    return { ...value, auth } as ConsoleOptions
+  }
+  if (!("auth" in value)) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
   }
   const auth = value.auth
@@ -101,9 +121,9 @@ export function consoleAuthConfig(options: ConsoleOptions | false | undefined): 
   return options && options.auth !== false && options.auth !== "app" ? options.auth : undefined
 }
 
-interface ConsoleVitePluginOptions {
+export interface ConsoleVitePluginOptions {
   blobStores?: readonly string[]
-  console: ConsoleOptions
+  console?: ConsoleOptions
   connections?: unknown
   runtimeCapabilityImports?: Record<string, false | string>
   /** D1 binding that stores the journal in production Cloudflare builds. */
@@ -321,7 +341,9 @@ export function resolveConsoleAccessBuild(
 ): ConsoleAccessBuild {
   const authorize = resolveConsoleAuthorizeFile(options.root, configured.authorize)
   const withAuthorize = (access: ConsoleAccessBuild): ConsoleAccessBuild => authorize ? { ...access, authorize } : access
-  if (configured.auth === false) return withAuthorize({ mode: "open" })
+  if (configured.exposure === "host-managed") return withAuthorize({ mode: "host-managed" } as ConsoleAccessBuild)
+  if (configured.access === "local") return withAuthorize({ mode: "local" } as ConsoleAccessBuild)
+  if (configured.auth === false || configured.auth === undefined) return withAuthorize({ mode: "open" })
   if (configured.auth === "app") {
     return withAuthorize(options.appAuth
       ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base, options.sections) } }
@@ -355,6 +377,15 @@ export function assertConsoleAccess(
   if (missing.length) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0006({ message: `[vitehub] console: { auth: "app" } needs console.authorize, or app Auth access routes with an authorize callback for ${missing.map(target => target.route).join(" and ")}.` })
   }
+}
+
+/** Validate legacy production access settings used by older generated integrations. */
+export function assertConsoleProductionAccess(configured: ConsoleOptions, options: { auth?: ResolvedAuthViteConfig, base?: string, development?: boolean, sections?: readonly ConsoleSectionId[] }): void {
+  if (options.development) return
+  const normalized = resolveConsoleOptions(configured)
+  if (!normalized) return
+  if (normalized.exposure === "host-managed" && !normalized.authorize) throw new TypeError("console.authorize is required for host-managed exposure")
+  if ((normalized.auth === "app" || normalized.access === "auth") && options.auth) assertConsoleAccess({ ...normalized, auth: "app" }, options)
 }
 
 export function generatedConsolePluginRegistration(value: string): boolean {
@@ -440,7 +471,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         sections = sections.filter(section => section !== "connections")
       }
       root = resolve(config.root || process.cwd())
-      const configured = resolveConsoleOptions(options.console)
+      const configured = resolveConsoleOptions(options.console) ?? (environment.command === "serve" ? { auth: false, access: "local" as const } : undefined)
       // The root integration does not add this plugin without Console options, so this only guards direct use.
       if (!configured) throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, or console: { auth: "app" } to use your app Auth.' })
       resolvedConsoleConfiguration = configured
@@ -499,6 +530,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       resolvedAppAuth = appAuth
       baseURL = config.base ?? "/"
       assertConsoleAccess(configured, { auth: appAuth, base: baseURL, sections })
+      assertConsoleProductionAccess(configured, {
+        auth: appAuth,
+        base: baseURL,
+        development: environment.command !== "build",
+        sections,
+      })
       openAccessBuildWarning = environment.command === "build" && !cliDiscovery ? consoleOpenAccessBuildWarning(configured, options.preset) : undefined
       const configuredConsoleAuth = consoleAuthConfig(configured)
       const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined

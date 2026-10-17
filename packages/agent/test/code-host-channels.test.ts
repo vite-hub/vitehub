@@ -169,11 +169,11 @@ describe("Code Host Channels through the webhook route", { timeout: 20_000 }, ()
 
   it.each(kinds)("uses shared filters and metadata limits on %s", async kind => {
     const fetcher = transport(kind)
-    const commentUrl = `${api[kind]}${notes(kind)}?${kind === "gitlab" ? "per_page" : "limit"}=100${kind === "gitlab" ? "&sort=asc&order_by=created_at" : ""}`
+    const commentUrl = kind === "gitlab" ? `${api[kind]}${threadPath(kind)}/discussions?per_page=100` : `${api[kind]}${notes(kind)}?limit=100`
     const fileUrl = `${api[kind]}${threadPath(kind)}${kind === "gitlab" ? "/diffs" : "/files"}?${kind === "gitlab" ? "per_page" : "limit"}=100`
     const comment = kind === "gitlab" ? { id: 100, body: "Long comment body", author: { id: 1, username: "maxi" } } : { id: 100, body: "Long comment body", user: { id: 1, login: "maxi" } }
     const file = kind === "gitlab" ? { new_path: "src/app.ts", old_path: "src/app.ts", diff: "", new_file: false, deleted_file: false, renamed_file: false } : { filename: "src/app.ts", status: "modified", additions: 1, deletions: 0 }
-    const expanded = fixtureFetch([], { ...fetcher.overrides, [`GET ${commentUrl}`]: { status: 200, body: [comment, { ...comment, id: 101 }] }, [`GET ${fileUrl}`]: { status: 200, body: [file, file] } })
+    const expanded = fixtureFetch([], { ...fetcher.overrides, [`GET ${commentUrl}`]: { status: 200, body: kind === "gitlab" ? [{ id: "discussion-100", notes: [comment] }, { id: "discussion-101", notes: [{ ...comment, id: 101 }] }] : [comment, { ...comment, id: 101 }] }, [`GET ${fileUrl}`]: { status: 200, body: [file, file] } })
     vi.stubGlobal("fetch", expanded.fetch)
     const { inputs, run, send } = await harness(kind, { pullRequest: {
       maxBodyLength: 4, maxCommentBodyLength: 4, maxComments: 1, maxFiles: 1,
