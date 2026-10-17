@@ -53,10 +53,80 @@ function toBlobObject(blob: {
 }
 
 function isMissingBlobError(error: unknown) {
-  return error instanceof Error && (
-    error.name === "BlobNotFoundError"
-    || /(?:requested )?blob (?:was )?not found|requested blob does not exist/i.test(error.message)
-  )
+  if (error === null || Object(error) !== error) return false
+  const candidate = Object(error)
+  try {
+    const nativeIsError: unknown = Reflect.get(Error, "isError")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Error.isError is optional in supported runtimes; prefer its native state check when available.
+    const isError = (typeof nativeIsError === "function" && nativeIsError(error) === true) || (() => {
+          const stack = Object.getOwnPropertyDescriptor(candidate, "stack")
+          // Native errors expose their lazily materialized stack through an intrinsic
+          // accessor. Verify the accessor's intrinsic behavior rather than its identity:
+          // each realm has a distinct native getter, while a forged or bound getter can
+          // return a stack for an object that has no Error state.
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The descriptor is validated before reading its getter.
+          if (!stack || typeof stack.get !== "function") return false
+          let nativeErrorConstructor: unknown
+          const seen = new Set<object>()
+          const candidatePrototype = Object.getPrototypeOf(candidate)
+          let prototype = candidatePrototype
+          for (let depth = 0; depth < 64 && prototype !== null && prototype !== Object.prototype; depth++) {
+            if (seen.has(prototype)) return false
+            seen.add(prototype)
+            const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+            if (Object.prototype.toString.call(constructor) === "[object Function]"
+              && Object.getOwnPropertyDescriptor(constructor, "prototype")?.value === prototype
+              && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(Error)) {
+              nativeErrorConstructor = constructor
+              break
+            }
+            prototype = Object.getPrototypeOf(prototype)
+          }
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The legacy path validates the constructor before invoking it.
+          if (typeof nativeErrorConstructor !== "function") return false
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The descriptor is validated before reading its getter.
+          if (typeof stack.get !== "function") return false
+          // Compare with the accessor produced by the candidate's own native
+          // Error constructor. This preserves foreign-realm errors while rejecting
+          // proxies that only imitate the native getter's source and behavior.
+          // SAFETY: the preceding checks prove this is a native Error constructor whose prototype owns the candidate's stack accessor.
+          const NativeError = nativeErrorConstructor as new () => object
+          const nativeStackGetter = Object.getOwnPropertyDescriptor(new NativeError(), "stack")?.get
+          if (typeof nativeStackGetter !== "function" || stack.get !== nativeStackGetter) return false
+          // A native stack accessor must expose a stack for the candidate itself.
+          // Accepting an undefined result would also accept an Error.prototype spoof
+          // that copied both native accessors without carrying Error internal state.
+          const stackValue = stack.get.call(candidate)
+          if (typeof stackValue !== "string") {
+            // V8 does not expose the target Error's stack slot through a Proxy.
+            // Keep the compatibility accepted by the old `instanceof Error` path,
+            // but require the proxy to retain a genuine Error message. This rejects
+            // copied-accessor Error.prototype spoofs, which have no message slot.
+            // Error.prototype supplies an inherited empty message string, so the
+            // message must be an own slot (which is preserved through proxies).
+            const message = Object.getOwnPropertyDescriptor(candidate, "message")
+            if (!(candidate instanceof Error) || message?.value === undefined || typeof message.value !== "string" || message.writable !== true) return false
+            // Preserve the configurable message slot created by the Error
+            // constructor. A forged own slot with only writable data is rejected.
+            if (message.configurable !== true) return false
+          }
+          // A genuine native getter returns no stack for an object which merely shares
+          // the Error prototype. Bound and forged getters instead return their captured
+          // or fabricated value, so they cannot establish the candidate's Error brand.
+          if (stack.get.call(Object.create(prototype)) !== undefined) return false
+          // Probe an independent Error to reject receiver-sensitive accessors.
+          if (typeof stack.get.call(new Error()) !== "string") return false
+          return true
+        })()
+    if (!isError) return false
+    if (Reflect.get(candidate, "name") === "BlobNotFoundError") return true
+    const message: unknown = Reflect.get(candidate, "message")
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The SDK exposes the missing-object diagnostic in its opaque Error message.
+    return typeof message === "string" && /(?:requested )?blob (?:was )?not found|requested blob does not exist/i.test(message)
+  }
+  catch {
+    return false
+  }
 }
 
 function resolveBlobAccess(url: string, fallback: "private" | "public") {
