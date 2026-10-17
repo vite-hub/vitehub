@@ -6,6 +6,9 @@ import { toResponse } from "@vite-hub/runtime"
 
 import type { CloudflareQueueBatchErrorAction, CloudflareQueueBatchHandlerOptions, CloudflareQueueBinding, CloudflareQueueClient, CloudflareQueueMessage, CloudflareQueueMessageBatch, CloudflareQueueProviderOptions, QueueEnqueueOptions } from "../types.ts"
 
+// Worker binding names are identifiers. Only those go into error details, which can reach public responses.
+const cloudflareBindingName = /^[A-Z_]\w{0,127}$/i
+
 function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueBinding {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host bindings are untyped at this boundary; validate the object before inspecting its methods.
   if (binding === null || typeof binding !== "object" || Array.isArray(binding)) return false
@@ -142,8 +145,10 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
 
 export function createCloudflareQueueClient(provider: CloudflareQueueProviderOptions): CloudflareQueueClient {
   if (typeof provider.binding === "undefined" || typeof provider.binding === "string") {
+    // A binding name means the runtime looked it up in the request env and did not find it.
+    const binding = typeof provider.binding === "string" && cloudflareBindingName.test(provider.binding) ? provider.binding : undefined
     throw createQueueError("CLOUDFLARE_BINDING_RESOLUTION_REQUIRED", {
-      details: { provider: "cloudflare" },
+      details: { provider: "cloudflare", ...(binding ? { binding } : {}) },
     })
   }
 

@@ -509,6 +509,11 @@ export async function validateViteHubNitroDevRequest(request: Request, guard: Vi
 export interface ViteHubNitroDevHandlerSource {
   /** Public owner context, for example a project path. Never include credentials. */
   context?: Record<string, unknown>
+  /**
+   * Context fields whose value is the default export of a module, keyed by field name. Use it for values that only the
+   * Nitro runtime can load, for example a generated registry.
+   */
+  contextModules?: Readonly<Record<string, string>>
   /** Additional serialized string arguments passed after the request. */
   arguments?: readonly string[]
   /** Named export of `module` that takes a Fetch `Request` and returns a `Response`. */
@@ -525,11 +530,16 @@ export function renderViteHubNitroDevHandler(source: ViteHubNitroDevHandlerSourc
   if (!/^[A-Za-z_$][\w$]*$/.test(source.export)) {
     throw new TypeError(`[vitehub] Nitro dev handler export ${JSON.stringify(source.export)} must be an identifier.`)
   }
+  const contextModules = Object.entries(source.contextModules ?? {})
+  const context = contextModules.length
+    ? `{ ...${JSON.stringify(source.context ?? {})}, ${contextModules.map(([field], index) => `${JSON.stringify(field)}: viteHubDevContext${index}`).join(", ")} }`
+    : source.context ? JSON.stringify(source.context) : undefined
   return [
     "import { defineEventHandler } from 'h3'",
     `import { ${source.export} as handleViteHubDevRequest } from ${JSON.stringify(source.module)}`,
+    ...contextModules.map(([, module], index) => `import viteHubDevContext${index} from ${JSON.stringify(module)}`),
     "",
-    `export default defineEventHandler(event => handleViteHubDevRequest(${["event.req", ...(source.context ? [JSON.stringify(source.context)] : []), ...(source.arguments ?? []).map(value => JSON.stringify(value))].join(", ")}))`,
+    `export default defineEventHandler(event => handleViteHubDevRequest(${["event.req", ...(context ? [context] : []), ...(source.arguments ?? []).map(value => JSON.stringify(value))].join(", ")}))`,
     "",
   ].join("\n")
 }

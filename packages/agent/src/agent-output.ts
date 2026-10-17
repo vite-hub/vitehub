@@ -468,15 +468,15 @@ function withFallbackUsageMetadata(
   return model || provider || transport || cost || response || latency || credentialSource || runMetadata
     ? {
         ...record,
-        ...(cost ? { cost } : {}),
-        ...(credentialSource ? { credentialSource } : {}),
-        ...(latency ? { latency } : {}),
-        ...(model ? { model } : {}),
-        ...(provider ? { provider } : {}),
-        ...(response ? { response } : {}),
-        ...(runMetadata ? { run: runMetadata } : {}),
-        ...(transport ? { transport } : {}),
-        ...(usage ? { usage } : {}),
+        ...(cost ? { cost } : undefined),
+        ...(credentialSource ? { credentialSource } : undefined),
+        ...(latency ? { latency } : undefined),
+        ...(model ? { model } : undefined),
+        ...(provider ? { provider } : undefined),
+        ...(response ? { response } : undefined),
+        ...(runMetadata ? { run: runMetadata } : undefined),
+        ...(transport ? { transport } : undefined),
+        ...(usage ? { usage } : undefined),
       }
     : record
 }

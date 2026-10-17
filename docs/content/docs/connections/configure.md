@@ -8,24 +8,16 @@ icon: i-lucide-sliders-horizontal
 
 ## Provider origins
 
-Each provider declares the API origins that may receive its credential. `call` and `fetch` fail with `CONNECTIONS_ORIGIN_NOT_ALLOWED` for any other origin, and ViteHub records the attempt as denied. `google()` allows `https://*.googleapis.com`. Set `origins` for `oauth2()`:
+Each provider declares the API origins that may receive its credential. `call` and `fetch` fail with `CONNECTION_INVALID` for any other origin, and ViteHub does not send the credential.
 
-```ts [server/connections/crm.ts]
-import { defineConnection, oauth2 } from 'vite-hub/connections'
+| Provider | Import | Origins that receive the credential |
+| --- | --- | --- |
+| `google()` | `vite-hub/connections/google` | The root URL origins of its API catalogs, for example `https://gmail.googleapis.com`. |
+| `apiKey()` | `vite-hub/connections` | Its `origins` and the root URL origins of its `apis` catalogs. |
 
-export default defineConnection({
-  provider: oauth2({
-    authorizationUrl: 'https://crm.example.com/oauth/authorize',
-    client: ({ event }) => useServerEnv(event).crm,
-    id: 'crm',
-    origins: ['https://api.crm.example.com'],
-    tokenUrl: 'https://crm.example.com/oauth/token',
-  }),
-  scopes: ['contacts.read'],
-})
-```
+An origin is `https://host` or `https://host:port`. ViteHub compares origins exactly, so list each host. `http` is accepted only for loopback hosts such as `localhost` and `127.0.0.1`.
 
-An origin is `https://host`, `https://host:port`, or `https://*.host` for subdomains. `http` is accepted only for loopback hosts such as `localhost` and `127.0.0.1`. The `userInfoUrl` of `oauth2()` receives the access token, so its origin must be in `origins` too.
+ViteHub has no generic OAuth 2 provider yet. For another service, use `apiKey()` when the service issues API keys or personal access tokens. An API key Connection does not refresh its key.
 
 ## API key Connections
 

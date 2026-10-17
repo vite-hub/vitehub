@@ -360,7 +360,7 @@ The commands use a guarded dev endpoint that `hubKv()` registers only on the Dev
 pnpm vitehub schedule run sync
 ```
 
-Without `--url`, the command posts to the running Vite Development Server at `VITEHUB_DEV_SERVER_URL` or `http://localhost:5173`. Use `--server <url>` to select another local server.
+Without `--url`, the command posts to the running Vite Development Server at `VITEHUB_DEV_SERVER_URL` or `http://localhost:5173`. Use `--server <url>` to select another local server. The server runs the definition in its Nitro dev environment, so the handler has the Nitro plugins and dev bindings of the app, and the run appears in `vitehub schedule runs <name>`. It uses the same guarded endpoint and private token as the [Runtime Schedule commands](#inspect-and-control-runtime-schedules), and it needs a host where Nitro runs in the Vite process.
 
 With `--url`, the command posts to `/_vitehub/schedules/run` on the deployment. That route runs only when the deployment enables the [Console](/docs/development/cli#run-a-schedule-on-demand) with `invoke: true`, and the Console access policy protects it like every other `/_vitehub/**` route. Set the credentials for that policy in the environment:
 
@@ -406,7 +406,7 @@ Schedule operations require a private token scoped to the local project and serv
 
 The output redacts credentials: values under secret-named keys in Schedule input, URLs with embedded credentials, bearer tokens, and secret assignments in error messages.
 
-The commands use a guarded dev endpoint that `hubSchedule()` registers only on the Development Server. The endpoint forwards each operation into the Nitro dev environment, which owns the Schedule stores and registry. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 and the CLI prints that the host is not supported. Deployed runtimes do not expose the endpoint.
+The commands use a guarded dev endpoint that `hubSchedule()` registers only on the Development Server. The endpoint forwards each operation into the Nitro dev environment, which owns the Schedule stores and registry. This works on Vite + Nitro and on Nuxt with Nitro 3. Plain Vite without Nitro has no Nitro dev environment, so the endpoint returns status 501 and the CLI prints that the host is not supported. Nuxt with Nitro 2 runs Nitro outside the Vite process, so the CLI cannot reach the endpoint. Deployed runtimes do not expose the endpoint.
 
 ## Run Agent Evals
 
@@ -654,7 +654,7 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | Agent eval times out | The eval case, model call, or provider run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |
 | Vite config fails while loading a ViteHub plugin import | A fresh npm project is loading `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |
 | `No Compatible Vite Development Server found` | The app dev server is not running or `--url` points at the wrong port. | Start Vite separately, then pass the dev server URL. |
-| `vitehub schedule` reports that the host is not supported | The Development Server is Nuxt or plain Vite, so Nitro does not run in the Vite process. | Run the commands against a Vite + Nitro app. |
+| `vitehub schedule` reports that the host is not supported | The Development Server is plain Vite without Nitro, or Nuxt with Nitro 2, so Nitro does not run in the Vite process. | Run the commands against a Vite + Nitro app or Nuxt with Nitro 3. |
 | `vitehub schedule run-runtime` exits with status 1 | The Schedule is disabled, has no target in the registry, or its handler failed. | Read the printed error or run record, then enable the Schedule or fix the target handler. |
 | `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |
 | `Agent Dev Loop command requires workspace.mode: "write"` | A `!` command targeted an Agent without writable Workspace access. | Configure the selected Agent with `workspace: { mode: 'write' }`, or send a normal Agent message instead. |
