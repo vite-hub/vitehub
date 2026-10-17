@@ -5,6 +5,7 @@ export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition }
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
 import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
+import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
@@ -828,7 +829,11 @@ export interface ScheduleRunContextLike {
 /** Options supplied by trusted invocation code; callable tools are never persisted as input. */
 export interface RunAgentOptions<TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>> {
   tools?: TTools
-  /** Runtime context values supplied by trusted standalone callers, such as generated host capabilities. */
+  /**
+   * Runtime context values supplied by trusted standalone callers. Inside a running host, a standalone run
+   * already gets the runtime capabilities that the generated routes give Agents; `runtimeContext.capabilities`
+   * overrides them key by key.
+   */
   runtimeContext?: Partial<AgentRuntimeContext>
   schedule?: ScheduleRunContextLike
   /** Consume streamed output and finish its lifecycle before resolving. */
@@ -8792,7 +8797,13 @@ export async function runAgent<
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
   const schedule = standaloneOptions?.schedule
   // Preserve the caller's runtime-config subtype through standalone context creation.
-  const runtimeContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
+  const callerContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
+  // Inside a running host, a standalone run, such as one a Schedule starts, gets the runtime capabilities
+  // that the generated routes give Agents. Capabilities from the caller override them key by key.
+  const hostCapabilities = agentHostCapabilities()
+  const runtimeContext = hostCapabilities
+    ? { ...callerContext, capabilities: { ...hostCapabilities, ...callerContext?.capabilities } }
+    : callerContext
   const runtime = createRuntimeContext({
     ...runtimeContext,
     runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,
