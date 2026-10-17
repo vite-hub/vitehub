@@ -595,7 +595,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
-      expect(generated).toContain('"databases":{"definitions":[]')
+      // Without its own Database Definition, the app gets only the implicit default Database.
+      expect(generated).toContain('"name":"default","source":"implicit-default"')
       expect(generated).not.toContain("inherited/server/databases/config.ts")
     }
     finally {
