@@ -1060,9 +1060,6 @@ importers:
       '@vite-hub/netlify-blobs-runtime':
         specifier: npm:@netlify/blobs@11.1.4
         version: '@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd)'
-      fetch-blob:
-        specifier: 3.2.0
-        version: 3.2.0
       files-sdk:
         specifier: catalog:storage
         version: 2.6.2(60b3c7c266112eca1269971eac978965)

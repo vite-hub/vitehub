@@ -1,8 +1,8 @@
 import { readFile, rm, writeFile } from "node:fs/promises"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
-export type ProviderJsonPrimitive = boolean | null | number | string
-export type ProviderJsonValue = ProviderJsonPrimitive | ProviderJsonRecord | ProviderJsonValue[]
+type ProviderJsonPrimitive = boolean | null | number | string
+type ProviderJsonValue = ProviderJsonPrimitive | ProviderJsonRecord | ProviderJsonValue[]
 
 export interface ProviderJsonRecord {
   [key: string]: ProviderJsonValue

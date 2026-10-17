@@ -93,7 +93,7 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 const defaultWorkspaceName = "workspace"
 const colocatedAgentInstructionsPath = "instructions.md"
 const colocatedAgentInstructionsWorkspacePath = "AGENTS.md"
-export const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
+const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -1948,30 +1948,6 @@ export function createAgentInspectionMetadata<
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     tools: workspaceMetadataTools(options),
-  }
-}
-
-export function createInvocationInspectionMetadata<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
->(
-  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  capabilities: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[],
-  tools: readonly string[],
-  resolvedModel?: AgentModelInput,
-  resolvedInstructions?: string,
-): AgentInspectionMetadata {
-  const capabilityMetadata = new Map(capabilityInspectionMetadata(capabilities).map(capability => [capability.id, capability]))
-  const inspection = createAgentInspectionMetadata(definition)
-  const driver = inspection.config?.driver
-  return {
-    ...inspection,
-    capabilities: normalizeCapabilities(capabilities).map(capability => capabilityMetadata.get(capability.id) || { id: capability.id, metadata: {} }),
-    ...(driver && resolvedModel !== undefined
-      ? { config: { ...inspection.config, driver: { ...driver, model: modelMetadata(resolvedModel, true) } } }
-      : {}),
-    ...(resolvedInstructions !== undefined ? { instructions: resolvedInstructions ? [resolvedInstructions] : [] } : {}),
-    tools: tools.map(name => ({ name })),
   }
 }
 

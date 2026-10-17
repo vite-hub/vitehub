@@ -22,7 +22,7 @@ export interface WorkflowDevGeneratedState {
   configuredProvider: WorkflowProvider | null
 }
 
-export function createWorkflowDevRuntimeModule(state: WorkflowDevGeneratedState, importBase = workflowPackageName): string {
+function createWorkflowDevRuntimeModule(state: WorkflowDevGeneratedState, importBase = workflowPackageName): string {
   const options = {
     ...(state.configError ? { configError: state.configError } : {}),
     configuredProvider: state.configuredProvider,

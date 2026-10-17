@@ -1992,7 +1992,7 @@ function isToolSet(value: unknown): value is AgentToolSet {
   return hasRuntimeType(value, "object") && value !== null
 }
 
-export async function validateCapabilityRuntimeRequirement<Name extends WorkspaceName>(
+async function validateCapabilityRuntimeRequirement<Name extends WorkspaceName>(
   capability: AgentCapabilityDefinition,
   workspace?: ReadonlyWorkspaceFacade<Name>,
   workspaceMode: AgentCapabilityMode = "read",

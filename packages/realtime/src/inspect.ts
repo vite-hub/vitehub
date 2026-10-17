@@ -82,7 +82,7 @@ function describePersistence(node: ESTree.Node | undefined): string {
 }
 
 /** Reads the static shape of one Realtime Definition file without executing it. */
-export function describeRealtimeDefinitionSource(parse: typeof parseSync, file: string, source: string): ViteHubDefinitionField[] {
+function describeRealtimeDefinitionSource(parse: typeof parseSync, file: string, source: string): ViteHubDefinitionField[] {
   let object: ESTree.ObjectExpression | undefined
   let builder: string | undefined
   try {

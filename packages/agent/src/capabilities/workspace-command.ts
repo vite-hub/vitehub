@@ -53,7 +53,7 @@ const blockedEnvKeys = new Set([
 ])
 const defaultWorkspaceCommandTimeout = 60_000
 
-export function normalizeWorkspaceCommandEntries(commands: unknown, label = "workspaceShell({ commands })"): WorkspaceCommandEntry[] {
+function normalizeWorkspaceCommandEntries(commands: unknown, label = "workspaceShell({ commands })"): WorkspaceCommandEntry[] {
   if (!Array.isArray(commands) || !commands.length) {
     throw agentDiagnostics.AGENT_R0277({ message: `[vitehub] ${label} requires at least one command.` })
   }

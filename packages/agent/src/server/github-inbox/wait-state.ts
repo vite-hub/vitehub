@@ -4,7 +4,7 @@ const nonempty = v.pipe(v.string(), v.minLength(1))
 const repository = v.pipe(v.string(), v.regex(/^[\w.-]+\/[\w.-]+$/))
 const commitSha = v.pipe(v.string(), v.regex(/^[a-f0-9]{40,64}$/))
 export type PullRequestWake = { kind: 'checks'; repository: string; headSha: string } | { kind: 'pull-request'; repository: string; number: number }
-export const wakeSchema: v.GenericSchema<unknown, PullRequestWake> = v.variant('kind', [
+const wakeSchema: v.GenericSchema<unknown, PullRequestWake> = v.variant('kind', [
   v.object({ kind: v.literal('checks'), repository, headSha: commitSha }),
   v.object({ kind: v.literal('pull-request'), repository, number: v.pipe(v.number(), v.integer(), v.minValue(1)) }),
 ])

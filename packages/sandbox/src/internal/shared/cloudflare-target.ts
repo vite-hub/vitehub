@@ -5,7 +5,7 @@ export interface WranglerKVNamespace {
   experimental_remote?: boolean
 }
 
-export interface WranglerR2Bucket {
+interface WranglerR2Bucket {
   binding: string
   bucket_name?: string
   preview_bucket_name?: string
@@ -48,7 +48,7 @@ export interface WranglerWorkflow {
   class_name: string
 }
 
-export interface WranglerD1Database {
+interface WranglerD1Database {
   binding: string
   database_name?: string
   database_id?: string
@@ -64,7 +64,7 @@ export interface WranglerAnalyticsEngineDataset {
   dataset?: string
 }
 
-export interface WranglerHyperdriveBinding {
+interface WranglerHyperdriveBinding {
   binding: string
   id: string
 }

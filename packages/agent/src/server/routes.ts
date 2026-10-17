@@ -210,7 +210,7 @@ export interface AgentChannelWebhookRouteHandler {
   resume(options?: AgentChannelWebhookResumeOptions): () => Promise<void>
 }
 
-export interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptions {
+interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptions {
   /**
    * Before the queue resumes, fail this Agent's pending or running invocations that started before this time.
    * Invocations that a persisted queued delivery will run again stay active.

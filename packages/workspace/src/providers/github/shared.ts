@@ -22,7 +22,7 @@ export interface GitHubTreeEntry {
   type: string;
 }
 
-export interface GitHubTreeResponse {
+interface GitHubTreeResponse {
   tree: GitHubTreeEntry[];
   truncated?: boolean;
 }
@@ -267,7 +267,7 @@ export function resolveGitHubWorkspaceRoot(root: string, workspaceName: string):
   });
 }
 
-export function workspacePathFromGitPath(path: string, root: string): string | undefined {
+function workspacePathFromGitPath(path: string, root: string): string | undefined {
   const normalized = joinGitPath(path);
   const normalizedRoot = joinGitPath(root);
   if (!normalizedRoot) return normalizeWorkspacePath(normalized);
@@ -287,7 +287,7 @@ export async function gitBlobSha(bytes: Uint8Array): Promise<string> {
   return toHex(new Uint8Array(await globalThis.crypto.subtle.digest("SHA-1", input)));
 }
 
-export function toBase64(bytes: Uint8Array): string {
+function toBase64(bytes: Uint8Array): string {
   let binary = "";
   for (let index = 0; index < bytes.length; index += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
@@ -477,7 +477,7 @@ export async function readGitHubArchive(input: {
   return new Uint8Array(await response.arrayBuffer());
 }
 
-export function findGitHubRemoteFiles(
+function findGitHubRemoteFiles(
   tree: GitHubTreeResponse,
   root: string,
 ): Map<string, GitHubTreeEntry> {

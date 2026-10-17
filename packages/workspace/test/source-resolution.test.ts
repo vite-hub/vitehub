@@ -29,7 +29,6 @@ import { createWorkspace } from "../src/core/workspace.ts"
 import { getWorkspaceSourceRequestDescriptor, isWorkspaceSourceRequestOnly, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { workspaceStoreTarget } from "../src/storage/target.ts"
 import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget } from "../src/storage/metadata-target.ts"
-import { setWorkspaceRawWriteTarget } from "../src/storage/raw-write-target.ts"
 
 const invocation = {
   context: {
@@ -168,7 +167,6 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
     tools,
   }
   forwardWorkspaceMetadataTarget(workspace, facade)
-  setWorkspaceRawWriteTarget(facade, facade.fs)
   return facade
 }
 

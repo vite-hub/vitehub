@@ -225,7 +225,7 @@ export interface AgentInvocationRetentionOptions {
 /** `not-terminal` means the record is pending or running and was kept. */
 export type AgentInvocationDeleteOutcome = "deleted" | "not-found" | "not-terminal"
 
-export interface AgentInvocationStorePruneOptions {
+interface AgentInvocationStorePruneOptions {
   /** Report the selected record IDs without deleting them. */
   dryRun?: boolean
   /** ISO timestamp. Selects terminal records last updated before this time. */

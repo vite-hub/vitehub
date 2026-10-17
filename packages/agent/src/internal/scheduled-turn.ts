@@ -9,7 +9,7 @@ export const scheduledAgentNameContextKey = "agent.name"
 export const scheduledAgentChannelIdsContextKey = "agent.channels"
 export const scheduledAgentTurnContextKey = "agent.schedule.turn"
 
-export interface ScheduledAgentTurnDelivery {
+interface ScheduledAgentTurnDelivery {
   channelId: string
   origin: string
   threadId: string
