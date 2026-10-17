@@ -6,7 +6,8 @@ export const filesSdkDriverPeers = {
   akamai: s3Peers,
   azure: ["@azure/identity", "@azure/storage-blob"],
   box: ["box-typescript-sdk-gen"],
-  "cloudflare-r2": s3Peers,
+  // Native Cloudflare R2 uses the Workers binding and does not load the S3 SDK.
+  "cloudflare-r2": [],
   "digitalocean-spaces": s3Peers,
   dropbox: ["dropbox"],
   fs: [],
