@@ -440,15 +440,22 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     // Queue and Workflow still bundle their own host functions. They alias `@vite-hub/database/drizzle`
     // to this hosted runtime module, so Database calls in those functions use the same Definitions.
     async buildEnd(error) {
-      if (error || !resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+      if (error || !resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+        await siblingRuntimeGenerations.reset(this, providerOutput, error)
+        return
+      }
       const provider = resolveHostedProvider(resolved)
-      if (!provider) return
+      if (!provider) {
+        await siblingRuntimeGenerations.reset(this, providerOutput)
+        return
+      }
       const runtimeDir = resolve(databaseRoot(), HOSTED_RUNTIME_DIR)
       if (!supportsHostedDatabaseRuntime(provider, runtimeConfig, readProvisionStateSync(resolved.root))) {
         await Promise.all([
           rm(resolve(runtimeDir, `${provider}-runtime.mjs`), { force: true }),
           rm(resolve(runtimeDir, "definition-defaults.mjs"), { force: true }),
         ])
+        await siblingRuntimeGenerations.reset(this, providerOutput)
         return
       }
       const definitionDefaults = await writeHostedDatabaseRuntimeModules(runtimeDir, runtimeConfig, [provider])
