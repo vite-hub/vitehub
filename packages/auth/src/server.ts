@@ -400,6 +400,9 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // supplied arrows and concise methods have distinctive source forms. Keep
     // those out of the normalization boundary before they can be invoked.
     if (source.includes("=>")) return false
+    // Async functions are executable caller code even when they spoof an
+    // intrinsic operation name and otherwise resemble a native method.
+    if (/^\s*async\s+function\b/.test(source)) return false
     // Cross-runtime Web API implementations (for example undici) commonly
     // stringify as concise methods with a full implementation body. Reject
     // the short, caller-authored method-shaped functions used to spoof an
@@ -465,7 +468,9 @@ function authorizationHeaderMethods(headers: object): { forEach: (...args: never
   const cookieEntry = findMethod("getSetCookie")
   if (!forEachEntry || !isNativeFunction(forEachEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "forEach")?.value, "forEach", false, false)) return
   if (cookieEntry && !isNativeFunction(cookieEntry.value, Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value, "getSetCookie", false, false)) return
-  if (cookieEntry && cookieEntry.owner !== forEachEntry.owner) return
+  // Some supported runtimes expose getSetCookie as an instance-level wrapper
+  // while forEach remains on the Headers prototype. Validate each callable
+  // independently and allow those carrier-owned accessors.
   const owner = forEachEntry.owner
   const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")?.value
   const tag = Object.getOwnPropertyDescriptor(owner, Symbol.toStringTag)?.value
