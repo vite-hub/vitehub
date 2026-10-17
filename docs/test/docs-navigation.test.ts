@@ -4,8 +4,10 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
+
   getDocsRailCatalog,
   getDocsSectionKind,
+
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
@@ -80,9 +82,11 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
+
       // Template pages keep their order when related topic pages sit between them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
-      expect(templateTitles.every((title, index) => titles.indexOf(title) === pages.findIndex(page => page.title === title)), sectionId).toBe(true);
+      expect(templateTitles.every(title => titles.indexOf(title) === pages.findIndex(page => page.title === title)), sectionId).toBe(true);
+
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -133,7 +137,11 @@ describe("docs product navigation", () => {
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
+
+    const kvGroups = getDocsSidebarGroups(kv!);
+    expect(kvGroups.some(group => group.label === "Build" && group.pages.length > 1)).toBe(true);
+    expect(kvGroups.some(group => group.label === null)).toBe(true);
+
   });
 
   it("lists each topic once inside a section", () => {
@@ -184,6 +192,16 @@ describe("docs product navigation", () => {
       expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
       expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
       expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { statusCode: 301, to: `/raw${to}.md` } });
+    }
+
+    for (const [from, to] of Object.entries({
+      "/databases": "/database",
+      "/rate-limits": "/rate-limit",
+      "/blog": "/tutorials",
+      "/guides": "/tutorials",
+    })) {
+      expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
+      expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
     }
   });
 });

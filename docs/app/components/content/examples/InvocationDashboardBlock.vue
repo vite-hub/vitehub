@@ -8,6 +8,7 @@ import {
 import { computed, onMounted, ref, shallowRef } from "vue";
 
 // Keep the server clock through hydration, then refresh prerendered timestamps.
+
 const now = useState("ui-dashboard-clock", () => Date.now());
 onMounted(() => { now.value = Date.now(); });
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
