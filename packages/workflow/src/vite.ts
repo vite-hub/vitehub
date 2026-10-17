@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderOutputCatalog, getProviderRuntimeModule, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderOutputCatalog, getProviderRuntimeModule, getVercelRuntimePackages, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { collectViteHubProviderImportAliases, createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
@@ -83,8 +83,8 @@ interface InternalWorkflowModuleOptions {
   providerImportAliases?: Record<string, string>
   includeUserAppEntry?: boolean
   workspaceDependencyRuntimeImports?: {
-    sandbox?: string
-    sandboxRuntimeState?: string
+    sandboxTask?: string
+    sandboxTaskRuntimeState?: string
     shellWorkspace?: string
   }
   workspaceImportBase?: string
@@ -169,7 +169,11 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
 
   function providerRuntimeImportAliases(provider: "cloudflare" | "vercel", generation?: ProviderDeploymentOutputGeneration, catalog = providerOutput): Record<string, string> {
     const database = getProviderRuntimeModule(catalog, "database", provider, generation)
-    return database ? { "@vite-hub/database/drizzle": database } : {}
+    const blob = getProviderRuntimeModule(catalog, "blob", provider, generation)
+    return {
+      ...(database ? { "@vite-hub/database/drizzle": database } : {}),
+      ...(blob ? { "@vite-hub/blob": blob } : {}),
+    }
   }
 
   async function providerImportAliases(config = resolved): Promise<Record<string, string>> {
@@ -572,6 +576,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
               importBase: internalOptions?.importBase,
               providerImportAliases: retainedImportAliases,
               providerRuntimeImportAliases: retainedRuntimeImportAliases,
+              vercelRuntimePackages: getVercelRuntimePackages(buildProviderOutput, "blob", generation),
               rootDir,
               definitionRootDir: retainedDefinitionRoot,
               serverDirs: retainedServerDirs,

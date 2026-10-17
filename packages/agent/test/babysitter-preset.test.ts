@@ -20,22 +20,22 @@ vi.mock("../src/server/github-repair.ts", async importOriginal => ({
   ...await importOriginal<typeof import("../src/server/github-repair.ts")>(),
   prepareGitHubRepairBase: vi.fn(async () => {}),
 }));
-const boxDefinitions = vi.hoisted(() => vi.fn());
-const remoteBoxes = vi.hoisted(() => new Map<string, { path: string; closed: boolean }>());
-vi.mock("@vite-hub/box", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@vite-hub/box")>();
-  const resolveBox: typeof actual.resolveBox = async (definition, context, options) => {
-    boxDefinitions(definition);
-    const box = await actual.resolveBox(definition, context, options);
-    const remote = remoteBoxes.get(box.plan.workspace.path ?? "");
-    if (!remote) return box;
-    const copied = await actual.resolveBox({ ...definition, cwd: remote.path }, context, options);
+const sandboxDefinitions = vi.hoisted(() => vi.fn());
+const remoteSandboxes = vi.hoisted(() => new Map<string, { path: string; closed: boolean }>());
+vi.mock("@vite-hub/sandbox", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/sandbox")>();
+  const resolveSandbox: typeof actual.resolveSandbox = async (definition, context, options) => {
+    sandboxDefinitions(definition);
+    const sandbox = await actual.resolveSandbox(definition, context, options);
+    const remote = remoteSandboxes.get(sandbox.plan.workspace.path ?? "");
+    if (!remote) return sandbox;
+    const copied = await actual.resolveSandbox({ ...definition, cwd: remote.path }, context, options);
     return { plan: { ...copied.plan, runtime: "crabbox" }, async open(openOptions) {
       const session = await copied.open(openOptions);
       return { ...session, async close() { remote.closed = true; await session.close(); } };
     } };
   };
-  return { ...actual, resolveBox };
+  return { ...actual, resolveSandbox };
 });
 
 import { agentWithColocatedInstructions, defineAgent, defineCapability, getAgentFromRegistry } from "../src/index.ts";
@@ -56,20 +56,20 @@ import type { GitHubHost } from "../src/server/github.ts";
 const roots: string[] = [];
 afterEach(async () => {
   vi.clearAllMocks();
-  remoteBoxes.clear();
+  remoteSandboxes.clear();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteBox?: boolean; boxCheckout?: boolean; box?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteSandbox?: boolean; sandboxCheckout?: boolean; sandbox?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
-  // The fake provider needs to know whether placement chose a Box for the pass.
-  let placedBox = false;
+  // The fake provider needs to know whether placement chose a Sandbox for the pass.
+  let placedSandbox = false;
   const placement = preset.placement && {
     ...preset.placement,
     place: async (pullRequest: { repository: string; number: number }) => {
       const lease = await preset.placement!.place(pullRequest);
-      placedBox = Boolean(lease.box);
+      placedSandbox = Boolean(lease.sandbox);
       return lease;
     },
   };
@@ -80,15 +80,15 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
   let baseHead = "c".repeat(40);
   let compareStatus = "behind";
   const git = async (cwd: string, ...args: string[]) => (await promisify(execFile)("git", ["-C", cwd, "-c", "user.name=Test", "-c", "user.email=test@example.test", ...args])).stdout.trim();
-  let remoteBox: { path: string; closed: boolean } | undefined;
-  if (preset.remoteBox) {
+  let remoteSandbox: { path: string; closed: boolean } | undefined;
+  if (preset.remoteSandbox) {
     await git(checkout, "init");
     await git(checkout, "add", ".");
     await git(checkout, "commit", "-m", "base");
     head = await git(checkout, "rev-parse", "HEAD");
-    remoteBox = { path: join(root, "remote"), closed: false };
-    await git(root, "clone", checkout, remoteBox.path);
-    remoteBoxes.set(checkout, remoteBox);
+    remoteSandbox = { path: join(root, "remote"), closed: false };
+    await git(root, "clone", checkout, remoteSandbox.path);
+    remoteSandboxes.set(checkout, remoteSandbox);
   }
   let pushed = false;
   let checkoutFailure: Error | undefined;
@@ -234,14 +234,14 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     workerDirectory = directory;
     if (preset.gitWorkspace) await promisify(execFile)("git", ["init", "--quiet", directory]);
   });
-  const commit = vi.fn(async (directory: string, input: { message: string; paths: string[] }) => remoteBox
+  const commit = vi.fn(async (directory: string, input: { message: string; paths: string[] }) => remoteSandbox
     ? await commitGitHubPullRequestWorkspace(directory, input, { expectedHead: head })
     : head);
   const push = vi.fn(async (_target?: string, _options?: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> }) => {
     pushed = true;
-    if (remoteBox) {
-      expect(remoteBox.closed).toBe(false);
-      head = await git(remoteBox.path, "rev-parse", "HEAD");
+    if (remoteSandbox) {
+      expect(remoteSandbox.closed).toBe(false);
+      head = await git(remoteSandbox.path, "rev-parse", "HEAD");
       expect(await git(checkout, "rev-parse", "HEAD")).toBe(head);
       expect(await git(checkout, "show", "HEAD:source.ts")).toContain("value = 2");
     } else head = "b".repeat(40);
@@ -306,8 +306,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     })] as never,
     // SAFETY: tests pass invalid merge values on purpose to cover runtime validation.
     options: { filter: { labels: { allow: ["repair"] } }, autoMerge, ...(preset.merge === undefined ? {} : { merge: preset.merge as false }), ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
-    ...(preset.box ? { box: { runtime: "trusted-host" as const, requires: ["sh"], ...(preset.boxCheckout ? { checkout: { remote: "https://github.com/acme/other.git", ref: "main", sha: "d".repeat(40) } } : {}) } } : {}),
-    driver: { kind: "codex", ...(preset.box || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } },
+    ...(preset.sandbox ? { sandbox: { runtime: "trusted-host" as const, requires: ["sh"], ...(preset.sandboxCheckout ? { checkout: { remote: "https://github.com/acme/other.git", ref: "main", sha: "d".repeat(40) } } : {}) } } : {}),
+    driver: { kind: "codex", ...(preset.sandbox || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } },
   }), "Preserve the documented API contract.");
   const runtime = createBabysitterRuntime({
     agent: discovered ? await getAgentFromRegistry("babysitter", { babysitter: async () => ({ default: agent }) }) : agent,
@@ -367,17 +367,17 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
             schemas: Object.fromEntries(listedTools.map((tool) => [tool.name, tool.inputSchema])),
             prompt: input.input,
             session: threadId,
-            instructions: preset.box || placedBox ? "Box Home instructions" : await readFile(join(workerDirectory!, "AGENTS.md"), "utf8"),
+            instructions: preset.sandbox || placedSandbox ? "Sandbox Home instructions" : await readFile(join(workerDirectory!, "AGENTS.md"), "utf8"),
             runtimeMode,
             approvalPolicy,
-            install: preset.box || placedBox ? undefined : await readFile(join(workerDirectory!, ".git", "vitehub-install.json"), "utf8").catch(() => undefined),
+            install: preset.sandbox || placedSandbox ? undefined : await readFile(join(workerDirectory!, ".git", "vitehub-install.json"), "utf8").catch(() => undefined),
           });
-          if (operation === "commitRepair" && remoteBox) {
-            await writeFile(join(remoteBox.path, "source.ts"), "export const value = 2\n");
+          if (operation === "commitRepair" && remoteSandbox) {
+            await writeFile(join(remoteSandbox.path, "source.ts"), "export const value = 2\n");
           }
-          if (operation === "pushRepair" && remoteBox) {
-            await writeFile(join(remoteBox.path, "source.ts"), "export const value = 2\n");
-            await git(remoteBox.path, "commit", "-am", "repair");
+          if (operation === "pushRepair" && remoteSandbox) {
+            await writeFile(join(remoteSandbox.path, "source.ts"), "export const value = 2\n");
+            await git(remoteSandbox.path, "commit", "-am", "repair");
           }
           if (operation) {
             await onRepair?.();
@@ -660,11 +660,11 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it.each([false, true])("rechecks dynamic host admission after dependency setup, Box=%s", async box => {
+  it.each([false, true])("rechecks dynamic host admission after dependency setup, Sandbox=%s", async sandbox => {
     let accepting = true;
     const retryAt = Date.now() + 300_000;
     const admission = vi.fn(async () => ({ accepting, retryAt, accounting: "best-effort-retained-journal" as const, hostOnly: true, reason: "token-budget-hourly" as const, limits: resolveBabysitterAdmissionLimits(), state: { windows: babysitterBudgetWindows(Date.now()), tmpDir: "/tmp" } }));
-    const f = await fixture(false, false, { box, admission });
+    const f = await fixture(false, false, { sandbox, admission });
     const installOriginal = githubInstalls.installGitHubPullRequestWorkspace;
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockImplementationOnce(async (...args) => { await installOriginal(...args); accepting = false; });
     try {
@@ -679,11 +679,11 @@ describe("Babysitter preset runtime", () => {
     } finally { install.mockRestore(); await f.runtime.inbox.close(); }
   });
 
-  it("rechecks Box admission after run metadata preparation", async () => {
+  it("rechecks Sandbox admission after run metadata preparation", async () => {
     let accepting = true;
     const retryAt = Date.now() + 300_000;
     const admission = vi.fn(async () => ({ accepting, retryAt, accounting: "best-effort-retained-journal" as const, hostOnly: true, reason: "token-budget-hourly" as const, limits: resolveBabysitterAdmissionLimits(), state: { windows: babysitterBudgetWindows(Date.now()), tmpDir: "/tmp" } }));
-    const f = await fixture(false, false, { box: true, admission });
+    const f = await fixture(false, false, { sandbox: true, admission });
     const createOriginal = githubRuns.createGitHubPullRequestRun;
     const createRun = vi.spyOn(githubRuns, "createGitHubPullRequestRun").mockImplementationOnce(async (...args) => { const run = await createOriginal(...args); accepting = false; return run; });
     try {
@@ -1895,9 +1895,9 @@ describe("Babysitter preset runtime", () => {
   });
 
   it.each((["successful check", "base advance", "failing check turns green", "failing status turns green"] as const).flatMap(change =>
-    ([{ box: false, operation: "pushRepair" }, { box: true, operation: "pushRepair" }, { box: true, operation: "commitRepair" }] as const).map(configuration => ({ change, ...configuration })),
-  ))("keeps $operation available after a same-head $change with Box=$box", async ({ change, box, operation }) => {
-    const f = await fixture(true, false, { allowOperationAfterAdmission: true, box, remoteBox: box });
+    ([{ sandbox: false, operation: "pushRepair" }, { sandbox: true, operation: "pushRepair" }, { sandbox: true, operation: "commitRepair" }] as const).map(configuration => ({ change, ...configuration })),
+  ))("keeps $operation available after a same-head $change with Sandbox=$sandbox", async ({ change, sandbox, operation }) => {
+    const f = await fixture(true, false, { allowOperationAfterAdmission: true, sandbox, remoteSandbox: sandbox });
     f.choose(operation, operation === "commitRepair" ? { message: "Repair source", paths: ["source.ts"] } : {});
     let changed = false;
     const command = f.command.getMockImplementation()!;
@@ -2156,7 +2156,7 @@ describe("Babysitter preset runtime", () => {
     const admission = async () => ({ accepting, retryAt, accounting: "best-effort-retained-journal" as const, hostOnly: true,
       reason: "token-budget-hourly" as const, limits: resolveBabysitterAdmissionLimits(),
       state: { windows: babysitterBudgetWindows(Date.now()), tmpDir: "/tmp" } });
-    const f = await fixture(false, false, { box: true, admission, operationCount: 2, providerRetryDelayMs: 1 });
+    const f = await fixture(false, false, { sandbox: true, admission, operationCount: 2, providerRetryDelayMs: 1 });
     f.choose("pushRepair");
     let count = 0;
     f.push.mockImplementation(async (_target, options) => {
@@ -2472,15 +2472,15 @@ describe("Babysitter preset runtime", () => {
   });
 
 
-  it("pushes the committed remote Box HEAD while the provider and Box remain active", async () => {
-    const f = await fixture(false, false, { box: true, remoteBox: true });
+  it("pushes the committed remote Sandbox HEAD while the provider and Sandbox remain active", async () => {
+    const f = await fixture(false, false, { sandbox: true, remoteSandbox: true });
     f.choose("pushRepair");
     await f.reconcile();
     expect(f.push).toHaveBeenCalledOnce();
   });
 
-  it("commits uncommitted remote Box edits through the protected host repair index", async () => {
-    const f = await fixture(false, false, { box: true, remoteBox: true });
+  it("commits uncommitted remote Sandbox edits through the protected host repair index", async () => {
+    const f = await fixture(false, false, { sandbox: true, remoteSandbox: true });
     f.choose("commitRepair", { message: "Repair source", paths: ["source.ts"] });
     await f.reconcile();
     expect(f.commit).toHaveBeenCalledOnce();
@@ -2488,9 +2488,9 @@ describe("Babysitter preset runtime", () => {
     expect(committed.stdout).toBe("export const value = 2\n");
   });
 
-  it.each([false, true])("prepares the live target branch when the PR base snapshot is stale (Box: %s)", async box => {
+  it.each([false, true])("prepares the live target branch when the PR base snapshot is stale (Sandbox: %s)", async sandbox => {
     const baseBranchHead = "e".repeat(40);
-    const f = await fixture(false, false, { box, mergeableState: "dirty", baseBranchHead });
+    const f = await fixture(false, false, { sandbox, mergeableState: "dirty", baseBranchHead });
     try {
       await f.reconcile();
       expect(f.pr().base.sha).not.toBe(baseBranchHead);
@@ -2502,9 +2502,9 @@ describe("Babysitter preset runtime", () => {
   it.each([
     [false, "readBaseCheckEvidence"], [true, "readBaseCheckEvidence"],
     [false, "readBaseCheckLogs"], [true, "readBaseCheckLogs"],
-  ] as const)("pins %s conflict repair CI tools to the prepared live base through %s", async (box, operation) => {
+  ] as const)("pins %s conflict repair CI tools to the prepared live base through %s", async (sandbox, operation) => {
     const liveBase = "e".repeat(40);
-    const f = await fixture(false, false, { box, mergeableState: "dirty", baseBranchHead: liveBase });
+    const f = await fixture(false, false, { sandbox, mergeableState: "dirty", baseBranchHead: liveBase });
     const staleBase = f.pr().base.sha;
     vi.mocked(prepareGitHubRepairBase).mockImplementationOnce(async () => { f.advanceBase(liveBase); });
     const command = f.command.getMockImplementation()!;
@@ -2625,9 +2625,9 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("places a pass in a Box before any host install and releases the placement", async () => {
+  it("places a pass in a Sandbox before any host install and releases the placement", async () => {
     const release = vi.fn();
-    const place = vi.fn(async () => ({ box: { runtime: "trusted-host" as const, requires: ["sh"] }, release }));
+    const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release }));
     const f = await fixture(false, false, { placement: { place } });
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockResolvedValue(undefined);
     try {
@@ -2635,31 +2635,31 @@ describe("Babysitter preset runtime", () => {
       await f.reconcile();
       expect(place).toHaveBeenCalledOnce();
       expect(place).toHaveBeenCalledWith({ repository: "acme/app", number: f.pr().number });
-      expect(boxDefinitions).toHaveBeenCalled();
-      // The Box host installs for itself; the host checkout gets no dependencies.
+      expect(sandboxDefinitions).toHaveBeenCalled();
+      // The Sandbox host installs for itself; the host checkout gets no dependencies.
       expect(install).not.toHaveBeenCalled();
       expect(f.push).toHaveBeenCalledOnce();
       expect(release).toHaveBeenCalledOnce();
     } finally { install.mockRestore(); await f.runtime.inbox.close(); }
   });
 
-  it("runs a pass on this host when placement returns no Box", async () => {
+  it("runs a pass on this host when placement returns no Sandbox", async () => {
     const release = vi.fn();
     const f = await fixture(false, false, { placement: { place: () => ({ release }) } });
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockResolvedValue(undefined);
     try {
       await f.reconcile();
-      expect(boxDefinitions).not.toHaveBeenCalled();
+      expect(sandboxDefinitions).not.toHaveBeenCalled();
       expect(install).toHaveBeenCalled();
       expect(release).toHaveBeenCalledOnce();
     } finally { install.mockRestore(); await f.runtime.inbox.close(); }
   });
 
-  it("prepares the exact conflict base and frozen dependencies before opening a Box", async () => {
-    const f = await fixture(false, false, { box: true, mergeableState: "dirty" });
+  it("prepares the exact conflict base and frozen dependencies before opening a Sandbox", async () => {
+    const f = await fixture(false, false, { sandbox: true, mergeableState: "dirty" });
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockImplementation(async directory => {
       expect(f.prepare).not.toHaveBeenCalled();
-      expect(boxDefinitions).not.toHaveBeenCalled();
+      expect(sandboxDefinitions).not.toHaveBeenCalled();
       await writeFile(join(directory, "dependencies.ready"), "installed\n");
     });
     try {
@@ -2671,12 +2671,12 @@ describe("Babysitter preset runtime", () => {
     } finally { install.mockRestore(); }
   });
 
-  it.each([false, true])("repairs through a trusted-host Box using the prepared PR working tree (inherited checkout: %s)", async (boxCheckout) => {
-    const f = await fixture(false, false, { box: true, boxCheckout });
+  it.each([false, true])("repairs through a trusted-host Sandbox using the prepared PR working tree (inherited checkout: %s)", async (sandboxCheckout) => {
+    const f = await fixture(false, false, { sandbox: true, sandboxCheckout });
     f.choose("pushRepair");
     await f.reconcile();
     expect(f.prepare).not.toHaveBeenCalled();
-    expect(boxDefinitions).toHaveBeenCalledWith(expect.objectContaining({ requires: ["sh", "git"] }));
+    expect(sandboxDefinitions).toHaveBeenCalledWith(expect.objectContaining({ requires: ["sh", "git"] }));
     expect(f.push.mock.calls[0]?.[0]).toBe(f.checkout);
     expect(f.passes).toHaveLength(1);
   });

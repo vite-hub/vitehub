@@ -57,12 +57,6 @@
       "require": "./dist/internal/runtime/vercel-client.js",
       "default": "./dist/internal/runtime/vercel-client.js"
     },
-    "./internal/runtime/vercel-vite": {
-      "types": "./dist/internal/runtime/vercel-vite.d.ts",
-      "import": "./dist/internal/runtime/vercel-vite.js",
-      "require": "./dist/internal/runtime/vercel-vite.js",
-      "default": "./dist/internal/runtime/vercel-vite.js"
-    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",

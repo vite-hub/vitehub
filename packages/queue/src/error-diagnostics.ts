@@ -19,7 +19,6 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     QUEUE_R0005: dynamicError,
     QUEUE_R0006: dynamicError,
     QUEUE_R0007: dynamicError,
-    QUEUE_R0008: dynamicError,
     QUEUE_R0009: dynamicError,
     QUEUE_R0010: dynamicError,
     QUEUE_R0011: dynamicError,

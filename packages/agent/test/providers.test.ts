@@ -693,8 +693,8 @@ describe("agent Vite plugin", () => {
         },
         workflowImportBase: "vite-hub/_internal/workflow",
         workspaceDependencyRuntimeImports: {
-          sandbox: "@vite-hub/sandbox",
-          sandboxRuntimeState: "vite-hub/_internal/sandbox/runtime/state",
+          sandboxTask: "@vite-hub/sandbox-task",
+          sandboxTaskRuntimeState: "vite-hub/_internal/sandbox-task/runtime/state",
           shellWorkspace: "vite-hub/shell/workspace",
         },
         workspaceImportBase: "vite-hub/_internal/workspace",
@@ -720,7 +720,7 @@ describe("agent Vite plugin", () => {
       expect(filteredRoute).toContain(
         'import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"',
       )
-      expect(filteredRoute).toContain('sandbox: () => import("@vite-hub/sandbox")')
+      expect(filteredRoute).toContain('sandboxTask: () => import("@vite-hub/sandbox-task")')
 
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const composedBlobPlugin = hubAgent({
@@ -1293,8 +1293,8 @@ describe("agent Vite plugin", () => {
                   external: [
                     "@ai-sdk/mcp",
                     "@modelcontextprotocol/sdk/*",
-                    "@vite-hub/sandbox",
-                    "@vite-hub/sandbox/*",
+                    "@vite-hub/sandbox-task",
+                    "@vite-hub/sandbox-task/*",
                     "@vite-hub/shell",
                     "@vite-hub/shell/*",
                     "@vite-hub/workflow",

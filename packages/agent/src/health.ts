@@ -23,7 +23,7 @@ export interface AgentHealthHandlerOptions {
   agentName?: string
 }
 
-type AgentHealthTarget = Pick<AgentInput, "workspace" | "box" | "name" | "version">
+type AgentHealthTarget = Pick<AgentInput, "workspace" | "sandbox" | "name" | "version">
 
 function settingsOf(agent: AgentHealthTarget): AgentSettings | undefined {
   // SAFETY: defineAgent attaches this optional private settings field to its callable Agent definition.
@@ -43,8 +43,8 @@ export async function resolveAgentHealth(agent: AgentHealthTarget, options: Agen
   }
   const workspaceConfigured = Boolean(agent.workspace || settings?.workspace)
   checks.workspace = { status: workspaceConfigured ? "ready" : "unsupported" }
-  const box = agent.box || settings?.box
-  if (box) checks.box = { status: "ready" }
+  const sandbox = agent.sandbox || settings?.sandbox
+  if (sandbox) checks.sandbox = { status: "ready" }
   const integrations: AgentHealthReport["integrations"] = {}
   const capacity = inspectAgentCapacity(agent)
   if (capacity && capacity.queue && capacity.pending >= capacity.queue.maxPending) {

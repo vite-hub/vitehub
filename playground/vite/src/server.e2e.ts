@@ -8,7 +8,7 @@ import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { kv } from "@vite-hub/kv"
 import { deferQueue, runQueue } from "@vite-hub/queue"
 import { requireRateLimit } from "@vite-hub/rate-limit"
-import { runSandbox } from "@vite-hub/sandbox"
+import { runSandboxTask } from "@vite-hub/sandbox-task"
 import { useWorkspace } from "@vite-hub/workspace"
 import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/runtime"
 import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
@@ -71,7 +71,7 @@ function resolveWorkspaceProvider(_event: unknown) {
   return getWorkspaceRuntimeConfig()?.store.provider ?? "memory"
 }
 
-function resolveSandboxHosting(event: { req: { runtime?: { name?: string }, waitUntil?: unknown } }) {
+function resolveSandboxTaskHosting(event: { req: { runtime?: { name?: string }, waitUntil?: unknown } }) {
   const hasWaitUntil = typeof event.req.waitUntil === "function"
   if (getCloudflareEnv(event)) {
     return {
@@ -267,7 +267,7 @@ app.get("/api/tests/probe", (event) => {
     return {
       feature: "sandbox",
       ok: true,
-      ...resolveSandboxHosting(event),
+      ...resolveSandboxTaskHosting(event),
     }
   }
 
@@ -368,8 +368,8 @@ app.get("/api/workspace/read-fresh", async (event) => {
   }
 })
 
-app.post("/api/sandboxes/release-notes", async (event) => {
-  const response = await runSandbox("release-notes", await readBody(event))
+app.post("/api/sandbox-tasks/release-notes", async (event) => {
+  const response = await runSandboxTask("release-notes", await readBody(event))
   if (!response.ok)
     return response
 
