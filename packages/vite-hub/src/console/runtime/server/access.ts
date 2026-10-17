@@ -94,24 +94,34 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       // small caller-created prototype can imitate the transferable fields,
       // but it must not be mistaken for a Response implementation without
       // the rest of its standard accessors.
-      const accessors = ["body", "bodyUsed", "headers", "status", "statusText", "type", "url", "redirected", "ok", Symbol.toStringTag]
+      const accessors = ["body", "bodyUsed", "headers", "status", "statusText", "type", "url", "redirected", "ok"]
       const hasResponseAccessors = accessors.every(method => {
         const descriptor = Object.getOwnPropertyDescriptor(responsePrototype, method)
         // Fetch implementations may expose these properties as own fields on
         // each instance (happy-dom does this) instead of prototype getters.
         return typeof descriptor?.get === "function" || Object.prototype.hasOwnProperty.call(value, method)
       })
-      // Require multiple implementation accessors on the prototype. A caller-created
-      // prototype can provide one getter while placing the remaining fields on
-      // the instance; genuine implementations such as happy-dom expose both
-      // body and Symbol.toStringTag accessors while keeping other fields own.
+      // Require an implementation accessor on the prototype. The tag is excluded
+      // because it is caller-controlled and must not count as a brand signal.
       const prototypeAccessorCount = accessors.filter(method =>
         typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function").length
-      const hasPrototypeAccessor = prototypeAccessorCount >= 2
+      const hasPrototypeAccessor = prototypeAccessorCount >= 1
+      let hasConstructibleResponse = false
+      if (typeof constructor === "function") {
+        try {
+          const constructed = new constructor()
+          hasConstructibleResponse = constructed && typeof constructed === "object"
+            && Object.getPrototypeOf(constructed) === responsePrototype
+        }
+        catch {
+          hasConstructibleResponse = false
+        }
+      }
       if (typeof cloneDescriptor?.value === "function"
         && hasResponseMethods
         && hasResponseAccessors
         && hasPrototypeAccessor
+        && hasConstructibleResponse
         && tagDescriptor
         && typeof constructor === "function"
         && constructor.prototype === responsePrototype) break
