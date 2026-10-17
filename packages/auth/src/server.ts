@@ -405,17 +405,11 @@ function isSerializableAuthorizationBody(
     if (!readerVerified) return false
     const locked = Reflect.get(body, "locked")
     if (locked !== false) return false
-    // The stream's disturbed state is not exposed by the Web Streams API.
-    // Let the native Response extractor perform its internal-slot check so a
-    // consumed, unlocked stream cannot be admitted as a fresh body.
-    try {
-      const probe = new Response(body as ReadableStream<Uint8Array>)
-      return probe.bodyUsed === false
-    }
-    catch {
-      return false
-    }
-
+    // Do not construct a Response here. The constructor acquires the source
+    // stream's reader lock, and the bridge must acquire that same stream below.
+    // The locked check above rejects streams that are already owned; native
+    // reader validation and the bridge preserve lazy ownership for valid ones.
+    return true
   }
   catch {
     return false
@@ -689,11 +683,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
     let body: unknown = Reflect.get(candidate, "body")
+    const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
+    if (typeof bodyUsed !== "boolean" || bodyUsed) return
     // Response construction rejects bodies for these status codes. Check this
     // before transferring a foreign stream so a rejected candidate retains
     // ownership of its original body.
