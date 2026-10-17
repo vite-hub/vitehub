@@ -776,8 +776,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Admission limits model dispatch. Merges and stack retargets remain host work,
     // also on a head whose no-progress budget is exhausted: the claim parks before
     // any model work, so new evidence can still merge the PR.
-    const regular = await pullRequestInbox.claim(Math.max(0, remainingCapacity - lane.length), { includeBlocked: true, skip: snapshot => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot) });
-    const jobs = [...lane, ...regular];
+    const regularCapacity = Math.max(0, remainingCapacity - lane.length);
+    const regular = await pullRequestInbox.claim(regularCapacity, { skip: snapshot => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot) });
+    const exhausted = await pullRequestInbox.claim(Math.max(0, regularCapacity - regular.length), {
+      includeBlocked: true,
+      only: snapshot => snapshot.progressBudget?.exhausted === true && snapshot.progressBudget.head === snapshot.pr?.head?.sha,
+      skip: snapshot => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot),
+    });
+    const jobs = [...lane, ...regular, ...exhausted];
     if (!jobs.length) return; // tracking an already-resolved batch creates wake loops
     for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
     schedulerEvent("babysitter.queue.selected", {
