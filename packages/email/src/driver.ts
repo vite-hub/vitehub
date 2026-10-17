@@ -3,11 +3,11 @@ import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import type { EmailDriver, EmailDriverSource } from "./types.ts"
 
 function assertEmailDriver(value: unknown): asserts value is EmailDriver {
-  if (!value || typeof value !== "object") throw emailErrorDiagnostics.EMAIL_R0001({ message: "Email driver must be an object." })
+  if (!value || typeof value !== "object") throw emailErrorDiagnostics.EMAIL_INVALID_DRIVER({ problem: "not-object" })
   // SAFETY: The object check permits field inspection; the required name and send fields are validated below before use.
   const driver = value as Partial<EmailDriver>
-  if (typeof driver.name !== "string" || driver.name.trim().length === 0) throw emailErrorDiagnostics.EMAIL_R0002({ message: "Email driver name must be a non-empty string." })
-  if (typeof driver.send !== "function") throw emailErrorDiagnostics.EMAIL_R0003({ message: "Email driver send must be a function." })
+  if (typeof driver.name !== "string" || driver.name.trim().length === 0) throw emailErrorDiagnostics.EMAIL_INVALID_DRIVER({ problem: "name" })
+  if (typeof driver.send !== "function") throw emailErrorDiagnostics.EMAIL_INVALID_DRIVER({ problem: "send" })
 }
 
 function withInitialization(driver: EmailDriver): EmailDriver {

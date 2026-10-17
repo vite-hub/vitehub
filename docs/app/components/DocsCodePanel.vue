@@ -16,16 +16,7 @@ const selectedPath = ref<string>();
 const code = useTemplateRef<HTMLElement>("code");
 
 function filenameFor(pre: HTMLPreElement): string {
-  // The docs code renderer exposes the fence label through data-filename. Keep the
-  // lookup tolerant of whether the attribute is placed on <pre> or its wrapper.
-  const source = pre.closest<HTMLElement>("[data-filename], [data-code-filename]");
-  return (
-    pre.dataset.filename ??
-    pre.dataset.codeFilename ??
-    source?.dataset.filename ??
-    source?.dataset.codeFilename ??
-    ""
-  ).trim();
+  return (pre.dataset.filename ?? pre.dataset.codeFilename ?? "").trim();
 }
 
 function collectBlocks(body: HTMLElement): Block[] {

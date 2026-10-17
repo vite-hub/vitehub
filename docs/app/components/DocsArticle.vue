@@ -71,7 +71,7 @@ const mobileTocUi = {
         class="docs-content vh-article-body !px-0 !pb-16"
         :class="{ 'docs-tutorial-content': tutorial, 'docs-reference-content': reference }"
       >
-        <ContentRenderer :value="page" />
+        <ContentRenderer :value="page" :components="{ pre: DocsCodePre }" />
       </UPageBody>
 
       <!-- Every page ends with the full product list, in the content column. -->

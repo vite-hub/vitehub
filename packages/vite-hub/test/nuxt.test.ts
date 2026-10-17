@@ -1845,8 +1845,9 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env","schedules"])`)
-      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"schedules":{"kind":"record-table","records":[{"cells":{"enabled":"Provider","kind":"Definition","lastRun":"Not in this table","nextRun":"Set by the provider","schedule":"daily","target":"-","timing":"0 9 * * *"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 9 * * *"},{"label":"Time zone","value":"UTC"},{"label":"File","value":"custom-server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
-      expect(generated).toContain(`], { "schedules": vitehubConsoleRuntimeReader0 })`)
+      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"schedules":{"kind":"record-table","records":[{"cells":{"manual":"No","schedule":"daily","timing":"0 9 * * *"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 9 * * *"},{"label":"Time zone","value":"UTC"},{"label":"File","value":"custom-server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
+      // Runtime Schedules are removed, so the Console reads no runtime Schedule records.
+      expect(generated).not.toContain("vitehubConsoleRuntimeReader")
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
     }

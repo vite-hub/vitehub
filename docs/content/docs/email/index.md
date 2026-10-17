@@ -8,6 +8,44 @@ icon: i-lucide-mail
 
 ::product-hero{tagline="Send email from your server through Resend or Cloudflare, and write messages as Markdown templates." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::product-files
+::agent-only{skill="email"}
+Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown templates with a text fallback.
+
+Read [Get started](/docs/email/get-started), [Configure](/docs/email/configure), and [Server API](/docs/email/server-api).
+
+Keep recipients, sender identity, and delivery authorization in application policy. Use test capture or a local driver before sending to real recipients.
+
+Prove rendered HTML and text output, a rejected address, and the provider response. Do not claim delivery from a queued request alone.
+::
+
+::product-hero{tagline="One message contract for transactional email: the Vite config selects Resend or Cloudflare Email, and routes stay unchanged." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+  :::code-group
+  ```ts [server/api/send-welcome.post.ts]
+  import renderWelcome from '#vitehub/emails/welcome'
+  import { renderEmailMarkdown } from 'vite-hub/email/markdown'
+  import { email } from 'vite-hub/email/server'
+
+  export async function sendWelcome(name: string, to: string) {
+    const markdown = await renderWelcome({ user: { name } })
+    const body = await renderEmailMarkdown(markdown)
+
+    const [error, sent] = await email.send({
+      ...body,
+      from: 'verified-sender@example.com',
+      to,
+      subject: 'Your workspace is ready',
+    })
+    if (error) throw error
+    return sent
+  }
+  ```
+
+  ```md [server/emails/welcome.md]
+  # Welcome {{ data.user.name }}
+
+  Your workspace is ready.
+  ```
+
   ```ts [vite.config.ts]
   import { vitehub } from 'vite-hub'
   import { env } from 'vite-hub/env'

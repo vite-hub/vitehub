@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
@@ -164,9 +164,7 @@ function renderNitroRequestScopeMiddleware() {
 }
 
 function resolveHostedProvider(config: ResolvedConfig): DBProvider | undefined {
-  const nitro: unknown = Reflect.get(config, "nitro")
-  const preset: unknown = nitro && typeof nitro === "object" ? Reflect.get(nitro, "preset") : undefined
-  const hosting = getHostingProvider(typeof preset === "string" ? preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING)
+  const hosting = resolveHost({ nitro: Reflect.get(config, "nitro") })
   if (hosting === "cloudflare" || hosting === "vercel") return hosting
   return resolveNitroVercelFunctionName(config, "database") ? "vercel" : undefined
 }

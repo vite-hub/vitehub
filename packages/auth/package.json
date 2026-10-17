@@ -83,8 +83,7 @@
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth",
     "bun-types": "^1.4.3",
-    "nostics": "catalog:runtime",
-    "undici": "8.12.2"
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@types/json-schema": "catalog:ai",
@@ -94,6 +93,7 @@
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "undici": "8.12.2",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",

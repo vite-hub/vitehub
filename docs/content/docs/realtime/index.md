@@ -100,6 +100,14 @@ icon: i-lucide-radio
     ],
   })
   ```
+
+  ```ts [Checkpoint]
+  const [error, checkpoint] = await realtime.history.checkpoint()
+  if (error) throw error
+
+  checkpoint.document.body
+  checkpoint.snapshot
+  ```
   :::
 ::
 
