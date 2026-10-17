@@ -8,7 +8,6 @@ import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleSearch from "./console-search.vue";
-import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 interface KVListResponse {
@@ -128,6 +127,14 @@ function parseValue(value: unknown): KVValueResponse {
   if (typeof source.value === "string") parsed.value = source.value;
   if (source.truncated === true) parsed.truncated = true;
   return parsed;
+}
+
+function errorMessage(error: unknown): string | undefined {
+  return error instanceof Error
+    ? error.message
+    : error
+      ? "The Console could not load this KV data."
+      : undefined;
 }
 
 async function loadValue(key = selectedKey.value): Promise<void> {
@@ -359,7 +366,7 @@ onBeforeUnmount(() => {
               <UButton
                 aria-label="Refresh keys"
                 color="neutral"
-                icon="i-ph-arrows-clockwise-light"
+                icon="i-lucide-refresh-cw"
                 size="xs"
                 variant="ghost"
                 :loading="listLoading || valueLoading"
@@ -373,13 +380,23 @@ onBeforeUnmount(() => {
 
       <template #body>
         <main class="min-h-0 flex-1 overflow-y-auto">
-          <div v-if="listError" class="m-3">
-            <ConsoleState compact :error="listError" title="Could not load keys" :retry="refresh" />
-          </div>
+          <UAlert
+            v-if="errorMessage(listError)"
+            class="m-3"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
+            title="Could not load keys"
+            :description="errorMessage(listError)"
+            :actions="[
+              { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh },
+            ]"
+          />
           <template v-else>
             <UTable
               :columns="columns"
               :data="tableRows"
+              empty="No keys in this store."
               :loading="listLoading"
               :meta="tableMeta"
               sticky="header"
@@ -391,21 +408,12 @@ onBeforeUnmount(() => {
             >
               <template #key-cell="{ row }">
                 <span class="flex min-w-0 items-center gap-2 font-mono text-xs text-highlighted">
-                  <UIcon name="i-ph-key-light" class="size-3.5 shrink-0 text-muted opacity-65" />
+                  <UIcon name="i-lucide-key-round" class="size-3.5 shrink-0 text-muted opacity-65" />
                   <span class="truncate">{{ row.original.key || "(empty key)" }}</span>
                 </span>
               </template>
               <template #store-cell="{ row }">
-                <span class="font-mono text-[11px] text-muted">{{ row.original.store }}</span>
-              </template>
-              <template #empty>
-                <ConsoleState
-                  v-if="!listLoading"
-                  section="kv"
-                  icon="i-lucide-book-key"
-                  title="No keys yet"
-                  description="Keys appear here after the application writes a value to this store."
-                />
+                <span class="font-mono text-xs text-muted">{{ row.original.store }}</span>
               </template>
             </UTable>
             <div v-if="nextCursor" class="border-b border-default px-3 py-2">
@@ -422,19 +430,32 @@ onBeforeUnmount(() => {
 
           <div v-if="valueLoading && !selectedValue" class="flex h-24 items-center justify-center">
             <UIcon
-              name="i-ph-circle-notch-light"
+              name="i-lucide-loader-circle"
               class="size-4 animate-spin text-muted opacity-70"
             />
           </div>
-          <div v-else-if="valueError" class="m-3">
-            <ConsoleState compact :error="valueError" title="Could not load this value" :retry="() => loadValue()" />
-          </div>
+          <UAlert
+            v-else-if="errorMessage(valueError)"
+            class="m-3"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-cloud-off"
+            title="Could not load this value"
+            :description="errorMessage(valueError)"
+            :actions="[
+              {
+                label: 'Try again',
+                icon: 'i-lucide-refresh-cw',
+                onClick: () => loadValue(),
+              },
+            ]"
+          />
           <UAlert
             v-else-if="selectedValue && !selectedValue.found"
             class="m-3"
             color="warning"
             variant="subtle"
-            icon="i-ph-key-light"
+            icon="i-lucide-key-round"
             title="Key no longer exists"
             description="Refresh the table to load the current store contents."
           />
@@ -445,10 +466,10 @@ onBeforeUnmount(() => {
               <h2 class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-highlighted">
                 {{ selectedValue.key || "(empty key)" }}
               </h2>
-              <span class="font-mono text-[10px] uppercase tracking-[.08em] text-muted">{{
+              <span class="font-mono text-xs uppercase tracking-[.08em] text-muted">{{
                 selectedValue.type
               }}</span>
-              <span class="font-mono text-[10px] uppercase tracking-[.08em] text-muted">{{
+              <span class="font-mono text-xs uppercase tracking-[.08em] text-muted">{{
                 selectedValue.format
               }}</span>
               <UBadge

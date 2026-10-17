@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ConsoleSectionId } from "../sections";
 import ConsoleRail from "./console-rail.vue";
+import ConsoleToaster from "./console-toaster.vue";
 
 defineProps<{
   /** Section that the current page shows. Leave it unset on the Overview. */
@@ -10,9 +11,12 @@ defineProps<{
 </script>
 
 <template>
-  <UDashboardGroup class="vitehub-console" unit="rem" storage-key="vitehub-console-v2">
+  <!-- Local storage keeps sidebar sizes and collapsed state across reloads; the cookie storage needs Nuxt to persist. -->
+  <UDashboardGroup class="vitehub-console" unit="rem" storage="local" storage-key="vitehub-console-v2">
     <ConsoleRail :active="active" :sections-base="sectionsBase" />
     <slot />
+    <!-- Console toasts render here, apart from the toaster of a host app. -->
+    <ConsoleToaster />
   </UDashboardGroup>
 </template>
 
@@ -65,8 +69,8 @@ defineProps<{
   background: transparent;
   box-shadow: none;
   color: var(--ui-text-dimmed);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
   min-width: 0;
   padding-inline: 0.0625rem;
   transition: color 150ms ease;

@@ -1,4 +1,5 @@
-import { describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, readViteHubConsoleSection } from "@vite-hub/internal/console"
+import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
+import { contentConsoleSection } from "@vite-hub/content/vite"
 import { emailConsoleSection } from "@vite-hub/email/vite"
 import { queueConsoleSection } from "@vite-hub/queue/vite"
 import { rateLimitConsoleSection } from "@vite-hub/rate-limit/vite"
@@ -35,11 +36,21 @@ export interface ConsoleRuntimeReader {
   module: string
 }
 
+/** How the host installs a document editor section. */
+export interface ConsoleDocumentEditorRegistration {
+  /** Owner factory export, mapped to its `vite-hub/_internal` module. */
+  readonly actions: ConsoleRuntimeReader
+  /** Finds the application module that the actions open. The section is shown only when it finds one. */
+  entry(context: ConsoleSectionDiscoveryContext): Promise<string | undefined>
+}
+
 export interface ConsoleRegisteredSection {
   readonly descriptor: ConsoleContributedSection
   read(context: ConsoleSectionDiscoveryContext): Promise<ConsoleSectionContent>
   /** Request-time reader. The Console adds its records to the build-time content on each request. */
   readonly runtime?: ConsoleRuntimeReader
+  /** Present for a document editor section. */
+  readonly documents?: ConsoleDocumentEditorRegistration
 }
 
 /**
@@ -56,14 +67,22 @@ function registerConsoleSection<TOptions>(
 ): ConsoleRegisteredSection {
   const descriptor: ConsoleContributedSection = describeViteHubConsoleSection(section)
   const runtime = describeViteHubConsoleRuntimeReader(section)
-  return {
+  const actions = describeViteHubConsoleDocumentActions(section)
+  const registered: { -readonly [K in keyof ConsoleRegisteredSection]: ConsoleRegisteredSection[K] } = {
     descriptor,
     read: async (context) => {
       const content: ConsoleSectionContent = await readViteHubConsoleSection(section, options(context))
       return content
     },
-    ...(runtime ? { runtime: { export: runtime.export, module: consoleRuntimeReaderModule(runtime.module) } } : {}),
   }
+  if (runtime) registered.runtime = { export: runtime.export, module: consoleRuntimeReaderModule(runtime.module) }
+  if (actions && isViteHubConsoleDocumentEditorSection(section)) {
+    registered.documents = {
+      actions: { export: actions.export, module: consoleRuntimeReaderModule(actions.module) },
+      entry: async context => await section.entry(options(context)),
+    }
+  }
+  return registered
 }
 
 /**
@@ -71,6 +90,10 @@ function registerConsoleSection<TOptions>(
  * maps the host discovery roots to the owner reader options.
  */
 const registeredSections: readonly ConsoleRegisteredSection[] = [
+  registerConsoleSection(contentConsoleSection, context => ({
+    projectRoot: context.projectRoot,
+    serverDirs: context.serverDirs,
+  })),
   registerConsoleSection(emailConsoleSection, () => undefined),
   registerConsoleSection(rateLimitConsoleSection, context => ({
     projectRoot: context.projectRoot,
@@ -112,7 +135,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
  * the Console build (`console.vite.config.ts`) bundles this list. The prebuilt Console then never fetches an icon at
  * runtime.
  */
-export const consoleContributedSectionIcons: readonly string[] = [...new Set(registeredSections.map(section => section.descriptor.icon))]
+export const consoleContributedSectionIcons: readonly string[] = [...new Set(registeredSections.flatMap(section => [section.descriptor.icon, ...section.descriptor.pages?.map(page => page.icon) ?? []]))]
 
 export const consoleContributedSections: ReadonlyMap<ConsoleSectionId, ConsoleRegisteredSection> = new Map(
   registeredSections.map(section => [section.descriptor.id, section]),
@@ -122,11 +145,17 @@ export function isConsoleContributedSectionId(section: ConsoleSectionId): boolea
   return consoleContributedSections.has(section)
 }
 
-/** Returns the descriptors of the enabled contributed sections in navigation order. */
+/**
+ * Returns the descriptors of the enabled contributed sections in navigation order. Each keeps only the pages whose
+ * required sections are enabled too, such as Content Media with Blob.
+ */
 export function describeConsoleContributedSections(sections: readonly ConsoleSectionId[]): ConsoleContributedSection[] {
   return sections.flatMap((section) => {
     const registered = consoleContributedSections.get(section)
-    return registered ? [registered.descriptor] : []
+    if (!registered) return []
+    const { pages: _pages, ...descriptor } = registered.descriptor
+    const pages = resolveViteHubConsoleSectionPages(registered.descriptor, sections)
+    return [pages.length ? { ...descriptor, pages } : descriptor]
   })
 }
 
@@ -135,5 +164,20 @@ export function describeConsoleRuntimeReaders(sections: readonly ConsoleSectionI
   return sections.flatMap((section) => {
     const runtime = consoleContributedSections.get(section)?.runtime
     return runtime ? [{ ...runtime, section }] : []
+  })
+}
+
+/** Ids of the contributed document editor sections. Discovery adds each one whose application module exists. */
+export const consoleDocumentEditorSectionIds: readonly ConsoleSectionId[] = registeredSections.flatMap(section => section.documents ? [section.descriptor.id] : [])
+
+/** Returns the document editor sections of the enabled sections with their application module, in navigation order. */
+export function describeConsoleDocumentEditors(
+  sections: readonly ConsoleSectionId[],
+  entries: Readonly<Record<ConsoleSectionId, string>>,
+): Array<ConsoleRuntimeReader & { entry: string, section: ConsoleSectionId }> {
+  return sections.flatMap((section) => {
+    const documents = consoleContributedSections.get(section)?.documents
+    const entry = Object.hasOwn(entries, section) ? entries[section] : undefined
+    return documents && entry ? [{ ...documents.actions, entry, section }] : []
   })
 }

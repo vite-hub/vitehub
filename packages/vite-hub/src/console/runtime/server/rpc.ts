@@ -10,13 +10,14 @@ import { consoleAttachmentRequestBytes } from "./attachments.ts"
 import consoleBlobHandler from "./blob.get.ts"
 import consoleDatabaseHandler from "./database.get.ts"
 import consoleDefinitionsHandler from "./definitions.get.ts"
+import consoleDocumentsHandler, { maximumConsoleDocumentRequestBytes } from "./documents.ts"
 import consoleInvocationCapabilitiesHandler from "./invocation-capabilities.get.ts"
 import consoleInvocationWorkspaceHandler from "./invocation-workspace.get.ts"
 import consoleInvocationHandler from "./invocation.get.ts"
 import consoleInvocationsHandler from "./invocations.get.ts"
 import consoleEnvHandler from "./env.get.ts"
 import consoleKVHandler from "./kv.get.ts"
-import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
+import { runConsoleMediaAction, uploadConsoleMedia } from "./media.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
 import { consoleScheduleRunHandler } from "./schedule-run.ts"
@@ -31,10 +32,15 @@ import type { ConsoleSectionId } from "../sections.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export const consoleRpcCallPath = "/_vitehub/rpc/__call"
+/** Media library uploads: one file per `multipart/form-data` request, so the browser can report progress. */
+export const consoleRpcUploadPath = "/_vitehub/rpc/__upload"
 
 const maximumConsoleRpcRequestBytes = 64 * 1_024
-// Invocation envelopes also carry image data URLs.
-const maximumConsoleInvocationRpcRequestBytes = consoleAttachmentRequestBytes + maximumConsoleRpcRequestBytes
+// Invocation envelopes also carry image data URLs, and document saves carry a whole Markdown document.
+const maximumConsoleRpcRequestBytesByMethod: Readonly<Record<string, number>> = {
+  [consoleRpcMethods.agentInvocations]: consoleAttachmentRequestBytes + maximumConsoleRpcRequestBytes,
+  [consoleRpcMethods.documents]: maximumConsoleDocumentRequestBytes + maximumConsoleRpcRequestBytes,
+}
 
 const responseHeaders = {
   "cache-control": "no-store",
@@ -94,21 +100,14 @@ function errorResult(error: unknown): ConsoleRpcResult {
   const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500
   const statusMessage = Reflect.get(value, "statusMessage")
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
-  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : undefined
-  // A failure site with its own diagnostic keeps its code and guidance. Others get the Console code of the status.
-  const code = text(Reflect.get(value, "code"))
-  if (!code) return { ...consoleDiagnosticBody(consoleStatusDiagnosticCode(status), message), ok: false, status }
-  const result: Extract<ConsoleRpcResult, { ok: false }> = { code, message: message ?? "Console request failed.", ok: false, status }
-  const fix = text(Reflect.get(value, "fix"))
-  const docs = text(Reflect.get(value, "docs"))
-  if (fix) result.fix = fix
-  if (docs) result.docs = docs
-  return result
-}
-
-function text(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
-  return typeof value === "string" && value ? value : undefined
+  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : "Console request failed."
+  const failure: ConsoleRpcResult = { message, ok: false, status }
+  // Only owner action failures carry a code and details. See consoleActionError().
+  const code: unknown = Reflect.get(value, "consoleCode")
+  const details: unknown = Reflect.get(value, "consoleDetails")
+  if (String(code) === code) Object.assign(failure, { code })
+  if (String(code) === code && details instanceof Object && !Array.isArray(details)) Object.assign(failure, { details })
+  return failure
 }
 
 async function consoleSearchError(response: Response): Promise<Error> {
@@ -160,12 +159,24 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
   [consoleRpcMethods.blob]: { section: "blob", run: (input, context) => consoleBlobHandler(requestEvent("blob", input, context)) },
   [consoleRpcMethods.database]: { section: "databases", run: (input, context) => consoleDatabaseHandler(requestEvent("database", input, context)) },
   [consoleRpcMethods.definitions]: { section: querySection, run: (input, context) => consoleDefinitionsHandler(requestEvent("definitions", input, context)) },
+  [consoleRpcMethods.documents]: {
+    section: querySection,
+    async run(input, context) {
+      const result = await consoleDocumentsHandler(requestEvent("documents", input, context))
+      if (result instanceof Response) throw consoleRequestError(result.status, "This Console access does not include this section.")
+      return result.value
+    },
+  },
   [consoleRpcMethods.invocationWorkspace]: { section: "agents", run: (input, context) => consoleInvocationWorkspaceHandler(requestEvent("invocation-workspace", input, context)) },
   [consoleRpcMethods.invocation]: { section: "agents", run: (input, context) => consoleInvocationHandler(requestEvent("invocations", input, context)) },
   [consoleRpcMethods.invocationCapabilities]: { section: "agents", run: (input, context) => consoleInvocationCapabilitiesHandler(requestEvent("invocation-capabilities", input, context)) },
   [consoleRpcMethods.invocations]: { section: "agents", run: (input, context) => consoleInvocationsHandler(requestEvent("invocations", input, context)) },
   [consoleRpcMethods.env]: { section: "env", run: (input, context) => consoleEnvHandler(requestEvent("env", input, context)) },
   [consoleRpcMethods.kv]: { section: "kv", run: (input, context) => consoleKVHandler(requestEvent("kv", input, context)) },
+  [consoleRpcMethods.media]: {
+    section: querySection,
+    run: (input, context) => runConsoleMediaAction(querySection(input) ?? "", input.query?.action, input.body, context.access),
+  },
   [consoleRpcMethods.search]: {
     section: "agents",
     async run(input, context) {
@@ -199,16 +210,18 @@ function isSameOriginRequest(request: Request, url: URL): boolean {
 }
 
 // Accept an application mount prefix, but no other path before or after the Console route.
-function isConsoleRpcCallPath(pathname: string): boolean {
+function isConsoleRpcPath(pathname: string, path: string): boolean {
   const route = pathname.indexOf("/_vitehub/rpc/")
-  return route !== -1 && pathname.slice(route) === consoleRpcCallPath
+  return route !== -1 && pathname.slice(route) === path
 }
 
-function invocationEnvelopePrefix(body: string): string | undefined {
-  // Large invocation calls put the method first so it can be classified within 64 KiB.
+function largeEnvelopePrefix(body: string): { maximumBytes: number, method: string, prefix: string } | undefined {
+  // Large invocation and document calls put the method first so they can be classified within 64 KiB.
   const prefix = /^[ \t\r\n]*\{[ \t\r\n]*"method"[ \t\r\n]*:[ \t\r\n]*("(?:[^"\\]|\\.)*")[ \t\r\n]*(?:,|(?=\}))/.exec(body)
   if (!prefix) return undefined
-  return JSON.parse(prefix[1]!) === consoleRpcMethods.agentInvocations ? prefix[0] : undefined
+  const method: unknown = JSON.parse(prefix[1]!)
+  if (String(method) !== method || !Object.hasOwn(maximumConsoleRpcRequestBytesByMethod, method)) return undefined
+  return { maximumBytes: maximumConsoleRpcRequestBytesByMethod[method]!, method, prefix: prefix[0] }
 }
 
 async function readConsoleEnvelope(request: Request): Promise<unknown> {
@@ -227,7 +240,7 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
         // Decode only the bounded prefix before deciding whether attachments are allowed.
         if (maximumBytes === maximumConsoleRpcRequestBytes) {
           body += decoder.decode(chunk.value.subarray(0, remaining), { stream: true })
-          if (invocationEnvelopePrefix(body)) maximumBytes = maximumConsoleInvocationRpcRequestBytes
+          maximumBytes = largeEnvelopePrefix(body)?.maximumBytes ?? maximumBytes
         }
         if (bytes + chunk.value.byteLength > maximumBytes) {
           throw consoleRequestError(413, "Console request body exceeds the byte limit.")
@@ -240,13 +253,13 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
       bytes += chunk.value.byteLength
     }
     body += decoder.decode()
-    const prefix = invocationEnvelopePrefix(body)
-    if (!prefix) return JSON.parse(body)
+    const large = largeEnvelopePrefix(body)
+    if (!large) return JSON.parse(body)
     // Parse the remaining members separately so a duplicate method cannot override
-    // the invocation classification and bypass the ordinary request limit.
-    const members = v.parse(v.record(v.string(), v.unknown()), JSON.parse(`{${body.slice(prefix.length)}`))
+    // the classification and bypass the ordinary request limit.
+    const members = v.parse(v.record(v.string(), v.unknown()), JSON.parse(`{${body.slice(large.prefix.length)}`))
     if (Object.hasOwn(members, "method")) throw consoleRequestError(400, "Invalid Console request.")
-    return { ...members, method: consoleRpcMethods.agentInvocations }
+    return { ...members, method: large.method }
   }
   catch (error) {
     await reader.cancel()
@@ -259,8 +272,14 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
-  if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
-  if (!isConsoleRpcCallPath(url.pathname)) throw consoleRequestError(404, "Console RPC endpoint not found.")
+  if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Forbidden")
+  if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
+    if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
+    const section = url.searchParams.get("section") ?? ""
+    if (!consoleAccessAllows(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section.")
+    return uploadConsoleMedia(request, section, context.access)
+  }
+  if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
   if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
   let payload: unknown
   try {

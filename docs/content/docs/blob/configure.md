@@ -94,7 +94,33 @@ Use `serve.headers` for static cache and security policy. Blob metadata remains 
 
 The generated Nitro route maps `${route}/**` to the selected Blob Store and delegates streaming to `blob.store(storeName).serve(event, pathname)`. The default route is a safe framework default. It is not a recommendation that every app expose public assets under `/api`.
 
+The route also serves image variants, such as `${route}/posts/cover.jpg?w=640&fmt=webp`. Read [Image variants](/docs/blob/media#image-variants).
+
 Objects from the served store include a URL. With `serve.publicBaseUrl`, the URL is absolute. Without it, the URL is route-relative so request-aware consumers can resolve it against their own origin.
+
+## Image variants
+
+`images` sets how the serve route makes variants. Omit it to use the `auto` transformer: the Cloudflare Images binding when the Worker has one, sharp when the project installs it, and the original otherwise.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [hubBlob()],
+  blob: {
+    driver: 'fs',
+    serve: true,
+    images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
+  },
+})
+```
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `transformer` | `'auto' \| 'sharp' \| 'cloudflare-images' \| 'passthrough'` | Defaults to `auto`. `sharp` fails the build without sharp. `cloudflare-images` adds the Worker `images` binding. |
+| `binding` | `string` | Cloudflare Images binding name. Defaults to `IMAGES`. |
+| `sizes` | `number[]` | Widths and heights that variants snap to. Defaults to 16 through 3840. |
+| `quality` | `number` | Default quality for lossy formats, 1 to 100. Defaults to 75. |
+
+Set `images: false` to always serve originals. `images` applies to every store.
 
 ## Provider options
 

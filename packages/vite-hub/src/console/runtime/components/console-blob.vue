@@ -256,7 +256,7 @@ onBeforeUnmount(() => {
             <UIcon name="i-lucide-file" class="size-3.5 shrink-0 text-dimmed" />
             <span class="min-w-0 flex-1">
               <span class="block truncate font-mono text-xs">{{ object.pathname }}</span>
-              <span class="mt-0.5 block truncate text-[11px] text-muted">{{ formatBytes(object.size) }} · {{ object.contentType || "Unknown type" }}</span>
+              <span class="mt-0.5 block truncate text-xs text-muted">{{ formatBytes(object.size) }} · {{ object.contentType || "Unknown type" }}</span>
             </span>
           </button>
           <UButton v-if="hasMore" class="mt-2" block color="neutral" icon="i-lucide-chevron-down" label="Load more" size="sm" variant="ghost" :loading="loadingMore" @click="loadObjects({ append: true, keepSelection: true })" />
@@ -275,7 +275,7 @@ onBeforeUnmount(() => {
           <UButton class="mr-2 lg:hidden" aria-label="Open Blob objects" color="neutral" icon="i-lucide-panel-left" variant="ghost" @click="sidebarOpen = true" />
           <div class="min-w-0">
             <p class="truncate font-mono text-xs font-medium text-highlighted">{{ selectedPath || "Blob" }}</p>
-            <p v-if="selectedPath" class="mt-0.5 truncate text-[11px] text-muted">{{ selectedStore }}</p>
+            <p v-if="selectedPath" class="mt-0.5 truncate text-xs text-muted">{{ selectedStore }}</p>
           </div>
           <UBadge class="ml-auto" color="neutral" label="Read-only" size="sm" variant="soft" />
         </header>
@@ -296,7 +296,7 @@ onBeforeUnmount(() => {
                   ['HTTP ETag', selectedBlob.httpEtag || 'Unavailable'],
                   ['Access URL', selectedBlob.urlAvailable ? 'Available from the configured provider' : 'Unavailable'],
                 ]" :key="field[0]" class="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-4">
-                  <dt class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">{{ field[0] }}</dt>
+                  <dt class="text-xs font-medium text-muted">{{ field[0] }}</dt>
                   <dd class="break-all font-mono text-xs text-highlighted">{{ field[1] }}</dd>
                 </div>
               </dl>
@@ -304,10 +304,10 @@ onBeforeUnmount(() => {
 
             <div class="mt-4 grid gap-4 lg:grid-cols-2">
               <section v-for="group in [{ title: 'HTTP metadata', entries: httpMetadata }, { title: 'Custom metadata', entries: customMetadata }]" :key="group.title" class="overflow-hidden rounded-lg border border-default bg-default">
-                <div class="flex h-10 items-center border-b border-default px-3"><h2 class="text-xs font-medium text-highlighted">{{ group.title }}</h2><span class="ml-auto text-[11px] text-muted">{{ group.entries.length }}</span></div>
+                <div class="flex h-10 items-center border-b border-default px-3"><h2 class="text-xs font-medium text-highlighted">{{ group.title }}</h2><span class="ml-auto text-xs text-muted">{{ group.entries.length }}</span></div>
                 <dl v-if="group.entries.length" class="divide-y divide-default">
                   <div v-for="entry in group.entries" :key="entry[0]" class="grid gap-1 px-4 py-3 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-3">
-                    <dt class="break-all font-mono text-[11px] text-muted">{{ entry[0] }}</dt>
+                    <dt class="break-all font-mono text-xs text-muted">{{ entry[0] }}</dt>
                     <dd class="break-all font-mono text-xs text-highlighted">{{ entry[1] }}</dd>
                   </div>
                 </dl>

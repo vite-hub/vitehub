@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest"
 
-import { describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleRuntimeSection, isViteHubConsoleSectionId, readViteHubConsoleSection } from "../src/console.ts"
+import {
+  createViteHubConsoleActionError,
+  describeViteHubConsoleDocumentActions,
+  describeViteHubConsoleRuntimeReader,
+  describeViteHubConsoleSection,
+  isViteHubConsoleDocumentEditorSection,
+  isViteHubConsoleRuntimeSection,
+  isViteHubConsoleSectionId,
+  readViteHubConsoleActionFailure,
+  readViteHubConsoleSection,
+  resolveViteHubConsoleSectionPages,
+  viteHubConsoleDocumentActionNames,
+} from "../src/console.ts"
 
 import type { ViteHubConsoleSectionContribution } from "../src/console.ts"
 
@@ -95,5 +107,79 @@ describe("Console section contributions", () => {
   it("rejects runtime readers that the host cannot import safely", () => {
     expect(() => describeViteHubConsoleRuntimeReader({ ...runtimeTable, runtime: { export: "read", module: "./local.ts" } })).toThrow(TypeError)
     expect(() => describeViteHubConsoleRuntimeReader({ ...runtimeTable, runtime: { export: "read-records", module: "@vite-hub/widget" } })).toThrow(TypeError)
+  })
+
+  it("describes a document editor without its entry finder or actions", async () => {
+    const editor: ViteHubConsoleSectionContribution<{ rootDir: string }> = {
+      actions: { export: "createWidgetDocumentActions", module: "@vite-hub/widget/runtime/console" },
+      description: "Edit widget documents.",
+      entry: ({ rootDir }) => `${rootDir}/server/widgets.ts`,
+      icon: "i-lucide-file-pen-line",
+      id: "widget-docs",
+      label: "Widget Docs",
+      view: { kind: "document-editor", notice: "Documents live in the widget store." },
+    }
+    expect(isViteHubConsoleDocumentEditorSection(editor)).toBe(true)
+    expect(isViteHubConsoleDocumentEditorSection(table)).toBe(false)
+    expect(describeViteHubConsoleSection(editor)).toEqual({
+      description: "Edit widget documents.",
+      icon: "i-lucide-file-pen-line",
+      id: "widget-docs",
+      label: "Widget Docs",
+      view: { kind: "document-editor", notice: "Documents live in the widget store." },
+    })
+    expect(describeViteHubConsoleDocumentActions(editor)).toEqual({ export: "createWidgetDocumentActions", module: "@vite-hub/widget/runtime/console" })
+    expect(describeViteHubConsoleDocumentActions(table)).toBeUndefined()
+    expect(describeViteHubConsoleRuntimeReader(editor)).toBeUndefined()
+    // Collections are read from the owner actions on each request.
+    await expect(readViteHubConsoleSection(editor, { rootDir: "/app" })).resolves.toEqual({ collections: [], kind: "document-editor" })
+    expect(() => describeViteHubConsoleDocumentActions({ ...editor, actions: { export: "create", module: "../local.ts" } })).toThrow(TypeError)
+    expect(viteHubConsoleDocumentActionNames).toEqual(["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "unschedule"])
+  })
+
+  it("describes section pages with one index page and resolves their required sections", () => {
+    const editor: ViteHubConsoleSectionContribution = {
+      actions: { export: "createWidgetDocumentActions", module: "@vite-hub/widget/runtime/console" },
+      description: "Edit widget documents.",
+      entry: () => "/app/server/widgets.ts",
+      icon: "i-lucide-file-pen-line",
+      id: "widget-docs",
+      label: "Widget Docs",
+      pages: [
+        { id: "dashboard", label: "Dashboard", icon: "i-lucide-layout-dashboard", index: true, view: { kind: "document-dashboard" } },
+        { id: "settings", label: "Settings", icon: "i-lucide-settings-2", group: "Site", view: { kind: "document-settings" } },
+        { id: "media", label: "Media", icon: "i-lucide-image", group: " Assets ", requires: ["blob"], view: { kind: "media-library" } },
+      ],
+      view: { kind: "document-editor", notice: "Documents live in the widget store." },
+    }
+    const descriptor = describeViteHubConsoleSection(editor)
+    expect(descriptor.pages).toEqual([
+      { icon: "i-lucide-layout-dashboard", id: "dashboard", index: true, label: "Dashboard", view: { kind: "document-dashboard" } },
+      { group: "Site", icon: "i-lucide-settings-2", id: "settings", label: "Settings", view: { kind: "document-settings" } },
+      { group: "Assets", icon: "i-lucide-image", id: "media", label: "Media", requires: ["blob"], view: { kind: "media-library" } },
+    ])
+    // The host drops pages whose required sections the project does not enable, and keeps `requires` on the server.
+    expect(resolveViteHubConsoleSectionPages(descriptor, ["content"]).map(page => page.id)).toEqual(["dashboard", "settings"])
+    expect(resolveViteHubConsoleSectionPages(descriptor, ["content", "blob"])[2]).toEqual({ group: "Assets", icon: "i-lucide-image", id: "media", label: "Media", view: { kind: "media-library" } })
+    expect(resolveViteHubConsoleSectionPages(describeViteHubConsoleSection(table), [])).toEqual([])
+
+    const page = editor.pages![0]!
+    expect(() => describeViteHubConsoleSection({ ...editor, pages: [{ ...page, id: "-" }] })).toThrow(/route segment/)
+    expect(() => describeViteHubConsoleSection({ ...editor, pages: [page, page] })).toThrow(/twice/)
+    expect(() => describeViteHubConsoleSection({ ...editor, pages: [page, { ...page, id: "other" }] })).toThrow(/more than one index/)
+    expect(() => describeViteHubConsoleSection({ ...editor, pages: [{ ...page, view: { kind: "calendar" } as never }] })).toThrow(/unknown view/)
+    expect(() => describeViteHubConsoleSection({ ...editor, pages: [{ ...page, requires: ["Blob"] }] })).toThrow(/section ids/)
+    expect(() => describeViteHubConsoleSection({ ...table, pages: [page] })).toThrow(/only document editor sections/)
+  })
+
+  it("marks action failures that the Console may return", () => {
+    const error = createViteHubConsoleActionError({ code: "CONTENT_INVALID", details: { issues: [] }, message: "Invalid.", status: 422 })
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toBe("Invalid.")
+    expect(readViteHubConsoleActionFailure(error)).toEqual({ code: "CONTENT_INVALID", details: { issues: [] }, message: "Invalid.", status: 422 })
+    expect(Object.keys(error)).toEqual([])
+    expect(readViteHubConsoleActionFailure(new Error("plain"))).toBeUndefined()
+    expect(readViteHubConsoleActionFailure(Object.assign(new Error("forged"), { code: "X", status: 422 }))).toBeUndefined()
+    expect(readViteHubConsoleActionFailure(undefined)).toBeUndefined()
   })
 })

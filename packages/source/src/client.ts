@@ -109,7 +109,7 @@ function isFacets(value: unknown): value is CollectionFacets {
     Array.isArray(entries) && entries.every(entry => Object(entry) === entry
       && String(Reflect.get(entry, "value")) === Reflect.get(entry, "value")
       && Number.isSafeInteger(Reflect.get(entry, "count"))
-      && Number(Reflect.get(entry, "count")) >= 0))
+      && Reflect.get(entry, "count") >= 0))
 }
 
 function appBaseURL(): string {
@@ -166,8 +166,6 @@ export function useCollection<TName extends CollectionName>(
       const filter = options.filter ? toValue(options.filter) : {}
       let cursor = reset ? undefined : nextCursor.value || undefined
       let loadedItems = reset ? [] : [...items.value]
-      let loadedTotal = reset ? undefined : total.value
-      let loadedFacets = reset ? undefined : facets.value
       let response: TPage
       const seenCursors = new Set(cursors)
       if (cursor) seenCursors.add(cursor)
@@ -185,8 +183,6 @@ export function useCollection<TName extends CollectionName>(
         // SAFETY: The generated endpoint derives its item contract from this registered Collection.
         response = { ...parsed, items: parsed.items as TItem[] }
         if (active !== controller) return
-        if (response.total !== undefined) loadedTotal = response.total
-        if (response.facets !== undefined) loadedFacets = response.facets
         loadedItems = [...loadedItems, ...response.items]
         cursor = response.nextCursor || undefined
         if (cursor && seenCursors.has(cursor)) {
@@ -198,10 +194,8 @@ export function useCollection<TName extends CollectionName>(
       items.value = loadedItems
       cursors = seenCursors
       nextCursor.value = response.nextCursor
-      if (loadedTotal !== undefined) response = { ...response, total: loadedTotal }
-      if (loadedFacets !== undefined) response = { ...response, facets: loadedFacets }
-      total.value = loadedTotal
-      facets.value = loadedFacets
+      total.value = response.total
+      facets.value = response.facets
       loaded = true
       return { ...response, items: loadedItems }
     } catch (cause) {

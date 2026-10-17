@@ -50,12 +50,32 @@ export const consoleAppConfig = {
     upload: "i-lucide-upload",
     warning: "i-lucide-triangle-alert",
   },
+  // Geist's smallest text is 12px, so small badges and key caps use it too.
+  badge: {
+    variants: {
+      size: {
+        xs: { base: "px-1.5 py-0 text-xs/4" },
+        sm: { base: "px-1.5 py-0.5 text-xs/4" },
+      },
+    },
+  },
+  kbd: {
+    variants: {
+      size: {
+        sm: "text-xs",
+        md: "text-xs",
+      },
+    },
+  },
+  // Buttons are black and white (Geist). Blue is reserved for focus rings, links, selection, and the drop cursor.
+  // A press scales the button to 97% (Emil Kowalski); reduced motion keeps it still.
   button: {
     defaultVariants: {
+      color: "neutral",
       size: "sm",
     },
     slots: {
-      base: "rounded-md font-normal",
+      base: "rounded-md font-medium disabled:opacity-50 aria-disabled:opacity-50 transition-[color,background-color,box-shadow,transform] duration-150 ease-out motion-safe:active:not-disabled:scale-[.97] motion-reduce:transition-none",
       leadingIcon: "size-4 opacity-80",
       trailingIcon: "size-3.5 opacity-75",
     },
@@ -76,13 +96,47 @@ export const consoleAppConfig = {
     slots: {
       base: "h-9 rounded-md px-2.5 text-sm",
       leadingIcon: "size-4 opacity-80",
-      trailing: "text-[11px] opacity-75",
+      trailing: "text-xs opacity-75",
     },
   },
+  // Menus open many times a day, so they appear at once (Rauno, Emil Kowalski). Floating surfaces use the 12px Geist
+  // menu radius and its layered shadow.
   dropdownMenu: {
     slots: {
-      content: "bg-(color:--vitehub-console-floating) shadow-md backdrop-blur-md",
-      label: "text-[11px] font-medium uppercase tracking-[.08em] text-muted",
+      content: "rounded-xl bg-(color:--vitehub-console-floating) shadow-[0_1px_1px_rgb(0_0_0/2%),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/6%)] backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
+      label: "text-xs font-medium text-muted",
+    },
+  },
+  // Body editor. The block handle follows the pointer at once, and the `/` menu, opened from the keyboard, appears
+  // without animation (Rauno Freiberg, Emil Kowalski). Item descriptions show the Markdown shortcut on the right.
+  editorDragHandle: {
+    slots: {
+      root: "transition-none",
+      handle: "px-0.5 text-dimmed hover:text-highlighted",
+    },
+  },
+  editorSuggestionMenu: {
+    defaultVariants: {
+      size: "md",
+    },
+    slots: {
+      content: "w-72 max-w-72 rounded-xl ring-0 bg-(color:--vitehub-console-floating) shadow-[0_0_0_1px_var(--ui-border),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/8%)] backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
+      viewport: "divide-y-0",
+      group: "p-1.5",
+      label: "px-2 pt-1.5 pb-1 text-xs font-medium text-muted",
+      item: "h-8 items-center rounded-md px-2 text-[13px]",
+      itemWrapper: "flex-row items-center justify-between gap-3",
+      itemLabel: "truncate",
+      itemDescription: "shrink-0 font-mono text-xs text-dimmed",
+    },
+  },
+  editorToolbar: {
+    variants: {
+      layout: {
+        bubble: {
+          base: "rounded-lg border-0 bg-(color:--vitehub-console-floating) p-1 shadow-[0_0_0_1px_var(--ui-border),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/8%)] backdrop-blur-md",
+        },
+      },
     },
   },
   empty: {
@@ -111,9 +165,19 @@ export const consoleAppConfig = {
       description: "mt-1 text-xs/5 text-muted",
     },
   },
+  // Geist modal material: 12px radius and a layered shadow.
+  modal: {
+    variants: {
+      fullscreen: {
+        false: {
+          content: "rounded-xl shadow-[0_1px_1px_rgb(0_0_0/2%),0_8px_16px_-4px_rgb(0_0_0/4%),0_24px_32px_-8px_rgb(0_0_0/6%)]",
+        },
+      },
+    },
+  },
   popover: {
     slots: {
-      content: "bg-(color:--vitehub-console-floating) shadow-md backdrop-blur-md",
+      content: "rounded-xl bg-(color:--vitehub-console-floating) shadow-[0_1px_1px_rgb(0_0_0/2%),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/6%)] backdrop-blur-md",
     },
   },
   select: {
@@ -125,17 +189,18 @@ export const consoleAppConfig = {
       trailingIcon: "size-3.5 opacity-75",
       itemLeadingIcon: "size-4 opacity-80",
       itemTrailingIcon: "size-3.5 opacity-75",
+      content: "rounded-xl bg-(color:--vitehub-console-floating) shadow-[0_1px_1px_rgb(0_0_0/2%),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/6%)] backdrop-blur-md",
     },
   },
   selectMenu: {
     slots: {
-      content: "bg-(color:--vitehub-console-floating) shadow-md backdrop-blur-md",
+      content: "rounded-xl bg-(color:--vitehub-console-floating) shadow-[0_1px_1px_rgb(0_0_0/2%),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/6%)] backdrop-blur-md",
     },
   },
   table: {
     slots: {
-      th: "h-8 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[.08em] text-muted",
-      td: "h-8 px-2.5 py-1.5 text-[11px] text-toned",
+      th: "h-9 px-2.5 py-2 text-xs font-medium text-muted",
+      td: "h-9 px-2.5 py-2 text-[13px] tabular-nums text-toned",
     },
   },
   tooltip: {

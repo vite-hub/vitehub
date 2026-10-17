@@ -71,7 +71,9 @@ function memoryBlob(stores: Record<string, BlobObject[]>): {
       writes(operation)
       throw new Error(`The Console must not call ${operation}.`)
     }
+    const unusedMedia = new Proxy({} as BlobStorage["media"], { get: (_target, operation) => unusedWrite(`media.${String(operation)}`) })
     return {
+      media: unusedMedia,
       createMultipartUpload: unusedWrite("createMultipartUpload"),
       handleMultipartUpload: unusedWrite("handleMultipartUpload"),
       handleUpload: unusedWrite("handleUpload"),

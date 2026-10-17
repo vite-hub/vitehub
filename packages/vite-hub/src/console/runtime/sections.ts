@@ -17,22 +17,22 @@ export interface ConsoleSectionDetails {
 
 /** Details of built-in sections. Contributed sections get their details from the navigation response. */
 export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, ConsoleSectionDetails>> = {
-  env: { description: "Inspect Server Env declarations and their providers.", icon: "i-ph-key-light", label: "Env", routeName: "vitehub-console-env" },
+  env: { description: "Inspect Server Env declarations and their providers.", icon: "i-lucide-key-round", label: "Env", routeName: "vitehub-console-env" },
   connections: {
     description: "Inspect and manage app-owned OAuth Connections.",
-    icon: "i-ph-plugs-connected-light",
+    icon: "i-lucide-plug-zap",
     label: "Connections",
     routeName: "vitehub-console-connections",
   },
   agents: {
     description: "Inspect Agent sessions and invocation details.",
-    icon: "i-ph-robot-light",
+    icon: "i-lucide-bot",
     label: "Agents",
     routeName: "vitehub-console-agents",
   },
   usage: {
     description: "Review token use and cost evidence over time.",
-    icon: "i-ph-chart-bar-light",
+    icon: "i-lucide-chart-column",
     label: "Usage",
     routeName: "vitehub-console-usage",
   },
@@ -67,6 +67,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   databases: "data",
   kv: "data",
   blob: "data",
+  content: "data",
   workspaces: "data",
   workflows: "runtime",
   queues: "runtime",
@@ -90,6 +91,17 @@ export const consoleSectionGroupLabels: Readonly<Record<ConsoleSectionGroupId, s
 /** Returns the navigation group of a section. A contributed section with an unknown id goes to `more`. */
 export function resolveConsoleSectionGroup(section: ConsoleSectionId): ConsoleSectionGroupId {
   return Object.hasOwn(consoleSectionGroupBySection, section) ? consoleSectionGroupBySection[section] : "more"
+}
+
+/**
+ * Inserts a section before the first section of the same or a later navigation group, so it leads its group. Returns a
+ * copy of the sections when they already include it.
+ */
+export function insertConsoleSection(sections: readonly ConsoleSectionId[], section: ConsoleSectionId): ConsoleSectionId[] {
+  if (sections.includes(section)) return [...sections]
+  const group = consoleSectionGroupIds.indexOf(resolveConsoleSectionGroup(section))
+  const index = sections.findIndex(candidate => consoleSectionGroupIds.indexOf(resolveConsoleSectionGroup(candidate)) >= group)
+  return index === -1 ? [...sections, section] : [...sections.slice(0, index), section, ...sections.slice(index)]
 }
 
 /** Splits enabled sections into navigation groups. Keeps the given order inside each group and drops empty groups. */
@@ -130,6 +142,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("connections", "Connections", consoleSectionDetails.connections.icon, "connections", "Connect provider accounts with OAuth 2 or an API key and call their APIs with access rules."),
   primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", "getting-started/first-agent"),
   primitive("usage", "Usage", consoleSectionDetails.usage.icon, "development/console", "Review the token use and cost that Agent Invocations record.", "agents"),
+  primitive("content", "Content", "i-lucide-file-pen-line", "content", "Edit Markdown documents with validated fields, drafts, publishing, and revision history."),
   primitive("blob", "Blob", consoleSectionDetails.blob.icon, "blob", "Store uploads, generated files, binary objects, and metadata with one object-storage API."),
   primitive("databases", "Databases", consoleSectionDetails.databases.icon, "database", "Define relational data with Drizzle and query it through generated imports."),
   primitive("email", "Email", "i-lucide-mail", "email", "Send transactional email through a provider-neutral driver, with safe test capture."),
@@ -137,8 +150,8 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("rate-limits", "Rate Limits", "i-lucide-gauge", "rate-limit", "Require request budgets through an H3 guard and atomic drivers."),
   primitive("sandboxes", "Sandboxes", "i-lucide-container", "sandbox", "Run named package projects in an isolated Cloudflare or Vercel Sandbox."),
   primitive("workspaces", "Workspaces", "i-lucide-folder-kanban", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
-  primitive("workflows", "Workflows", "i-ph-git-branch-light", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
-  primitive("queues", "Queues", "i-ph-tray-light", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
+  primitive("workflows", "Workflows", "i-lucide-git-branch", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
+  primitive("queues", "Queues", "i-lucide-inbox", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
   primitive("schedules", "Schedules", "i-lucide-calendar-clock", "schedule", "Declare static cron schedules and manage recurring Runtime Schedules."),
 ]
 
@@ -187,6 +200,7 @@ export const consoleOverviewShortcut: readonly [typeof consoleGoToKey, "o"] = [c
 /** Second key of the "Go to" chord of each known section. Each key is unique and is not `o`. */
 export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   agents: "a",
+  content: "t",
   usage: "u",
   databases: "d",
   kv: "k",
@@ -240,6 +254,47 @@ export function isConsoleConnectionsEnabled(options: { connections?: unknown }, 
 /** Route name of a contributed section. The Console serves it at `/_vitehub/<id>`. */
 export function consoleSectionRouteName(section: ConsoleSectionId): string {
   return `vitehub-console-${section}`
+}
+
+/**
+ * Route segment between a section and its pages, as in `/_vitehub/content/-/media`. Section and page ids start with a
+ * letter, so `-` never collides with a page, and the main view of a section never gets it as its first segment.
+ */
+export const consoleSectionPageSegment = "-"
+
+/** Route name of a section page: `vitehub-console-<section>--<page>`. */
+export function consoleSectionPageRouteName(section: ConsoleSectionId, page: string): string {
+  return `${consoleSectionRouteName(section)}--${page}`
+}
+
+/** One route of a contributed section, below the Console root. */
+export interface ConsoleSectionRoute {
+  name: string
+  /** Path below `/_vitehub`, such as `/content/-/media`. */
+  path: string
+  /** The page that the route serves. Absent for the main view. */
+  page?: string
+  /** Path below `/_vitehub` to redirect to. An index page redirects from `/-/<id>` to the section root. */
+  redirect?: string
+}
+
+/**
+ * Routes of a contributed section. Vite and Nuxt hosts both register these, so deep links match:
+ *
+ * - `/<section>`: the main view. A document editor section adds `/:collection?/:document(.*)*`, and its root serves
+ *   the index page when one exists.
+ * - `/<section>/-/<page>`: every other page. The path of the index page redirects to the root.
+ */
+export function describeConsoleSectionRoutes(section: { id: ConsoleSectionId, pages?: readonly { id: string, index?: boolean }[], view: { kind: string } }): ConsoleSectionRoute[] {
+  const name = consoleSectionRouteName(section.id)
+  if (section.view.kind !== "document-editor") return [{ name, path: `/${section.id}` }]
+  return [
+    ...(section.pages ?? []).map((page): ConsoleSectionRoute => {
+      const route = { name: consoleSectionPageRouteName(section.id, page.id), path: `/${section.id}/${consoleSectionPageSegment}/${page.id}` }
+      return page.index ? { ...route, redirect: `/${section.id}` } : { ...route, page: page.id }
+    }),
+    { name, path: `/${section.id}/:collection?/:document(.*)*` },
+  ]
 }
 
 /**

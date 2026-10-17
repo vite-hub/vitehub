@@ -353,6 +353,7 @@ describe("Console requests", () => {
       auth: false,
       contributions: {},
       projectName: "console-host",
+      scoped: false,
       sections: ["kv"],
     })
     expect(mocks.call).toHaveBeenCalledTimes(1)
@@ -363,7 +364,7 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/auth-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: true, contributions: {}, sections: ["kv"] })
+    ).resolves.toEqual({ auth: true, contributions: {}, scoped: false, sections: ["kv"] })
   })
 
   it("preserves Cloudflare Access auth mode in the navigation response", async () => {
@@ -371,7 +372,7 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/cloudflare-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, sections: ["kv"] })
+    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, scoped: false, sections: ["kv"] })
   })
 
   it("keeps only valid contributed sections in the navigation response", async () => {
@@ -392,7 +393,7 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/contributions-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: false, contributions: { queues }, sections: ["kv", "queues"] })
+    ).resolves.toEqual({ auth: false, contributions: { queues }, scoped: false, sections: ["kv", "queues"] })
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {

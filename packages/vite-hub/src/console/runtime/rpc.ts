@@ -16,12 +16,14 @@ export const consoleRpcMethods = {
   blob: "vitehub:console:blob",
   database: "vitehub:console:database",
   definitions: "vitehub:console:definitions",
+  documents: "vitehub:console:documents",
   env: "vitehub:console:env",
   invocation: "vitehub:console:invocation",
   invocationWorkspace: "vitehub:console:invocation-workspace",
   invocationCapabilities: "vitehub:console:invocation-capabilities",
   invocations: "vitehub:console:invocations",
   kv: "vitehub:console:kv",
+  media: "vitehub:console:media",
   scheduleRun: "vitehub:console:schedule-run",
   search: "vitehub:console:search",
   sections: "vitehub:console:sections",
@@ -39,8 +41,14 @@ export interface ConsoleRpcInput {
   query?: Record<string, string | string[]>
 }
 
-/**
- * One Console RPC result. A failure has the Console diagnostic fields: a stable `code`, `message` (the why),
- * and `fix` and `docs` when the failure site has them.
- */
-export type ConsoleRpcResult = { ok: true; value: unknown } | { code: string; docs?: string; fix?: string; message: string; ok: false; status: number }
+export type ConsoleRpcResult =
+  | { ok: true; value: unknown }
+  | {
+    /** A stable failure code from an owner action, such as `CONTENT_INVALID`. */
+    code?: string
+    /** JSON-safe failure details from an owner action, such as per-field issues. */
+    details?: Record<string, unknown>
+    message: string
+    ok: false
+    status: number
+  }

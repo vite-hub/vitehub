@@ -19,6 +19,7 @@ import ownerAuthHandler from "@vite-hub/auth/server";
 import * as ownerAuthVue from "@vite-hub/auth/vue";
 import * as ownerBlobClient from "@vite-hub/blob/client";
 import * as ownerBlobContentType from "@vite-hub/blob/content-type";
+import * as ownerBlobMedia from "@vite-hub/blob/media";
 import * as ownerBlobVue from "@vite-hub/blob/vue";
 import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env";
 import { setActiveCloudflareEnv as ownerDatabaseStateSetter } from "@vite-hub/database/runtime/state";
@@ -38,6 +39,7 @@ import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
 import * as frameworkBlobContentType from "vite-hub/blob/content-type";
+import * as frameworkBlobMedia from "vite-hub/blob/media";
 import * as frameworkBlobVue from "vite-hub/blob/vue";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
 import * as frameworkRuntimeNode from "vite-hub/runtime/node";
@@ -125,6 +127,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/vercel-vite",
   "@vite-hub/database/runtime/virtual-databases",
   "@vite-hub/database/runtime/virtual-schema",
+  "@vite-hub/content/runtime/console",
   "@vite-hub/email/runtime/console",
   "@vite-hub/kv/runtime/cloudflare-kv",
   "@vite-hub/kv/runtime/dev",
@@ -223,6 +226,7 @@ describe("framework package contract", () => {
     expect(frameworkAuthVue.authClient).toBe(ownerAuthVue.authClient);
     expect(frameworkAuthVue.useUserSession).toBe(ownerAuthVue.useUserSession);
     expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType);
+    expect(frameworkBlobMedia.responsiveImage).toBe(ownerBlobMedia.responsiveImage);
     expect(frameworkBlobClient.createMultipartUploader).toBe(ownerBlobClient.createMultipartUploader);
     expect(frameworkBlobVue.useUpload).toBe(ownerBlobVue.useUpload);
     expect(frameworkBlobVue.useMultipartUpload).toBe(ownerBlobVue.useMultipartUpload);
@@ -272,6 +276,7 @@ describe("framework package contract", () => {
       "./console/blob",
       "./console/database",
       "./console/definitions",
+      "./console/documents",
       "./console/env",
       "./console/kv",
       "./console/sections",
@@ -686,7 +691,7 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain(
       'resolveConsoleRouteName(route.name, "vitehub-console-invocation")',
     );
-    expect(consoleSearch).toContain('[{ id: "actions", items: props.actions, label: "Actions" }]');
+    expect(consoleSearch).toContain('[{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...themeActions.value], label: "Actions" }]');
     expect(consoleSearch).toContain('label: "Overview"');
     expect(consoleSearch).toContain('label: "Go to"');
     expect(consoleSearch).toContain("kbds: [...shortcut]");
@@ -705,6 +710,7 @@ describe("framework package contract", () => {
     searchTimer = undefined
     navigationRequest?.abort()
     sessionRequest?.abort()
+    documentRequest?.abort()
     return
   }`);
     expect(consoleSearch).toContain("if (!open.value) return");
@@ -734,7 +740,7 @@ describe("framework package contract", () => {
     const [consoleClientFile] = consoleClientFiles;
     if (!consoleClientFile) throw new TypeError("Expected one hashed Console client asset.");
     const consoleClient = readFileSync(`${packageRoot}/${consoleClientFile}`, "utf8");
-    expect(consoleClient).toContain('"robot-light":{"width":256');
+    expect(consoleClient).toContain('"bot":{"width":24');
     expect(consoleClient).toContain('"folder-tree":{"width":24');
     expect(consoleClient).toContain("prefers-color-scheme: dark");
     expect(consoleClient).toMatch(/classList\.toggle\(["`]dark["`]/);

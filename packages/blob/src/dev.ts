@@ -13,7 +13,7 @@ export const blobDevTokenServerHeader = "x-vitehub-blob-dev-server"
 export const blobDevFileHeader = "x-vitehub-blob-dev-file"
 
 /** Blob operations that the dev endpoint accepts. `sign` is not available through the CLI. */
-export const blobDevOperations = ["list", "head", "get", "put", "del"] as const
+export const blobDevOperations = ["list", "head", "get", "put", "del", "media", "variants"] as const
 
 export type BlobDevOperation = typeof blobDevOperations[number]
 

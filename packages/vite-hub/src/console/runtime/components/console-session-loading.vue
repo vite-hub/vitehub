@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import ConsoleState from "./console-state.vue";
-
 const props = withDefaults(
   defineProps<{
-    error?: unknown;
+    error?: string;
     maximizable?: boolean;
     maximized?: boolean;
     surface?: "thread" | "inspector";
@@ -66,12 +64,19 @@ const emit = defineEmits<{
           </UTooltip>
         </div>
       </header>
-      <ConsoleState
+      <UEmpty
         v-if="props.error"
-        class="h-[calc(100%-3.25rem)]"
-        :error="props.error"
+        class="h-[calc(100%-3.25rem)] min-h-0"
+        icon="i-lucide-cloud-off"
         title="Could not load session details"
-        :retry="() => emit('retry')"
+        :description="props.error"
+        :actions="[
+          {
+            label: 'Try again',
+            icon: 'i-lucide-refresh-cw',
+            onClick: () => emit('retry'),
+          },
+        ]"
       />
       <div v-else class="grid gap-8 px-5 py-6">
         <section class="grid gap-3">

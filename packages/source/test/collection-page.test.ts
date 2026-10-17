@@ -3,7 +3,7 @@ import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
-import { array, CollectionCursorError, defineCollection } from "../src/index.ts"
+import { CollectionCursorError, defineCollection } from "../src/index.ts"
 
 interface Row {
   createdAt: number
@@ -138,13 +138,6 @@ describe("Collections", () => {
     })
   })
 
-  it("accepts source loaders created in another realm", async () => {
-    const load = runInNewContext("() => [{ id: 'one' }]") as () => readonly { id: string }[]
-    const collection = defineCollection({ source: array(load) })
-
-    await expect(collection.page({ query: {} })).resolves.toMatchObject({ items: [{ id: "one" }] })
-  })
-
   it("derives the continuation cursor before a transform mutates its source item", async () => {
     const load = vi.fn(async ({ cursor }: { cursor?: number }) =>
       cursor === undefined
@@ -188,6 +181,15 @@ describe("Collections", () => {
     const options = { cursor: (item: { id: number }) => item.id, cursorSchema: v.number() }
 
     expect(defineCollection(async () => [{ id: 1 }], { ...options, authorize }).authorize).toBe(authorize)
+  })
+
+  it("accepts loaders created in another realm", async () => {
+    const load = runInNewContext("async ({ limit }) => [{ id: limit }]") as (options: { limit: number }) => Promise<Array<{ id: number }>>
+    const collection = defineCollection(load, { cursor: item => item.id, cursorSchema: v.number(), defaultLimit: 3 })
+
+    await expect(collection.page({ query: {} })).resolves.toEqual({ items: [{ id: 4 }], nextCursor: null })
+    const fromSource = defineCollection({ source: { load, cursor: item => item.id, cursorSchema: v.number(), defaultLimit: 2 } })
+    await expect(fromSource.page({ query: {} })).resolves.toEqual({ items: [{ id: 3 }], nextCursor: null })
   })
 
   it("rejects malformed cursors and invalid definition limits", async () => {
@@ -286,7 +288,7 @@ describe("Collections", () => {
     await expect(collection.get?.("z")).resolves.toEqual({ id: "z" })
   })
 
-  it("passes provider total and facets through and validates counts", async () => {
+  it("passes provider total and facets through and validates total", async () => {
     const collection = defineCollection({
       source: {
         pagination: "provider",
@@ -297,8 +299,10 @@ describe("Collections", () => {
 
     const invalid = defineCollection(async () => ({ items: [], nextCursor: null, total: -1 }), { pagination: "provider" })
     await expect(invalid.page({ query: {} })).rejects.toThrow("total must be a non-negative integer")
-
-    const invalidFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ count: -1, value: "a" }] } }), { pagination: "provider" })
+    // @ts-expect-error -- a facet value must be a string. The runtime check must reject an untyped loader too.
+    const invalidFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ value: 1, count: 1 }] } }), { pagination: "provider" })
     await expect(invalidFacets.page({ query: {} })).rejects.toThrow("facets must map fields")
+    const negativeFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ value: "a", count: -1 }] } }), { pagination: "provider" })
+    await expect(negativeFacets.page({ query: {} })).rejects.toThrow("facets must map fields")
   })
 })

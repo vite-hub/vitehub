@@ -71,6 +71,7 @@ interface CloudflareBlobConfig {
   assets?: { directory?: string, run_worker_first: string[] }
   compatibility_date: string
   compatibility_flags: string[]
+  images?: { binding: string }
   main: string
   name?: string
   observability: { enabled: true }
@@ -163,6 +164,12 @@ export function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOpt
   return bindings.length > 0 ? bindings : undefined
 }
 
+/** The Worker `images` binding. ViteHub adds it only for an explicit `cloudflare-images` transformer, because Cloudflare bills transformations. */
+export function cloudflareImagesBinding(config: false | ResolvedBlobModuleOptions | undefined): { binding: string } | undefined {
+  if (!config || !config.images || config.images.transformer !== "cloudflare-images") return undefined
+  return { binding: config.images.binding ?? "IMAGES" }
+}
+
 function resolveBlobConfig(
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined,
   hosting: string,
@@ -200,8 +207,8 @@ function renderProviderEntry(
   const storageExpression = !blobConfig
     ? undefined
     : runtimeStoreResolver
-      ? `createBlobStorage(createDriver(${runtimeStoreResolver}(blobConfig.store, process.env)), "default")`
-      : "createBlobStorage(createDriver(blobConfig.store), \"default\")"
+      ? `createBlobStorage(createDriver(${runtimeStoreResolver}(blobConfig.store, process.env)), "default", { images: blobConfig.images })`
+      : "createBlobStorage(createDriver(blobConfig.store), \"default\", { images: blobConfig.images })"
 
   const lines = [
     ...imports,
@@ -233,7 +240,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
   if (selectedDriverModules.length > 0) {
-    imports.push(`import { createBlobStorage, handleBlobMultipartUpload, handleBlobUpload } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
+    imports.push(`import { createBlobStorage, createLazyBlobMedia, handleBlobMultipartUpload, handleBlobUpload } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
     imports.push(`import { blobResult, unknownBlobStoreError } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("errors")))}`)
   }
   for (const driverModule of selectedDriverModules) {
@@ -273,10 +280,15 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "  return pathname.split('/').map(segment => encodeURIComponent(segment)).join('/')",
           "}",
           "",
-          "function withServedBlobUrl(name, object) {",
+          "function servedBlobUrl(name, pathname) {",
           "  const serve = blobConfig?.serve",
-          "  if (!serve || serve.store !== name) return object",
-          "  return { ...object, url: joinServedBlobUrl(serve.publicBaseUrl || \"/\", serve.route, encodeServedBlobPath(object.pathname)) }",
+          "  if (!serve || serve.store !== name) return undefined",
+          "  return joinServedBlobUrl(serve.publicBaseUrl || \"/\", serve.route, encodeServedBlobPath(pathname))",
+          "}",
+          "",
+          "function withServedBlobUrl(name, object) {",
+          "  const url = servedBlobUrl(name, object.pathname)",
+          "  return url ? { ...object, url } : object",
           "}",
           "",
           "function withServedMultipartUrl(name, upload) {",
@@ -308,7 +320,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "function createGeneratedBlobStorage(name = \"default\") {",
           "  const existing = blobStorages.get(name)",
           "  if (existing) return existing",
-          "  const storage = createBlobStorage(createBlobDriver(resolveBlobStoreConfig(name)), name)",
+          "  const storage = createBlobStorage(createBlobDriver(resolveBlobStoreConfig(name)), name, { images: blobConfig.images, url: pathname => servedBlobUrl(name, pathname) })",
           "  const runtimeStorage = {",
           "    ...storage,",
           "    async createMultipartUpload(pathname, options) {",
@@ -346,6 +358,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "",
           "function createLazyGeneratedBlobStorage(name) {",
           "  return {",
+          "    media: createLazyBlobMedia(() => resolveGeneratedBlobStorage(name, \"media\")),",
           "    async createMultipartUpload(pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"multipart\"); return error ? [error, undefined] : storage.createMultipartUpload(pathname, options) },",
           "    async handleMultipartUpload(event, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"multipart\"); return error ? [error, undefined] : storage.handleMultipartUpload(event, options) },",
           "    async handleUpload(event, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"upload\"); return error ? [error, undefined] : storage.handleUpload(event, options) },",
@@ -412,6 +425,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
     main: "index.js",
     observability: { enabled: true },
     ...(createCloudflareR2Bindings(resolved) ? { r2_buckets: createCloudflareR2Bindings(resolved) } : {}),
+    ...(cloudflareImagesBinding(resolved) ? { images: cloudflareImagesBinding(resolved) } : {}),
   }
 
   return {
@@ -419,6 +433,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
     bundleOptions: {
       alias: {
         "@vite-hub/blob/content-type": resolveRuntimeModule("content-type"),
+        "@vite-hub/blob/media": resolveRuntimeModule("media"),
         "@vite-hub/blob": artifacts.runtimeModuleFiles.cloudflare,
         ...(databaseDefinitionDefaults ? { "#vitehub/database/definition-defaults": databaseDefinitionDefaults } : {}),
         ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),
@@ -440,7 +455,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
       format: "esm",
       platform: "neutral",
     },
-    wranglerConfigKeys: ["r2_buckets"],
+    wranglerConfigKeys: cloudflareImagesBinding(resolved) ? ["r2_buckets", "images"] : ["r2_buckets"],
     wranglerConfig,
   }
 }
@@ -515,6 +530,7 @@ function createVercelOutput(
     bundleOptions: {
       alias: {
         "@vite-hub/blob/content-type": resolveRuntimeModule("content-type"),
+        "@vite-hub/blob/media": resolveRuntimeModule("media"),
         "@vite-hub/blob": artifacts.runtimeModuleFiles.vercel,
         ...(databaseDefinitionDefaults ? { "#vitehub/database/definition-defaults": databaseDefinitionDefaults } : {}),
         ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),

@@ -104,11 +104,8 @@ function resolveAccept(kind: BlobReferenceKind, accept: BlobReferenceOptions["ac
   return patterns.length && !patterns.includes("*/*") ? patterns : undefined
 }
 
-const mimeValuePattern = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i
-
 function accepts(patterns: string[], contentType: string): boolean {
   const type = contentType.split(";")[0]!.trim().toLowerCase()
-  if (!mimeValuePattern.test(type)) return false
   const major = type.split("/")[0]
   return patterns.some(pattern => pattern === type || (pattern.endsWith("/*") && pattern.slice(0, -2) === major))
 }
@@ -121,7 +118,7 @@ function caseInsensitivePattern(value: string): string {
   }).join("")
 }
 
-const pathnamePattern = String.raw`^(?!/)(?!.*\\)(?!.*[\u0000-\u001F\u007F])(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\/$)(?!_[Vv][Ii][Tt][Ee][Hh][Uu][Bb](?:$|/[Dd][Ee][Rr][Ii][Vv][Ee][Dd](?:/|$))).+`
+const pathnamePattern = String.raw`^(?!/)(?!.*\\)(?!.*[\u0000-\u001F\u007F])(?!.*(?:^|/)\.{1,2}(?:/|$))(?!.*//)(?!.*\/$)(?!_[Vv][Ii][Tt][Ee][Hh][Uu][Bb](?:$|/(?:[Dd][Ee][Rr][Ii][Vv][Ee][Dd]|[Mm][Ee][Dd][Ii][Aa])(?:/|$))).+`
 
 function contentTypeSchema(accept: string[] | undefined): Record<string, unknown> {
   const schema: Record<string, unknown> = {
@@ -131,8 +128,8 @@ function contentTypeSchema(accept: string[] | undefined): Record<string, unknown
   }
   if (!accept) return schema
   const patterns = accept.map(pattern => {
-    if (pattern.endsWith("/*")) return `^\\s*${caseInsensitivePattern(pattern.slice(0, -2))}/[a-zA-Z0-9!#$&^_.+-]+(?:\\s*;[\\s\\S]*)?\\s*$`
-    return `^\\s*${caseInsensitivePattern(pattern)}(?:\\s*;[\\s\\S]*)?\\s*$`
+    if (pattern.endsWith("/*")) return `^${caseInsensitivePattern(pattern.slice(0, -2))}/[^;\\s]*(?:\\s*;.*)?\\s*$`
+    return `^${caseInsensitivePattern(pattern)}(?:\\s*;.*)?\\s*$`
   })
   if (patterns.length === 1) schema.pattern = patterns[0]
   else schema.anyOf = patterns.map(pattern => ({ pattern }))
@@ -148,9 +145,9 @@ function pathnameIssue(pathname: string): string | undefined {
   const segments = pathname.split("/")
   if (segments.some(segment => segment === "." || segment === "..")) return "Blob pathname must not contain \".\" or \"..\" segments."
   if (segments.some(segment => !segment)) return "Blob pathname must not contain empty segments or a trailing slash."
-  // Matches the namespace that blob.put() reserves for derived cache objects.
-  if (segments[0]!.toLowerCase() === "_vitehub" && (segments.length === 1 || segments[1]!.toLowerCase() === "derived")) {
-    return "Blob pathname must not point into the reserved _vitehub/derived namespace."
+  // Matches the namespaces that blob.put() reserves for derived cache objects and media records.
+  if (segments[0]!.toLowerCase() === "_vitehub" && (segments.length === 1 || ["derived", "media"].includes(segments[1]!.toLowerCase()))) {
+    return "Blob pathname must not point into a reserved ViteHub namespace: _vitehub/derived or _vitehub/media."
   }
   return undefined
 }

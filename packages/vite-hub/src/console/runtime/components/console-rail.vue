@@ -246,7 +246,7 @@ onBeforeUnmount(() => {
       </template>
       <UTooltip v-if="navigationFailed && !navigation" text="Retry loading primitives" :content="{ side: 'right' }" :disabled="expanded">
         <PrimitiveRailItem label="Retry loading primitives" @click="loadNavigation">
-          <UIcon name="i-ph-arrows-clockwise-light" class="size-[1.125rem]" />
+          <UIcon name="i-lucide-refresh-cw" class="size-[1.125rem]" />
         </PrimitiveRailItem>
       </UTooltip>
       <PrimitiveRailGroup v-for="(group, index) in groups" :key="index">
@@ -274,7 +274,7 @@ onBeforeUnmount(() => {
         The search button stays collapsed, because a change to that prop mounts a new button and keyboard focus is lost.
         Its slots give it the same icon box and label as a rail item.
       -->
-      <UTooltip text="Search" :content="{ side: 'right' }" :disabled="expanded">
+      <UTooltip text="Search" :kbds="['meta', 'k']" :content="{ side: 'right' }" :disabled="expanded">
         <UDashboardSearchButton class="vh-primitive-rail__item vitehub-console__rail-search" collapsed label="Search">
           <template #leading>
             <span class="vh-primitive-rail__icon" aria-hidden="true">

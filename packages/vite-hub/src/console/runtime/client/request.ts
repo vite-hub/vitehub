@@ -3,11 +3,11 @@ import { Diagnostic } from "nostics"
 import { consoleRpcHeader, consoleRpcMethods } from "../rpc"
 
 import type { ConsoleRpcInput, ConsoleRpcMethod } from "../rpc"
-import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/api/_vitehub/console/"
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
+const consoleRpcUploadPath = "/_vitehub/rpc/__upload"
 
 function decodeConsoleId(value: string): string {
   try {
@@ -18,81 +18,37 @@ function decodeConsoleId(value: string): string {
   }
 }
 
-/** The diagnostic fields of a failed Console response. All are optional because the body is untrusted. */
-export interface ConsoleErrorFields {
-  code?: string
-  docs?: string
-  fix?: string
-  message?: string
-}
-
-/**
- * A failed Console or management response. `code` is the server code, or the Console code of the status when the
- * response has none. `fix` and `docs` come from the server, or from the Console catalog for a Console code.
- */
 export class ConsoleRequestError extends Diagnostic {
   readonly status: number
+  /** Stable failure code of an owner action, such as `CONTENT_INVALID` or `WORKSPACE_CONFLICT`. */
+  readonly failureCode?: string
+  /** JSON details of an owner action failure, such as per-field issues. */
+  readonly details?: Record<string, unknown>
 
-  constructor(status: number, fields: ConsoleErrorFields | string = {}) {
-    const body: ConsoleErrorFields = fields instanceof Object ? fields : { message: fields }
-    const code = body.code || consoleStatusDiagnosticCode(status)
-    const known = isConsoleDiagnosticCode(code) ? consoleDiagnostic(code, body.message) : undefined
-    super({
-      code,
-      docs: body.docs || known?.docs,
-      fix: body.fix || known?.fix,
-      why: body.message?.trim() || known?.message || `Console request failed with status ${status}.`,
-    }, ConsoleRequestError)
+  constructor(status: number, message = `Console request failed with status ${status}.`, failure: { code?: string, details?: Record<string, unknown> } = {}) {
+    super({ code: "VITE_HUB_R0110", docs: "https://vitehub.dev/docs/reference/diagnostics", why: message }, ConsoleRequestError)
     this.name = "ConsoleRequestError"
     this.status = status
+    if (failure.code !== undefined) this.failureCode = failure.code
+    if (failure.details !== undefined) this.details = failure.details
   }
 }
 
-const textField = (value: unknown): string | undefined =>
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
-  typeof value === "string" && value.trim() ? value.slice(0, 1_000) : undefined
-
-/** Read the diagnostic fields of an untrusted error body. Accepts `{ code, message }` and `{ error: { code, message } }`. */
-export function consoleErrorFields(value: unknown): ConsoleErrorFields {
-  const body = record(value)
-  const nested = record(body?.error)
-  const source = nested ?? body
-  const docs = textField(source?.docs)
-  return {
-    code: textField(source?.code),
-    // The Console renders `docs` as a link, so it accepts only HTTPS URLs.
-    docs: docs?.startsWith("https://") ? docs : undefined,
-    fix: textField(source?.fix),
-    message: textField(source?.message),
-  }
-}
-
-/** Read a failed response into a `ConsoleRequestError`. A short plain-text body, such as one from host middleware, becomes the why. */
-export async function consoleResponseError(response: Response, fallback: ConsoleErrorFields = {}): Promise<ConsoleRequestError> {
-  const text = await response.text().catch(() => "")
-  let fields: ConsoleErrorFields = {}
-  try {
-    fields = consoleErrorFields(JSON.parse(text))
-  }
-  catch {
-    const plain = response.headers.get("content-type")?.startsWith("text/plain") ? text.trim() : ""
-    if (plain && plain.length <= 300) fields = { message: plain }
-  }
-  return new ConsoleRequestError(response.ok ? 502 : response.status, {
-    code: fields.code ?? fallback.code,
-    docs: fields.docs ?? fallback.docs,
-    fix: fields.fix ?? fallback.fix,
-    message: fields.message ?? fallback.message,
-  })
-}
-
-function consoleRpcCallURL(path: string): string {
+function consoleAppBase(path: string): string {
   const url = new URL(path, "http://vitehub.local")
   // The application mount may itself contain the Console API marker. The
   // final marker is the generated route that belongs to this request.
   const marker = url.pathname.lastIndexOf(consoleApiMarker)
-  const appBase = marker === -1 ? "" : url.pathname.slice(0, marker)
-  return `${appBase}${consoleRpcCallPath}`
+  return marker === -1 ? "" : url.pathname.slice(0, marker)
+}
+
+function consoleRpcCallURL(path: string): string {
+  return `${consoleAppBase(path)}${consoleRpcCallPath}`
+}
+
+/** The media upload route under the application mount of a Console API path. */
+export function consoleRpcUploadURL(path: string): string {
+  return `${consoleAppBase(path)}${consoleRpcUploadPath}`
 }
 
 function consoleRpcCall(path: string): { agent?: string; id?: string; method: ConsoleRpcMethod } {
@@ -120,19 +76,8 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
   return { method }
 }
 
-/** A fetch failure known to originate at the network boundary. */
-export class ConsoleNetworkError extends Error {
-  constructor(cause: unknown) {
-    super(cause instanceof Error ? cause.message : "Console network request failed.", { cause })
-    this.name = "ConsoleNetworkError"
-  }
-}
-
 export function isRetryableConsoleRequestError(error: unknown): boolean {
-  if (!(error instanceof ConsoleRequestError)) return error instanceof ConsoleNetworkError
-  const transientStatus = error.status === 408 || error.status === 429 || error.status === 500 || (error.status >= 502 && error.status <= 504)
-  if (isConsoleDiagnosticCode(error.code)) return transientStatus && consoleDiagnosticAction(error.code) === "retry"
-  return transientStatus
+  return !(error instanceof ConsoleRequestError) || error.status === 408 || error.status === 429 || error.status >= 500
 }
 
 export async function requestConsole(
@@ -160,30 +105,25 @@ export async function requestConsole(
   if (call.id !== undefined) input.id = call.id
   if (options.body !== undefined) input.body = options.body
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
-  const requestBody = JSON.stringify({ method: call.method, input })
-  let response: Response
-  try {
-    response = await fetch(consoleRpcCallURL(path), {
-      body: requestBody,
-      cache: "no-store",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
-      method: "POST",
-      signal: options.signal,
-    })
-  }
-  catch (error) {
-    // Aborted requests are intentional (for example when a view unmounts); preserve
-    // the original error so callers that ignore AbortError can do so reliably.
-    if (error instanceof Error && error.name === "AbortError") throw error
-    throw new ConsoleNetworkError(error)
-  }
-  if (!response.ok) throw await consoleResponseError(response)
+  const response = await fetch(consoleRpcCallURL(path), {
+    body: JSON.stringify({ method: call.method, input }),
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+    method: "POST",
+    signal: options.signal,
+  })
   const result = record(await response.json().catch(() => undefined))
-  if (result?.ok === true) return result.value
+  if (response.ok && result?.ok === true) return result.value
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
-  const status = typeof result?.status === "number" && result.status >= 400 ? result.status : 502
-  throw new ConsoleRequestError(status, consoleErrorFields(result))
+  const status = typeof result?.status === "number" && result.status >= 400 ? result.status : response.ok ? 502 : response.status
+  const failure: { code?: string, details?: Record<string, unknown> } = {}
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+  if (typeof result?.code === "string") failure.code = result.code
+  const details = record(result?.details)
+  if (details) failure.details = details
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+  throw new ConsoleRequestError(status, typeof result?.message === "string" ? result.message : undefined, failure)
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {

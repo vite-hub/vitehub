@@ -1677,6 +1677,34 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("registers the Content pages, the index redirect, and the collection route like the Vite Console", async () => {
+    const entry = "/tmp/vitehub-nuxt/custom-server/content.ts"
+    await mkdir(resolve(entry, ".."), { recursive: true })
+    await writeFile(entry, `import { defineContent, documents } from "vite-hub/content"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
+    try {
+      const development = createNuxt(true)
+      await viteHubNuxtModule({ blob: true, console: { auth: false }, preset: "node", workspace: true }, development.nuxt)
+      const pages: Array<{ file?: string, meta?: Record<string, unknown>, name: string, path: string, redirect?: string }> = []
+      development.runPagesHook(pages as Array<{ file: string, name: string, path: string }>)
+      const content = pages.filter(page => page.path.startsWith("/_vitehub/content"))
+      const file = expect.stringMatching(/console\/runtime\/pages\/documents\.vue$/)
+      expect(content).toEqual([
+        { name: "vitehub-console-content--dashboard", path: "/_vitehub/content/-/dashboard", redirect: "/_vitehub/content" },
+        { file, meta: expect.objectContaining({ consolePage: "settings", consoleSection: "content" }), name: "vitehub-console-content--settings", path: "/_vitehub/content/-/settings" },
+        { file, meta: expect.objectContaining({ consolePage: "media", consoleSection: "content" }), name: "vitehub-console-content--media", path: "/_vitehub/content/-/media" },
+        { file, meta: expect.objectContaining({ consoleSection: "content" }), name: "vitehub-console-content", path: "/_vitehub/content/:collection?/:document(.*)*" },
+      ])
+      expect(content[3]?.meta).not.toHaveProperty("consolePage")
+      expect(content[3]?.meta?.consoleSectionDetails).toMatchObject({ id: "content", pages: [{ id: "dashboard", index: true }, { id: "settings" }, { id: "media" }] })
+      const icons = new Set<string>()
+      development.runIconHook(icons)
+      expect([...icons]).toEqual(expect.arrayContaining(["lucide:layout-dashboard", "lucide:settings-2", "lucide:image"]))
+    }
+    finally {
+      await rm(entry, { force: true })
+    }
+  })
+
   it("installs only discovered Queue metadata for a Queue-only Console", async () => {
     const definition = "/tmp/vitehub-nuxt/custom-server/queues/email.ts"
     await mkdir(resolve(definition, ".."), { recursive: true })

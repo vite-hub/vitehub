@@ -11,7 +11,10 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `defineContent` from `vite-hub/content` | Define the Content runtime that ViteHub serves from `server/content.ts`. |
-| `documents`, `optional` from `vite-hub/content` | Define an editable document collection and mark a field optional. |
+| `documents`, `singleton`, `optional` from `vite-hub/content` | Define an editable collection or a singleton, and mark a field optional. |
+| `seo` from `vite-hub/content` | A per-document [SEO field](/docs/content/seo#seo-fields). |
+| `contentHead` from `vite-hub/content` or `vite-hub/content/client` | [Head tags](/docs/content/seo#head-tags) for a document, in the shape `useHead()` takes. |
+| `defineContentSitemapHandler`, `defineContentRobotsHandler`, `renderContentSitemap` from `vite-hub/content` | Serve or render the [sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt) in another server. |
 | `contentSource` from `vite-hub/content` | Adapt one Source and set Comark options such as `prefix` and `schema`. |
 | `defineContentHandler` from `vite-hub/content` | Adapt a Content runtime to an H3 or Nitro route in another server. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
@@ -73,7 +76,7 @@ export default defineEventHandler(async (event) => {
 
 | Method | Behavior |
 | --- | --- |
-| `content.collections()` | Every collection in definition order. Each one is the same object `content.collection(name)` returns, with `name`, `path`, `fields`, and `schema`. Empty without `collections`. |
+| `content.collections()` | Every collection and singleton in definition order. Each one is the same object `content.collection(name)` returns, with `name`, `kind`, `format`, `path`, `fields`, and `schema`. Narrow an entry with `kind`. Empty without `collections`. |
 | `posts.list(options?)` | Lists documents without their body. Returns `{ items, nextCursor, total, facets? }`. Reads `published` unless `ref: 'draft'`. |
 | `posts.get(id, options?)` | Returns one document, or `null`. Reads `published` unless `ref: 'draft'`, or one history revision with `revision`. |
 | `posts.raw(id, options?)` | Returns the stored file as `{ collection, id, path, text, digest, revision }`, or `null`, without parsing or validating it. Takes the same `ref` or `revision` as `get()`. |
@@ -82,14 +85,43 @@ export default defineEventHandler(async (event) => {
 | `posts.restore(id, revision, options?)` | Saves the document as it was in an earlier revision as the new draft. |
 | `posts.status(id?)` | Compares `draft` and `published` for one document, or for every document when you omit `id`. |
 | `posts.name`, `posts.path`, `posts.fields` | The collection name, its glob, and its field names in definition order. |
-| `posts.schema` | The frontmatter [JSON Schema](/docs/content/configure#json-schema). |
+| `posts.kind`, `posts.format` | `documents` for a collection, and `markdown`, `json`, or `yaml` from the [file extension](/docs/content/configure#data-files). |
+| `posts.routable`, `posts.seo` | Whether documents have a [`url`](/docs/content/seo#document-urls), and the name of the `seo()` field, if any. |
+| `posts.schema` | The fields' [JSON Schema](/docs/content/configure#json-schema). |
 | `content.publish(options?)` | Copies draft documents to `published` in one revision. Pass `expect` to publish exactly what was reviewed. |
-| `content.revisions(collection, id, options?)` | Revisions that saved, removed, restored, or published one document, newest first. |
+| `content.schedule({ at, expect })`, `content.schedules()`, `content.unschedule(id)`, `content.publishDue()` | Publish reviewed drafts at a later time, list and cancel schedules, and run due ones. See [Scheduling](/docs/content/scheduling). |
+| `content.revisions(collection, id?, options?)` | Revisions that saved, removed, restored, or published one document, newest first. Omit `id` for a singleton. |
+| `content.revisions(options?)` | Revisions that changed documents of any collection on one ref, newest first. |
 | `content.can({ user?, actor?, collection, action, id? })` | Evaluates `authorize`. Returns `false` when no policy is defined. |
+| `content.sitemap(options?)` | The [sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents with a URL. |
+| `content.robots(options?)` | The robots.txt text for `defineContent({ seo: { robots } })`. |
 
-A document is `{ collection, id, path, data, body, digest, revision, updatedAt }`. `path` is the Workspace file, `data` holds each field's validated output, and `digest` is the SHA-256 of the file bytes. `revision` is the history revision the document was read from.
+A document is `{ collection, id, path, data, body, digest, revision, updatedAt }`. `path` is the Workspace file, `data` holds each field's validated output, and `digest` is the SHA-256 of the file bytes. `body` is the Markdown body, always empty for JSON and YAML documents. `revision` is the history revision the document was read from. A collection with a [`url`](/docs/content/seo#document-urls) adds `url`, the document's public path or `null`.
 
 `updatedAt` is when the document last changed on the ref it was read from: the `createdAt` of the newest revision on that ref that added or changed its file. On `published`, that is the publish that last changed it. On `draft`, it is the last save or restore, or the revision that started the draft from `published`. Content finds it by walking the ref back from the revision it read, once per revision per runtime, and stops at an earlier answer it already has. It is `null` when the change is older than the 5,000 revisions one walk scans.
+
+### Singletons
+
+A singleton from [`singleton()`](/docs/content/configure#singletons-and-data-files) has `kind: 'singleton'` and takes every method without an id:
+
+| Method | Behavior |
+| --- | --- |
+| `settings.get(options?)` | Returns the document, or `null` before its first save on that ref. |
+| `settings.raw(options?)` | Returns the stored file without parsing or validating it, or `null`. |
+| `settings.save({ data, body? }, options?)` | Validates and commits the document to `draft`. The first save creates it. |
+| `settings.remove(options?)` | Deletes the document from `draft`. |
+| `settings.restore(revision, options?)` | Saves the document as it was in an earlier revision as the new draft. |
+| `settings.status()` | `{ collection, id, state, draft, published }`, or `null` when it exists on neither ref. |
+| `settings.list(options?)` | A page with the document, when it exists on the ref. |
+| `settings.id`, `settings.path` | The document id, the file name without the extension, and its Workspace path. |
+
+Each method also accepts the id first, as for a collection, so code that handles any collection does not need to branch: `settings.get('settings')` equals `settings.get()`. Any other id throws `CONTENT_R0008`. `publish({ expect })` entries for a singleton may omit `id`:
+
+```ts
+const settings = content.collection('settings')
+const { draft } = (await settings.status())!
+await content.publish({ expect: [{ collection: 'settings', digest: draft }] })
+```
 
 ### List documents
 
@@ -160,7 +192,7 @@ Saves of different documents never conflict. When another save moved the draft h
 | `changed` | Published, with unpublished draft changes. |
 | `deleted` | Removed from the draft, still published until the next `publish()`. |
 
-`status(id)` returns `{ collection, id, state, draft, published }`, where `draft` and `published` are the document digests on each ref or `null`. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
+`status(id)` returns `{ collection, id, state, draft, published, schedule? }`, where `draft` and `published` are the document digests on each ref or `null`, and `schedule` is the document's [scheduled publish](/docs/content/scheduling#statuses), if any. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
 
 ### Publish
 
@@ -173,7 +205,7 @@ await content.publish()
 | --- | --- |
 | `collection` | Publish one collection. Omit to publish every collection. |
 | `ids` | Publish only these documents. Requires `collection`. An id that exists on neither ref throws `CONTENT_NOT_FOUND`. |
-| `expect` | `[{ collection, id, digest }]`: publish exactly these documents, and only if each draft digest still matches. `digest: null` expects the document deleted on the draft. Cannot be combined with `collection` or `ids`. See [Publish what was reviewed](#publish-what-was-reviewed). |
+| `expect` | `[{ collection, id, digest }]`: publish exactly these documents, and only if each draft digest still matches. `digest: null` expects the document deleted on the draft. Omit `id` for a singleton. Cannot be combined with `collection` or `ids`. See [Publish what was reviewed](#publish-what-was-reviewed). |
 | `ifHead` | Expected `published` head revision id, or `null` before the first publish. A different head throws `WORKSPACE_CONFLICT` with `details.ref` set to `published`. Without it, a concurrent publish is retried on the new head. |
 | `message`, `metadata` | Revision message and JSON-safe metadata. |
 
@@ -204,6 +236,12 @@ await content.collection('posts').restore('hello', revisions[1].id)
 ```
 
 `revisions()` reads the `draft` ref by default. Pass `ref: 'published'` for publishes. Each item is a Workspace revision with `id`, `createdAt`, `message`, and `metadata`. Content records `metadata.content.action` and `metadata.content.documents` on its own commits, and lists only those. Commits made outside Content are not attributed to a document. One call scans at most 1,000 revisions and returns a `cursor` to continue.
+
+Leave out the document to list recent changes across every collection, for an activity feed. Read `metadata.content.documents` for the documents of each revision:
+
+```ts
+const { revisions } = await content.revisions({ ref: 'published', limit: 20 })
+```
 
 ### Access
 

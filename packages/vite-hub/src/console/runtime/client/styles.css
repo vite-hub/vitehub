@@ -3,6 +3,51 @@
 @source "../components";
 @source "../../app.config.ts";
 
+/*
+ * Geist Sans and Geist Mono (SIL OFL 1.1, from @fontsource-variable). The Console bundle inlines fonts, so it ships only
+ * the Latin and Latin Extended subsets of each variable font.
+ */
+@font-face {
+  font-display: swap;
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
 :root {
   color-scheme: light;
   --ui-bg: #fdfdfd;
@@ -15,21 +60,15 @@
   --ui-text: #27272a;
   --ui-text-muted: #71717a;
   --ui-text-dimmed: #71717a;
-  --ui-text-highlighted: #18181b;
+  --ui-text-highlighted: #171717;
   /* Popovers, menus, and tooltips use a translucent surface over the page. */
   --vitehub-console-floating: rgb(255 255 255 / 86%);
   --vitehub-console-scrollbar: #d4d4d8;
   --vitehub-console-scrollbar-hover: #a1a1aa;
   background: var(--ui-bg);
   color: var(--ui-text);
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: var(--font-sans);
+  font-feature-settings: "liga", "calt";
 }
 
 .dark {
@@ -38,9 +77,9 @@
   --ui-bg-muted: #101010;
   --ui-bg-elevated: rgb(255 255 255 / 4%);
   --ui-bg-accented: rgb(255 255 255 / 7%);
-  --ui-border: rgb(255 255 255 / 6%);
-  --ui-border-muted: rgb(255 255 255 / 4%);
-  --ui-border-accented: rgb(255 255 255 / 10%);
+  --ui-border: rgb(255 255 255 / 14%);
+  --ui-border-muted: rgb(255 255 255 / 8%);
+  --ui-border-accented: rgb(255 255 255 / 22%);
   --ui-text: #f4f4f5;
   --ui-text-muted: #a1a1aa;
   --ui-text-dimmed: #71717a;
@@ -58,9 +97,9 @@
     --ui-bg-muted: #101010;
     --ui-bg-elevated: rgb(255 255 255 / 4%);
     --ui-bg-accented: rgb(255 255 255 / 7%);
-    --ui-border: rgb(255 255 255 / 6%);
-    --ui-border-muted: rgb(255 255 255 / 4%);
-    --ui-border-accented: rgb(255 255 255 / 10%);
+    --ui-border: rgb(255 255 255 / 14%);
+    --ui-border-muted: rgb(255 255 255 / 8%);
+    --ui-border-accented: rgb(255 255 255 / 22%);
     --ui-text: #f4f4f5;
     --ui-text-muted: #a1a1aa;
     --ui-text-dimmed: #71717a;
@@ -93,6 +132,27 @@ body {
 button,
 a {
   -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * Blue marks focus, links, and selection; buttons stay black and white. Unlayered, so it wins over the neutral outline
+ * that Nuxt UI gives solid neutral buttons. The ring appears at once, without a transition.
+ */
+:focus-visible {
+  outline-color: var(--ui-primary);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--ui-primary) 24%, transparent);
+}
+
+/* Toasts enter from below and leave by fading. Reduced motion skips both. */
+@keyframes vitehub-console-toast-in {
+  from { opacity: 0; transform: translateY(0.5rem) scale(0.97); }
+}
+
+@keyframes vitehub-console-toast-out {
+  to { opacity: 0; }
 }
 
 /* Thin scrollbars keep dense lists from showing a wide system gutter. */

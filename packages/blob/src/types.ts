@@ -1,5 +1,7 @@
 import type { AccessAuthorize, ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
 
+import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
+
 export type BlobDriver =
   | "akamai"
   | "azure"
@@ -60,8 +62,9 @@ export interface BlobPutOptions {
 
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
-export type BlobOperation = "del" | "get" | "head" | "list" | "multipart" | "put" | "serve" | "sign" | "upload"
-export type BlobErrorCode = "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED"
+export type BlobOperation = "del" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
+/** `BLOB_CONFLICT` reports a media move onto an existing object or the removal of a non-empty folder. */
+export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED"
 export type BlobErrorDetails = ViteHubErrorDetails & {
   operation: BlobOperation
   store: string
@@ -173,7 +176,12 @@ export interface BlobServeEvent {
 export interface BlobServeResponseOptions {
   /** Defaults to the event's Cache-Control header, or private, no-cache. */
   cacheControl?: string
-  /** Serve and cache a derived object without exposing the original. */
+  /**
+   * Serve a resized, cropped, or re-encoded image. The generated serve route reads it from `?w=&h=&fit=&fmt=&q=&crop=`.
+   * Non-image objects, GIF, SVG, and stores without an image transformer serve the original.
+   */
+  variant?: BlobImageVariant
+  /** Serve and cache a derived object without exposing the original. Takes precedence over `variant`. */
   transform?: {
     /** Change this key when the transformation or its parameters change. */
     key: string
@@ -181,7 +189,90 @@ export interface BlobServeResponseOptions {
   }
 }
 
+export interface BlobMediaPutOptions extends Omit<BlobPutOptions, "contentLength"> {
+  alt?: string
+  caption?: string
+  crops?: Record<string, Pick<MediaCrop, "aspect" | "focal">>
+  /** Return the existing record when the store already holds the same bytes, instead of writing a copy. Defaults to `false`. */
+  dedupe?: boolean
+  focal?: MediaFocalPoint
+}
+
+export interface BlobMediaUploadOptions {
+  /** Return existing records for files whose bytes the store already holds. Defaults to `true`. */
+  dedupe?: boolean
+  /** Validate each file with `ensureBlob()` before it is stored. */
+  ensure?: BlobEnsureOptions
+  /** Folder for the uploaded files, such as `"posts/2026"`. */
+  folder?: string
+  /** Form field that holds the files. Defaults to `"files"`. */
+  formKey?: string
+  /** Accept more than one file. Defaults to `true`. */
+  multiple?: boolean
+  /** Options for each stored file. The file name is the pathname inside `folder`. */
+  put?: Omit<BlobMediaPutOptions, "dedupe">
+}
+
+export interface BlobMediaListOptions {
+  cursor?: string
+  /** List one folder level. Defaults to `true`. */
+  folded?: boolean
+  /** From 1 to 1000. Defaults to 100. */
+  limit?: number
+  /** Folder or pathname prefix, such as `"posts/"`. */
+  prefix?: string
+}
+
+export interface BlobMediaListResult {
+  cursor?: string
+  /** Child folders, each ending in `/`. ViteHub's reserved folders are hidden. */
+  folders: string[]
+  hasMore: boolean
+  /**
+   * Records of the listed objects. An object without a current record lists with its object fields and any stored
+   * alt text, caption, focal point, and crops. `media.get()` reads it and stores a full record.
+   */
+  items: MediaRecord[]
+}
+
+/**
+ * Media records, folders, and image variants of one Blob Store. Records are JSON objects in the same store, so
+ * they work on every driver. Writes are last-writer-wins: a record, its object, and its crops change in separate
+ * provider calls, so concurrent editors of one item can overwrite each other.
+ */
+export interface BlobMedia {
+  /** Create an empty folder. It holds a `.keep` object, which `media.list()` hides. */
+  createFolder(path: string): Promise<BlobResult<void>>
+  /** Read the record of an object. Builds and stores it when it is missing or the object changed. `null` when the object does not exist. */
+  get(pathname: string | { pathname: string }): Promise<BlobResult<MediaRecord | null>>
+  /** Store the files of a `multipart/form-data` request as media. */
+  handleUpload(event: BlobUploadEvent, options?: BlobMediaUploadOptions): Promise<BlobResult<MediaRecord[]>>
+  /** List records and folders. */
+  list(options?: BlobMediaListOptions): Promise<BlobResult<BlobMediaListResult>>
+  /** Copy an object, its record, and its crop replacements to `to`, then delete the source and its variants. */
+  move(from: string, to: string, options?: { overwrite?: boolean }): Promise<BlobResult<MediaRecord>>
+  /** Move every object of a folder. Fails with `BLOB_CONFLICT` when the destination folder is not empty. */
+  moveFolder(from: string, to: string): Promise<BlobResult<{ moved: number }>>
+  /** Store an object, probe its dimensions, hash it, and write its record. */
+  put(pathname: string, body: BlobPutBody, options?: BlobMediaPutOptions): Promise<BlobResult<MediaRecord>>
+  /** Delete an object, its record, its crop replacements, and its variants. */
+  remove(pathname: string): Promise<BlobResult<void>>
+  /** Delete an empty folder. Fails with `BLOB_CONFLICT` when it holds objects, unless `force` is set. */
+  removeFolder(path: string, options?: { force?: boolean }): Promise<BlobResult<{ removed: number }>>
+  /**
+   * Upload an image that replaces one crop, or pass `null` to go back to cropping the original. A new crop takes the
+   * aspect of the replacement.
+   */
+  replaceCrop(pathname: string, crop: string, body: BlobPutBody | null): Promise<BlobResult<MediaRecord>>
+  /** Change alt text, caption, focal point, or crops. Focal point and crop changes clear cached variants. */
+  update(pathname: string, patch: MediaUpdate): Promise<BlobResult<MediaRecord>>
+  /** List cached variants of an object and its crop replacements. */
+  variants(pathname: string): Promise<BlobResult<MediaVariantEntry[]>>
+}
+
 export interface BlobStorage {
+  /** Media records, folders, and image variants. */
+  readonly media: BlobMedia
   /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
   createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<BlobResult<BlobMultipartUpload>>
   del(pathnames: string | string[]): Promise<BlobResult<void>>
@@ -435,6 +526,8 @@ export interface BlobServeConfig {
 }
 
 interface BlobModuleBaseOptions {
+  /** Image variants of served objects. Set `false` to always serve originals. */
+  images?: false | BlobImagesOptions
   serve?: BlobServeOptions
 }
 
@@ -450,6 +543,8 @@ export type BlobModuleOptions =
   | (BlobModuleBaseOptions & BlobStoreConfig)
 
 export interface ResolvedBlobModuleOptions {
+  /** Present when `blob.images` is set. Without it, variants use the `auto` transformer. */
+  images?: false | BlobImagesOptions
   serve?: BlobServeConfig
   store: ResolvedBlobStoreConfig
   stores?: Record<string, ResolvedBlobStoreConfig>

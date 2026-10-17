@@ -1,4 +1,5 @@
-import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { readConsoleDocumentCollections } from "./documents.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
 import { copyConsoleRecords, getConsoleDefinitions, getConsoleSchedules } from "./definitions.ts"
 import { isConsoleSectionId } from "../sections.ts"
@@ -35,7 +36,7 @@ function markRunnableSchedules(records: readonly ConsoleRecord[]): ConsoleRecord
     : record)
 }
 
-async function consoleDefinitionsHandler(event: ConsoleRequestEvent): Promise<ConsoleSectionContent & {
+async function consoleDefinitionsHandler(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<ConsoleSectionContent & {
   section: ConsoleSectionId
 }> {
   assertConsoleRequest(event)
@@ -46,6 +47,8 @@ async function consoleDefinitionsHandler(event: ConsoleRequestEvent): Promise<Co
   const { content: catalog, readers } = getConsoleDefinitions()
   const content = Object.hasOwn(catalog, section) ? catalog[section] : undefined
   if (!content) throw requestError(404, "Definition section not found.")
+  // A document editor reads the collections that this user may read on each request.
+  if (content.kind === "document-editor") return { collections: await readConsoleDocumentCollections(section, access), kind: "document-editor", section }
   if (section === "schedules" && content.kind === "definition-catalog") {
     const runnable = getConsoleSchedules()
     return {

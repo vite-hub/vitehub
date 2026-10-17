@@ -24,7 +24,6 @@ import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
-import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -94,9 +93,12 @@ const sectionGroups = computed(() =>
     };
   }),
 );
-// Usage comes with Agents, so it is not offered on its own.
+// Usage comes with Agents, so it is not offered on its own. A user limited to some sections may not see the others,
+// so the Overview does not call them "not enabled".
 const notEnabledPrimitives = computed(() =>
-  consolePrimitives.filter((entry) => entry.id !== "usage" && !sections.value.includes(entry.id)),
+  installedNavigation.value?.scoped
+    ? []
+    : consolePrimitives.filter((entry) => entry.id !== "usage" && !sections.value.includes(entry.id)),
 );
 const lastSectionDetails = computed(() =>
   availableSections.value.find((section) => section.id === lastSection.value),
@@ -119,6 +121,10 @@ const summary = computed(() => {
   if (!count) return "No primitives enabled yet.";
   return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
 });
+
+function errorMessage(value: unknown): string {
+  return value instanceof Error ? value.message : "The console could not load its configuration.";
+}
 
 async function loadRecentSessions(): Promise<void> {
   sessionsLoadedAt.value = Date.now();
@@ -207,12 +213,17 @@ onBeforeUnmount(() => request++);
               </div>
             </div>
 
-            <ConsoleState
+            <UAlert
               v-else-if="error && !availableSections.length"
               class="mt-10"
-              :error="error"
+              color="error"
+              variant="subtle"
+              icon="i-lucide-cloud-off"
               title="Could not load sections"
-              :retry="loadSections"
+              :description="errorMessage(error)"
+              :actions="[
+                { label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: loadSections },
+              ]"
             />
 
             <template v-else>
@@ -265,7 +276,7 @@ onBeforeUnmount(() => request++);
                       <span class="vitehub-console__overview-icon size-9">
                         <ConsoleSectionIcon :section="lastSectionDetails.id" :icon="lastSectionDetails.icon" class="size-[1.125rem]" />
                       </span>
-                      <span class="font-mono text-[11px] uppercase tracking-[0.08em] text-dimmed">Last visited</span>
+                      <span class="font-mono text-xs uppercase tracking-[0.08em] text-dimmed">Last visited</span>
                     </span>
                     <span class="mt-auto block pt-6 text-base font-semibold text-highlighted">{{ lastSectionDetails.label }}</span>
                     <span class="mt-1 block text-sm text-muted">{{ lastSectionDetails.description }}</span>
@@ -293,8 +304,10 @@ onBeforeUnmount(() => request++);
                     <div v-if="recentSessions.pending.value && !sessionItems.length" class="grid gap-2 p-4" aria-hidden="true">
                       <USkeleton v-for="index in 3" :key="index" class="h-6 rounded-md" />
                     </div>
-                    <div v-else-if="recentSessions.error.value" class="p-3">
-                      <ConsoleState compact :error="recentSessions.error.value" title="Could not load recent sessions" :retry="loadRecentSessions" />
+                    <div v-else-if="recentSessions.error.value" class="flex flex-1 items-center gap-2 px-4 py-6 text-sm text-muted">
+                      <UIcon name="i-lucide-cloud-off" class="size-4 shrink-0" />
+                      <span class="min-w-0 flex-1">Could not load recent sessions.</span>
+                      <UButton color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
                     </div>
                     <p v-else-if="!sessionItems.length" class="flex flex-1 items-center px-4 py-6 text-sm text-muted">
                       No Agent sessions yet. Invoke an Agent to see its sessions here.
@@ -365,7 +378,7 @@ onBeforeUnmount(() => request++);
                     </span>
                     <span class="pointer-events-none min-w-0">
                       <span class="block text-sm font-medium text-highlighted">{{ section.label }}</span>
-                      <span class="mt-1 block text-xs leading-relaxed text-muted">{{ section.description }}</span>
+                      <span class="mt-1 block text-[13px]/[18px] text-muted">{{ section.description }}</span>
                     </span>
                   </div>
                   <span
@@ -403,7 +416,7 @@ onBeforeUnmount(() => request++);
                         <UIcon name="i-lucide-arrow-up-right" class="size-3" />
                       </span>
                     </span>
-                    <span class="text-xs leading-relaxed text-muted">{{ entry.pitch }}</span>
+                    <span class="text-[13px]/[18px] text-muted">{{ entry.pitch }}</span>
                   </a>
                 </div>
               </section>
@@ -427,7 +440,7 @@ onBeforeUnmount(() => request++);
                     </span>
                     <span>
                       <span class="block text-sm font-medium text-highlighted">{{ guide.label }}</span>
-                      <span class="mt-1 block text-xs leading-relaxed text-muted">{{ guide.description }}</span>
+                      <span class="mt-1 block text-[13px]/[18px] text-muted">{{ guide.description }}</span>
                     </span>
                   </a>
                 </div>
@@ -446,8 +459,8 @@ onBeforeUnmount(() => request++);
   align-items: center;
   color: var(--ui-text-muted);
   display: flex;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 12px;
   font-weight: 500;
   gap: 0.75rem;
   letter-spacing: 0.08em;
@@ -471,8 +484,8 @@ onBeforeUnmount(() => request++);
 .vitehub-console__overview-docs {
   border-radius: 0.25rem;
   color: var(--ui-text-dimmed);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 12px;
   outline: none;
   transition: color 150ms ease;
   z-index: 1;
@@ -538,12 +551,17 @@ onBeforeUnmount(() => request++);
 .vitehub-console__overview-card,
 .vitehub-console__overview-row {
   outline: none;
-  transition: background 150ms ease, border-color 150ms ease;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
 }
 
-.vitehub-console__overview-cell:hover,
 .vitehub-console__overview-row:not(:disabled):hover {
   background: linear-gradient(var(--ui-bg-elevated), var(--ui-bg-elevated)), var(--ui-bg);
+}
+
+/* Grid cells share hairlines, so hover adds an inset border over the tint. */
+.vitehub-console__overview-cell:hover {
+  background: linear-gradient(var(--ui-bg-elevated), var(--ui-bg-elevated)), var(--ui-bg);
+  box-shadow: inset 0 0 0 1px var(--ui-border-accented);
 }
 
 .vitehub-console__overview-card {

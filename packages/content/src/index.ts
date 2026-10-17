@@ -1,5 +1,8 @@
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
+import json from "comark-content/plugins/json"
+import yaml from "comark-content/plugins/yaml"
 import { defineEventHandler } from "h3"
 
 import type {
@@ -15,8 +18,10 @@ import type {
 import type { H3Event } from "h3"
 import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
-import { isDocumentsDefinition } from "./documents.ts"
+import { isContentCollectionDefinition } from "./documents.ts"
+import { contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
 import type {
+  AnyContentCollection,
   ContentCollection,
   ContentCollectionsRuntime,
   ContentHistorySource,
@@ -24,22 +29,68 @@ import type {
   ContentPublishResult,
   ContentRevisionsOptions,
   ContentRevisionsResult,
+  ContentSingleton,
 } from "./collections.ts"
 import type { ContentSourceInput } from "./content-source.ts"
-import type { ContentFields, DocumentsDefinition } from "./documents.ts"
+import type { ContentCollectionDefinition, SingletonDefinition, DocumentsDefinition } from "./documents.ts"
+import type {
+  ContentPublishDueOptions,
+  ContentPublishDueResult,
+  ContentSchedule,
+  ContentScheduleOptions,
+  ContentSchedulesOptions,
+  ContentUnscheduleOptions,
+} from "./schedules.ts"
+import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 export { contentSource } from "./content-source.ts"
-export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
-export { documents, optional } from "./documents.ts"
+export { contentScheduleOverdueMs, contentSchedulesRef } from "./schedules.ts"
 export type {
+  ContentDocumentSchedule,
+  ContentPublishDueOptions,
+  ContentPublishDueResult,
+  ContentSchedule,
+  ContentScheduledDocument,
+  ContentScheduleFailure,
+  ContentScheduleOptions,
+  ContentSchedulesOptions,
+  ContentScheduleStatus,
+  ContentUnscheduleOptions,
+} from "./schedules.ts"
+export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
+export { documents, optional, singleton } from "./documents.ts"
+export { contentSeoLengths, seo } from "./seo.ts"
+export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
+export { contentHead, defaultContentImageUrl } from "./head.ts"
+export type {
+  ContentHead,
+  ContentHeadDefaults,
+  ContentHeadDocument,
+  ContentHeadLink,
+  ContentHeadMeta,
+  ContentHeadOptions,
+  ContentHeadScript,
+  ContentHeadSite,
+} from "./head.ts"
+export { renderContentRobots, renderContentSitemap } from "./sitemap.ts"
+export type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
+export type {
+  ContentCollectionDefinition,
+  ContentDocumentUrl,
   ContentField,
   ContentFieldIssue,
   ContentFields,
   ContentFieldsInput,
   ContentFieldsOutput,
+  ContentFormat,
+  DocumentComponent,
+  DocumentComponentProp,
+  SingletonDefinition,
+  SingletonOptions,
   DocumentsDefinition,
   DocumentsOptions,
 } from "./documents.ts"
 export type {
+  AnyContentCollection,
   ContentCollection,
   ContentDocument,
   ContentDocumentState,
@@ -58,6 +109,7 @@ export type {
   ContentRevisionsOptions,
   ContentRevisionsResult,
   ContentSaveInput,
+  ContentSingleton,
   ContentWriteOptions,
 } from "./collections.ts"
 
@@ -142,9 +194,13 @@ export type ContentCanContext<TCollection extends string = string> =
 export type ContentAuthorize<TCollection extends string = string> =
   (context: ContentAuthorizeContext<TCollection>) => boolean | Promise<boolean>
 
-type ContentCollections = Record<string, DocumentsDefinition<any>>
+type ContentCollections = Record<string, ContentCollectionDefinition<any>>
 type CollectionName<TCollections> = Extract<keyof TCollections, string>
-type FieldsOf<TDefinition> = TDefinition extends DocumentsDefinition<infer TFields> ? TFields : ContentFields
+/** The runtime of one `collections` entry: a collection for `documents()`, a singleton for `singleton()`. */
+type CollectionOf<TDefinition> =
+  TDefinition extends SingletonDefinition<infer TFields> ? ContentSingleton<TFields>
+    : TDefinition extends DocumentsDefinition<infer TFields> ? ContentCollection<TFields>
+      : AnyContentCollection
 
 export type DefineContentOptions<
   TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = ReadonlyArray<ContentPlugin<any, any>>,
@@ -157,24 +213,65 @@ export type DefineContentOptions<
   sources?: Record<string, ContentSourceInput>
   /** Workspace that stores `collections`. It needs retained history, such as the Blob + Database Store. */
   workspace?: string
-  /** Editable document collections. Each name becomes a Content instance that serves the `published` ref. */
+  /**
+   * Editable collections, `documents()`, and singletons, `singleton()`. Each name becomes a Content instance that
+   * serves the `published` ref.
+   */
   collections?: TCollections
   /** Policy for Content surfaces. Without it, `content.can()` denies every action. */
   authorize?: ContentAuthorize<CollectionName<TCollections>>
+  /**
+   * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
+   * `url`; `robots: true` serves `/robots.txt`. ViteHub generates the routes when this call sets them.
+   */
+  seo?: DefineContentSeoOptions
 }
 
 /** Document operations added by `collections`. */
 export interface ContentDocumentsRuntime<TCollections extends ContentCollections = ContentCollections> {
-  /** Every document collection in definition order, with its `name`, `path`, `fields`, and `schema`. Empty without `collections`. */
-  collections(): ContentCollection[]
-  /** Open one collection to list, read, save, remove, restore, and compare documents. */
-  collection<TName extends CollectionName<TCollections>>(name: TName): ContentCollection<FieldsOf<TCollections[TName]>>
+  /**
+   * Every collection and singleton in definition order, with its `name`, `kind`, `format`, `path`, `fields`, and
+   * `schema`. Narrow an entry with `kind`. Empty without `collections`.
+   */
+  collections(): AnyContentCollection[]
+  /** Open one collection or singleton to list, read, save, remove, restore, and compare documents. */
+  collection<TName extends CollectionName<TCollections>>(name: TName): CollectionOf<TCollections[TName]>
   /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
   publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
+  /**
+   * Publish exactly these reviewed drafts at a later time. The draft digests must match now. At its time,
+   * `publishDue()` calls `publish({ expect })`; a draft saved after scheduling makes the schedule `failed` instead.
+   */
+  schedule(options: ContentScheduleOptions): Promise<ContentSchedule>
+  /** Pending, overdue, and failed schedules, earliest first. Schedules that ran are removed; their publish revisions name them. */
+  schedules(options?: ContentSchedulesOptions): Promise<ContentSchedule[]>
+  /** Cancel a pending schedule, or dismiss a failed one. Throws `CONTENT_NOT_FOUND` when it already ran or is gone. */
+  unschedule(id: string, options?: ContentUnscheduleOptions): Promise<void>
+  /**
+   * Run every pending or overdue schedule whose time has come. Call it from a Schedule Definition, such as one that
+   * runs every minute. Runs are safe to overlap: each publish checks the reviewed digests, and each schedule settles once.
+   */
+  publishDue(options?: ContentPublishDueOptions): Promise<ContentPublishDueResult>
   /** Revisions that saved, removed, restored, or published one document, newest first. */
   revisions(collection: CollectionName<TCollections>, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /** Revisions of a singleton defined with `singleton()`. */
+  revisions(collection: CollectionName<TCollections>, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /**
+   * Revisions that changed documents of any collection on one ref, newest first: saves, removes, and restores on
+   * `draft` (default), publishes on `published`. `metadata.content.documents` names the documents of each.
+   */
+  revisions(options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
+  /** `defineContent({ seo })`, or undefined. */
+  readonly seo: DefineContentSeoOptions | undefined
+  /**
+   * The sitemap entries: published documents of collections with a `url`, without `noindex` ones or ones whose
+   * canonical URL points elsewhere. `loc` is absolute when `site` is known.
+   */
+  sitemap(options?: ContentSitemapOptions): Promise<ContentSitemapEntry[]>
+  /** The robots.txt text for `defineContent({ seo: { robots } })`. */
+  robots(options?: ContentSitemapOptions): string
 }
 
 /** Named-source operations retained across the Comark instance API migration. */
@@ -198,15 +295,15 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
-  const { source, sources, workspace, collections, authorize, ...sharedOptions } = options
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authorization is a public callback boundary and must accept functions from other realms.
-  if (authorize !== undefined && typeof authorize !== "function") {
+  const { source, sources, workspace, collections, authorize, seo: seoOptions, ...sharedOptions } = options
+  const seo = normalizeSeoOptions(seoOptions)
+  if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
   const collectionEntries = Object.entries(collections ?? {})
   for (const [name, definition] of collectionEntries) {
-    if (!isDocumentsDefinition(definition)) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents().` })
+    if (!isContentCollectionDefinition(definition)) {
+      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents() or singleton().` })
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
@@ -218,16 +315,19 @@ export function defineContent<
     return createContentInstance(name, input, { ...sharedOptions, basePath: "/api/content" })
   })
   const documentsRuntime: ContentCollectionsRuntime | undefined = collectionEntries.length
-    // SAFETY: Each definition was checked with isDocumentsDefinition() above.
+    // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
     ? createContentCollections({ workspace: workspace!, collections: Object.fromEntries(collectionEntries) })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
-  for (const [name] of collectionEntries) {
+  for (const [name, definition] of collectionEntries) {
     if (Object.hasOwn(inputs, name)) {
       throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} has the same name as a Content source.` })
     }
     const historySource = documentsRuntime!.comarkSource(name)
-    const instance = createContentInstance(name, historySource, { ...sharedOptions, basePath: "/api/content" })
+    // Comark parses Markdown by default. JSON and YAML collections get their parser first, so a configured plugin still wins.
+    const format = definition.format === "json" ? json() : definition.format === "yaml" ? yaml() : undefined
+    const plugins = format ? [format, ...sharedOptions.plugins ?? []] : sharedOptions.plugins
+    const instance = createContentInstance(name, historySource, { ...sharedOptions, plugins, basePath: "/api/content" })
     instances.push(instance)
     collectionInstances.push({ instance, source: historySource })
   }
@@ -282,11 +382,32 @@ export function defineContent<
     return instance.cache
   }
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
+  const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)
+  const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   const documentsApi = {
+    seo,
+    sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
+      documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
+    robots: (sitemapOptions?: ContentSitemapOptions) => {
+      const robots = seo?.robots
+      return renderContentRobots({
+        site: siteFor(sitemapOptions),
+        sitemap: seo?.sitemap === true,
+        disallow: robots !== null && Object(robots) === robots ? (robots as { disallow?: readonly string[] }).disallow : undefined,
+      })
+    },
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
-    collection: (name: string) => requireDocuments().collection(name),
+    collection: (name: string): unknown => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
-    revisions: (collection: string, id: string, revisionOptions?: ContentRevisionsOptions) => requireDocuments().revisions(collection, id, revisionOptions),
+    schedule: (scheduleOptions: ContentScheduleOptions) => requireDocuments().schedule(scheduleOptions),
+    schedules: (schedulesOptions?: ContentSchedulesOptions) => requireDocuments().schedules(schedulesOptions),
+    unschedule: (id: string, unscheduleOptions?: ContentUnscheduleOptions) => requireDocuments().unschedule(id, unscheduleOptions),
+    publishDue: (dueOptions?: ContentPublishDueOptions) => requireDocuments().publishDue(dueOptions),
+    revisions: (collectionOrOptions?: string | ContentRevisionsOptions, id?: string | ContentRevisionsOptions, revisionOptions?: ContentRevisionsOptions) => {
+      if (!hasRuntimeType(collectionOrOptions, "string")) return requireDocuments().history(collectionOrOptions)
+      // Without a string id, the second argument is the options of a singleton.
+      return hasRuntimeType(id, "string") ? requireDocuments().revisions(collectionOrOptions, id, revisionOptions) : requireDocuments().revisions(collectionOrOptions, undefined, id)
+    },
     async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
       if (context === null || Object(context) !== context || !contentActions.has(context.action)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() requires { user?, actor?, collection, action: 'read' | 'write' | 'publish', id? }." })
@@ -355,51 +476,103 @@ export function defineContentHandler(
   content: Pick<ComarkContent, "handler">,
 ): ContentHandler {
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
+  return defineEventHandler(async (event: H3Event) => await serveContent(content, event)) as ContentHandler
+}
+
+type SeoRuntime = Pick<ContentDocumentsRuntime, "robots" | "seo" | "sitemap">
+
+/**
+ * Serve `/sitemap.xml` from `content.sitemap()`. URLs use `defineContent({ seo: { site } })`, or the request origin.
+ * ViteHub generates this route when `defineContent({ seo: { sitemap: true } })`; mount it yourself in another server.
+ */
+export function defineContentSitemapHandler(content: SeoRuntime): ContentHandler {
+  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
-    if (event.req instanceof Request) return await content.handler(event.req)
-
-    if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
-    // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
-    const nodeRequest = event.node.req as NodeContentRequest
-    const method = event.method || nodeRequest.method || "GET"
-    const headers = new Headers()
-    for (const [name, value] of Object.entries(nodeRequest.headers)) {
-      if (value === undefined) continue
-      if (Array.isArray(value)) {
-        for (const entry of value) headers.append(name, entry)
-      }
-      else headers.set(name, value)
-    }
-    const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
-    const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
-      || headers.get("host")
-      || "localhost"
-    const url = new URL(nodeRequest.url || "/", `${protocol}://${host}`)
-    let body: Uint8Array | undefined
-    if (method !== "GET" && method !== "HEAD") {
-      const chunks: Uint8Array[] = []
-      for await (const chunk of nodeRequest) {
-        const bytes = nodeBodyChunk(chunk)
-        if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
-        chunks.push(bytes)
-      }
-      const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
-      body = new Uint8Array(length)
-      let offset = 0
-      for (const chunk of chunks) {
-        body.set(chunk, offset)
-        offset += chunk.byteLength
-      }
-    }
-    const abort = new AbortController()
-    if (nodeRequest.aborted) abort.abort()
-    else nodeRequest.once("aborted", () => abort.abort())
-
-    return await content.handler(new Request(url, {
-      body,
-      headers,
-      method,
-      signal: abort.signal,
-    }))
+    if (content.seo?.sitemap !== true) return new Response("Not Found", { status: 404 })
+    const site = content.seo.site ?? requestUrl(event).origin
+    return new Response(renderContentSitemap(await content.sitemap({ site })), {
+      headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
+    })
   }) as ContentHandler
+}
+
+/**
+ * Serve `/robots.txt` from `content.robots()`. It names `/sitemap.xml` when the sitemap is on. ViteHub generates this
+ * route when `defineContent({ seo: { robots: true } })`.
+ */
+export function defineContentRobotsHandler(content: SeoRuntime): ContentHandler {
+  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
+  return defineEventHandler(async (event: H3Event) => {
+    const robots = content.seo?.robots
+    if (robots === undefined || robots === false) return new Response("Not Found", { status: 404 })
+    return new Response(content.robots({ site: content.seo?.site ?? requestUrl(event).origin }), {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    })
+  }) as ContentHandler
+}
+
+function nodeHeaders(nodeRequest: NodeContentRequest): Headers {
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(nodeRequest.headers)) {
+    if (value === undefined) continue
+    if (Array.isArray(value)) {
+      for (const entry of value) headers.append(name, entry)
+    }
+    else headers.set(name, value)
+  }
+  return headers
+}
+
+function nodeUrl(nodeRequest: NodeContentRequest, headers: Headers): URL {
+  const protocol = headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim() || "http"
+  const host = headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim()
+    || headers.get("host")
+    || "localhost"
+  return new URL(nodeRequest.url || "/", `${protocol}://${host}`)
+}
+
+/** The request URL of an H3 v2 Web event, or of an H3 v1 (Nitro 2) Node event. */
+function requestUrl(event: H3Event): URL {
+  if (event.req instanceof Request) return new URL(event.req.url)
+  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
+  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
+  const nodeRequest = event.node.req as NodeContentRequest
+  return nodeUrl(nodeRequest, nodeHeaders(nodeRequest))
+}
+
+async function serveContent(content: Pick<ComarkContent, "handler">, event: H3Event): Promise<Response> {
+  if (event.req instanceof Request) return await content.handler(event.req)
+
+  if (!event.node) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an unsupported non-Web request." })
+  // SAFETY: H3 exposes a Node IncomingMessage or HTTP/2 request through event.node.req.
+  const nodeRequest = event.node.req as NodeContentRequest
+  const method = event.method || nodeRequest.method || "GET"
+  const headers = nodeHeaders(nodeRequest)
+  const url = nodeUrl(nodeRequest, headers)
+  let body: Uint8Array | undefined
+  if (method !== "GET" && method !== "HEAD") {
+    const chunks: Uint8Array[] = []
+    for await (const chunk of nodeRequest) {
+      const bytes = nodeBodyChunk(chunk)
+      if (!bytes) throw contentErrorDiagnostics.CONTENT_R0005({ message: "[vitehub] Content received an invalid request body chunk." })
+      chunks.push(bytes)
+    }
+    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
+    body = new Uint8Array(length)
+    let offset = 0
+    for (const chunk of chunks) {
+      body.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+  }
+  const abort = new AbortController()
+  if (nodeRequest.aborted) abort.abort()
+  else nodeRequest.once("aborted", () => abort.abort())
+
+  return await content.handler(new Request(url, {
+    body,
+    headers,
+    method,
+    signal: abort.signal,
+  }))
 }

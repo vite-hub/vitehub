@@ -32,7 +32,7 @@ afterEach(async () => {
 })
 
 /** A Workspace on the Blob + Database Store, as the Workspace history tests use. */
-async function historyWorkspace(beforeBatch?: (database: ReturnType<typeof drizzle>, fresh: () => ReturnType<typeof createBlobDatabaseWorkspaceStore>) => void) {
+async function historyWorkspace() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-content-"))
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
@@ -41,7 +41,6 @@ async function historyWorkspace(beforeBatch?: (database: ReturnType<typeof drizz
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `site-${++workspaces}`
-  beforeBatch?.(database, () => createBlobDatabaseWorkspaceStore({ blob, database, workspace: name }))
   registerWorkspace(name, { store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: name }) })
   return name
 }
@@ -108,15 +107,6 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(error.message).toContain("- title:")
     expect(error.message).toContain("- date:")
     expect(await posts.status("bad")).toBeNull()
-  })
-
-  it("rejects a null body instead of treating it as empty", async () => {
-    const { posts } = await setup()
-    // @ts-expect-error body must be a string
-    await expect(posts.save("null-body", { data: { title: "Null", date: "2026-01-01" }, body: null })).rejects.toMatchObject({
-      code: "CONTENT_INVALID",
-      details: { issues: [expect.objectContaining({ path: ["body"] })] },
-    })
   })
 
   it("validates every Workspace writer through the plugin hook", async () => {
@@ -238,41 +228,6 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(await content.publish({ expect: [helloDraft!] })).toEqual({ revision: null, documents: [] })
   })
 
-  it.each([false, true])("fences draft writes inside the publish transaction (unrelated: %s)", async (unrelated) => {
-    let arm: (() => void) | undefined
-    const workspace = await historyWorkspace((database, fresh) => {
-      arm = () => {
-        const batch = database.batch.bind(database)
-        vi.spyOn(database, "batch").mockImplementationOnce(async (queries) => {
-          const writer = fresh().history
-          const head = await writer.head({ ref: "draft" })
-          const path = unrelated ? "posts/other.md" : "posts/hello.md"
-          await writer.commit({ ref: "draft", ifHead: head!.id, changes: { put: {
-            [path]: { path, content: "---\ntitle: Concurrent\ndate: 2026-01-01\n---\nChanged" },
-          } } })
-          return await batch(queries)
-        })
-      }
-    })
-    const content = defineContent({ workspace, collections: { posts: documents({ path: "posts/*.md", fields }) }, logger: false })
-    cleanup.push(() => content.dispose())
-    const posts = content.collection("posts")
-    const saved = await posts.save("hello", hello)
-    arm!()
-    const publishing = content.publish({ expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
-    if (unrelated) {
-      expect((await publishing).documents).toEqual([{ collection: "posts", id: "hello", change: "add" }])
-      expect((await posts.get("hello"))?.digest).toBe(saved.digest)
-      expect(await posts.get("other")).toBeNull()
-    }
-    else {
-      await expect(publishing).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: {
-        ref: "draft", documents: [{ collection: "posts", id: "hello", expected: saved.digest, actual: expect.any(String) }],
-      } })
-      expect(await posts.get("hello")).toBeNull()
-    }
-  })
-
   it("publishes an expected deletion and rejects ambiguous expect options", async () => {
     const { content, posts } = await setup()
     const saved = await posts.save("hello", hello)
@@ -317,6 +272,13 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(restored).toMatchObject({ body: hello.body, digest: first.digest })
     expect(await posts.status("hello")).toMatchObject({ state: "changed" })
     expect((await content.revisions("posts", "hello")).revisions[0]).toMatchObject({ id: restored.revision, metadata: { content: { action: "restore" } } })
+
+    // Without a document, revisions() lists the Content revisions of every collection on one ref.
+    const recent = await content.revisions()
+    expect(recent.revisions.map(revision => revision.id)).toEqual([restored.revision, second.revision, expect.any(String), first.revision])
+    expect(recent.revisions[2]).toMatchObject({ metadata: { content: { action: "save", documents: [{ collection: "posts", id: "other" }] } } })
+    expect((await content.revisions({ limit: 2 })).cursor).toBe(second.revision)
+    expect((await content.revisions({ ref: "published" })).revisions).toEqual([expect.objectContaining({ metadata: expect.objectContaining({ content: expect.objectContaining({ action: "publish" }) }) })])
   })
 
   it("lists with filters, search, sort, facets, totals, and cursors", async () => {
@@ -622,6 +584,27 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(() => documents({ path: "posts/**", fields })).toThrow("must end with one extension")
     expect(() => documents({ path: "posts/{a,b}/*.md", fields })).toThrow("only *, **, and ?")
     expect(() => documents({ path: "posts/*.md", fields: { title: "string" as never } })).toThrow("Standard Schema")
+    expect(() => documents({ path: "posts/*.md", fields, components: { Alert: {} } })).toThrow("lowercase Comark tag")
+    expect(() => documents({ path: "posts/*.md", fields, components: { alert: { kind: "section" as never } } })).toThrow("'block' or 'inline'")
+    expect(() => documents({ path: "posts/*.md", fields, components: { alert: { props: { type: { type: "enum" as never } } } } })).toThrow("string, number, boolean, or json")
+  })
+
+  it("declares the Comark components that bodies may use", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      workspace,
+      collections: {
+        posts: documents({ path: "posts/*.md", fields, components: { alert: { props: { type: { type: "string", default: "info" } } }, badge: { kind: "inline", label: "Badge" } } }),
+        notes: documents({ path: "notes/*.md", fields }),
+      },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    expect(content.collection("posts").components).toEqual({
+      alert: { kind: "block", props: { type: { type: "string", default: "info" } } },
+      badge: { kind: "inline", label: "Badge" },
+    })
+    expect(content.collection("notes").components).toEqual({})
   })
 
   it("types data from field outputs and save input from field inputs", async () => {

@@ -10,7 +10,7 @@ import { consoleBuiltinSectionIds, consolePrimitives, consoleSectionRouteName, i
 
 describe("Console section contributions", () => {
   it("registers the owner sections with valid ids that do not replace built-in sections", () => {
-    expect([...consoleContributedSections.keys()]).toEqual(["email", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"])
+    expect([...consoleContributedSections.keys()]).toEqual(["content", "email", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"])
     for (const [id, section] of consoleContributedSections) {
       expect(section.descriptor.id).toBe(id)
       expect(isConsoleSectionId(id)).toBe(true)
@@ -48,6 +48,47 @@ describe("Console section contributions", () => {
     for (const reader of describeConsoleRuntimeReaders([...consoleContributedSections.keys()])) {
       expect(Object.hasOwn(manifest.exports, reader.module.replace(/^vite-hub\//, "./")), reader.module).toBe(true)
     }
+  })
+
+  it("maps document editor actions to vite-hub exports", async () => {
+    const manifest: { exports: Record<string, unknown> } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+    const content = consoleContributedSections.get("content")
+    expect(content?.descriptor.view).toEqual({ kind: "document-editor", notice: expect.any(String) })
+    expect(content?.documents?.actions).toEqual({ export: "createContentConsoleActions", module: "vite-hub/_internal/content/runtime/console" })
+    expect(Object.hasOwn(manifest.exports, "./_internal/content/runtime/console")).toBe(true)
+    expect(Object.hasOwn(manifest.exports, "./console/documents")).toBe(true)
+    // A document editor has no request-time record reader.
+    expect(content?.runtime).toBeUndefined()
+  })
+
+  it("parses document editor content and drops malformed collections", () => {
+    const collection = { access: { publish: false, read: true, write: true }, label: "Posts", name: "posts", path: "posts/**/*.md", schema: { type: "object" }, titleField: "title" }
+    expect(parseConsoleSectionContent({ collections: [collection, { name: "broken" }, "x"], kind: "document-editor", section: "content" }, "content")).toEqual({ collections: [collection], kind: "document-editor" })
+    expect(parseConsoleSectionContent({ collections: [{ ...collection, access: { publish: "yes", read: 1 } }], kind: "document-editor", section: "content" }, "content")).toEqual({
+      collections: [{ ...collection, access: { publish: false, read: false, write: false } }],
+      kind: "document-editor",
+    })
+    expect(parseConsoleSectionContent({ kind: "document-editor", section: "content" }, "content")).toBeUndefined()
+  })
+
+  it("parses the Comark components of a collection and drops malformed ones", () => {
+    const collection = { access: { publish: true, read: true, write: true }, label: "Posts", name: "posts", path: "posts/**/*.md", schema: { type: "object" } }
+    const components = [
+      { description: "A note", kind: "block", label: "Alert", name: "alert", props: { type: { default: "info", type: "string" }, open: { type: "boolean" }, size: { type: "enum" } } },
+      { kind: "inline", name: "badge", props: {} },
+      { name: "Bad Tag", kind: "block" },
+      "x",
+    ]
+    expect(parseConsoleSectionContent({ collections: [{ ...collection, components }], kind: "document-editor", section: "content" }, "content")).toEqual({
+      collections: [{
+        ...collection,
+        components: [
+          { description: "A note", kind: "block", label: "Alert", name: "alert", props: { open: { type: "boolean" }, type: { default: "info", type: "string" } } },
+          { kind: "inline", label: "badge", name: "badge", props: {} },
+        ],
+      }],
+      kind: "document-editor",
+    })
   })
 
   it("preserves manual Schedule run metadata when parsing section content", () => {

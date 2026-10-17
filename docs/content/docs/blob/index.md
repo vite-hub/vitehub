@@ -55,6 +55,7 @@ icon: i-lucide-files
   pnpm vitehub blob put avatars/ada.png ./ada.png
   pnpm vitehub blob get avatars/ada.png --output ./copy.png
   pnpm vitehub blob del avatars/ada.png
+  pnpm vitehub blob media avatars/ada.png
   ```
   :::
 ::
@@ -79,6 +80,10 @@ icon: i-lucide-files
 
   :::product-feature-item{title="Objects from a terminal" icon="i-lucide-terminal" to="/docs/blob/hosts"}
   Run Blob commands against the Vite Development Server.
+  :::
+
+  :::product-feature-item{title="Images with alt text, crops, and variants" icon="i-lucide-image" to="/docs/blob/media"}
+  Media records, folders, `?w=640` variants, and `<picture>` art direction on every driver.
   :::
 
   :::product-feature-item{title="Metadata travels with objects" icon="i-lucide-tag" to="/docs/blob/server-api"}

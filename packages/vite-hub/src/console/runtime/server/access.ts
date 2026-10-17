@@ -1,7 +1,6 @@
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
-import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { consoleRequestError, consoleRequestURL, type ConsoleRequestEvent } from "./request.ts"
+import { consoleRequestError, consoleRequestURL, type ConsoleHeaders, type ConsoleRequestEvent } from "./request.ts"
 
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
 import type { AgentActor } from "@vite-hub/agent"
@@ -9,29 +8,41 @@ import type { ConsoleSectionId } from "../sections.ts"
 
 /**
  * How the Console checks each request. Generated host output installs one policy for each server process.
- * - `local`: the development server, for `console: true` and development without an edge.
- * - `auth`: a ViteHub Auth Session. `check` is built on `withAuthorization()`.
+ * - `open`: `console: { auth: false }`. No sign-in.
+ * - `auth`: a ViteHub Auth Session, from `auth: "app"` or a session-based Console Auth. `check` is built on `withAuthorization()`.
  * - `cloudflare-access`: the Cloudflare Access application token.
- * - `host-managed`: the host-supplied `console.authorize` function.
+ *
+ * `authorize` is the `console.authorize` function. It runs after the mode check and can limit the allowed sections.
  */
 export type ConsoleAccessPolicy =
   | { mode: "open", authorize?: ConsoleAuthorize }
-  | { mode: "local" }
-  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
-  | { mode: "host-managed", authorize?: ConsoleAuthorize }
+  | {
+    mode: "auth" | "cloudflare-access"
+    authorize?: ConsoleAuthorize
+    check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>
+    /** Read the signed-in user for `authorize` and for Connections activity. */
+    user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined>
+  }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 
 /** The checked Console access that a guarded handler receives. Only `withConsoleAccess()` creates it. */
 export interface ConsoleAccess {
   readonly mode: ConsoleAccessMode
-  readonly sections?: "all" | readonly ConsoleSectionId[]
+  /** The sections that this request may use. `"all"` when `console.authorize` is not set or returns `true`. */
+  readonly sections: "all" | readonly ConsoleSectionId[]
+  /** The signed-in user, when the policy read it. */
   readonly user?: ConsoleUser
 }
 
+/**
+ * The Console section that a guarded route belongs to.
+ * - `section`: a section id, or a function that reads it from the request. A request outside the allowed sections gets `403`.
+ * - `anySection: true`: the route serves every Console user, such as the section list and the RPC transport.
+ */
 export type ConsoleRouteScope =
-  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined) }
-  | { anySection: true }
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean }
+  | { anySection: true, user?: boolean }
 
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
 export type ConsoleGuardedHandler<TEvent, TResult> = (event: TEvent, access: ConsoleAccess) => TResult | Promise<TResult>
@@ -41,19 +52,20 @@ export type ConsoleAccessRoute<THandler extends (event: never, access: ConsoleAc
 
 const policyKey: unique symbol = Symbol.for("vitehub.console.access")
 const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-warning")
-// SAFETY: This module owns the process slot shared by separately bundled generated plugins and Console routes.
+// SAFETY: This module owns the process slots shared by separately bundled generated plugins and Console routes.
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
-const routeScopes = new WeakMap<object, ConsoleRouteScope>()
+// Reads the signed-in user of an access that did not need it during the check. Keyed by the checked access.
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
-const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local", "open"])
+const routeScopes = new WeakMap<object, ConsoleRouteScope>()
+const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "open"])
 
+/** The warning that a production server logs once when anyone can open the Console. */
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
 
-/** A JSON rejection with the Console diagnostic fields: `code`, `message` (the why), `fix`, and `docs`. */
-function rejection(status: number, code: ConsoleDiagnosticCode, message?: string): Response {
-  return Response.json({ ...consoleDiagnosticBody(code, message), ok: false, status }, {
+function rejection(status: number, message: string): Response {
+  return Response.json({ message, ok: false, status }, {
     headers: { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" },
     status,
   })
@@ -67,191 +79,111 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if ("check" in policy && policy.check !== undefined && !(policy.check instanceof Function)) {
     throw new TypeError("[vitehub] Console access check must be a function.")
   }
-  if ("authorize" in policy && policy.authorize !== undefined && !(policy.authorize instanceof Function)) {
-    throw new TypeError("[vitehub] console.authorize must default-export a function.")
-  }
   if ("user" in policy && policy.user !== undefined && !(policy.user instanceof Function)) {
     throw new TypeError("[vitehub] Console access user reader must be a function.")
   }
-  if (policy.mode === "open" && !policy.authorize && productionRuntime() && !scope[openWarningKey]) {
-    scope[openWarningKey] = true
-    globalThis.console?.warn(consoleOpenAccessWarning)
+  if (policy.authorize !== undefined && !(policy.authorize instanceof Function)) {
+    throw new TypeError("[vitehub] console.authorize must default-export a function.")
   }
   scope[policyKey] = Object.freeze({ ...policy })
+  if (policy.mode === "open" && !policy.authorize && globalThis.process?.env?.NODE_ENV === "production" && !scope[openWarningKey]) {
+    scope[openWarningKey] = true
+    globalThis.console.warn(consoleOpenAccessWarning)
+  }
 }
 
-function productionRuntime(): boolean {
-  return globalThis.process?.env?.NODE_ENV === "production"
-}
-
-/** Build the standard Fetch request passed to Console authorization and runtime contexts. */
+/** Rebuild the host request for runtimes that need its headers, such as Auth sessions. */
 export function consoleRequest(event: ConsoleRequestEvent): Request {
-  if (isRequestLike(event.req)) return event.req
+  if (event.req instanceof Request) return event.req
   const headers = new Headers()
-  const copyHeaders = (source: unknown, overwrite = true): void => {
-    const setHeader = (name: string, value: string): void => {
-      if (overwrite || !headers.has(name)) headers.set(name, value)
-    }
-    if (source instanceof Headers) {
-      source.forEach((value, name) => setHeader(name, value))
-      return
-    }
-    if (source instanceof Object && "get" in source && source.get instanceof Function) {
-      for (const name of ["accept", "authorization", "cookie", "content-type", "host", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
-        const value = source.get(name)
-        if (typeof value === "string") setHeader(name, value)
-      }
-      return
-    }
-    if (!(source instanceof Object)) return
-    for (const [name, value] of Object.entries(source)) {
-      if (value !== undefined) setHeader(name, Array.isArray(value) ? value.join(", ") : String(value))
+  const requestHeaders = event.req?.headers ?? event.headers
+  const iterableHeaders = requestHeaders as (ConsoleHeaders & { [Symbol.iterator]?: () => IterableIterator<[string, string]> }) | undefined
+  const iterate = iterableHeaders?.[Symbol.iterator]
+  if (iterate instanceof Function) {
+    for (const [name, value] of iterate.call(iterableHeaders)) headers.set(name, value)
+  }
+  else if (requestHeaders) {
+    // ConsoleHeaders intentionally guarantees get() without requiring iteration.
+    // Preserve the request headers used by Auth and Console routing for that shape.
+    for (const name of ["authorization", "cookie", "content-type", "origin", "host", "x-forwarded-host", "x-forwarded-proto"]) {
+      const value = requestHeaders.get(name)
+      if (value !== null) headers.set(name, value)
     }
   }
-  // Match consoleRequestURL(): request headers take precedence per header,
-  // followed by event-level and Node request headers as fallbacks.
-  copyHeaders(event.node?.req?.headers)
-  copyHeaders(event.headers)
-  copyHeaders(event.req?.headers, true)
+  for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
+    if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value)
+  }
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
 }
 
-function isRequestLike(value: unknown): value is Request {
-  if (value === null || typeof value !== "object") return false
-  try {
-    const request = value as Record<string, unknown>
-    const headers = request.headers
-    return typeof request.method === "string"
-      && typeof request.url === "string"
-      && headers !== null
-      && typeof headers === "object"
-      && typeof (headers as { get?: unknown }).get === "function"
-      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof request[method] === "function")
-      && "body" in request && "bodyUsed" in request && "signal" in request
-  }
-  catch { return false }
-}
-
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
-  if (value instanceof Response) return true
-  try {
-    const response = value as Record<string, unknown>
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
-    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
-    if (typeof status === "number" && headers && typeof (headers as { get?: unknown }).get === "function") return true
-  }
-  catch { /* a foreign implementation may not share native internal slots */ }
-  try {
-    const headers = responseHeaders(value)
-    const tag = Object.prototype.toString.call(value)
-    const headersTag = headers && Object.prototype.toString.call(headers)
-    const headersConstructor = headers && (headers as { constructor?: unknown }).constructor
-    const response = value as Record<string, unknown>
-    const responseConstructor = response.constructor
-    return (tag === "[object Response]" || (typeof responseConstructor === "function" && responseConstructor.name === "Response"))
-      && typeof response.status === "number"
-      && typeof response.statusText === "string"
-      && typeof response.bodyUsed === "boolean"
-      && "body" in response
-      && headers !== undefined
-      && typeof (headers as { get?: unknown }).get === "function"
-      && (headersTag === "[object Headers]" || (typeof headersConstructor === "function" && headersConstructor.name === "Headers"))
-      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof (value as Record<string, unknown>)[method] === "function")
-  }
-  catch { return false }
-}
-
-function responseHeaders(value: object): unknown {
-  try { return Reflect.get(value, "headers") } catch { return undefined }
-}
-
-function isSectionId(value: unknown): value is ConsoleSectionId {
-  return typeof value === "string" && value.length > 0
-}
+// doctor-disable-next-line typescript/strict/no-runtime-typeof -- console.authorize is user code. Check each returned section id.
+const isSectionId = (value: unknown): value is ConsoleSectionId => typeof value === "string" && value.length > 0
 
 function authorizedSections(result: unknown): readonly ConsoleSectionId[] | undefined {
-  if (!(result instanceof Object)) return
-  const sectionsValue = Reflect.get(result, "sections")
-  if (!Array.isArray(sectionsValue)) return
-  const sections: unknown[] = sectionsValue
+  if (!(result instanceof Object) || !("sections" in result) || !Array.isArray(result.sections)) return
+  const sections: unknown[] = result.sections
   if (!sections.every(isSectionId)) return
   return Object.freeze([...new Set(sections)])
 }
 
-function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRouteScope {
-  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
-  if ("section" in routeScope) {
-    const section = routeScope.section
-    if (section instanceof Function || (typeof section === "string" && section.length > 0)) return
-  }
-  if ("anySection" in routeScope && routeScope.anySection === true) return
-  throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
-}
-
 async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: boolean } = {}): Promise<ConsoleAccess | Response> {
   const policy = scope[policyKey]
-  if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
+  if (!policy) return rejection(500, "[vitehub] Console access is not configured. The generated Console output did not install an access policy.")
   let user: ConsoleUser | undefined
-  let authorization: unknown = true
-  if (policy.mode === "local") {
-    if (productionRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
-  }
-  else if (policy.mode === "open") {
-    // open access intentionally performs no authentication
-  }
-  else if (policy.mode === "host-managed") {
-    if (!policy.authorize) {
-      return rejection(500, "CONSOLE_AUTHORIZE_REQUIRED")
-    }
-    const result = await policy.authorize({ request: consoleRequest(event) })
-    if (isResponseLike(result)) return result
-    authorization = result
-  }
-  else {
+  if (policy.mode !== "open") {
     if (!policy.check) {
-      return rejection(500, "CONSOLE_AUTH_NOT_CONFIGURED", policy.mode === "auth"
-        ? "console: { access: \"auth\" } requires a discovered ViteHub Auth Definition."
-        : "Cloudflare Access Console Auth is not configured.")
+      return rejection(500, policy.mode === "auth"
+        ? "[vitehub] console: { auth: \"app\" } requires a discovered ViteHub Auth Definition."
+        : "[vitehub] Cloudflare Access Console Auth is not configured.")
     }
     const response = await policy.check(event)
     if (response) return response
     if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
-  let sections: ConsoleAccess["sections"]
-  if (policy.mode !== "host-managed" && policy.mode !== "local" && policy.authorize) {
-    const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
-    if (isResponseLike(result)) return result
-    if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
+  let sections: ConsoleAccess["sections"] = "all"
+  if (policy.authorize) {
+    const request = consoleRequest(event)
+    const result: unknown = await policy.authorize(user ? { request, user } : { request })
+    if (result instanceof Response) return result
+    if (result === false) return rejection(403, "Forbidden.")
     if (result !== true) {
       const allowed = authorizedSections(result)
-      if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")
-      if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
+      if (!allowed) return rejection(500, "[vitehub] console.authorize must return true, false, a Response, or { sections: string[] }.")
+      if (!allowed.length) return rejection(403, "Forbidden.")
       sections = allowed
     }
   }
-  else if (authorization !== true) {
-    if (authorization === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
-    const allowed = authorizedSections(authorization)
-    if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")
-    if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
-    sections = allowed
+  const fields: { mode: ConsoleAccessMode, sections: ConsoleAccess["sections"], user?: ConsoleUser } = { mode: policy.mode, sections }
+  if (user) fields.user = user
+  const access: ConsoleAccess = consoleAccessGrant.issue(policy.mode, fields)
+  const readUser = policy.mode !== "open" && !user ? policy.user : undefined
+  if (readUser) {
+    let pending: Promise<ConsoleUser | undefined> | undefined
+    deferredUsers.set(access, () => pending ??= readUser(event))
   }
-  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, ...(sections ? { sections } : {}), ...(user ? { user } : {}) })
-  if (policy.mode === "auth" && !user && policy.user) deferredUsers.set(access, () => policy.user!(event))
   return access
 }
 
+/**
+ * Return the signed-in user of a checked access. The check reads the user only when `console.authorize` needs it,
+ * so an action that acts for the user, such as a Content save, reads it here from the original request once.
+ * Returns `undefined` for `auth: false`, Cloudflare Access, and a request without a session.
+ */
 export async function readConsoleAccessUser(access: ConsoleAccess): Promise<ConsoleUser | undefined> {
   if (!consoleAccessGrant.isValid(access)) return undefined
   return access.user ?? await deferredUsers.get(access)?.()
 }
 
+/**
+ * Return whether a checked access may use one Console section. An unknown section needs access to every section.
+ * An access that `withConsoleAccess()` did not create allows nothing.
+ */
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
-  return access.sections === undefined || access.sections === "all" || (section !== undefined && access.sections.includes(section))
+  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
 }
 
+/** Return the sections of `available` that a checked access may use. */
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
   return available.filter(section => consoleAccessAllows(access, section))
 }
@@ -259,11 +191,18 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
 /**
  * Name the manager of one Connections management request with the installed Console access policy.
  * The generated Connections actor module calls it, so Connections routes and Console data routes share one policy.
- * - `auth`: `sessionActor` reads the signed-in user as `user:<id>`.
- * - `local`, `host-managed`, and `cloudflare-access` have no user id. The manager is `user:<mode>`.
- * Returns the policy rejection when the policy rejects the request, so the Connections handler returns the same
- * Console diagnostic. Returns `403` with `CONSOLE_MANAGER_REQUIRED` when an `auth` session has no user id.
+ * - `auth`: the signed-in user as `user:<id>`.
+ * - `open` and `cloudflare-access` have no user id. The manager is `user:<mode>`.
+ * Returns `undefined` when the policy rejects the request or the access does not include the Connections section.
+ * The Connections handler then returns `403`.
  */
+export async function consoleConnectionsActor(event: ConsoleRequestEvent): Promise<string | undefined> {
+  const access = await checkConsoleAccess(event, { user: true })
+  if (access instanceof Response || !consoleAccessAllows(access, "connections")) return undefined
+  if (access.mode === "auth") return access.user ? `user:${access.user.id}` : undefined
+  return `user:${access.mode}`
+}
+
 /** Map the verified Console user to the Agent Actor used by invocations and replay. */
 export function consoleAccessActor(user: ConsoleUser | undefined): AgentActor | undefined {
   if (!user?.id) return undefined
@@ -275,50 +214,51 @@ export function consoleAccessActor(user: ConsoleUser | undefined): AgentActor | 
   return { id: user.id, kind: "authUser", label, meta: { authUserId: user.id } }
 }
 
-export async function consoleConnectionsActor(
-  event: ConsoleRequestEvent,
-  sessionActor?: () => Promise<string | undefined>,
-): Promise<string | Response> {
-  const access = await checkConsoleAccess(event, { user: true })
-  if (access instanceof Response) return access
-  if (!consoleAccessAllows(access, "connections")) return rejection(403, "CONSOLE_ACCESS_DENIED")
-  if (access.mode === "auth") {
-    const actor = sessionActor ? await sessionActor() : (await readConsoleAccessUser(access))?.id
-    return actor ? (actor.startsWith("user:") ? actor : `user:${actor}`) : rejection(403, "CONSOLE_MANAGER_REQUIRED")
+function resolveRouteSection(routeScope: ConsoleRouteScope, event: ConsoleRequestEvent): { section: ConsoleSectionId | undefined } | undefined {
+  if (!("section" in routeScope)) return
+  return { section: routeScope.section instanceof Function ? routeScope.section(event) : routeScope.section }
+}
+
+function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRouteScope {
+  if (!(routeScope instanceof Object)) throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
+  if ("section" in routeScope) {
+    const section = routeScope.section
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route scopes cross the JavaScript module boundary.
+    if (section instanceof Function || (typeof section === "string" && section.length > 0)) return
   }
-  return `user:${access.mode}`
+  if ("anySection" in routeScope && routeScope.anySection === true) return
+  throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
 }
 
 /**
- * Wraps a Console server handler so it runs only after the installed access policy accepts the request.
- * Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
+ * Wraps a Console server handler so it runs only after the installed access policy accepts the request,
+ * and only when the access includes the route section. Otherwise the wrapper returns the rejection `Response`:
+ * `403` outside the allowed sections, and `500` without an installed policy.
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
-  routeScope: ConsoleRouteScope = { anySection: true },
+  routeScope: ConsoleRouteScope,
 ): (event: TEvent) => Promise<TResult | Response> {
   if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
   assertRouteScope(routeScope)
-  const declared = Object.freeze({ ...routeScope }) as ConsoleRouteScope
-  const route = async (event: TEvent) => {
+  const declared: ConsoleRouteScope = Object.freeze({ ...routeScope })
+  const route = async (event: TEvent): Promise<TResult | Response> => {
     let access = checkedEvents.get(event)
     if (!access || !consoleAccessGrant.isValid(access)) {
-      const checked = await checkConsoleAccess(event)
+      const checked = await checkConsoleAccess(event, { user: declared.user === true })
       if (checked instanceof Response) return checked
+      checkedEvents.set(event, checked)
       access = checked
-      checkedEvents.set(event, access)
     }
-    if ("section" in declared) {
-      const section = declared.section instanceof Function ? declared.section(event) : declared.section
-      // A dynamic scope that cannot resolve to a section is not an unrestricted route.
-      if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
-    }
+    const section = resolveRouteSection(declared, event)
+    if (section && !consoleAccessAllows(access, section.section)) return rejection(403, "This Console access does not include this section.")
     return handler(event, access)
   }
   routeScopes.set(route, declared)
   return route
 }
 
+/** Return the section scope that `withConsoleAccess()` declared for a route, or `undefined` for an unguarded function. */
 export function consoleRouteScope(route: unknown): ConsoleRouteScope | undefined {
   return route instanceof Function ? routeScopes.get(route) : undefined
 }
@@ -328,7 +268,7 @@ export function consoleRouteScope(route: unknown): ConsoleRouteScope | undefined
  * A guarded handler that receives this event uses the bound access. Rejects an access that `withConsoleAccess()` did not create.
  */
 export function bindConsoleAccess<TEvent extends ConsoleRequestEvent>(access: ConsoleAccess, event: TEvent): TEvent {
-  if (!consoleAccessGrant.isValid(access)) throw consoleRequestError(403, "This Console access was not created by the access check.")
+  if (!consoleAccessGrant.isValid(access)) throw consoleRequestError(403, "Forbidden")
   if (checkedEvents.has(event)) throw consoleRequestError(500, "Console access is already bound to this request.")
   checkedEvents.set(event, access)
   return event

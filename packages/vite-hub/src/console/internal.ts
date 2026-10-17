@@ -6,6 +6,7 @@ import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
 import type { KVStorage } from "@vite-hub/kv"
 import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
 import type { ConsoleSectionCatalog } from "./runtime/definitions.ts"
+import type { ConsoleDocumentEditors } from "./runtime/server/documents.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 import type { ConsoleRequestEvent } from "./runtime/server/request.ts"
 
@@ -36,6 +37,9 @@ export const consoleEnvRootKey: unique symbol = Symbol.for("vitehub.console.env.
 export const consoleSchedulesKey: unique symbol = Symbol.for("vitehub.console.schedules")
 export const consoleSchedulesRegistryKey: unique symbol = Symbol.for("vitehub.console.schedules.registry")
 export const consoleSchedulesRootKey: unique symbol = Symbol.for("vitehub.console.schedules.root")
+export const consoleDocumentsKey: unique symbol = Symbol.for("vitehub.console.documents")
+export const consoleDocumentsRegistryKey: unique symbol = Symbol.for("vitehub.console.documents.registry")
+export const consoleDocumentsRootKey: unique symbol = Symbol.for("vitehub.console.documents.root")
 export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
 export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
 export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleInvocationsRootKey
@@ -85,9 +89,11 @@ type ConsoleSchedulesByRoot = ConsoleProjectRegistry<ScheduleDefinitionRegistry>
 
 type ConsoleDatabaseByRoot = ConsoleProjectRegistry<ConsoleDatabaseInspection>
 
+type ConsoleDocumentsByRoot = ConsoleProjectRegistry<ConsoleDocumentEditors>
+
 type ConsoleInvocationRegistry = Record<
   symbol,
-  AgentInvocations | boolean | ConsoleBlobByRoot | ConsoleBlobInspection | ConsoleDatabaseByRoot | ConsoleDatabaseInspection | ConsoleSectionCatalog | ConsoleDefinitionsByRoot | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleKVByRoot | ConsoleKVInspection | ConsoleEnvByRoot | ConsoleEnvInspection | ConsoleSchedulesByRoot | ScheduleDefinitionRegistry | ConsoleSectionsByRoot | undefined
+  AgentInvocations | boolean | ConsoleBlobByRoot | ConsoleBlobInspection | ConsoleDatabaseByRoot | ConsoleDatabaseInspection | ConsoleSectionCatalog | ConsoleDefinitionsByRoot | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleKVByRoot | ConsoleKVInspection | ConsoleEnvByRoot | ConsoleEnvInspection | ConsoleSchedulesByRoot | ScheduleDefinitionRegistry | ConsoleSectionsByRoot | ConsoleDocumentsByRoot | ConsoleDocumentEditors | undefined
 >
 
 type ConsoleInvocationIdentitiesByRoot = {
@@ -138,6 +144,9 @@ export type ConsoleInvocationScope = {
   [consoleEnvRegistryKey]?: ConsoleEnvByRoot
   [consoleEnvRootKey]?: string
   [consoleSchedulesKey]?: ScheduleDefinitionRegistry
+  [consoleDocumentsKey]?: ConsoleDocumentEditors
+  [consoleDocumentsRegistryKey]?: ConsoleDocumentsByRoot
+  [consoleDocumentsRootKey]?: string
   [consoleSchedulesRegistryKey]?: ConsoleSchedulesByRoot
   [consoleSchedulesRootKey]?: string
   [consoleProjectRootKey]?: string
@@ -174,6 +183,11 @@ const schedulesRegistry = createConsoleProjectRegistry<ScheduleDefinitionRegistr
   root: consoleSchedulesRootKey,
   value: consoleSchedulesKey,
   registry: consoleSchedulesRegistryKey,
+})
+const documentsRegistry = createConsoleProjectRegistry<ConsoleDocumentEditors>({
+  root: consoleDocumentsRootKey,
+  value: consoleDocumentsKey,
+  registry: consoleDocumentsRegistryKey,
 })
 const databaseRegistry = createConsoleProjectRegistry<ConsoleDatabaseInspection>({
   root: consoleDatabaseRootKey,
@@ -457,6 +471,19 @@ export function installConsoleEnvScope(
 
 export function resolveConsoleEnv(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleEnvInspection | undefined {
   return envRegistry.resolve(scope)
+}
+
+/** Stores the document editor actions of each document editor section, loaded on first use. */
+export function installConsoleDocumentsScope(
+  projectRoot: string,
+  editors: ConsoleDocumentEditors,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleDocumentEditors {
+  return documentsRegistry.install(projectRoot, editors, scope)
+}
+
+export function resolveConsoleDocuments(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleDocumentEditors | undefined {
+  return documentsRegistry.resolve(scope)
 }
 
 /** Stores the Static Schedule Definitions that the Console may run. Only Console invocation installs them. */
