@@ -482,7 +482,6 @@ describe("Agent Invocation UI", () => {
           { id: "working", status: "running", title: "Working" },
           { id: "done", status: "completed", title: "Done" },
         ],
-        remainingStatuses: ["completed"],
       },
     });
 
@@ -2702,7 +2701,6 @@ describe("Agent Invocation UI", () => {
       props: {
         hasMore: true,
         items: [{ id: "working", status: "running", title: "Working" }],
-        remainingStatuses: ["running", "pending", "completed"],
         continuationKey: "page-2",
       },
     });
@@ -2731,7 +2729,6 @@ describe("Agent Invocation UI", () => {
         continuationKey: "page-2",
         hasMore: true,
         items: [{ id: "done", status: "completed", title: "Done" }],
-        remainingStatuses: ["completed"],
         retryKey: 0,
       },
     });
@@ -2757,7 +2754,6 @@ describe("Agent Invocation UI", () => {
           { id: "working", status: "running", title: "Working" },
           { id: "done", status: "completed", title: "Done" },
         ],
-        remainingStatuses: ["completed"],
       },
     });
     const viewport = wrapper.get("nav");
@@ -2875,7 +2871,6 @@ describe("Agent Invocation UI", () => {
           { id: "working", status: "running", title: "Working" },
           { id: "done", status: "completed", title: "Done" },
         ],
-        remainingStatuses: ["running", "completed"],
       },
     });
     const viewport = wrapper.get("nav").element;
@@ -2896,7 +2891,6 @@ describe("Agent Invocation UI", () => {
     });
     expect(wrapper.emitted("endReached")).toHaveLength(3);
 
-    await wrapper.setProps({ remainingStatuses: ["completed"] });
     await wrapper.setProps({
       items: [...wrapper.props("items"), { id: "done-last", status: "completed", title: "Done last" }],
     });
