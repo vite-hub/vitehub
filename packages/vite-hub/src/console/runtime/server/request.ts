@@ -1,4 +1,5 @@
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { consoleDiagnostic, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+
 export interface ConsoleHeaders {
   get(name: string): string | null
 }
@@ -110,8 +111,9 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumByte
   return JSON.parse(body)
 }
 
-export function consoleRequestError(statusCode: number, statusMessage: string): Error {
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0069({ message: statusMessage }), { statusCode, statusMessage })
+/** A Console failure with an HTTP status. The code defaults to the Console code of the status. */
+export function consoleRequestError(statusCode: number, statusMessage: string, code: ConsoleDiagnosticCode = consoleStatusDiagnosticCode(statusCode)): Error {
+  return Object.assign(consoleDiagnostic(code, statusMessage), { statusCode, statusMessage })
 }
 
 export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {
@@ -134,10 +136,24 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
   const value = event.req?.url ?? event.node?.req?.url ?? "/"
-  const headers = event.req?.headers ?? event.headers
+  // Match consoleRequest(): request headers take precedence per header, with
+  // event-level and Node headers supplying values missing from that container.
   const header = (name: string) => {
-    const raw = headers?.get(name) ?? event.node?.req?.headers?.[name]
-    return (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
+    const sources: Array<ConsoleHeaders | Record<string, string | string[] | undefined> | undefined> = [
+      event.req?.headers,
+      event.headers,
+      event.node?.req?.headers,
+    ]
+    for (const source of sources) {
+      const raw = source instanceof Object && "get" in source && source.get instanceof Function
+        ? source.get(name)
+        : source?.[name]
+      // An empty header is still a selected value. This must match
+      // `consoleRequest()`, which preserves empty strings in the Request.
+      if (raw === undefined || raw === null) continue
+      const value = (Array.isArray(raw) ? raw[0] ?? "" : raw).split(",")[0]?.trim() ?? ""
+      return value
+    }
   }
   const url = value instanceof URL ? new URL(value) : new URL(value, "http://localhost")
   const host = header("x-forwarded-host") ?? header("host")

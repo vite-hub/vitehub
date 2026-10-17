@@ -10,7 +10,7 @@ The ViteHub Console inspects the primitives enabled in the same ViteHub configur
 
 ViteHub renders the Console UI and serves its static assets. The Console sends each operation as one same-origin `POST` to `/_vitehub/rpc/__call`, so the same interface works on development servers and production hosts without separate resource routes.
 
-The Console currently exposes Env, Agents, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
+The Console currently exposes Env, Agents, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and the table names written in a literal `schema: { ... }`, without loading Definitions or connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
 
 Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
 
@@ -509,6 +509,30 @@ The Console does not calculate missing provider data. Token counts, model metada
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` | Check the `authorize` callback and the current user's role or permission. |
 | A section is missing or returns `403` | `console.authorize` returned `{ sections }` without that section id. |
+
+### Console error codes
+
+Each failed Console request returns JSON with a stable `code`, a `message` that says why it failed, a `fix`, and a `docs` link. Console RPC failures also keep `ok: false` and `status`. The Console shows these fields with one next step: sign in again, reload, try again, or read the docs. It offers a retry only when a retry can succeed.
+
+| Code | Status | Fix |
+| --- | --- | --- |
+| `CONSOLE_SIGN_IN_REQUIRED` | `401` | Sign in again. |
+| `CONSOLE_ACCESS_DENIED` | `403` | Sign in with an account that the access policy allows. |
+| `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. Make sure the Auth Definition that protects the Console returns a user with an id. |
+| `CONSOLE_DEVELOPMENT_ONLY` | `403` | Use `console: { access: 'auth' }` or `exposure: 'host-managed'` in production. |
+| `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. |
+| `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
+| `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |
+| `CONSOLE_AUTH_NOT_CONFIGURED` | `500` | Add an Auth Definition, or configure Cloudflare Access. |
+| `CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE` | `404` | Set `connections: { management: true }` for production. |
+| `CONSOLE_ENV_MANAGEMENT_UNAVAILABLE` | `404` | Give the Env declaration a management bridge. |
+| `CONSOLE_REQUEST_INVALID` | `400`, `405`, `413` | Reload the Console. Deploy the Console and the server from the same build. |
+| `CONSOLE_NOT_FOUND` | `404` | Reload the Console. |
+| `CONSOLE_CONFLICT` | `409` | Reload, then try again. |
+| `CONSOLE_UNAVAILABLE` | `408`, `429`, `502`–`504` | Wait, then try again. |
+| `CONSOLE_REQUEST_FAILED` | `500` | Try again, then read the server logs. |
+
+A Console route that fails with its own diagnostic keeps that code, for example `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs` to the error body.
 
 Use [Agent Invocations](/docs/agents/invocations) for custom stores and invocation lifecycle behavior. Use [Invocation UI](/docs/ui/invocation) when building an application-owned inspection page instead of mounting the complete Console.
 
