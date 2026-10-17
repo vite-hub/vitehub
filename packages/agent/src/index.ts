@@ -80,7 +80,7 @@ import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdat
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
-import { blobArrayBuffer, isArrayBufferValue, isAttachmentPart, isBlobValue, isUint8ArrayValue, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
+import { blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentPart, isBlobValue, isUint8ArrayValue, materializeMessageAttachmentData, type AgentMessagePhase, type Message } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
   hasUnreplayableAgentInputContext,
@@ -115,9 +115,10 @@ import {
   withCapabilityCleanup,
   withResponseCleanup,
 } from "./capability-runtime.ts"
-import type { AgentCapabilityRegistries, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
+import type { AgentCapabilityRegistries, AgentFinishDeliveryReminder, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
-import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
+import { isResponse } from "./internal/response.ts"
+import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, normalizeUIMessageStreamResponse, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -133,6 +134,7 @@ import {
   traceAgentInvocationCancelled,
   traceAgentInvocationError,
   traceAgentChannelDeliveryEffect,
+  traceAgentChannelDeliveryReminder,
   traceAgentInvocationFinish,
   traceAgentInvocationStart,
 } from "./trace.ts"
@@ -3433,6 +3435,35 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
     && !(syntheticWorkspaceRun in agent.run)
 }
 
+function isSettledAgentResult(result: unknown): boolean {
+  if (isResponse(result)) return false
+  if (isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)) return false
+  return true
+}
+
+function deliveryReminderTranscript<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  invocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>,
+  transcript: Message[] | undefined,
+  previousText: string | undefined,
+  instruction: string,
+): Message[] {
+  const messages = transcript ?? (invocation.messages.length ? [...invocation.messages] : invocation.prompt ? [createMessage({ role: "user", text: invocation.prompt })] : [])
+  if (previousText) messages.push(createMessage({ role: "assistant", text: previousText }))
+  messages.push(createMessage({ role: "user", text: instruction }))
+  return messages
+}
+
+function deliveryReminderUsageAttributes(result: unknown): Record<string, number> {
+  const usageRecord = toAgentRunResult(result).usageRecord
+  if (!usageRecord) return {}
+  const usage = usageRecord.usage
+  const attributes: Record<string, number> = {}
+  for (const [key, value] of Object.entries(usage ?? {})) {
+    if (typeof value === "number") attributes[`channel.delivery.reminder.previous.usage.${key}`] = value
+  }
+  return attributes
+}
+
 interface RunAgentInlineOptions {
   output?: "raw" | "rendered"
   tools?: AgentToolSet
@@ -3451,6 +3482,8 @@ type AgentInvocationContext<
   driverContributions: AgentDriverContribution[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
+  finishDeliveryReminderProviders: AgentFinishDeliveryReminder[]
+  deliveryReminderRunner?: (result: unknown) => Promise<unknown>
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
   finishHook?: (event: AgentFinishHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
@@ -4905,6 +4938,7 @@ async function createAgentInvocationContext<
       driverContributions: capabilities.driverContributions,
       finalOutputRenderers: capabilities.registries.finalOutputRenderers,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
+      finishDeliveryReminderProviders: capabilities.registries.finishDeliveryReminderProviders,
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       errorHook: definition?.hooks?.["agent:error"] as never,
@@ -5031,6 +5065,8 @@ type InvocationRunContext<
   driverContributions?: AgentDriverContribution[]
   durableErrorFallbackTimeout?: number
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
+  finishDeliveryReminderProviders: AgentFinishDeliveryReminder[]
+  deliveryReminderRunner?: (result: unknown) => Promise<unknown>
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   errorHook?: (event: AgentErrorHookEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void | AgentChannelDeliveryFinishEffectResult>
@@ -5918,6 +5954,9 @@ async function finishStreamAgentInvocation<
     await lifecycle.finish(outcome)
     return
   }
+  if (context.deliveryReminderRunner) {
+    result = await context.deliveryReminderRunner(result)
+  }
   let finishResult: unknown
   let finishUsage: AgentUsageRecord | undefined
   try {
@@ -6756,6 +6795,7 @@ async function finalizeAgentInvocationResult<
 ): Promise<Response | AsyncIterable<unknown> | TResult> {
   const shouldWrapOutput = options.holdOutput === true || shouldWrapInvocationOutput(context)
   try {
+    result = normalizeUIMessageStreamResponse(result) ?? result
     if (result instanceof Response) {
       const finalized = await options.finalizeResponse?.(result)
       if (finalized) {
@@ -7099,6 +7139,136 @@ async function executeAgentInvocationWithCapacityLease<
   }
   catch (error) {
     return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
+  }
+
+  let reminderTranscript: Message[] | undefined
+  if (invocation.finishDeliveryReminderProviders.length) {
+    try {
+      for (const provider of invocation.finishDeliveryReminderProviders) {
+        while (isSettledAgentResult(result)) {
+          const reminder = provider.next(invocation.context)
+          if (!reminder) break
+          invocation.input.abortSignal?.throwIfAborted()
+          const previousText = finalTextFromAgentOutput(result)?.trim() || undefined
+          reminderTranscript = deliveryReminderTranscript(invocation, reminderTranscript, previousText, reminder.instruction)
+          await traceAgentChannelDeliveryReminder(toTraceContext(invocation), {
+            "capability.id": provider.capabilityId,
+            "channel.delivery.reminder.previous.textLength": previousText?.length ?? 0,
+            "channel.delivery.reminder.tool": provider.tool,
+            "channel.delivery.reminder.turn": reminder.turn,
+            "channel.delivery.reminder.turns": reminder.turns,
+            ...deliveryReminderUsageAttributes(result),
+          })
+          const reminderInput = { ...invocation.input, messages: reminderTranscript, prompt: reminderTranscript }
+          if (customRun) {
+            const original = { input: invocation.input, messages: invocation.messages, prompt: invocation.prompt }
+            invocation.input = reminderInput
+            invocation.messages = reminderTranscript
+            invocation.prompt = undefined
+            try {
+              result = await agent.run(invocation)
+            }
+            finally {
+              invocation.input = original.input
+              invocation.messages = original.messages
+              invocation.prompt = original.prompt
+            }
+          }
+          else {
+            const reminderContext = toAgentAdapterRunContext(invocation)
+            reminderContext.input = reminderInput
+            reminderContext.messages = reminderTranscript
+            reminderContext.prompt = undefined
+            if (options.kind === "run" && !options.renderOutput) reminderContext.nativeStructuredOutput = false
+            result = await adapter!.generate(reminderContext as never)
+          }
+        }
+      }
+    }
+    catch (error) {
+      return await lifecycle.fail({ error, status: "error" }, error, executionFailureMessage)
+    }
+  }
+
+  if (invocation.finishDeliveryReminderProviders.length) {
+    invocation.deliveryReminderRunner = async (settledResult) => {
+      let nextResult = settledResult
+      for (const provider of invocation.finishDeliveryReminderProviders) {
+        // Stream cleanup calls this runner after consuming the stream. The
+        // preserved result can still expose the original async iterable, so
+        // settlement cannot be inferred from its shape at this point.
+        let firstReminder = true
+        let reminderResultSettled = false
+        while (firstReminder || reminderResultSettled || isSettledAgentResult(nextResult)) {
+          const reminder = provider.next(invocation.context)
+          if (!reminder) break
+          firstReminder = false
+          reminderResultSettled = false
+          invocation.input.abortSignal?.throwIfAborted()
+          const previousText = finalTextFromAgentOutput(nextResult)?.trim() || undefined
+          reminderTranscript = deliveryReminderTranscript(invocation, reminderTranscript, previousText, reminder.instruction)
+          await traceAgentChannelDeliveryReminder(toTraceContext(invocation), {
+            "capability.id": provider.capabilityId,
+            "channel.delivery.reminder.previous.textLength": previousText?.length ?? 0,
+            "channel.delivery.reminder.tool": provider.tool,
+            "channel.delivery.reminder.turn": reminder.turn,
+            "channel.delivery.reminder.turns": reminder.turns,
+            ...deliveryReminderUsageAttributes(nextResult),
+          })
+          const reminderInput = { ...invocation.input, messages: reminderTranscript, prompt: reminderTranscript }
+          if (customRun) {
+            const original = { input: invocation.input, messages: invocation.messages, prompt: invocation.prompt }
+            invocation.input = reminderInput
+            invocation.messages = reminderTranscript
+            invocation.prompt = undefined
+            try { nextResult = await agent.run(invocation) }
+            finally { invocation.input = original.input; invocation.messages = original.messages; invocation.prompt = original.prompt }
+          }
+          else {
+            const reminderContext = toAgentAdapterRunContext(invocation)
+            reminderContext.input = reminderInput
+            reminderContext.messages = reminderTranscript
+            reminderContext.prompt = undefined
+            nextResult = await adapter!.generate(reminderContext as never)
+          }
+          const settled = await settleDeliveryReminderResult(nextResult, customRun, invocation)
+          if (settled) {
+            nextResult = settled.result
+            reminderResultSettled = true
+          }
+        }
+      }
+      return nextResult
+    }
+  }
+
+  async function settleDeliveryReminderResult(
+    value: unknown,
+    custom: boolean,
+    context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  ): Promise<{ result: unknown } | undefined> {
+    let stream: AsyncIterable<unknown> | undefined
+    if (isAsyncIterable(value)) {
+      stream = custom ? value : streamAgentOutputToEvents(value)
+    }
+    else if (hasTraceableStreamResult(value)) {
+      stream = streamAgentOutputToEvents(value)
+    }
+    else {
+      const normalized = normalizeUIMessageStreamResponse(value)
+      if (normalized) stream = toReadableAsyncIterableStream(uiMessageStreamFromResponse(normalized))
+    }
+    if (!stream) return
+    const streamed = withStreamedResult(stream, value, undefined, context.toolResults, context.tools)
+    for await (const _chunk of streamed.stream) { /* settle and collect tool results */ }
+    const finished = await streamed.finishResult(value)
+    // `finishResult` preserves an async iterator from the source for callers
+    // that still need to consume it. This reminder result has already been
+    // consumed, so remove that marker before the next bounded turn check.
+    if (isAsyncIterable(finished)) {
+      return { result: { ...finished } }
+    }
+    return { result: finished }
   }
 
   if (options.kind === "run"

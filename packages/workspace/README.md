@@ -189,59 +189,24 @@ vitehub workspace show content draft posts/hello.md
 Add `--json` for machine-readable output. A Store without retained history
 fails with `WORKSPACE_R0069`.
 
-## JSON Collections
+## JSON data
 
-Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.
+To serve a read-only JSON array from a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array), read the file in an `array()` loader from `@vite-hub/source`:
 
 ```ts
 // server/collections/articles.ts
-import { defineCollection } from "@vite-hub/source"
-import { workspaceFile } from "@vite-hub/workspace"
-import * as v from "valibot"
+import { array, defineCollection } from "@vite-hub/source"
+import { useWorkspace } from "@vite-hub/workspace"
 
 export const articles = defineCollection({
-  source: workspaceFile({
-    facets: ["category"],
-    filters: ["category", "authors.name"],
-    key: "slug",
-    maxLimit: 100,
-    path: "data/articles.json",
-    schema: v.object({ category: v.string(), slug: v.string(), title: v.string() }),
-    search: ["title", "summary"],
-    sort: { field: "title", direction: "asc" },
-    workspace: "content",
+  source: array(async () => JSON.parse(await useWorkspace("content").fs.readFile("data/articles.json")), {
+    filters: ["category"],
+    search: ["title"],
   }),
-  transform: article => ({ category: article.category, slug: article.slug, title: article.title }),
 })
 ```
 
-ViteHub generates `GET /api/articles`, and `useCollection("articles")` from `@vite-hub/source/client` reads it with typed filters:
-
-```ts
-const { items, total, facets, loadMore } = useCollection("articles", {
-  limit: 25,
-  filter: computed(() => ({ category: selectedCategory.value, search: search.value })),
-})
-```
-
-Use `?empty=<field>` to match records without a scalar value at a declared filter. The file's Workspace digest binds every cursor, so a write to the file makes older cursors stale (`409`). Use this for deliberately small generated indexes; use a database when the server cannot reasonably hold and query the full array in memory.
-
-```ts
-// nitro.config.ts
-import { createWorkspaceNitroConfig } from "@vite-hub/workspace/nitro"
-
-export default createWorkspaceNitroConfig()
-```
-
-```ts
-// vite.config.ts
-import { hubWorkspace } from "@vite-hub/workspace/vite"
-import { defineConfig } from "vite"
-
-export default defineConfig({
-  plugins: [hubWorkspace()],
-})
-```
+To let people or Agents edit JSON data, store it as [Content](https://vitehub.dev/docs/content/configure) documents.
 
 ## Reuse a Source definition
 

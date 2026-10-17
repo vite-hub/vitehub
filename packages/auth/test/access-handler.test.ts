@@ -217,6 +217,52 @@ describe("Auth access handlers", () => {
     expect(toPrimitive).not.toHaveBeenCalled()
   })
 
+  it("rejects objects that spoof the Response shape", async () => {
+    const foreignResponse = runInNewContext(`new (class {
+      get status() { return 409 }
+      get statusText() { return "Conflict" }
+      get headers() { return { get() { return null } } }
+      get body() { return null }
+      get [Symbol.toStringTag]() { return "Response" }
+    })()`)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+    const result = await handler(new Request("https://app.example/"))
+    expect(result?.status).toBe(403)
+  })
+
+  it("rejects a forged Response-named prototype with valid headers", async () => {
+    const forgedResponse = runInNewContext(`new (class Response {
+      get status() { return 409 }
+      get statusText() { return "Conflict" }
+      get headers() { return new Headers({ "x-policy": "forged" }) }
+      get body() { return null }
+    })()`, { Headers })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => forgedResponse as never }] },
+    }))
+
+    const result = await handler(new Request("https://app.example/"))
+    expect(result?.status).toBe(403)
+    expect(result?.headers.has("x-policy")).toBe(false)
+  })
+
+  it("normalizes genuine responses with shadowed accessors into local responses", async () => {
+    const response = new Response("Policy rejected", { status: 409, headers: { "x-policy": "rejected" } })
+    Object.defineProperty(response, "status", { get: () => 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => response }] },
+    }))
+
+    const result = await handler(new Request("https://app.example/"))
+    expect(result).toBeInstanceOf(Response)
+    expect(result).not.toBe(response)
+    expect(result?.status).toBe(409)
+    expect(result?.headers.get("x-policy")).toBe("rejected")
+    expect(await result?.text()).toBe("Policy rejected")
+  })
+
   it("starts provider sign-in only for matched unauthenticated HTML requests", async () => {
     provider.getSession.mockResolvedValue(null)
     provider.handler.mockResolvedValue(Response.json({ url: "https://provider.example/sign-in" }))

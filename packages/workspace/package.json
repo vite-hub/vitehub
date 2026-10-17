@@ -60,6 +60,7 @@
       "require": "./dist/cloudflare.js",
       "default": "./dist/cloudflare.js"
     },
+
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js",
