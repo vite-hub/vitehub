@@ -39,8 +39,9 @@ function isUint8Array(value: unknown): value is Uint8Array {
 
 function unboxJsonPrimitive(value: unknown): { value: unknown } | undefined {
   for (const unbox of [Boolean.prototype.valueOf, Number.prototype.valueOf, String.prototype.valueOf, BigInt.prototype.valueOf]) {
-    try { return { value: Reflect.apply(unbox, value, []) } }
-    catch {}
+    try { Reflect.apply(unbox, value, []) }
+    catch { continue }
+    return { value: Reflect.apply((value as { valueOf: unknown }).valueOf as (...args: []) => unknown, value, []) }
   }
   return undefined
 }
