@@ -15,6 +15,7 @@ import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts"
 import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
 import { createMessage, defineAgent, runAgent, publishAgentActivity } from "../../index.ts";
+import { forgeAccessKey } from "../../internal/forge-access.ts";
 import { resolveAgentCapabilityDefinitions } from "../../capability-runtime.ts";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriverOptions, CodexDriverOptions } from "../../index.ts";
 import {
@@ -1263,9 +1264,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
               // Build the worker from the base settings while replacing only
               // its GitHub Channel. Extending the base Agent would preserve
-              // the host identity, but dropping the whole map loses other
+              // the host forge access, but dropping the whole map loses other
               // channel-scoped capabilities needed by repair passes.
-              const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
+              const { channels: _baseChannels, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
               // Placement runs once per pass, before any host install, and never overrides a configured Box.
               if (presetOptions.placement && !workerSettings.box) {
                 placementLease ??= await presetOptions.placement.place({ repository, number });
@@ -1277,7 +1278,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
                 const sanitized = { ...channel };
                 // A GitHub channel under any key can otherwise reintroduce host credentials.
-                Reflect.deleteProperty(sanitized, Symbol.for("vitehub.githubChannelIdentity"));
+                Reflect.deleteProperty(sanitized, forgeAccessKey);
                 return [name, sanitized];
               }));
               const baseCapabilities = workerSettings.capabilities;
@@ -1326,8 +1327,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 pullRequest: { filter, workspace: false },
               }) };
               // Preserve host-owned activity and delivery closures without
-              // exposing their identity to provider credential resolution.
-              Reflect.deleteProperty(workerChannel, Symbol.for("vitehub.githubChannelIdentity"));
+              // exposing their forge access to provider credential resolution.
+              Reflect.deleteProperty(workerChannel, forgeAccessKey);
               // Keep the base Agent's configured Workspace sources, loaders, and
               // instruction bindings while replacing the checkout-owned fields.
               let baseWorkspace: Record<string, unknown> = {};

@@ -4,9 +4,9 @@ import {
 } from "../capability-runtime.ts"
 
 import type {
+  AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityMode,
-  AgentGitHub,
   AgentToolPolicyContext,
   AgentToolPolicyDecision,
   AgentToolSet,
@@ -16,9 +16,9 @@ import type { WorkspaceSession } from "@vite-hub/workspace"
 import type { JSONSchema7 } from "json-schema"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { isRuntimeString } from "../internal/runtime-value.ts"
+import { forgeGitEnvironment } from "../internal/forge-access.ts"
 import {
   preparePullRequestCheckout,
-  pullRequestCheckoutEnvironment,
   pullRequestCheckoutPlan,
   pullRequestRepositories,
   shellQuote,
@@ -288,10 +288,7 @@ function isGitRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-type GitToolContext = {
-  context?: { get(key: string): unknown }
-  runtimeContext?: { githubIdentity?: AgentGitHub }
-}
+type GitToolContext = AgentCapabilityContext
 
 function gitSessionWorkspacePath(cwd: string, context: GitToolContext): string {
   const workspacePath = workspacePathFromGitCwd(cwd)
@@ -309,7 +306,7 @@ async function preparePullRequestGitSession(
   const plan = pullRequestCheckoutPlan(context.context)
   if (!plan || workspacePath !== plan.mount) return false
   return await preparePullRequestCheckout(session, plan, {
-    env: await pullRequestCheckoutEnvironment(context.runtimeContext?.githubIdentity, plan.repository, undefined, plan.headRepository),
+    env: await forgeGitEnvironment(context, context.runtimeContext, plan),
     timeout,
   })
 }
@@ -521,12 +518,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
       timeout,
     }, getSessionResolver(context), defaultGitCwd(context), async () => {
       const scope = pullRequestCheckoutPlan(context.context) ?? pullRequestRepositories(context.context)
-      return await pullRequestCheckoutEnvironment(
-        context.runtimeContext?.githubIdentity,
-        scope?.repository,
-        undefined,
-        scope?.headRepository,
-      )
+      return await forgeGitEnvironment(context, context.runtimeContext, scope)
     }),
     close: closeSession,
   })
