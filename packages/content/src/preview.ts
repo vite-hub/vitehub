@@ -269,14 +269,29 @@ function assertEvent(event: unknown, method: string): asserts event is ContentPr
   }
 }
 
-interface Scope<T> { getStore(): T | undefined; run<R>(value: T, callback: () => R): R }
+interface Scope<T> { getStore(): T | undefined; run<R>(value: T, callback: () => R): R | Promise<R> }
 function createScope<T>(): Scope<T> {
   const Constructor = (globalThis as { AsyncLocalStorage?: new <V>() => Scope<V> }).AsyncLocalStorage
   if (Constructor) return new Constructor<T>()
   let current: T | undefined
+  let tail = Promise.resolve()
   return {
     getStore: () => current,
-    run(value, callback) { const previous = current; current = value; try { return callback() } finally { current = previous } },
+    run(value, callback) {
+      // Without a host async-context implementation, keep each scope alive until its
+      // callback settles and serialize overlapping scopes so they cannot leak into one
+      // another. Nitro/Cloudflare expose AsyncLocalStorage in supported deployments.
+      if (current === value) return callback()
+      const execute = async () => {
+        const previous = current
+        current = value
+        try { return await callback() }
+        finally { current = previous }
+      }
+      const result = tail.then(execute)
+      tail = result.then(() => undefined, () => undefined)
+      return result
+    },
   }
 }
 
