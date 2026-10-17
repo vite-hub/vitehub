@@ -9,7 +9,7 @@ icon: i-lucide-circle-alert
 ## Production checks
 
 - Sources are read-only. Use Workspace when content needs durable sync, path-scoped rules, diffs, snapshots, or scoped Agent visibility.
-- Read secrets for private origins, such as a GitHub token, from Server Env or a trusted `auth` callback. Never from model-authored input.
+- Read secrets for private origins, such as a GitHub token, from Server Env or a trusted `auth` callback. Never from model-authored input. `github()` reads `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`, when `auth` is omitted.
 - Source paths are relative to the configured root. ViteHub rejects absolute paths, parent traversal, Windows drive paths such as `C:secrets.txt`, and null bytes on every host.
 - `file()` follows a symbolic link only when its resolved target stays inside the Source root. `glob()` rejects an item when its file or a parent directory is a symbolic link. Set `followSymlinks: true` to follow links whose targets stay inside the root. These checks select files. They do not isolate the process from concurrent file system changes.
 - Local Workspace Stores have a stricter contract and reject symlink access.

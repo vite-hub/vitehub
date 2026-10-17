@@ -93,6 +93,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "h3": "catalog:unjs",
     "mlly": "catalog:unjs",
