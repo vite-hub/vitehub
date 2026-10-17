@@ -26,7 +26,7 @@ icon: i-lucide-circle-alert
 | `CONNECTIONS_NEEDS_RECONNECT` | The provider rejected the refresh token. |
 | `CONNECTIONS_KEY_MISMATCH` | The grant was sealed with a different key. |
 | `CONNECTIONS_DENIED`, `CONNECTIONS_APPROVAL_REQUIRED` | Access rules blocked the call. |
-| `CONNECTIONS_ORIGIN_NOT_ALLOWED` | The request URL is not in the provider `origins`. ViteHub did not send the credential. |
+| `CONNECTION_INVALID` | The request URL is not in the provider `origins`. ViteHub did not send the credential. |
 | `CONNECTIONS_PROVIDER_FAILED` | The provider returned an error. `details.status` has the HTTP status. |
 | `CONNECTIONS_UNAVAILABLE` | Another request holds the refresh lease. Try again. |
 | `CONNECTION_FORBIDDEN` | The management request has no authorized manager. |
