@@ -39,6 +39,16 @@ describe("Rate Limit core", () => {
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
   })
 
+  it("accepts consume functions from another JavaScript realm", async () => {
+    const driver = memoryRateLimitDriver()
+    const consume = runInNewContext("(input) => [null, { allowed: true }]") as typeof driver.consume
+    Object.assign(driver, { consume })
+
+    const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
+
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
+  })
+
   it.each([undefined, "not callable"]) ("rejects a driver without callable consume: %j", consume => {
     const driver = Object.assign(memoryRateLimitDriver(), { consume })
 
