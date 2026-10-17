@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus";
 
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
@@ -10,6 +12,7 @@ export default defineConfig({
     },
     entry: ["src/index.ts"],
     exports: {
+      customExports: normalizePackageExports,
       bin: {
         vitehub: "src/index.ts",
       },

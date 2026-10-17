@@ -14,6 +14,7 @@ import type {
   AgentChannelDispatchOptions,
   AgentChannelHistory,
   AgentChannelHistoryQuery,
+  AgentActor,
   AgentInput,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -28,6 +29,8 @@ export function channelReplayRunId(channel: string, key: string, options: { dryR
 }
 
 export interface ReplayChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  /** Actor supplied by a verified host entry point. */
+  actor?: AgentActor
   /** Continue from the `nextCursor` of an earlier replay. */
   cursor?: string
   /** Record Channel message writes in the trace instead of calling the provider. */
@@ -161,6 +164,7 @@ function isWorkflowRun(value: unknown): boolean {
 }
 
 interface ChannelItemRun<TRuntimeConfig extends AgentRuntimeConfig> {
+  actor?: AgentActor
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>
   agentName?: string
   channel: string
@@ -232,6 +236,7 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
     if (reservation && !token) throw new Error("Could not transfer the Invocation execution claim.")
     const output = await runAgent(run.agent, { ...itemRuntime, ...(token ? { [inheritedAgentInvocationClaim]: token } : {}), run: runMetadata }, {
       ...invocation.input,
+      ...(run.actor ? { context: { ...invocation.input.context, actor: run.actor } } : {}),
       ...(run.dryRun ? { dryRun: true } : {}),
     })
     return { id, key, status: isWorkflowRun(output) ? "started" : "completed" }
@@ -285,7 +290,7 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
   let remaining = options.limit ?? Number.POSITIVE_INFINITY
   const seenCursors = new Set<string>(cursor ? [cursor] : [])
 
-  const replay = { agent, agentName, channel, dryRun: options.dryRun, force: options.force, label: options.label, verifyWebhook: false as const, invocations, runtime, triggerId }
+  const replay = { actor: options.actor, agent, agentName, channel, dryRun: options.dryRun, force: options.force, label: options.label, verifyWebhook: false as const, invocations, runtime, triggerId }
 
   try {
     while (remaining > 0 && !options.signal?.aborted) {
@@ -377,6 +382,8 @@ export async function dispatchChannelItems<TRuntimeConfig extends AgentRuntimeCo
 }
 
 export interface ChannelReplayRequestOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  /** Actor supplied by a verified host entry point. */
+  actor?: AgentActor
   /** Upper bound for `limit` in one request. Keeps one request within host time limits. */
   maxLimit?: number
   runtime?: AgentRuntimeContext<TRuntimeConfig>
@@ -433,6 +440,7 @@ export async function handleChannelReplayRequest<TRuntimeConfig extends AgentRun
       ...(label !== undefined ? { label } : {}),
       ...(limit !== undefined || Number.isFinite(maxLimit) ? { limit: Math.min(limit ?? maxLimit, maxLimit) } : {}),
       ...(query ? { query } : {}),
+      ...(options.actor ? { actor: options.actor } : {}),
       ...(options.runtime ? { runtime: options.runtime } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
     }))

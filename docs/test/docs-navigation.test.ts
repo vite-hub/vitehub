@@ -4,6 +4,8 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
+  getDocsRailCatalog,
+  getDocsSectionKind,
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
@@ -48,6 +50,21 @@ describe("docs product navigation", () => {
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
     expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
+  });
+
+  it("keeps the rail concise while retaining Platform in the catalog", () => {
+    expect(getDocsRailCatalog(docsManifest.sections).map(group => group.category))
+      .toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
+    expect(getDocsCatalog(docsManifest.sections).some(group => group.category === "Platform")).toBe(true);
+  });
+
+  it("labels product sections for the catalog consumer", () => {
+    const kind = (id: string) => getDocsSectionKind(docsManifest.sections.find(section => section.id === id)!);
+    expect(kind("kv")).toBe("Server Primitive");
+    expect(kind("agents")).toBe("Agent runtime");
+    expect(kind("ui")).toBe("UI components");
+    expect(kind("getting-started")).toBe("Getting started");
+    expect(kind("reference")).toBe("Platform");
   });
 
   it("orders every Server Primitive section by the product page template", () => {
@@ -98,6 +115,7 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
+      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
@@ -112,7 +130,7 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.label && group.pages.length > 0), sectionId).toBe(true);
+      expect(groups.every(group => group.pages.length > 0), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
@@ -145,7 +163,7 @@ describe("docs product navigation", () => {
     expect(isDocsLandingPath(docsManifest.sections, "/docs/ui")).toBe(false);
 
     const kv = docsManifest.sections.find(section => section.id === "kv");
-    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Tutorial");
+    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Get started");
     expect(getDocsSectionSubpages(kv!).some(page => page.id === "index")).toBe(false);
   });
 

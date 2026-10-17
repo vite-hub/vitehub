@@ -3,7 +3,7 @@ import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
-import { CollectionCursorError, defineCollection } from "../src/index.ts"
+import { array, CollectionCursorError, defineCollection } from "../src/index.ts"
 
 interface Row {
   createdAt: number
@@ -138,6 +138,13 @@ describe("Collections", () => {
     })
   })
 
+  it("accepts source loaders created in another realm", async () => {
+    const load = runInNewContext("() => [{ id: 'one' }]") as () => readonly { id: string }[]
+    const collection = defineCollection({ source: array(load) })
+
+    await expect(collection.page({ query: {} })).resolves.toMatchObject({ items: [{ id: "one" }] })
+  })
+
   it("derives the continuation cursor before a transform mutates its source item", async () => {
     const load = vi.fn(async ({ cursor }: { cursor?: number }) =>
       cursor === undefined
@@ -252,5 +259,46 @@ describe("Collections", () => {
     await expect(prototypeCollection.page({ query: {} })).rejects.toThrow(
       "Collection cursor() must return a JSON-serializable value",
     )
+  })
+
+  it("accepts a Collection source object with transform, authorize, and route", async () => {
+    const collection = defineCollection({
+      authorize: true,
+      route: false,
+      source: {
+        cursor: (row: Row) => [row.createdAt, row.id] as const,
+        cursorSchema: v.tuple([v.number(), v.string()]),
+        defaultLimit: 1,
+        get: async (key: string) => ({ createdAt: 1, id: key, photoPath: "p" }),
+        async load({ cursor }: { cursor?: readonly [number, string] }): Promise<Row[]> {
+          const rows = [{ createdAt: 2, id: "b", photoPath: "b" }, { createdAt: 1, id: "a", photoPath: "a" }]
+          return cursor ? rows.filter(row => row.createdAt < cursor[0]) : rows
+        },
+      },
+      transform: (row: Row) => ({ id: row.id }),
+    })
+
+    expect(collection.authorize).toBe(true)
+    expect(collection.route).toBe(false)
+    const first = await collection.page({ query: {} })
+    expect(first.items).toEqual([{ id: "b" }])
+    await expect(collection.page({ cursor: first.nextCursor!, query: {} })).resolves.toEqual({ items: [{ id: "a" }], nextCursor: null })
+    await expect(collection.get?.("z")).resolves.toEqual({ id: "z" })
+  })
+
+  it("passes provider total and facets through and validates counts", async () => {
+    const collection = defineCollection({
+      source: {
+        pagination: "provider",
+        load: async () => ({ facets: { kind: [{ count: 1, value: "a" }] }, items: [{ id: 1 }], nextCursor: null, total: 1 }),
+      },
+    })
+    await expect(collection.page({ query: {} })).resolves.toEqual({ facets: { kind: [{ count: 1, value: "a" }] }, items: [{ id: 1 }], nextCursor: null, total: 1 })
+
+    const invalid = defineCollection(async () => ({ items: [], nextCursor: null, total: -1 }), { pagination: "provider" })
+    await expect(invalid.page({ query: {} })).rejects.toThrow("total must be a non-negative integer")
+
+    const invalidFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ count: -1, value: "a" }] } }), { pagination: "provider" })
+    await expect(invalidFacets.page({ query: {} })).rejects.toThrow("facets must map fields")
   })
 })

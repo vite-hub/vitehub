@@ -32,6 +32,7 @@ export {
 export type {
   ChannelDeliveryClient,
   ChannelDeliveryOptions,
+  ChannelDeliveryReminderOptions,
 } from "./channel-delivery.ts"
 export {
   title,
