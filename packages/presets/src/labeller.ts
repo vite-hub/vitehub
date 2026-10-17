@@ -1,7 +1,7 @@
-import { ask, defineAgent, type AgentDefinition, type AgentInvokerProfile, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
-import { gmail } from "@vite-hub/agent/channels"
-import type { GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
-import { channelMessageContextKey } from "@vite-hub/agent/channels"
+import { ask, defineAgent, type AgentDefinition, type AgentInvokerProfile, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "../index.ts"
+import { gmail } from "../channels.ts"
+import type { GmailChannelOptions, GmailClient, GmailLabelSettings, GmailMessage } from "../channels.ts"
+import { channelMessageContextKey } from "../internal/channel-delivery-handlers.ts"
 import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
 
 export interface LabellerLabel extends GmailLabelSettings {}
@@ -237,7 +237,9 @@ export const labeller: LabellerAgent = defineAgent({
     validateOptions(options)
     const { labels, rules, actions, bodyLimit, minConfidence, trashEnabled, client } = options
     // Push deliveries inherit the safe default; replay callers still choose dry-run per invocation.
-    const channel = gmail({ labels, bodyLimit, client, ...(options.dryRun ? { dryRun: true } : undefined) })
+    const channelOptions: GmailChannelOptions = { labels, bodyLimit, client }
+    if (options.dryRun) channelOptions.dryRun = true
+    const channel = gmail(channelOptions)
     return defineAgent({
       description: "Label Gmail messages with ordered rules, then a constrained Jev choice.",
       channels: { gmail: channel },
@@ -265,7 +267,8 @@ export const labeller: LabellerAgent = defineAgent({
           const confidence = selectedConfidence(output)
           if (confidence === undefined || confidence < minConfidence) return
           const rule = output.rule ? rules[output.rule] : undefined
-          const selectedAction = { ...actions[label], ...(rule?.label === label ? explicitAction(rule) : undefined) }
+          const selectedAction = { ...actions[label] }
+          if (rule?.label === label) Object.assign(selectedAction, explicitAction(rule))
           await message.label(label)
           if (selectedAction.archive) await message.archive()
           if (selectedAction.read) await message.markRead()

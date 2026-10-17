@@ -159,12 +159,11 @@ export function sandbox(options: SandboxCapabilityOptions): AgentCapabilityDefin
             const cwd = validateSandboxCwd(value.cwd)
             const env = validateSandboxEnvironment(value.env)
             const timeout = validateSandboxTimeout(value.timeout)
-            const execOptions: SandboxExecOptions = {
-              ...(cwd === undefined ? {} : { cwd }),
-              ...(env === undefined ? {} : { env }),
-              ...(execution.abortSignal === undefined ? {} : { signal: execution.abortSignal }),
-              ...(timeout === undefined ? {} : { timeout }),
-            }
+            const execOptions: SandboxExecOptions = {}
+            if (cwd !== undefined) execOptions.cwd = cwd
+            if (env !== undefined) execOptions.env = env
+            if (execution.abortSignal !== undefined) execOptions.signal = execution.abortSignal
+            if (timeout !== undefined) execOptions.timeout = timeout
             return await handle.exec(value.command, args, execOptions)
           },
         }),

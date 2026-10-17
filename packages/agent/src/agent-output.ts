@@ -385,11 +385,11 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   const timestamp = response?.timestamp
   const finishReason = usageMetadataValue(result, "finishReason")
   if (id === undefined && timestamp === undefined) return
-  return {
-    ...(finishReason !== undefined ? { finishReason } : {}),
-    ...(id !== undefined ? { id } : {}),
-    ...((isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) ? { timestamp } : {}),
-  }
+  const output: NonNullable<AgentUsageRecord["response"]> = {}
+  if (finishReason !== undefined) output.finishReason = finishReason
+  if (id !== undefined) output.id = id
+  if (isDateValue(timestamp) || hasRuntimeType(timestamp, "string")) output.timestamp = timestamp
+  return output
 }
 
 function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undefined {
@@ -492,20 +492,18 @@ function withFallbackUsageMetadata(
   const runMetadata = mergedRunMetadata(run, readableProperty(record, "run"))
   const provider = record.provider ?? (compound ? undefined : modelMetadata?.provider)
   const usage = readableProperty(record, "usage")
-  return model || provider || transport || cost || response || latency || credentialSource || runMetadata
-    ? {
-        ...record,
-        ...(cost ? { cost } : undefined),
-        ...(credentialSource ? { credentialSource } : undefined),
-        ...(latency ? { latency } : undefined),
-        ...(model ? { model } : undefined),
-        ...(provider ? { provider } : undefined),
-        ...(response ? { response } : undefined),
-        ...(runMetadata ? { run: runMetadata } : undefined),
-        ...(transport ? { transport } : undefined),
-        ...(usage ? { usage } : undefined),
-      }
-    : record
+  if (!(model || provider || transport || cost || response || latency || credentialSource || runMetadata || usage)) return record
+  const output = { ...record }
+  if (cost) output.cost = cost
+  if (credentialSource) output.credentialSource = credentialSource
+  if (latency) output.latency = latency
+  if (model) output.model = model
+  if (provider) output.provider = provider
+  if (response) output.response = response
+  if (runMetadata) output.run = runMetadata
+  if (transport) output.transport = transport
+  if (usage) output.usage = usage
+  return output
 }
 
 export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
