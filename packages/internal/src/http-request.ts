@@ -83,12 +83,17 @@ function primitiveRuntimeTag(value: unknown): string | undefined {
     : undefined
 }
 
+const blobPrototype = Blob.prototype
+const blobSizeGetter = Object.getOwnPropertyDescriptor(blobPrototype, "size")?.get
+const blobTypeGetter = Object.getOwnPropertyDescriptor(blobPrototype, "type")?.get
+const blobSliceMethod = Object.getOwnPropertyDescriptor(blobPrototype, "slice")?.value as ((this: Blob, start?: number, end?: number, contentType?: string) => Blob) | undefined
+
 function isBlobLike(value: unknown): value is Blob {
-  if (value === null || typeof value !== "object") return false
+  if (value === null || typeof value !== "object" || !blobSizeGetter || !blobTypeGetter) return false
   try {
     // Blob accessors perform an internal-slot brand check, unlike toStringTag.
-    Reflect.get(Blob.prototype, "size", value)
-    Reflect.get(Blob.prototype, "type", value)
+    Reflect.apply(blobSizeGetter, value, [])
+    Reflect.apply(blobTypeGetter, value, [])
     return true
   } catch {
     return false
@@ -96,12 +101,13 @@ function isBlobLike(value: unknown): value is Blob {
 }
 
 function normalizeForeignBlob(value: Blob): Blob | undefined {
+  if (!blobSizeGetter || !blobTypeGetter || !blobSliceMethod) return undefined
   try {
-    const type = Reflect.get(Blob.prototype, "type", value)
-    Reflect.get(Blob.prototype, "size", value)
+    const type = Reflect.apply(blobTypeGetter, value, [])
+    Reflect.apply(blobSizeGetter, value, [])
     // Slice preserves the backing data without eagerly reading a file or
     // allocating a second payload. Use intrinsics to ignore own properties.
-    return Blob.prototype.slice.call(value, 0, undefined, type)
+    return Reflect.apply(blobSliceMethod, value, [0, undefined, type])
   } catch {
     return undefined
   }
