@@ -513,7 +513,10 @@ function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDura
   }
   try {
     if (typeof constructor === "function") {
-      return value instanceof constructor && callable((value as any).get) && callable((value as any).idFromName)
+      if (!(value instanceof constructor)) return false
+      const get = Object.getOwnPropertyDescriptor(value, "get")
+      const id = Object.getOwnPropertyDescriptor(value, "idFromName")
+      return get?.get === undefined && id?.get === undefined && callable(get?.value) && callable(id?.value)
     }
     const get = Object.getOwnPropertyDescriptor(value, "get")
     const id = Object.getOwnPropertyDescriptor(value, "idFromName")
