@@ -28,7 +28,6 @@ import * as cloudflareShell from "vite-hub/shell/providers/cloudflare"
 import * as justBashShell from "vite-hub/shell/providers/just-bash"
 import * as cloudflareWorkspace from "vite-hub/workspace/cloudflare"
 import * as workspaceLoader from "vite-hub/workspace/loader"
-import * as workspacePublisher from "vite-hub/workspace/publish"
 import * as workspaceServer from "vite-hub/workspace/server"
 
 declare module "vite-hub/database/drizzle" {
@@ -52,7 +51,6 @@ export const appFacingModules = [
   justBashShell,
   cloudflareWorkspace,
   workspaceLoader,
-  workspacePublisher,
   workspaceServer,
 ]
 
