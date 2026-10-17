@@ -29,6 +29,7 @@ import {
   applyAgentToolPolicies,
   copyToolWithOverrides,
   reportWorkspaceMaterialization,
+  withAgentToolExecutionBudget,
   withAgentToolStepReporting,
   withJsonCompatibleToolOutputs,
   toJsonCompatibleValue,
@@ -1305,7 +1306,7 @@ async function createAgent(
     name: tool.name,
     type: "provider-defined",
   }]))
-  const toolSet = { ...resolvedTools, ...providerTools }
+  const toolSet = withAgentToolExecutionBudget({ ...resolvedTools, ...providerTools }, context.executionBudget)
   const inspectedTools = inspectAgentTools(toolSet)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const telemetryModel = model && hasRuntimeType(model, "object") ? model as { modelId?: unknown, provider?: unknown } : undefined

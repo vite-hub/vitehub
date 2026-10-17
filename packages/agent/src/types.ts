@@ -998,6 +998,8 @@ export interface AgentRunContext<
   adapter?: AgentAdapter<CALL_OPTIONS>
   actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
   messages: Message[]
@@ -2809,9 +2811,10 @@ export interface AgentAdapterRunContext<
   actor: AgentActor
   close?: () => Promise<void>
   context: AgentInvocationContextStore
+  /** Shared limits owned by the enclosing Agent Invocation. */
+  executionBudget?: ExecutionBudget
   toolStepReporter?: AgentRuntimeContext<TRuntimeConfig>["toolStepReporter"]
   driverContributions?: AgentDriverContribution[]
-  executionBudget?: ExecutionBudget
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string

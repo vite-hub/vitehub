@@ -1,10 +1,12 @@
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { isExecutionBudgetHandled, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import {
   formatRuntimeDiagnosticError,
   resolveCapabilityPolicy,
   ViteHubError,
 } from "@vite-hub/runtime"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 import { defineGrant, type Grant } from "@vite-hub/runtime/internal/grant"
 
 import type {
@@ -47,6 +49,7 @@ function copyWithOverrides<T extends object, Overrides extends object>(tool: T, 
     ...descriptors,
     ...Object.getOwnPropertyDescriptors(overrides),
   })
+  if (isExecutionBudgetHandled(tool)) markExecutionBudgetHandled(copied)
   const policyOwner = agentToolPolicyOwners.get(tool)
   const overrideExecute = Object.getOwnPropertyDescriptor(overrides, "execute")?.value
   if (policyOwner && (!Object.hasOwn(overrides, "execute") || (hasRuntimeType(overrideExecute, "function") && approvalPreservingExecutorOwners.get(overrideExecute) === policyOwner))) {
@@ -227,6 +230,35 @@ export function withJsonCompatibleToolOutputs<TTools extends AgentToolSet>(tools
 
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
     const wrappedExecute = async (input: unknown, ...args: unknown[]) => toJsonCompatibleValue(await execute.call(tool, input, ...args))
+    approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
+    return [name, copyToolWithOverrides(tool, { execute: wrappedExecute })]
+  })) as TTools
+}
+
+/**
+ * Spend the enclosing Invocation's tool-call budget at the final execution seam.
+ *
+ * Capability tools can be contributed by arbitrary packages, so they cannot all
+ * be expected to remember to call the budget themselves. Workspace tools mark
+ * their own implementation by object identity so a copied metadata field cannot
+ * opt a tool out of the enclosing Invocation budget.
+ */
+export function withAgentToolExecutionBudget<TTools extends AgentToolSet>(tools: TTools, budget?: ExecutionBudget): TTools {
+  if (!budget || !tools || typeof tools !== "object") return tools
+
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!tool || typeof tool !== "object" || typeof tool.execute !== "function") {
+      return [name, tool]
+    }
+    if (isExecutionBudgetHandled(tool)) {
+      return [name, tool]
+    }
+
+    const execute = tool.execute
+    const wrappedExecute = async (input: unknown, executionContext?: AgentToolExecutionContext) => {
+      budget.recordToolCall()
+      return await execute.call(tool, input, executionContext)
+    }
     approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
     return [name, copyToolWithOverrides(tool, { execute: wrappedExecute })]
   })) as TTools
