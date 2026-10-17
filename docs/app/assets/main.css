@@ -252,6 +252,22 @@ body {
   box-shadow: none !important;
 }
 
+/*
+ * A result label is "Page > Section > Heading". One truncated line hides the heading on narrow screens,
+ * so results from one page looked the same. Allow two lines and dim the path.
+ */
+.vitehub-content-search-modal [data-slot="itemLabel"] {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}
+
+.vitehub-content-search-modal [data-slot="itemLabelPrefix"] {
+  color: var(--ui-text-muted);
+}
+
 .vitehub-content-search-modal button[aria-label="Close"] {
   width: 2.5rem;
   height: 2rem;
@@ -284,14 +300,32 @@ body {
   }
 }
 
+/*
+ * Phones keep the centered position from the base rule and only move the modal under the header.
+ * Do not reset `translate` here: the CSS minifier merges `translate: none` into `transform`,
+ * so the base `translate: -50%` stayed and pushed the modal off the left edge.
+ */
 @media (max-width: 640px) {
   .vitehub-content-search-modal {
     top: 3.25rem !important;
-    left: 0.5rem !important;
-    right: auto !important;
-    width: calc(100dvw - 1rem) !important;
-    transform: none !important;
-    translate: none !important;
+    max-height: calc(100dvh - 3.75rem);
+  }
+}
+
+/* Touch screens have no Escape key, so the close button keeps its icon. */
+@media (pointer: coarse) {
+  .vitehub-content-search-modal button[aria-label="Close"] {
+    width: 2.25rem;
+    height: 2.25rem;
+    border: 0;
+  }
+
+  .vitehub-content-search-modal button[aria-label="Close"] svg {
+    display: block;
+  }
+
+  .vitehub-content-search-modal button[aria-label="Close"]::before {
+    content: none;
   }
 }
 
