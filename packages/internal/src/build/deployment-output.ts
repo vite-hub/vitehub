@@ -128,7 +128,6 @@ export type ProviderDeploymentOutputOwner =
   | "database"
   | "blob"
   | "queue"
-  | "rate-limit"
   | "schedule"
   | "workflow"
   | "vite-hub"
@@ -211,7 +210,6 @@ const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "database",
   "blob",
   "queue",
-  "rate-limit",
   "schedule",
   "workflow",
   "vite-hub",
@@ -258,7 +256,6 @@ function resolveProviderOutputOwnershipFile(outputRoot: string, fileName: string
 async function readProviderOutputOwnershipFile(outputRoot: string, fileName: string): Promise<string[]> {
   try {
     const parsed: unknown = JSON.parse(await readFile(resolveProviderOutputOwnershipFile(outputRoot, fileName), "utf8"))
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted ownership files currently store KV binding names, so every entry must be a string.
     if (!Array.isArray(parsed) || !parsed.every(value => typeof value === "string")) {
       throw internalErrorDiagnostics.INTERNAL_B0035({ message: `Invalid Provider Output ownership file schema: ${JSON.stringify(fileName)}` })
     }
@@ -356,7 +353,6 @@ function resolveNetlifyFunctionFile(functionsRoot: string, functionName: string)
   return resolve(functionsRoot, `${functionName}.mjs`)
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Provider config is an opaque serializable object passed to the shared config writer.
 async function appendNetlifyFunctionConfig(outfile: string, config: object | undefined): Promise<void> {
   if (!config) return
   const bundled = await readFile(outfile, "utf8")
@@ -906,12 +902,9 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     createDefaultNetlifyOutputRoot(rootDir),
     createDefaultVercelOutputRoot(rootDir),
     resolve(rootDir, ".vitehub/agent"),
-    resolve(rootDir, ".vitehub/blob/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/queue/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/queue/registry.mjs"),
     resolve(rootDir, ".vitehub/queue/vercel-output.json"),
-    resolve(rootDir, ".vitehub/rate-limit/cloudflare-output.json"),
-    resolve(rootDir, ".vitehub/rate-limit/manifest.json"),
     resolve(rootDir, ".vitehub/schedule"),
     resolve(rootDir, ".vitehub/workflow"),
   ]

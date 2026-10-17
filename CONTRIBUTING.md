@@ -1,0 +1,189 @@
+# Contributing to ViteHub
+
+Use this guide to turn a requested behavior into a tested change. [AGENTS.md](AGENTS.md) explains the project's purpose, principles, and general rules.
+
+## Code map
+
+| Path | Responsibility |
+| --- | --- |
+| `packages/vite-hub/src/` | Framework distribution, discovery, generated output, and host integration |
+| `packages/vite-hub/src/console/` | First-party inspection UI and server routes |
+| `packages/agent/src/` | Agent Definitions, Drivers, Invocations, and Capabilities |
+| `packages/runtime/src/` | Shared host-independent runtime contracts |
+| `packages/workspace/src/`, `packages/source/src/` | File trees, access, and mounted Sources |
+| Other `packages/*/src/` | Each Server Primitive or integration |
+| `playground/console/` | Real Console UI with synthetic API data |
+| `fixtures/`, `test/consumer/`, `test/output/` | Consumer applications and generated output proof |
+| `docs/` | User documentation and the first-party website |
+
+Use these names consistently: Server Primitives, Agent Definitions, Drivers, Invocations, Capabilities, Workspaces, Sources, framework integrations, and generated host output. Runtime policy belongs in its owner package.
+
+## Set up a checkout
+
+Use the Node version required by `package.json`. For the full verification gate, install the Deno version in `.deno-version` with the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation/). CI reads the same pin.
+
+From a clean checkout, let Corepack select pnpm from `package.json` and install the workspace dependencies. This also installs Vite+.
+
+```sh
+corepack pnpm install --frozen-lockfile
+```
+
+Check the contributor tools without running tests:
+
+```sh
+corepack pnpm exec vp run preflight
+```
+
+Then run the full local gate:
+
+```sh
+corepack pnpm exec vp run verify
+```
+
+`verify` runs the preflight first and includes the native Deno package consumer test. A missing or different Deno version is a contributor setup error, not a ViteHub runtime failure. Package scripts own package-local test, build, and typecheck behavior.
+
+A global `vp` installation is not required. Use `corepack pnpm exec vp` after installation. Node and pnpm requirements come from `package.json`; the Deno pin comes from `.deno-version`. The current preflight checks Deno. It does not validate credentials or every provider tool.
+
+## Start with one user outcome
+
+Reopen the latest issue, PR, screenshot, or consumer. State the input, action, and result that will prove completion. Name adjacent behavior that must remain unchanged. Start with one real feature before changing the delivery process.
+
+Trace only the parts the feature uses: interface or CLI, server entry, runtime, persistence, background work, and external services. For state or resource owners, cover applicable failure, abort, cancellation, timeout, cleanup, restart, and concurrent reuse behavior. A mock proves only the boundary it controls.
+
+Keep one owner responsible for integration and completion. Record commands and interventions in the PR; do not add a separate tracking system. Separate blocking defects from optional improvements. Add process only when this work shows why it is needed.
+
+## Verify the changed behavior
+
+Package scripts own package-local build, test, and typecheck behavior. [`vite.config.ts`](vite.config.ts) and [`test/tasks.ts`](test/tasks.ts) define root tasks. [`test/layers.ts`](test/layers.ts) defines test discovery. Use these files when task details change; do not create a second task registry.
+
+Start with the affected package's full `test` script so every package-owned test invocation runs, including suites with a separate configuration:
+
+```sh
+corepack pnpm --dir packages/vite-hub run test
+```
+
+For example, use `corepack pnpm --dir packages/internal run test` for `@vite-hub/internal` to include its default and Workerd suites. The root package runner builds the selected packages and their dependencies once, then runs every command in these scripts after removing leading `vp run -t <package>#build` commands for builds it already completed.
+
+For one regression, build first, then run from the package directory so Vitest uses its package config:
+
+```sh
+corepack pnpm exec vp run -t vite-hub#build
+corepack pnpm --dir packages/vite-hub exec vp test test/console-colocated-skills.test.ts
+corepack pnpm --dir packages/vite-hub run typecheck
+```
+
+Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and use the matching directory. Use the Vite+ target build for dependency builds; `run-package-task.mjs build --packages` builds only the selected packages. The root `build` task builds every package in dependency order and caches each package build by the files it reads, so it rebuilds only packages whose inputs changed. `--no-cache` does not reach its nested run; run `corepack pnpm exec vp cache clean` first to force a full rebuild. Add the following checks only when their behavior is affected:
+
+| Change | Check from the repository root |
+| --- | --- |
+| Source code | `corepack pnpm exec vp run lint` and the owner package's typecheck |
+| Root contracts or development tooling | `corepack pnpm exec vp test --config vitest.config.ts test/<file>.test.ts` after required builds |
+| Published imports or consumer integration | `corepack pnpm exec vp run test:consumer` |
+| Generated Cloudflare or Vercel output | `corepack pnpm exec vp run test:output:cloudflare` or `test:output:vercel` |
+| User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
+| Repository-wide impact | `corepack pnpm exec vp run verify` |
+
+Root contracts do not include package tests. The full local gate does not replace provider runtime or browser checks. Read [CI](.github/workflows/ci.yml) for checks enabled on each event and the [live smoke workflow](.github/workflows/live-smoke.yml) for external-service requirements. Do not run live tasks without authorization.
+
+A push to `main` deploys the docs site to vitehub.dev after the `checks` and `docs` jobs pass. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
+
+The [Console playground](playground/console/README.md) exercises the real UI with synthetic data. It cannot prove invocation execution, persistence, or provider behavior. For a Console runtime change, also exercise the real route and runtime with a local consumer.
+
+Report the observed user result, exact commands, failures, and unverified parts. Separate setup and infrastructure failures from product failures. Stop when the requested outcome and relevant checks pass; do not broaden testing without a new concern.
+
+## Load relevant guidance
+
+Use the [ViteHub skill](docs/skills/vitehub/SKILL.md) when building or debugging a consuming application. Its reference table selects guidance for Agent Definitions, Workspaces, Channels, providers, and other features. Load only the matching references. For repository changes, current source and local user docs are the contract; use the skill's installed-package checks when reproducing a consumer problem.
+
+For package-specific contracts, read the affected package README and [user reference](docs/content/docs/reference/index.md). Do not copy those contracts into contributor instructions. Keep skill purposes separate from repository rules and from Skills loaded by product Agents.
+
+## Design and implementation
+
+Build complex things as simply as possible. Simple and obvious are not always the same. Accept internal machinery when it makes the public contract behave as a developer or Agent would expect.
+
+Normal work must not expose implementation details, framework details, or compatibility history. Put shared behavior at the ViteHub boundary that owns it. Preserve ViteHub abstractions over local convenience.
+
+Before you preserve a legacy path, search this repository and known consumers for real callers. Migrate those callers to the final contract. Delete speculative compatibility unless the task requires it.
+
+Treat a downstream workaround as evidence of a ViteHub gap unless it is product-specific.
+
+Every runtime feature must be inspectable through code or CLI. This includes generated state, bindings, discovered definitions, and provider output. A dashboard can help, but it must not be the only inspection path.
+
+A check that guards a sensitive action returns a grant, and the action requires that grant. Define grants with the [runtime grant helper](packages/runtime/README.md#grants). Grants are request-scoped. Never persist a grant. `test/grant-contract.test.ts` fails on known shapes that skip this rule.
+
+Familiar interfaces such as filesystems, tools, and shells are useful. Keep their contracts honest. State durability, isolation, security, persistence, cost, and production readiness explicitly.
+
+Keep changes small. Use existing code or a suitable library before building infrastructure. Prefer inferred types that make invalid states hard to represent. Avoid cast-only wrappers. Comments should explain use or a non-obvious constraint. Measure before and after when claiming a performance improvement.
+
+ViteHub is in active development. Breaking changes and removal of unused compatibility are welcome when they clarify the final contract. Use Better Auth as a composition reference and UnJS for host-independent behavior. Document public behavior in `docs/content/docs/` and the affected package README.
+
+### Documentation structure
+
+`docs/content/docs/` has one folder per product. Each Server Primitive folder is one docs section with its own page panel and uses the same task lanes when the product has real content for them: `index.md` (the Overview, rendered as a landing page with a hero and page cards beside the shared navigation), `get-started.md` (the Tutorial), `configure.md` (Guides), `server-api.md` (Reference), `agent-capability.md` when the primitive has an Agent Capability, `hosts.md` (Deploy), and `limits-and-errors.md` (Operate). Create a page only when the product has real content for it. Product-specific pages such as `env/bridge.md` come after the template pages. Sidebar groups combine related tasks under Learn, Build, and Deploy and operate. Each page still follows the Diátaxis model: a Tutorial teaches a first result, a Guide completes one task, Reference describes the contract, and Concepts explain choices. Set `navigation.kind` when a page needs a lane other than the standard page id mapping. `.navigation.yml` declares the section `title`, `icon`, `order`, catalog `category`, and `related` section ids. Every docs page shows the primitive rail; give a new section its rail icon in `docs/app/utils/docs-sidebar-icons.ts`, from the `@vite-hub/ui/primitive-rail` icon family. Agent-only Capabilities live under `agents/capabilities/`. Get started, the shared architecture overview, and AI resources live under `getting-started/`. Detailed concepts live with their owner package. Framework, development, and shared reference sections are reached from Get started and the catalog. When a page moves, add its old path to `docs/modules/vitehub-docs/redirects.ts` and update inbound links; `corepack pnpm exec vp run --filter vitehub-docs test:links` checks every internal link and anchor.
+
+### Content for agents
+
+Agents get each page as raw Markdown at `/raw/<page>.md`, in llms-full.txt, and through the docs MCP server. They get everything a human sees, plus agent-only blocks:
+
+```md
+::agent-only
+Run `pnpm vitehub schedule run-runtime weekday-report` to start the run that the Console button starts.
+::
+```
+
+The site renders nothing for `::agent-only`. Use it only for content that helps a coding agent and distracts a human: CLI or code equivalents of Console or UI steps, host-specific mistakes that agents make, and internals that an agent needs to debug a failure. Add a block when a real agent run or the agent docs eval shows the failure, not before. Put full option lists, edge cases, and long examples in visible content, such as `::collapsible` or a reference page, so that humans review them too. Agents get `::collapsible` content inline.
+
+A block with `skill="<name>"` is also the source of `docs/skills/vitehub/references/primitives/<name>.md`. Edit the block, not the generated file, then run `corepack pnpm --dir docs exec vp test test/agent-resources.test.ts -u`.
+
+Rules that apply to every task belong in `agentDiscovery.llms.details` in `docs/nuxt.config.ts`, which prints them at the top of llms.txt. To measure whether agent-only content helps, run the [agent docs eval](docs/evals/agent-docs/README.md).
+
+## Downstream patch loop
+
+Use `pnpm patch` in a consuming project to prove the smallest downstream fix:
+
+1. Patch the smallest downstream change.
+2. Verify the real consumer flow.
+3. Upstream the source fix with focused coverage.
+4. Update the consumer to the fixed version and remove the patch.
+
+The fix is complete when the consumer works without the patch. Retire combined patches one hunk at a time as their fixes land upstream.
+
+## Visual and design work
+
+- Make interface, layout, and copy changes directly. Create a mock only when I ask.
+- When T3 Code is the named reference, inspect its current source and screenshots. Do not copy it from memory.
+- Use Nuxt UI components when they fit. Match ViteHub's compact spacing and T3 Code's interaction patterns.
+- Prefer dense layouts, small icons, minimal copy, true black in dark mode, white primary text, and few borders.
+- Avoid decorative cards, pills, shadows, and subtitle rows.
+- Avoid continuously repainting animations such as pulse, shimmer, blur, and spinning loaders.
+- Check overflow, narrow widths, long tab lists, empty states, keyboard access, and panel resizing when they apply.
+- Ask before opening a browser or starting a development server unless the task already requests it.
+
+## Releases
+
+ViteHub publishes all public packages at one version. The checked-in root and public package versions are the release baseline. A push to `main` uses conventional commits since the latest `v*` tag to open or update a draft `release/vX.Y.Z` PR. CI runs on that release branch even though GitHub creates the PR with `GITHUB_TOKEN`.
+
+Review the version, package changes, CI result, and release notes before merging the release PR. After merge, the release workflow verifies the exact merge commit, creates its tag, and dispatches `release.yml` on that tag. The existing package workflow builds and tests immutable tarballs, publishes to npm, verifies the registry, and then creates the GitHub release. A manual dispatch on a branch remains a dry run. A manual dispatch on a `v*` tag resumes publication for that tag.
+
+If merge verification fails permanently before a tag is created, merge a correction PR directly after the failed release merge. Then manually run **prepare release** on `main` with `recover_failed_release` enabled and its `recovery_pr` number. Recovery runs the full gate and tags that reviewed correction commit with the original unpublished version, even if later commits have reached `main`. Use the ordinary rerun path for transient failures.
+
+Repository administrators must enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests** before merging the workflow change. The `npm-release` environment must restrict deployments to `v*` tags and require the chosen reviewers before the first automated release. Each public npm package must trust `vite-hub/vitehub` with workflow `release.yml` and environment `npm-release`. Nuxt Better Auth and Vite Doctor use npm staged publishing; ViteHub continues its current direct trusted publication until staged publishing and its approval flow are configured for every public package.
+
+## Pull requests
+
+- Do not push changes, create a pull request, or update a pull request unless I ask.
+- Confirm the destination repository and check for an existing pull request before you open one.
+- Rebase onto the latest `main` before opening a pull request.
+- Open a real pull request, not a draft.
+- Keep one concern per pull request unless I ask to combine work.
+- Use the repository's conventional title style, for example `fix(workspace): preserve source grants`.
+- Start the body with the problem, then explain the fix in plain language. Omit commit hashes and boilerplate sections unless they help the reviewer.
+- End the body with the model and harness used.
+- Interface pull requests need before and after images. Changes to motion or timing need a short video. Upload this evidence to GitHub. Do not commit pull-request-only media.
+- When monitoring a pull request, inspect checks and comments newer than the last push. Verify bot findings against the source. Fix real issues and explain false positives. Separate code failures from infrastructure failures. Stay quiet when nothing changed. Stop when review bots and required checks are green on the latest commit.
+- Merge only when my request gives that authority.
+- Never force-push.
+
+Pull request work belongs in a dedicated worktree. Reuse an isolated task worktree, or create one from the refreshed target base. Inspect collisions and preserve other agents' work.
+
+Do not commit temporary plans, raw thread exports, or scratch files. Keep durable, cited research in the issue or pull request that supports a project decision. Remove task-created temporary files and worktrees after their remote state is safe; never remove pre-existing work without authorization.

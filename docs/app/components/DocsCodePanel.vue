@@ -15,10 +15,23 @@ const reached = ref(0);
 const selectedPath = ref<string>();
 const code = useTemplateRef<HTMLElement>("code");
 
+function filenameFor(pre: HTMLPreElement): string {
+  // The docs code renderer exposes the fence label through data-filename. Keep the
+  // lookup tolerant of whether the attribute is placed on <pre> or its wrapper.
+  const source = pre.closest<HTMLElement>("[data-filename], [data-code-filename]");
+  return (
+    pre.dataset.filename ??
+    pre.dataset.codeFilename ??
+    source?.dataset.filename ??
+    source?.dataset.codeFilename ??
+    ""
+  ).trim();
+}
+
 function collectBlocks(body: HTMLElement): Block[] {
-  return [...body.querySelectorAll("pre")].flatMap((pre) => {
-    const wrapper = pre.parentElement;
-    const path = wrapper?.firstElementChild === pre ? "" : wrapper?.firstElementChild?.textContent?.trim() ?? "";
+  return [...body.querySelectorAll<HTMLPreElement>("pre")].flatMap((pre) => {
+    const wrapper = pre.closest<HTMLElement>(".code-block-wrapper") ?? pre.parentElement;
+    const path = filenameFor(pre);
     const isShell = /\blanguage-(bash|sh|shell|zsh)\b/.test(pre.className) || path.startsWith("commands/");
     return wrapper && path && !isShell ? [{ path, wrapper, pre }] : [];
   });
@@ -54,6 +67,8 @@ watch([selected, code], ([file, container]) => {
 }, { flush: "post" });
 
 let frame = 0;
+let rescanTimer = 0;
+let observer: MutationObserver | undefined;
 function onScroll() {
   cancelAnimationFrame(frame);
   frame = requestAnimationFrame(updateReached);
@@ -71,7 +86,7 @@ function releaseSources() {
 }
 function markSources(list: Block[]) {
   list.forEach((block, index) => {
-    const bar = block.wrapper.firstElementChild;
+    const bar = block.wrapper.querySelector<HTMLElement>("[data-filename], [data-code-filename]") ?? block.wrapper.firstElementChild;
     const onClick = () => selectBlock(index);
     block.wrapper.classList.add("vh-code-panel-source");
     bar?.addEventListener("click", onClick);
@@ -82,11 +97,24 @@ function markSources(list: Block[]) {
   });
 }
 
-watch(() => props.body, (body) => {
+function scan(body: HTMLElement | null | undefined) {
   releaseSources();
   blocks.value = body ? collectBlocks(body) : [];
+  reached.value = 0;
+  selectedPath.value = blocks.value[0]?.path;
   markSources(blocks.value);
   if (body) updateReached();
+}
+
+watch(() => props.body, (body) => {
+  observer?.disconnect();
+  scan(body);
+  if (!body) return;
+  observer = new MutationObserver(() => {
+    window.clearTimeout(rescanTimer);
+    rescanTimer = window.setTimeout(() => scan(body), 0);
+  });
+  observer.observe(body, { childList: true, subtree: true });
 }, { immediate: true, flush: "post" });
 
 watch(selectedPath, (path) => {
@@ -97,6 +125,8 @@ onMounted(() => window.addEventListener("scroll", onScroll, { passive: true }));
 onBeforeUnmount(() => {
   window.removeEventListener("scroll", onScroll);
   cancelAnimationFrame(frame);
+  window.clearTimeout(rescanTimer);
+  observer?.disconnect();
   releaseSources();
 });
 </script>

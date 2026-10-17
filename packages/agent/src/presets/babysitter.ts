@@ -7,7 +7,7 @@ import type {
   AgentInvocationContextValues,
 } from "../index.ts";
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterRules } from "../channels.ts";
-import type { BuiltInAgentDriverName } from "../types.ts";
+import type { AgentSandboxDefinition, BuiltInAgentDriverName } from "../types.ts";
 import { createBabysitterPassResultSchema } from "./babysitter/result.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
@@ -31,9 +31,29 @@ export interface BabysitterLifecycleOptions {
   labels?: BabysitterLifecycleLabels;
 }
 
+/** Where one pass runs. A pass without a Sandbox uses the host checkout and the configured `sandbox`. */
+export interface BabysitterPlacementLease {
+  /** Sandbox for this pass, for example a custom runtime on another host. */
+  sandbox?: AgentSandboxDefinition;
+  /** Called once when the pass finishes, fails or is cancelled. */
+  release(): void;
+}
+
+/** Chooses a host for each pass before the Babysitter installs dependencies on this one. */
+export interface BabysitterPlacement {
+  place(pullRequest: { repository: string; number: number }): BabysitterPlacementLease | Promise<BabysitterPlacementLease>;
+  /** Passes currently placed on other hosts. They hold a concurrency slot but no local memory. */
+  remoteActive?(): number;
+}
+
 export interface BabysitterOptions {
   /** Process admission policy. Concurrency remains the preset hard maximum. */
   capacity?: Pick<import("../runtime/process.ts").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
+  /**
+   * Places each pass on this host or in a Sandbox before host dependency installation. Sandbox passes
+   * skip the host install; the Sandbox installs through `refreshDependencies` when it provides one.
+   */
+  placement?: BabysitterPlacement;
   /** Select PRs with the same rules as the GitHub Channel. */
   filter: GitHubPullRequestFilter;
   /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
@@ -101,7 +121,8 @@ export type BabysitterInstall = boolean | {
   /**
    * Reuse the node_modules trees of a detected pnpm install across passes with the same lockfile,
    * using independent copy-on-write copies on Linux. `directory` defaults to `BABYSITTER_INSTALL_CACHE` or
-   * `<tmpdir>/vitehub-install-cache` and must share a filesystem with the pass workspaces.
+   * `<tmpdir>/vitehub-install-cache` and must share a filesystem with the pass workspaces. The default
+   * directory is used only when it supports reflinks; a configured `directory` is used on any filesystem.
    * `entries` defaults to `BABYSITTER_INSTALL_CACHE_ENTRIES` or 8. `false` disables the cache.
    */
   cache?: false | { directory?: string; entries?: number };
@@ -242,32 +263,23 @@ export function resolveBabysitterLifecycleFilter(
 
 export const babysitter: BabysitterAgent = defineAgent({
   options: {
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default filter is constrained by BabysitterOptions at the public preset boundary.
     filter: {} as GitHubPullRequestFilter,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented driver union.
     driver: "codex" as BuiltInAgentDriverName,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented merge union.
     merge: false as BabysitterMerge,
     reviewChecks: [] as string[],
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented prefix list.
     noFindingsReviews: [] as string[],
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented login list.
     ignoreFeedbackAuthors: [] as string[],
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented budget union.
     noProgressBudget: 3 as number | false,
     deferWhilePending: true,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented install union.
     install: true as BabysitterInstall,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented login allowlist.
     mentionAllowlist: [] as string[],
     concurrency: 1,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented admission options.
     admission: {} as BabysitterAdmissionOptions,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented lifecycle options.
     lifecycle: {} as BabysitterLifecycleOptions,
+    placement: undefined as BabysitterPlacement | undefined,
     autoMerge: false,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission, placement }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -288,6 +300,9 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     if (!validInstall(install)) {
       throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
+    }
+    if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function"))) {
+      throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive? } functions.");
     }
     if (!validBabysitterAdmission(admission)) {
       throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");

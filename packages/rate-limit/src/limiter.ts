@@ -62,7 +62,6 @@ function hasInvalidSupportedWindows(value: unknown): boolean {
   if (!Array.isArray(value)) return true
   for (let index = 0; index < value.length; index++) {
     const window: unknown = value[index]
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Driver capabilities cross a provider boundary as unknown values.
     if (typeof window !== "number" || !Number.isInteger(window) || window <= 0 || window > 8.64e15) return true
   }
   return false
@@ -144,7 +143,6 @@ function assertKey(input: RateLimitConsumeInput, operation: "peek" | "reset"): v
 }
 
 function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Limiter options are opaque runtime inputs; reject primitives before guarded driver inspection.
   if (!value || typeof value !== "object") return false
   try {
     return !Array.isArray(value)
@@ -164,7 +162,6 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
 } {
   const driver = Reflect.get(options, "driver") as CreateRateLimiterOptions["driver"]
   const consume = Reflect.get(driver, "consume") as CreateRateLimiterOptions["driver"]["consume"]
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Driver methods cross provider and JavaScript realm boundaries.
   if (typeof consume !== "function") {
     throw new TypeError("Rate Limit driver consume() must be callable")
   }

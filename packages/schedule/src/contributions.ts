@@ -8,13 +8,12 @@ import type { CollectedContribution, ContributingPlugin, Contribution, Contribut
 
 /**
  * A Schedule Definition that another package adds from its Vite plugin. The Schedule plugin merges it with the
- * discovered files, so provider wake output, the Process Runtime, `vitehub schedule run`, generated types, inspection,
+ * discovered files, so provider wake output, the Process Runtime, `vitehub schedule run`, inspection,
  * and the Console treat it like `server/schedules/<name>.ts`.
  *
- * The build reads the cron and the `manual` and `allowRuntimeSchedules` options from the source of the Definition
- * module without running it, as it does for discovered files. `definition.module` must therefore be an absolute file
- * path or `file:` URL, and `definition.export` must be `default`: `export default defineSchedule({ cron: "...", handler })`
- * with literal options, or `export default defineScheduleTarget({ handler })`.
+ * The build reads the cron and the `manual` option from the source of the Definition module without running it, as it
+ * does for discovered files. `definition.module` must therefore be an absolute file path or `file:` URL, and
+ * `definition.export` must be `default`: `export default defineSchedule({ cron: "...", handler })` with literal options.
  */
 export type ScheduleContribution = Contribution
 

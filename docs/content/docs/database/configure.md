@@ -49,6 +49,8 @@ A Database Definition keeps the Database Table Schema next to the server code th
 
 A project uses either one Default Database or a set of Named Databases. Mixing both modes, or declaring two Default Databases, fails discovery.
 
+An enabled Vite Database without a Definition is one empty Default Database. It works like `server/databases/config.ts` with `defineDatabase({ schema: {} })`: it uses `database.connection`, keeps migrations in `server/databases/migrations`, receives contributed tables, and is listed by `vitehub inspect` and the Console. Connections use it for their tables. The Nuxt module does not add it.
+
 ```ts [src/database.ts]
 import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
@@ -136,7 +138,7 @@ export const historySchema = {
 | `definition.export` | `string` | Export that holds the object of tables. Defaults to `default`. |
 | `reason` | `string` | Optional. Why the package adds the tables. `vitehub inspect definitions` and the Console show it. |
 | `database` | `string` | Optional. Database that receives the tables. Omit it to target the default or only Database. |
-| `dialect` | `'sqlite'` | Optional. SQL dialect of the tables. When set, the build fails if the target Database uses another dialect. |
+| `dialect` | `'sqlite' \| 'postgresql'` | Optional. SQL dialect of the tables. When set, the build fails if the target Database uses another dialect. |
 
 `vitehub.databases` accepts an array or a factory. The factory receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root, and can be async. It runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
 
@@ -161,7 +163,7 @@ The Database module reads the contributions after every module has run setup, so
 Contributed tables join the target Database everywhere the Definition schema goes:
 
 - The generated Drizzle schema exports each contributed table, so `vitehub db generate` writes their migrations.
-- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, Nitro, and provider output.
+- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, and Nitro.
 - `vitehub inspect definitions` and the Console Database section list them in a `Contributed tables` field with the contributing plugin.
 
 The Definition object that you import from its file keeps only its own `schema`. Read contributed tables from `useDatabase(name).schema` or import them from their package.
@@ -186,6 +188,7 @@ A contribution without `database` targets the Database named `default`, or the o
 | Option | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | `string` | Named Databases only | Runtime identity. Must match the discovered file or directory name. |
+| `dialect` | `'sqlite' \| 'postgresql'` | No | Database dialect. Defaults to `sqlite`. Write it as a string literal. See [Define a Postgres database](#define-a-postgres-database) for the `postgresql` options. |
 | `schema` | `Record<string, Drizzle table>` | Yes | Database Table Schema source of truth. Packages can [contribute more tables](#contribute-tables-from-a-package). |
 | `connection.url` | `DatabaseConfigValue` | No | SQLite or libSQL connection URL. Defaults to `file:.vitehub/data/database/sqlite.db` for a Default Database and `file:.vitehub/data/database/<name>.sqlite.db` for a Named Database. |
 | `connection.authToken` | `DatabaseConfigValue` | No | Hosted database auth token. |
@@ -199,7 +202,7 @@ A contribution without `database` targets the Database named `default`, or the o
 
 A Definition inherits the integration resource when it omits both `cloudflare.databaseId` and `cloudflare.databaseName`. Setting either selects its own resource, so it inherits no integration database ID, name, or preview ID. Other D1 settings still inherit their defaults. HTTP proxy URLs and tokens inherit by field. Both must be available after inheritance for HTTP access to work.
 
-Owned native resources need a nonblank database ID and name at build time. For native D1 provider output, use a Cloudflare block that ViteHub can read as a literal. An identifier, top-level spread, or other opaque resource expression fails the provider build when no D1 HTTP or remote libSQL connection is known, even if the evaluated block would inherit the integration resource. A known HTTP or libSQL connection keeps opaque Definitions supported.
+Owned native resources need a nonblank database ID and name at build time. For a native D1 binding, use a Cloudflare block that ViteHub can read as a literal. An identifier, top-level spread, or other opaque resource expression fails the Cloudflare build when no D1 HTTP or remote libSQL connection is known, even if the evaluated block would inherit the integration resource. A known HTTP or libSQL connection keeps opaque Definitions supported.
 
 Keep an explicit `cloudflare` property when its value is opaque. For a wholly hidden Definition, declare D1 intent with `hubDb({ driver: 'd1' })` in Vite or set `database.driver` to `'d1'` in Nuxt. Without that intent, ViteHub does not project native D1 output. Opaque local SQLite Definitions remain supported.
 
@@ -209,4 +212,38 @@ An opaque Definition that selects its own resource uses HTTP or libSQL access. N
 
 Direct Vite and Nuxt output retain provisioned IDs as fallbacks for unset runtime Env values. Runtime values take precedence. Opaque Definitions that select their own resource do not receive integration provision IDs. Provision state is read from the Vite root even when `projectRoot` sets another root for Definitions and generated files.
 
-ViteHub currently exposes `sqlite` as the only public `DatabaseDialect`.
+## Define a Postgres database
+
+Set `dialect: 'postgresql'` and declare the tables with `drizzle-orm/pg-core`. Install the [`postgres`](https://github.com/porsager/postgres) driver in the app.
+
+```bash
+pnpm add postgres
+```
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { pgTable, serial, text } from 'drizzle-orm/pg-core'
+
+export default defineDatabase({
+  dialect: 'postgresql',
+  cloudflare: { hyperdriveId: process.env.CLOUDFLARE_HYPERDRIVE_ID },
+  connection: { url: process.env.DATABASE_URL },
+  schema: {
+    notes: pgTable('notes', {
+      id: serial('id').primaryKey(),
+      title: text('title').notNull(),
+    }),
+  },
+})
+```
+
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `connection.url` | `DatabaseConfigValue` | No | Postgres connection URL. Node, Vercel, local development, and `vitehub db migrate` use it. |
+| `cloudflare.binding` | `string` | No | Cloudflare Hyperdrive binding. Defaults to `HYPERDRIVE` for a Default Database and `HYPERDRIVE_<NAME>` for a Named Database. |
+| `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive configuration id. When it resolves at build time, ViteHub adds the binding to the generated Wrangler config. |
+| `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. |
+
+A Postgres Definition owns its connection. It does not use the integration `connection`, the D1 options, or the local SQLite default. When the Hyperdrive binding is present at runtime, ViteHub uses its connection string. Otherwise it uses `connection.url`. A query fails with `DATABASE_R0017` when neither is available.
+
+`defineDatabase()` returns the Definition for a Postgres database. Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.

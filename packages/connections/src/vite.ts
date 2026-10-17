@@ -13,6 +13,7 @@ import {
 } from "@vite-hub/internal/build/vite";
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
+import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
 import { discoverConnectionDefinitions } from "./discovery.ts";
 import { withConnectionsTypesLock } from "./internal/types-lock.ts";
@@ -303,6 +304,16 @@ function connectionMountBase(base: unknown): string {
   return parsed.success ? parsed.output.replace(/\/+$/, "") : "";
 }
 
+/**
+ * The management action route takes only `POST`, so a `GET` of the same path reaches the Console page.
+ * The connect and callback routes are the only `GET` routes under it.
+ */
+function addManagementHandlers(kit: NitroServerKit, handler: string, route: string): void {
+  kit.addHandler({ handler, method: "post", route });
+  kit.addHandler({ handler, method: "get", route: `${route}/connect/**` });
+  kit.addHandler({ handler, method: "get", route: `${route}/callback` });
+}
+
 function connectionManagementRoute(base: unknown): string {
   return `${connectionMountBase(base)}/_vitehub/connections`
 }
@@ -508,8 +519,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
                 !v.is(v.looseObject({ handler: v.literal(handlerFile) }), handler),
               ));
             }
-            kit.addHandler({ handler: handlerFile, route });
-            kit.addHandler({ handler: handlerFile, route: `${route}/**` });
+            addManagementHandlers(kit, handlerFile, route);
             return kit.config;
           };
           Reflect.set(config, "nitro", updateHandlers(Reflect.get(config, "nitro")));
@@ -521,8 +531,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           await writeManagementHandler(route);
         };
         const kit = createNitroServerKit(nitro);
-        kit.addHandler({ handler: handlerFile, route: managementRoute });
-        kit.addHandler({ handler: handlerFile, route: `${managementRoute}/**` });
+        addManagementHandlers(kit, handlerFile, managementRoute);
         Object.assign(nitro, kit.config);
       }
       Reflect.set(config, "nitro", nitro);

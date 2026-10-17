@@ -29,7 +29,7 @@ describe("agent-ready HTTP contracts", () => {
     expect(module).toContain('baseURL: "/raw"');
     expect(module).toContain('dir: resolve(outputDir, "raw")');
     expect(module).toContain('config.serverAssets.push({ baseName: "vitehub-raw", dir: resolve(outputDir, "raw") })');
-    expect(module).toContain("config.plugins.push(llmsRawLinksPlugin)");
+    expect(module).toContain("config.plugins.push(llmsRawLinksPlugin, agentOnlyDocumentsPlugin)");
     expect(module).toContain("const manifest = writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir });");
     expect(module).toContain("const capabilityReferences = await createCapabilityReferences();");
   });

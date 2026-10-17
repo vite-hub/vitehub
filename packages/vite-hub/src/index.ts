@@ -1,4 +1,4 @@
-import { consoleD1Binding, consoleDatabaseUrl, withDataDir } from "./storage-config.ts"
+import { consoleD1Binding, consoleDatabaseUrl, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { basename, dirname, join, relative, resolve } from "node:path"
@@ -21,7 +21,7 @@ import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
-import { hubSandbox } from "@vite-hub/sandbox/vite"
+import { hubSandboxTask } from "@vite-hub/sandbox-task/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
@@ -30,6 +30,7 @@ import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
+import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
@@ -59,7 +60,7 @@ import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deplo
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
 import type { RealtimeModuleOptions } from "@vite-hub/realtime"
-import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
+import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox-task/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
@@ -96,7 +97,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/auth": true,
   "@vite-hub/blob": true,
   "@vite-hub/browser": true,
-  "@vite-hub/box": true,
+  "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
   "@vite-hub/connections": true,
@@ -110,7 +111,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/rate-limit": true,
   "@vite-hub/realtime": true,
   "@vite-hub/runtime": true,
-  "@vite-hub/sandbox": true,
+  "@vite-hub/sandbox-task": true,
   "@vite-hub/schedule": true,
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
@@ -169,12 +170,12 @@ function packageExportImportTarget(target: unknown): string | undefined {
   return typeof importTarget === "string" ? importTarget : undefined
 }
 
-function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
+function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
   return {
-    ...(sandbox
+    ...(sandboxTask
       ? {
-          sandbox: "vite-hub/sandbox",
-          sandboxRuntimeState: `${generatedImportBase}/sandbox/runtime/state`,
+          sandboxTask: "vite-hub/sandbox-task",
+          sandboxTaskRuntimeState: `${generatedImportBase}/sandbox-task/runtime/state`,
         }
       : {}),
     shellWorkspace: "vite-hub/shell/workspace",
@@ -183,7 +184,7 @@ function frameworkWorkspaceDependencyRuntimeImports(sandbox: boolean) {
 const frameworkProviderImportAliases = Object.fromEntries(
   Object.entries(frameworkPackageManifest.exports)
     .filter(([subpath, target]) => subpath.startsWith("./") && packageExportImportTarget(target)?.endsWith(".js"))
-    .map(([subpath]) => {
+    .map(([subpath]): [string, string] => {
       const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
       return [specifier, fileURLToPath(import.meta.resolve(specifier))]
     })
@@ -317,10 +318,11 @@ export interface ViteHubOptions {
    */
   cache?: boolean | CacheOptions
   channels?: boolean | ChannelsVitePluginOptions
-  /** App-owned OAuth Connections in `server/connections/`. Requires `database`. */
+  /** App-owned OAuth and API key Connections in `server/connections/`. They store grants in the default Database and enable `database` when it is unset. */
   connections?: boolean | ConnectionsVitePluginOptions
   /** The ViteHub Console at `/_vitehub`. Off by default. `auth` is required: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: false | ConsoleOptions
+  /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
@@ -330,7 +332,8 @@ export interface ViteHubOptions {
   queue?: boolean
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
-  sandbox?: boolean
+  /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
+  sandboxTask?: boolean
   schedule?: boolean | ScheduleVitePluginOptions
   workflow?: boolean | WorkflowModuleOptions
   workspace?: boolean | WorkspaceModuleOptions
@@ -494,7 +497,7 @@ function deploymentNitroModule(
   plan: DeploymentPlan,
   services: DeploymentServicesManifest,
   identity: DeploymentIdentity,
-  sandboxRequested: boolean,
+  sandboxTaskRequested: boolean,
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
 ) {
@@ -503,7 +506,7 @@ function deploymentNitroModule(
     options: { commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (deploymentPresetFromNitro(nitro.options.preset) !== plan.preset) return
-    if (plan.preset === "cloudflare" && sandboxRequested && !isDeployCommandOwned()) {
+    if (plan.preset === "cloudflare" && sandboxTaskRequested && !isDeployCommandOwned()) {
       const outputRelative = relative(nitro.options.output.dir, nitro.options.output.serverDir).replaceAll("\\", "/")
       const serverDir = /^[\w./-]+$/.test(outputRelative)
         ? `./${outputRelative}`
@@ -596,8 +599,8 @@ function deploymentPlugins(
           }
         }
         if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
-          ;(config as { sandbox?: unknown }).sandbox = {
-            ...cloneRecord((config as { sandbox?: unknown }).sandbox),
+          ;(config as { sandboxTask?: unknown }).sandboxTask = {
+            ...cloneRecord((config as { sandboxTask?: unknown }).sandboxTask),
             ...(plan.services.sandbox.adapter === "cloudflare"
               ? { name: cloudflareResourceScope(name) + "-sandbox" }
               : {}),
@@ -829,7 +832,6 @@ function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin {
     config(config, { command }) {
       if (publicUrl === undefined || command !== "build") return
       let resolved: PublicUrlConfig
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The option is a string or a callback; typeof also accepts callbacks from another realm.
       if (typeof publicUrl === "function") {
         const root = resolveViteHubProjectRoot(config.root ?? process.cwd())
         // SAFETY: ViteHub hosts add this private server-directory symbol before plugins read the config.
@@ -863,8 +865,13 @@ function doctorPlugin(): Plugin {
 
 export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
-  options = withDataDir({ ...options, console: resolveConsoleOptions(options.console) })
+  options = withConnectionsDatabase(withDataDir({ ...options, console: resolveConsoleOptions(options.console) }))
   const plan = resolveDeploymentPlan(options.preset)
+  // Cloudflare has no durable local filesystem. Treat the shorthand database
+  // option as the host-native D1 driver so implicit databases (for example,
+  // the one enabled by Connections) are provisioned and bound like explicit
+  // D1 configurations.
+  if (plan.preset === "cloudflare" && options.database === true) options = { ...options, database: { driver: "d1" } }
   if (options.schedule && plan.preset === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0086({ message: "[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration." })
   }
@@ -888,10 +895,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.email === true && plan.preset !== "cloudflare") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0089({ message: "[vitehub] email: true currently requires the Cloudflare deployment preset; configure an explicit Email driver for other presets." })
   }
-  if (options.connections && !options.database) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections requires database because grants and activity are stored in the app database." })
-  }
-  const sandboxEnabled = options.sandbox === true && plan.services.sandbox.supported
+  const sandboxTaskEnabled = options.sandboxTask === true && plan.services.sandbox.supported
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
   const configuredBlob = blobEnabled ? presetBlobOptions(plan, options.blob) : undefined
   const resolvedConsoleBlob = configuredBlob
@@ -901,13 +905,13 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
-  const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
+  const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandboxTask: sandboxTaskEnabled })
   const plugins: unknown[] = [doctorPlugin(), hubMarkdownTemplate()]
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
   if (options.rateLimit) requestedServices.push("rateLimit")
-  if (options.sandbox) requestedServices.push("sandbox")
+  if (options.sandboxTask) requestedServices.push("sandbox")
   const manifestServices = hasExplicitBlobStore(options.blob)
     ? { ...plan.services, blob: { configured: true, supported: true } }
     : plan.services
@@ -938,7 +942,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   const presetKV = options.kv ? resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
   const presetKVOptions = presetKV && (presetKV.stores ? { stores: presetKV.stores } : presetKV.store)
   configureProviderOptionalImportAliases(providerImportAliases, options, presetKVOptions || undefined)
-  const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxEnabled)
+  const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxTaskEnabled)
 
   if (!options.database) {
     const databaseRuntimeImports = new Map<string, string>()
@@ -980,7 +984,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       console: options.console,
       connections: options.connections,
       runtimeCapabilityImports,
-      resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { root, serverDirs }),
+      resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { implicitDefault: true, root, serverDirs }),
       databaseUrl: consoleDatabaseUrl(options),
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
       kvStores: presetKV ? Object.keys(presetKV.stores || { default: presetKV.store }) : [],
@@ -1030,13 +1034,13 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       },
     ))
   }
-  if (sandboxEnabled) {
-    const sandboxPolicy = plan.services.sandbox
-    plugins.push(hubSandbox({
-      ...(sandboxPolicy.supported ? { provider: sandboxPolicy.adapter } : {}),
+  if (sandboxTaskEnabled) {
+    const sandboxTaskPolicy = plan.services.sandbox
+    plugins.push(hubSandboxTask({
+      ...(sandboxTaskPolicy.supported ? { provider: sandboxTaskPolicy.adapter } : {}),
       providerImportAliases,
-      providerImportSpecifier: "vite-hub/sandbox",
-    } as SandboxPublicOptions))
+      providerImportSpecifier: "vite-hub/sandbox-task",
+    } as SandboxTaskPublicOptions))
   }
   if (options.agent) {
     // The Agent package does not own journal selection; the generated plugin below installs it.
@@ -1051,7 +1055,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
       runtimeCapabilityImports,
-      scheduleRuntimeImport: `${generatedImportBase}/schedule/runtime`,
       workflowImportBase: `${generatedImportBase}/workflow`,
       workspaceDependencyRuntimeImports,
       workspaceImportBase: `${generatedImportBase}/workspace`,
@@ -1073,13 +1076,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   else plugins.push(hubConnectionsTypesCleanup())
   if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
-    plugins.push(hubBlob(
-      configuredBlob,
-      {
-      importBase: `${generatedImportBase}/blob`,
-      nitroOwned: true,
-      },
-    ))
+    plugins.push(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob` }))
   }
   if (options.email) {
     const emailOptions = options.email === true
@@ -1125,7 +1122,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
       importBase: `${generatedImportBase}/schedule`,
-      typesImportBase: "vite-hub/schedule",
       providerImportAliases,
       runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))
@@ -1165,6 +1161,8 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     importBase: "vite-hub/source",
   })
   plugins.push(sourcePlugin)
+  // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
+  plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,
