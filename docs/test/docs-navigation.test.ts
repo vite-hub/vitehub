@@ -35,6 +35,27 @@ const serverPrimitiveSections = [
 ];
 
 describe("docs product navigation", () => {
+  it("keeps platform topics in the catalog but out of the product rail", () => {
+    const catalog = getDocsCatalog(docsManifest.sections);
+    const rail = getDocsRailCatalog(docsManifest.sections);
+    expect(catalog.find(group => group.category === "Platform")?.sections.map(section => section.id))
+      .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "reference"]));
+    const railSectionIds = rail.flatMap(group => group.sections.map(section => section.id));
+    for (const sectionId of ["development", "frameworks-hosts", "reference"]) {
+      expect(railSectionIds).not.toContain(sectionId);
+    }
+    expect(rail.map(group => group.category)).toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
+    expect(rail.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
+  });
+
+  it("labels UI catalog tiles as UI components", () => {
+    const section = (id: string) => docsManifest.sections.find(candidate => candidate.id === id)!;
+    expect(getDocsSectionKind(section("ui"))).toBe("UI components");
+    expect(getDocsSectionKind(section("agents"))).toBe("Agents");
+    expect(getDocsSectionKind(section("getting-started"))).toBe("Get started");
+    expect(getDocsSectionKind(section("reference"))).toBe("Platform");
+  });
+
   it("files every section under one catalog category", () => {
     expect(getUncategorizedDocsSections(docsManifest.sections)).toEqual([]);
 
@@ -98,6 +119,7 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
+      "Parts",
       "Chat",
       "Agent work",
       "Utilities",

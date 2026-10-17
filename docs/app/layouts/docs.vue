@@ -33,6 +33,12 @@ const docsShellUi = {
           <DocsAsideLeftBody />
         </UPageAside>
       </template>
+      <div class="vh-docs-main vh-docs-support-matrix">
+        <AnnouncementBanner />
+        <slot />
+        <AppFooter class="vh-docs-footer" />
+      </div>
+    </UPage>
 
       <div class="vh-docs-main">
         <AnnouncementBanner />
@@ -61,6 +67,36 @@ const docsShellUi = {
   .vh-docs-main,
   .vh-docs-landing {
     padding: 0 2rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  .vh-docs-aside {
+    position: sticky;
+    top: var(--ui-header-height);
+    display: flex;
+    height: calc(100dvh - var(--ui-header-height));
+    max-height: calc(100dvh - var(--ui-header-height));
+    min-height: calc(100dvh - var(--ui-header-height));
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid var(--ui-border);
+  }
+
+  :deep(.vh-docs-sidebars) {
+    height: 100%;
+    min-height: 0;
+  }
+
+  :deep(.vh-docs-panel) {
+    max-height: calc(100dvh - var(--ui-header-height));
+  }
+
+  /* Keep the actual sidebar element's columns and border constrained to the viewport. */
+  :deep(.vh-docs-sidebars) {
+    flex-direction: row;
+    overflow: visible;
+    border-right: 1px solid var(--ui-border);
   }
 }
 

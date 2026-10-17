@@ -15,7 +15,6 @@ export async function prepareTemplate(source: string) {
   const inCode = new Set<number>()
   const visit = (nodes: Node[], literal = false) => {
     for (const node of nodes) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Comark represents text nodes as strings and element nodes as tuples.
       if (typeof node === "string") {
         if (literal) for (const match of node.matchAll(pattern)) inCode.add(Number(match[1]))
       }

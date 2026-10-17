@@ -29,7 +29,7 @@ function isArrayBufferValue(value: unknown): value is ArrayBuffer {
 
 /** Normalize a primitive value into the native Web Response contract. */
 export function toResponse(value: unknown): Response {
-  if (value instanceof Response) return value
+  if (isResponse(value)) return value
   if (value === undefined) return new Response(null, { status: 204 })
   if (hasRuntimeType(value, "string") || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
@@ -38,6 +38,24 @@ export function toResponse(value: unknown): Response {
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },
   })
+}
+
+/** Recognize Responses created by another realm from their standard tag and surface. */
+function isResponse(value: unknown): value is Response {
+  if (value instanceof Response) return true
+  if (!isRuntimeObject(value)) return false
+  try {
+    if (Object.prototype.toString.call(value) !== "[object Response]") return false
+    // Calling a native prototype operation performs the internal-slot brand check;
+    // a configurable tag and a handful of methods are not sufficient to spoof it.
+    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
+    if (!headers) return false
+    Array.from(Headers.prototype.entries.call(headers))
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 /** Convert a native Response into a JSON-safe record. The body is fully buffered. */

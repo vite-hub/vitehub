@@ -84,7 +84,7 @@ async function createNestedProject() {
     mkdir(join(root, "frontend"), { recursive: true }),
     mkdir(join(root, ".vitehub/env"), { recursive: true }),
     mkdir(join(root, ".vitehub/data/blob"), { recursive: true }),
-    mkdir(join(root, ".vitehub/sandbox/runtime"), { recursive: true }),
+    mkdir(join(root, ".vitehub/sandbox-task/runtime"), { recursive: true }),
     mkdir(join(root, ".vitehub/types"), { recursive: true }),
     writeFile(join(root, "package.json"), JSON.stringify({ name: "generated-types-test" })),
   ])
@@ -300,7 +300,7 @@ describe("framework generated types", () => {
   it("writes a sorted self-excluding entry at the ViteHub project root", async () => {
     const { root, viteRoot } = await createNestedProject()
     await Promise.all([
-      mkdir(join(root, ".vitehub/sandbox/.runtime-generations/current"), { recursive: true }),
+      mkdir(join(root, ".vitehub/sandbox-task/.runtime-generations/current"), { recursive: true }),
       mkdir(join(root, ".vitehub/workflow/sources/0"), { recursive: true }),
       mkdir(join(root, ".vitehub/workflow-generations/one/sources/0"), { recursive: true }),
     ])
@@ -310,11 +310,11 @@ describe("framework generated types", () => {
       writeFile(join(root, ".vitehub/data/blob/upload.d.ts"), "invalid uploaded declaration\n"),
       writeFile(join(root, ".vitehub/workflow/sources/0/stale.d.ts"), "invalid retained declaration\n"),
       writeFile(join(root, ".vitehub/workflow-generations/one/sources/0/stale.d.ts"), "invalid generation declaration\n"),
-      writeFile(join(root, ".vitehub/sandbox/.runtime-generations/current/sandbox.d.ts"), 'declare module "#vitehub/sandbox" {}\n'),
+      writeFile(join(root, ".vitehub/sandbox-task/.runtime-generations/current/sandbox-task.d.ts"), 'declare module "#vitehub/sandbox-task" {}\n'),
       writeFile(join(root, ".vitehub/types.d.ts"), "stale self reference\n"),
     ])
-    await rm(join(root, ".vitehub/sandbox/runtime"), { recursive: true })
-    await symlink(".runtime-generations/current", join(root, ".vitehub/sandbox/runtime"), "dir")
+    await rm(join(root, ".vitehub/sandbox-task/runtime"), { recursive: true })
+    await symlink(".runtime-generations/current", join(root, ".vitehub/sandbox-task/runtime"), "dir")
 
     const plugin = viteHubTypesPlugin()
     await configResolved(plugin)({ root: viteRoot })
@@ -322,7 +322,7 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toBe(
       [
         `/// <reference path="./env/env.d.ts" />`,
-        `/// <reference path="./sandbox/runtime/sandbox.d.ts" />`,
+        `/// <reference path="./sandbox-task/runtime/sandbox-task.d.ts" />`,
         `/// <reference path="./types/custom.d.ts" />`,
         ``,
         `export {}`,
@@ -520,12 +520,10 @@ describe("framework generated types", () => {
       mkdir(join(root, "server/collections/admin"), { recursive: true }),
       mkdir(join(root, "server/collections/*"), { recursive: true }),
     ])
-    await mkdir(join(root, ".vitehub/source"), { recursive: true })
     await Promise.all([
       writeFile(join(root, "server/collections/*/specials.ts"), collectionModule("specials")),
       writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
       writeFile(join(root, "server/collections/admin/history.ts"), collectionModule("history")),
-      writeFile(join(root, ".vitehub/source/collections.d.ts"), "interface ViteHubCollectionMap { stale: never }\n"),
     ])
 
     const plugin = sourcePlugin()
@@ -549,7 +547,6 @@ describe("framework generated types", () => {
     )
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(`./types/source/collections.d.ts`)
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.not.toContain(`./source/collections.d.ts`)
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
     expect(handlers).toEqual([
       {
         handler: join(root, ".vitehub/source/routes/*/specials.mjs"),
@@ -705,6 +702,9 @@ describe("framework generated types", () => {
     const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
 
     expect(handlers).toEqual([{
+      handler: join(root, ".vitehub/content/preview.mjs"),
+      plugin: true,
+    }, {
       handler: join(root, ".vitehub/content/route.mjs"),
       route: "/api/content/**",
     }])
@@ -717,7 +717,23 @@ describe("framework generated types", () => {
         ``,
       ].join("\n"),
     )
-    const generatedModule: unknown = await import(pathToFileURL(handlers[0]!.handler).href)
+    await expect(readFile(join(root, ".vitehub/content/preview.mjs"), "utf8")).resolves.toBe(
+      [
+        `import { defineContentPreviewPlugin } from "vite-hub/content"`,
+        `import { content } from ${JSON.stringify(pathToFileURL(join(root, "server/content.ts")).href)}`,
+        ``,
+        `export default defineContentPreviewPlugin(content)`,
+        ``,
+      ].join("\n"),
+    )
+    const previewModule: unknown = await import(pathToFileURL(handlers[0]!.handler).href)
+    const previewPlugin = Reflect.get(Object(previewModule), "default")
+    if (!(previewPlugin instanceof Function)) throw new TypeError("Expected a generated Content preview plugin.")
+    // The plugin wraps Nitro's fetch entry; a request without the preview cookie passes straight through.
+    const nitroApp = { fetch: () => "next" }
+    previewPlugin(nitroApp)
+    expect(nitroApp.fetch()).toBe("next")
+    const generatedModule: unknown = await import(pathToFileURL(handlers[1]!.handler).href)
     const generatedHandler = Reflect.get(Object(generatedModule), "default")
     if (!(generatedHandler instanceof Function)) throw new TypeError("Expected a generated Content handler.")
     const nodeRequest = new IncomingMessage(new Socket())
@@ -815,6 +831,21 @@ describe("framework generated types", () => {
       nitro: { handlers: [{ handler: "server/api/content.post.ts", method: "post", route: "/api/content/**" }] },
       root,
     })).rejects.toThrow('Generated Content route "/api/content/**" conflicts with an existing handler')
+  })
+
+  it("adds the Content preview Nitro plugin without touching route handlers", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server/content.ts"), contentModule())
+    const authMiddleware = { handler: "server/middleware/auth.ts", middleware: true, route: "/**" }
+
+    const contribution = await config(sourcePlugin())({ nitro: { handlers: [authMiddleware] }, root })
+
+    expect(Reflect.get(Object(contribution), "nitro")).toEqual({
+      handlers: [{ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" }],
+      modules: [expect.objectContaining({ name: "vite-hub/generated-route-guard" })],
+      plugins: [join(root, ".vitehub/content/preview.mjs")],
+    })
   })
 
   it.each([

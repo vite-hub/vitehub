@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   docsManifest,
-  getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
@@ -28,6 +27,7 @@ const related = computed(() =>
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
+const platformSections = computed(() => catalog.find(group => group.category === "Platform")?.sections ?? []);
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
