@@ -46,12 +46,6 @@
       "require": "./dist/runtime/cloudflare-shared.js",
       "default": "./dist/runtime/cloudflare-shared.js"
     },
-    "./runtime/cloudflare-vite": {
-      "types": "./dist/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/runtime/cloudflare-vite.js",
-      "require": "./dist/runtime/cloudflare-vite.js",
-      "default": "./dist/runtime/cloudflare-vite.js"
-    },
     "./runtime/dev": {
       "types": "./dist/runtime/dev.d.ts",
       "import": "./dist/runtime/dev.js",
@@ -82,11 +76,11 @@
       "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
     },
-    "./runtime/vercel-vite": {
-      "types": "./dist/runtime/vercel-vite.d.ts",
-      "import": "./dist/runtime/vercel-vite.js",
-      "require": "./dist/runtime/vercel-vite.js",
-      "default": "./dist/runtime/vercel-vite.js"
+    "./runtime/vercel": {
+      "types": "./dist/runtime/vercel.d.ts",
+      "import": "./dist/runtime/vercel.js",
+      "require": "./dist/runtime/vercel.js",
+      "default": "./dist/runtime/vercel.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -103,11 +97,9 @@
     "test": "vp run -t @vite-hub/workflow#build && vp run -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {
-    "@vercel/functions": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
-    "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },
@@ -122,19 +114,11 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "@vite-hub/database": "workspace:*",
-    "@workflow/builders": "catalog:workflow",
     "openworkflow": "catalog:workflow",
     "vite": "catalog:vite-compat",
     "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
-    "@vite-hub/database": {
-      "optional": true
-    },
-    "@workflow/builders": {
-      "optional": true
-    },
     "openworkflow": {
       "optional": true
     },

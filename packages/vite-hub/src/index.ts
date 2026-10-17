@@ -1135,7 +1135,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/workflow`,
       ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
       providerImportAliases,
-      includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
       workspaceDependencyRuntimeImports,
       workspaceImportBase: `${generatedImportBase}/workspace`,
       },

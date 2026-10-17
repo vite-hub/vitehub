@@ -8,11 +8,13 @@ icon: i-lucide-cloud-cog
 
 ## Providers
 
+Workflow output is Nitro output. Add `nitro()` from `nitro/vite` to the Vite config, or use Nuxt. A Nitro plugin installs the discovered Workflow registry on every host.
+
 | Provider | Configure with | Provider output | Nuance |
 | --- | --- | --- | --- |
-| Cloudflare | `workflow: { provider: 'cloudflare' }` | Cloudflare Workflow class, binding, and runtime entry output. | Runs through Cloudflare Workflow bindings. Use `binding` and `name` when the generated names must match existing infrastructure. |
-| Vercel | `workflow: { provider: 'vercel' }` | Vercel workflow runtime output under the build output. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and does not survive a function restart. |
-| OpenWorkflow | `workflow: { provider: 'openworkflow', postgres: { url } }` or `workflow: { provider: 'openworkflow', sqlite: { path } }` | OpenWorkflow worker/runtime output. | Choose Postgres or SQLite explicitly for deployment. Configured `postgres.url` and `sqlite.path` are mutually exclusive. |
+| Cloudflare | `workflow: { provider: 'cloudflare' }` | Nitro adds one Workflow class per definition to the Worker entry and its binding to `.output/server/wrangler.json`. | Runs through Cloudflare Workflow bindings. Use `binding` and `name` when the generated names must match existing infrastructure. |
+| Vercel | `workflow: { provider: 'vercel' }` | Nitro runs the Workflow DevKit Nitro module (`workflow/nitro`). It writes `/.well-known/workflow/v1/flow` with a queue trigger and `/.well-known/workflow/v1/webhook/[token]`. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and does not survive a function restart. |
+| OpenWorkflow | `workflow: { provider: 'openworkflow', postgres: { url } }` or `workflow: { provider: 'openworkflow', sqlite: { path } }` | A Nitro plugin installs the registry. Run the worker in a long-lived process. | Choose Postgres or SQLite explicitly for deployment. Configured `postgres.url` and `sqlite.path` are mutually exclusive. |
 
 ### Select OpenWorkflow storage
 

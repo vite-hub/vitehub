@@ -22,7 +22,7 @@ Then install the dependency required by the selected provider:
 | Provider             | Additional dependency                                              | Durable state                                                            |
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | Cloudflare Workflows | None in application code                                           | Cloudflare owns run state.                                               |
-| Vercel Workflow      | `workflow` and `@workflow/builders` for native durable definitions | Native definitions survive function restarts; plain handlers run inline. |
+| Vercel Workflow      | `workflow` for native durable definitions                          | Native definitions survive function restarts; plain handlers run inline. |
 | OpenWorkflow         | `openworkflow`; add `postgres` when using Postgres                 | Uses local SQLite by default. Configure durable storage for deployment. |
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/runtime/openworkflow-worker`.
@@ -158,7 +158,7 @@ Inline run inspection uses weak references while execution is active. A reachabl
 A plain Vercel definition executes inline and does not survive a function restart. For durable execution, keep the same context-shaped handler and register a native Workflow DevKit entry:
 
 ```sh
-pnpm add workflow @workflow/builders
+pnpm add workflow
 ```
 
 ```ts
@@ -189,7 +189,7 @@ async function inlineOnboard({ payload }: WorkflowExecutionContext<OnboardPayloa
 export default defineWorkflow(inlineOnboard, { native: durableOnboard });
 ```
 
-ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. Put external side effects in idempotent `use step` functions because a durable step may be retried.
+ViteHub adds the Workflow DevKit Nitro module (`workflow/nitro`) when a Vercel definition has a `native` entry. Nitro then builds the `/.well-known/workflow/v1/flow` route with its queue trigger. Other providers keep using the normal handler. Put external side effects in idempotent `use step` functions because a durable step may be retried.
 
 ## Handle stable failures
 

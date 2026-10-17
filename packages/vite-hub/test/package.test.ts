@@ -143,13 +143,12 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/schedule/runtime/static",
   "@vite-hub/workflow/runtime/cloudflare-runner",
   "@vite-hub/workflow/runtime/cloudflare-shared",
-  "@vite-hub/workflow/runtime/cloudflare-vite",
   "@vite-hub/workflow/runtime/dev",
   "@vite-hub/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/openworkflow",
   "@vite-hub/workflow/runtime/openworkflow-worker",
   "@vite-hub/workflow/runtime/state",
-  "@vite-hub/workflow/runtime/vercel-vite",
+  "@vite-hub/workflow/runtime/vercel",
 ]);
 
 function sourceForwarderTargets(source: string): string[] | undefined {

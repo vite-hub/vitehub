@@ -237,12 +237,6 @@
       "require": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
       "default": "./dist/_internal/workflow/runtime/cloudflare-runner.js"
     },
-    "./_internal/workflow/runtime/cloudflare-vite": {
-      "types": "./dist/_internal/workflow/runtime/cloudflare-vite.d.ts",
-      "import": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
-      "require": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
-      "default": "./dist/_internal/workflow/runtime/cloudflare-vite.js"
-    },
     "./_internal/workflow/runtime/dev": {
       "types": "./dist/_internal/workflow/runtime/dev.d.ts",
       "import": "./dist/_internal/workflow/runtime/dev.js",
@@ -261,11 +255,11 @@
       "require": "./dist/_internal/workflow/runtime/state.js",
       "default": "./dist/_internal/workflow/runtime/state.js"
     },
-    "./_internal/workflow/runtime/vercel-vite": {
-      "types": "./dist/_internal/workflow/runtime/vercel-vite.d.ts",
-      "import": "./dist/_internal/workflow/runtime/vercel-vite.js",
-      "require": "./dist/_internal/workflow/runtime/vercel-vite.js",
-      "default": "./dist/_internal/workflow/runtime/vercel-vite.js"
+    "./_internal/workflow/runtime/vercel": {
+      "types": "./dist/_internal/workflow/runtime/vercel.d.ts",
+      "import": "./dist/_internal/workflow/runtime/vercel.js",
+      "require": "./dist/_internal/workflow/runtime/vercel.js",
+      "default": "./dist/_internal/workflow/runtime/vercel.js"
     },
     "./_internal/workspace": {
       "types": "./dist/_internal/workspace.d.ts",
@@ -1035,7 +1029,6 @@
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "@workflow/builders": "catalog:workflow",
     "ai": "catalog:ai-v6",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",

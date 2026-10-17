@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -8,7 +8,6 @@ import * as esbuild from "@vite-hub/internal/build/esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
-import { hubWorkflow } from "@vite-hub/workflow/vite"
 
 import { createEmail } from "../src/client.ts"
 import { EMAIL_DEFINITION_ID, hubEmail, hubEmailOptionalPeerResolver, resolveEmailTemplateModulePath } from "../src/vite.ts"
@@ -328,44 +327,6 @@ describe("hubEmail", () => {
     expect(await config({ root })).toMatchObject({ resolve: { alias: [
       { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
     ] } })
-  })
-
-  it("exposes its generated definition to directly composed Vercel Workflows", async () => {
-    const root = await createTempProject()
-    await mkdir(join(root, "server", "emails"), { recursive: true })
-    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
-    await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
-    const workflow = hubWorkflow({ provider: "vercel" })
-    const server = await createServer({
-      appType: "custom",
-      configFile: false,
-      plugins: [
-        hubEmail({ driver: "resend" }),
-        workflow,
-      ],
-      root,
-      server: { middlewareMode: true },
-    })
-    try {
-      expect(server.config.plugins.find(plugin => plugin.name === "@vite-hub/email/vite"))
-        .toHaveProperty("api.getDefinition")
-      const contributions = await Promise.all([
-        workflow.vitehub?.workflow?.prepareScheduleRuntime?.(),
-        workflow.vitehub?.workflow?.prepareScheduleRuntime?.(),
-      ])
-      expect(contributions[0]).toMatchObject({
-        bundleAlias: {
-          [EMAIL_DEFINITION_ID]: join(root, ".vitehub", "email", "definition.mjs"),
-          "#vitehub/emails/monthly-recap": join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
-        },
-      })
-      expect(contributions[1]).toMatchObject({ bundleAlias: contributions[0]?.bundleAlias })
-      await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
-        .resolves.toContain("Hello {{name}}")
-    }
-    finally {
-      await server.close()
-    }
   })
 
   it("renders Email templates in development and materialized output without a Markdown import plugin", async () => {

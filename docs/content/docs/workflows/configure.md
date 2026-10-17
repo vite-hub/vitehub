@@ -72,7 +72,7 @@ Inline work does not survive a function restart. Register a Workflow DevKit entr
 when the run needs Vercel's durable execution:
 
 ```bash [Terminal]
-pnpm add workflow @workflow/builders
+pnpm add workflow
 ```
 
 ```ts [server/workflows/onboard-user.ts]
@@ -114,6 +114,6 @@ async function inlineOnboard({ payload }: WorkflowExecutionContext<OnboardPayloa
 export default defineWorkflow(inlineOnboard, { native: durableOnboard })
 ```
 
-ViteHub transforms the `native` entry when it generates Vercel output. Other
-providers keep using the normal handler. Keep external side effects in `use step`
+ViteHub adds the Workflow DevKit Nitro module (`workflow/nitro`) when a Vercel
+definition has a `native` entry. Other providers keep using the normal handler. Keep external side effects in `use step`
 functions and make them idempotent because a step can be retried.

@@ -710,7 +710,6 @@ describe("vitehub", () => {
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
-      includeUserAppEntry: true,
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
@@ -727,7 +726,6 @@ describe("vitehub", () => {
     }))
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       implicitlyEnabled: true,
-      includeUserAppEntry: false,
     }))
     vitehub({ agent: true, console: { auth: false }, preset: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({

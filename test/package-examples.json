@@ -74,7 +74,7 @@
       "framework": "vite",
       "id": "workflow",
       "mode": "build",
-      "outputs": ["dist/server.js", ".vercel/output/config.json"]
+      "outputs": [".vercel/output/config.json", ".vercel/output/functions/__server.func/index.mjs"]
     },
     {
       "artifact": "server-bundle",

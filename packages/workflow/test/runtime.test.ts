@@ -15,7 +15,6 @@ import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
-import { createWorkflowCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "../src/runtime/client.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
 
@@ -731,31 +730,6 @@ describe("workflow runtime", () => {
     expect(createNonRetryableError).toHaveBeenCalledWith(original)
     expect(step.do).toHaveBeenCalledOnce()
     expect(stepSleep).toHaveBeenCalledWith("settle", "1 second")
-  })
-
-  it("isolates overlapping Cloudflare fetch environments", async () => {
-    let arrivals = 0
-    let release!: () => void
-    const bothStarted = new Promise<void>(resolve => {
-      release = resolve
-    })
-    const worker = createWorkflowCloudflareWorker({
-      app: async () => {
-        const before = getActiveCloudflareEnv()?.REQUEST_ID
-        arrivals += 1
-        if (arrivals === 2) release()
-        await bothStarted
-        return Response.json({ after: getActiveCloudflareEnv()?.REQUEST_ID, before })
-      },
-    })
-
-    const [first, second] = await Promise.all([
-      worker.fetch(new Request("https://example.com/first"), { REQUEST_ID: "first" }, { waitUntil: vi.fn() }),
-      worker.fetch(new Request("https://example.com/second"), { REQUEST_ID: "second" }, { waitUntil: vi.fn() }),
-    ])
-
-    await expect(first.json()).resolves.toEqual({ after: "first", before: "first" })
-    await expect(second.json()).resolves.toEqual({ after: "second", before: "second" })
   })
 
   it("isolates overlapping Cloudflare runner environments", async () => {

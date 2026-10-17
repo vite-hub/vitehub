@@ -19,8 +19,12 @@ type OpenWorkflowRun = Awaited<ReturnType<OpenWorkflowBackend["getWorkflowRun"]>
 type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
 // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Dynamic imports preserve the module type supplied by each internal call site.
 type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
-// SAFETY: The generated function implements the importer signature above and returns the requested dynamic module.
-const defaultImporter = new Function("specifier", "return import(specifier)") as OpenWorkflowImporter
+// Cloudflare Workers forbid code generation, so create the import function only when OpenWorkflow loads a module.
+const defaultImporter: OpenWorkflowImporter = <T>(specifier: string) => {
+  // SAFETY: The generated function implements the importer signature above and returns the requested dynamic module.
+  const importModule = new Function("specifier", "return import(specifier)") as OpenWorkflowImporter
+  return importModule<T>(specifier)
+}
 let openWorkflowImporter = defaultImporter
 const defaultOpenWorkflowSqlitePath = ".vitehub/data/openworkflow.sqlite.db"
 
