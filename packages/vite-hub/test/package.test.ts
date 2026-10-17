@@ -655,7 +655,8 @@ describe("framework package contract", () => {
     expect(consoleKVRoute).toContain(`navigateTo("/_vitehub")`);
     expect(consoleKVRoute).not.toContain("navigateTo(`${appBaseURL}/_vitehub`)");
     expect(consoleKVRoute).toContain(`v-if="available"`);
-    expect(consoleKVRoute).toContain("Try again");
+    expect(consoleKVRoute).toContain('<ConsoleState :error="loadError"');
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-state.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true);
     const consoleKV = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-kv.vue`,

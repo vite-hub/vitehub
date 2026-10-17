@@ -286,7 +286,9 @@ function trackStream(stream: ViteHubCliStream) {
   return {
     stream: {
       write(chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) {
-        const result = (stream.write as unknown as (chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => unknown)(chunk, encoding, callback)
+        // SAFETY: ViteHubCliStream implementations accept the standard writable stream arguments.
+        const write = stream.write as (chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => unknown
+        const result = write(chunk, encoding, callback)
         writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>, PromiseSettledResult<unknown>>(
           value => ({ status: "fulfilled", value }),
           reason => ({ reason, status: "rejected" }),
