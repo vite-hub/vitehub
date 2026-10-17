@@ -122,20 +122,25 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
           // `this` rejects copied factories on caller-created classes: their
           // result belongs to the host Response prototype, outside this
           // candidate implementation's prototype chain.
-          const factory = Object.getOwnPropertyDescriptor(constructor, "error")?.value
-          if (typeof factory === "function") {
-            const factoryResult = Reflect.apply(factory, constructor, [])
-            let factoryPrototype = factoryResult && typeof factoryResult === "object"
-              ? Object.getPrototypeOf(factoryResult)
-              : null
+          const factories = [
+            ["error", []],
+            ["json", [null]],
+            ["redirect", ["https://example.com"]],
+          ] as const
+          hasFactoryBrand = factories.every(([name, args]) => {
+            const factory = Object.getOwnPropertyDescriptor(constructor, name)?.value
+            if (typeof factory !== "function") return false
+            const factoryResult = Reflect.apply(factory, constructor, args)
+            if (!factoryResult || typeof factoryResult !== "object"
+              || objectToString.call(factoryResult) !== "[object Response]"
+              || Object.prototype.hasOwnProperty.call(factoryResult, Symbol.toStringTag)) return false
+            let factoryPrototype = Object.getPrototypeOf(factoryResult)
             while (factoryPrototype) {
-              if (factoryPrototype === responsePrototype) {
-                hasFactoryBrand = true
-                break
-              }
+              if (factoryPrototype === responsePrototype) return true
               factoryPrototype = Object.getPrototypeOf(factoryPrototype)
             }
-          }
+            return false
+          })
         }
         catch {
           hasConstructibleResponse = false
