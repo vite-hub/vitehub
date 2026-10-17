@@ -385,7 +385,17 @@ function isSerializableAuthorizationBody(
     }
     if (!readerVerified) return false
     const locked = Reflect.get(body, "locked")
-    return locked === false
+    if (locked !== false) return false
+    // The stream's disturbed state is not exposed by the Web Streams API.
+    // Let the native Response extractor perform its internal-slot check so a
+    // consumed, unlocked stream cannot be admitted as a fresh body.
+    try {
+      const probe = new Response(body as ReadableStream<Uint8Array>)
+      return probe.bodyUsed === false
+    }
+    catch {
+      return false
+    }
 
   }
   catch {
@@ -698,7 +708,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
       : await getNativeAuthorizationBodyReader(body)
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
+    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
 
     const forEach = Reflect.get(headerCarrier, "forEach")
