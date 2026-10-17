@@ -11,7 +11,7 @@ describe("Babysitter host prerequisites", () => {
     const check = createBabysitterPreflight(true, command);
     const [first, second] = await Promise.all([check(), check()]);
     expect(second).toBe(first);
-    expect(command.mock.calls).toEqual([["git"], ["corepack"]]);
+    expect(command.mock.calls).toEqual([["git", "version"], ["corepack", "version"]]);
     expect(first.pause).toMatchObject({ reason: "host-prerequisite", detail: expect.stringContaining("Install Corepack"), retryAt: 31000 });
     missing = false;
     await check();
@@ -24,13 +24,13 @@ describe("Babysitter host prerequisites", () => {
   it("does not require an installer when installation is disabled", async () => {
     const command = vi.fn(async () => {});
     expect((await createBabysitterPreflight(false, command)()).pause).toBeUndefined();
-    expect(command.mock.calls).toEqual([["git"]]);
+    expect(command.mock.calls).toEqual([["git", "version"]]);
   });
 
   it("checks a configured installer executable", async () => {
     const command = vi.fn(async () => {});
     expect((await createBabysitterPreflight({ command: "corepack", args: ["pnpm"] }, command)()).pause).toBeUndefined();
-    expect(command.mock.calls).toEqual([["git"], ["corepack"]]);
+    expect(command.mock.calls).toEqual([["git", "version"], ["corepack", "version"]]);
   });
 
   it("reports the configured installer when it is unavailable", async () => {
@@ -38,6 +38,6 @@ describe("Babysitter host prerequisites", () => {
     const result = await createBabysitterPreflight({ command: "bun" }, command)();
     expect(result.pause).toMatchObject({ detail: expect.stringContaining("Install bun") });
     expect(result.pause?.detail).not.toContain("Install Corepack");
-    expect(command.mock.calls).toEqual([["git"], ["bun"]]);
+    expect(command.mock.calls).toEqual([["git", "version"], ["bun", "path"]]);
   });
 });

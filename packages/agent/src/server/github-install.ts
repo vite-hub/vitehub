@@ -139,7 +139,9 @@ async function installWorkspace(target: string, signal?: AbortSignal, run?: GitH
     }
     catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT" && command === "corepack") {
-        retryable = false;
+        // Corepack may be restored on the trusted host while this PR is parked.
+        // Keep the wait retryable so the scheduler can recheck it.
+        retryable = true;
         kind = "prerequisite";
         throw new Error("Babysitter host installation requires Corepack in PATH. Install Corepack on the trusted host; Node 25 and newer do not bundle it.", { cause: error });
       }

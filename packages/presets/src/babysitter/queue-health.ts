@@ -10,7 +10,8 @@ export function babysitterQueueHealth(items: readonly GitHubInboxSummary[], now 
     scheduled: items.filter(item => item.status === "ready" && item.dirty && !item.stackBlocked && item.nextAt > now).length,
     stackBlocked: items.filter(item => item.stackBlocked).length,
     waiting: waiting.length,
-    suppressed: items.filter(item => item.status === "terminal" && item.state === "open").length,
+    suppressed: items.filter(item => item.status === "terminal" && item.state === "open"
+      && !item.lastResult?.startsWith("Merged ")).length,
     oldestReadyAgeMs: ready.reduce((age, item) => Math.max(age, item.dirtyAt === undefined ? 0 : now - item.dirtyAt), 0),
     blockers: {
       checks: waiting.filter(item => item.wait && item.wait.kind !== "external" && !item.wait.wake).length,

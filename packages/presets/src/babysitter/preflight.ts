@@ -22,7 +22,9 @@ export function createBabysitterPreflight(install: BabysitterInstall, checkComma
       if (install !== false) {
         const installer = isRuntimeRecord(install) ? install.command : undefined;
         const program = installer ?? "corepack";
-        if (!commands.includes(program)) commands.push(program);
+        // A checkout-relative custom command has no stable host PATH probe and
+        // may not implement --version; the installer validates its real args.
+        if (!program.includes("/") && !commands.includes(program)) commands.push(program);
       }
       for (const program of commands) {
         try {
