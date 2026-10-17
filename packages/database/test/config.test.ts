@@ -509,6 +509,8 @@ describe("resolveDBViteConfig", () => {
     "declare const marker: string",
     "async function marker() {}",
     "export async function marker() {}",
+    "abstract class Marker {}",
+    "export abstract class Marker {}",
     "export { cloudflare }",
     "export * from './marker'",
   ])("stops opaque declarations before TypeScript declaration: %s", async (typescriptDeclaration) => {
