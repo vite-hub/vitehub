@@ -110,14 +110,36 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function").length
       const hasPrototypeAccessor = prototypeAccessorCount >= 1
       let hasConstructibleResponse = false
+      let hasFactoryBrand = false
       if (typeof constructor === "function") {
         try {
           const constructed = new constructor()
           hasConstructibleResponse = constructed && typeof constructed === "object"
             && Object.getPrototypeOf(constructed) === responsePrototype
+
+          // Fetch constructors expose static factories that create genuinely
+          // branded Responses. Calling one with the candidate constructor as
+          // `this` rejects copied factories on caller-created classes: their
+          // result belongs to the host Response prototype, outside this
+          // candidate implementation's prototype chain.
+          const factory = Object.getOwnPropertyDescriptor(constructor, "error")?.value
+          if (typeof factory === "function") {
+            const factoryResult = Reflect.apply(factory, constructor, [])
+            let factoryPrototype = factoryResult && typeof factoryResult === "object"
+              ? Object.getPrototypeOf(factoryResult)
+              : null
+            while (factoryPrototype) {
+              if (factoryPrototype === responsePrototype) {
+                hasFactoryBrand = true
+                break
+              }
+              factoryPrototype = Object.getPrototypeOf(factoryPrototype)
+            }
+          }
         }
         catch {
           hasConstructibleResponse = false
+          hasFactoryBrand = false
         }
       }
       if (typeof cloneDescriptor?.value === "function"
@@ -125,6 +147,7 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         && hasResponseAccessors
         && hasPrototypeAccessor
         && hasConstructibleResponse
+        && hasFactoryBrand
         && tagDescriptor
         && typeof constructor === "function"
         // A genuine Response constructor owns an immutable prototype slot.
