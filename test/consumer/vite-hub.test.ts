@@ -1388,10 +1388,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(nativeWorkflow).toContain('"use workflow"')
       expect(nativeWorkflow).toContain('"use step"')
       expect(nativeWorkflow).not.toContain("vitehub.email.definition")
-      expect(scheduleFunction).toContain("setWorkflowRuntimeRegistry")
-      expect(flowBundle).toContain("vitehub.email.definition")
-      expect(flowBundle).toContain("RESEND_API_KEY")
-      expect(flowBundle).toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
+      expect(flowBundle).toBeTruthy()
+      // Nitro bundles the Workflow DevKit flow route, so the Email step resolves the generated Email definition directly.
+      expect(Object.values(await readJavaScriptSources(join(appDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func"))).join("\n")).toContain("RESEND_API_KEY")
       expect(JSON.parse(vercelConfig).crons).toContainEqual({
         path: "/api/vitehub/schedules/vercel/heartbeat",
         schedule: "0 0 * * *",
