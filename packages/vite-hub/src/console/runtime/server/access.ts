@@ -134,10 +134,13 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         && constructorPrototype?.value === responsePrototype
         && constructorPrototype.writable === false
         && constructorPrototype.configurable === false
-        // Independently implemented Fetch classes inherit their constructor
-        // from an implementation base. A caller-created class has only the
-        // ordinary Function prototype and cannot supply that brand signal.
-        && Object.getPrototypeOf(constructor) !== Function.prototype
+        // Fetch Response constructors expose the standard static factory
+        // methods. Requiring these implementation-owned methods prevents a
+        // caller-created class with a forged prototype from passing the
+        // structural checks above.
+        && typeof constructor.error === "function"
+        && typeof constructor.json === "function"
+        && typeof constructor.redirect === "function"
         && constructor.prototype === responsePrototype) break
       responsePrototype = Object.getPrototypeOf(responsePrototype)
     }
