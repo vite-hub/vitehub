@@ -81,6 +81,9 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       const cloneDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, "clone")
       const tagDescriptor = Object.getOwnPropertyDescriptor(responsePrototype, Symbol.toStringTag)
       const constructor = Object.getOwnPropertyDescriptor(responsePrototype, "constructor")?.value
+      const constructorPrototype = typeof constructor === "function"
+        ? Object.getOwnPropertyDescriptor(constructor, "prototype")
+        : undefined
       const methods = ["arrayBuffer", "blob", "formData", "json", "text"]
       const hasResponseMethods = methods.every(method => {
         let methodPrototype: object | null = responsePrototype
@@ -124,6 +127,13 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         && hasConstructibleResponse
         && tagDescriptor
         && typeof constructor === "function"
+        // A genuine Response constructor owns an immutable prototype slot.
+        // Caller-created function constructors have a writable prototype by
+        // default, so this rejects self-consistent prototype spoofs without
+        // relying on the constructor name or realm identity.
+        && constructorPrototype?.value === responsePrototype
+        && constructorPrototype.writable === false
+        && constructorPrototype.configurable === false
         && constructor.prototype === responsePrototype) break
       responsePrototype = Object.getPrototypeOf(responsePrototype)
     }
