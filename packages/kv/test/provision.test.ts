@@ -70,6 +70,16 @@ describe("KV Cloudflare provision step", () => {
     expect(requests.filter(request => request.method === "POST").map(request => request.body)).toEqual([{ title: "shared" }])
   })
 
+  it("accepts Cloudflare create responses that only contain the id", async () => {
+    const { context } = createContext((_url, init) => init?.method === "POST"
+      ? jsonResponse({ success: true, result: { id: "ns-new" } })
+      : jsonResponse({ success: true, result: [] }))
+
+    const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
+
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { kv: { default: "ns-new" } } } })
+  })
+
   it("pages through the namespace list", async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) => ({ id: `ns-${index}`, title: `title-${index}` }))
     const { context, requests } = createContext(url => jsonResponse({
@@ -164,4 +174,21 @@ describe("KV Cloudflare provision step", () => {
     await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)).resolves.toEqual([])
     expect(handler).not.toHaveBeenCalled()
   })
+})
+
+describe("Cloudflare namespace response validation", () => {
+  for (const result of [
+    { title: "app-cache" },
+    { id: "ns-app" },
+    { id: 123, title: "app-cache" },
+    { id: "ns-app", title: 123 },
+  ]) {
+    it(`rejects malformed namespace records: ${JSON.stringify(result)}`, async () => {
+      const { context } = createContext(() => jsonResponse({ success: true, result: [result] }))
+
+      await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)).rejects.toThrow(
+        "Cloudflare provisioning returned an invalid KV namespace list.",
+      )
+    })
+  }
 })

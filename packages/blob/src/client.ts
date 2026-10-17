@@ -202,15 +202,35 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
       // Capture the identity inside the response parser before the create
       // promise settles. This keeps cleanup possible even when a later
       // response-processing step rejects after the server created the upload.
-      upload = await readJson(await send("create", pathname, {
+      const createRequest = send("create", pathname, {
         body: JSON.stringify({ contentType: file.type || undefined }),
         headers: { "content-type": "application/json" },
         method: "POST",
-      }), value => {
-        const created = parseMultipartCreate(value)
-        upload = created
-        return created
       })
+      try {
+        upload = await readJson(await createRequest, value => {
+          const created = parseMultipartCreate(value)
+          upload = created
+          return created
+        })
+      }
+      catch (error) {
+        // Some transports reject after receiving a response (for example when
+        // response processing fails). Recover the create identity when the
+        // rejection exposes that response so an aborted task can still clean up.
+        const response = error instanceof Response
+          ? error
+          : isRecord(error) && error.response instanceof Response ? error.response : undefined
+        if (response) {
+          try {
+            upload = parseMultipartCreate(await response.json())
+          }
+          catch {
+            // Preserve the original transport or parse error.
+          }
+        }
+        throw error
+      }
       const { pathname: uploadPathname, uploadId } = upload
       if (aborted) {
         await abortRemoteUpload().catch(() => {})

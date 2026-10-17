@@ -109,6 +109,23 @@ describe("createMultipartUploader", () => {
     expect(abortRequests).toHaveLength(1)
   })
 
+  it("cleans up when create rejects with a received response after local abort", async () => {
+    const fetch = vi.fn(async (url: FetchInput) => {
+      if (String(url).includes("/create/")) {
+        const error = new Error("transport failed") as Error & { response?: Response }
+        error.response = json({ pathname: "a.txt", uploadId: "u-create-rejected" })
+        throw error
+      }
+      return json({ action: "abort" })
+    })
+    const task = createMultipartUploader("/api/multipart", { fetch })(new File(["a"], "a.txt"))
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+
+    await task.abort()
+    await expect(task.completed).resolves.toBeUndefined()
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes("/api/multipart/abort/a.txt?uploadId=u-create-rejected"))).toHaveLength(1)
+  })
+
   it("completes concurrent uploads with parts in part-number order", async () => {
     const { fetch } = multipartServer()
     let completeParts: BlobMultipartPart[] | undefined
