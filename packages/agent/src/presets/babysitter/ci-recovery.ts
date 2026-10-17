@@ -1,8 +1,8 @@
 import * as v from "valibot";
 import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
 import type { GitHubHost } from "../../server/github.ts";
-import type { Claim, PullRequestInbox, Snapshot } from "../../server/github-inbox.ts";
-import { actionLocation, failed } from "../../server/github-inbox/ci-evidence.ts";
+import type { Claim, PullRequestInbox, Snapshot } from "./inbox/store.ts";
+import { actionLocation, failed } from "./inbox/ci-evidence.ts";
 
 export function hasFailedActions(snapshot: Snapshot): boolean {
   const head = snapshot.pr?.head?.sha;

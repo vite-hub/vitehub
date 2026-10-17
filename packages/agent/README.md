@@ -572,43 +572,6 @@ The plugin starts it and closes it with Nitro, and serves drain status at
 `/api/drain`, configurable with `drainRoute`. SIGUSR2 starts a drain.
 Use the runtime drain CLI before replacing the process.
 
-`@vite-hub/agent/server/github-inbox` provides a SQLite PR inbox for Node hosts.
-Construct `PullRequestInbox({ storage, repositories, filter })` with
-`agentState.extension("babysitter")` from `@vite-hub/agent/state/sqlite` to keep
-the inbox tables in the Agent State database, or with `path` for a private
-`node:sqlite` file. `scope` separates inboxes that share one storage. Every
-method is asynchronous. Seed discovered PRs and ingest verified webhook
-deliveries with `ingest(deliveryId, event, payload)`.
-`filter` uses `GitHubPullRequestFilter` from the GitHub Channel. PR properties apply
-to discovery and claims. Actor and action rules gate new webhook admissions only;
-existing PRs still receive lifecycle evidence that can cancel their active work.
-
-`claim(limit)` grants exclusive two-hour leases. `hydrateSnapshot()` fills gaps
-through a caller-supplied paginated REST reader and optional thread reader.
-`finish()` parks completed work or schedules a retry; feedback and terminal CI
-results wake it by default. Pending CI updates persist without starting another pass.
-CI for a source push can arrive before the PR synchronize event. The inbox retains
-it for the active claim or a durable pushed-head wait. A rollback to the original
-claimed head revokes repair custody, even while synchronize still reports that head.
-For explicit durable waits, pass `wait: { reason, evidenceKey }` to `finish()`.
-The inbox binds the wait to the current head and excludes it from claims until
-`wake(observedSnapshot, evidenceKey)` sees changed evidence. See the
-[host reconciliation contract](../../docs/content/docs/reference/github-inbox-waits.md).
-`recoverLeases()` releases expired leases only, including after a process restart.
-Claims, recovery, head matching and `summary()` read indexed columns, so they do
-not parse every stored snapshot. `detectChangedPullRequests()` reads every open PR of a repository with one
-GraphQL query per 50 PRs, at most once a minute. It seeds PRs that no delivery
-reported and marks PRs whose state fingerprint changed, or that closed.
-`probeChangedSnapshots()` then reads only those PRs over REST and ingests them,
-so lost webhook deliveries are recovered without probing unchanged PRs. Row
-order and an unknown mergeability do not count as changes. `pruneDeliveries()` drops delivery payloads after
-7 days and delivery IDs after 30 days. `importLegacyFile(path)` copies an older
-`node:sqlite` inbox file once, clears its leases, and leaves the file unchanged.
-`createClaimStopCheck()` checks lease, PR state, and head changes, and accepts a
-repair push only when the provider Git HEAD proves the new head. Call `close()`
-when the host stops. `snapshotPrompt()` serializes the retained feedback with
-explicit thread resolution and current-head checks; it does not truncate bodies.
-
 `createGitHubPullRequests(host)` from `@vite-hub/agent/server/github` reads PR
 snapshots with paginated feedback, required checks, and host budget admission.
 An explicit `activityAuthors` list excludes only those authors' managed activity
@@ -993,34 +956,6 @@ CI evidence. Later pending candidates and separately verified push receipts rema
 A pass can resolve several addressed review threads without cancelling itself
 when its own resolution webhooks arrive. New comments and external thread reopens
 still revoke further repair operations.
-
-### Bound repeated PR work
-
-The Node inbox accepts `budgets: { providerRetries: 3, noProgress: 3 }`.
-Call `reserveProviderAttempt(accountScope)` immediately before each provider dispatch,
-then `finishProviderAttempt(token, outcome)` exactly once. The initial dispatch plus
-three retries allow four consecutive classified provider failures. Successful
-provider access clears older failures; unrelated errors release their reservation
-without imposing a quota stop. Reservations also bound concurrent dispatches to
-four until they settle. Both pending reservations and failures survive restart.
-A crashed reservation requires inspection and `resetProviderBudget(scope, reason)`;
-there is no automatic cooldown or timer reset. Token generations reject results
-from before a reset. `providerBudget(scope)` exposes pending and failed attempts.
-
-Supply `finish(claim, { text, progress: { kind: 'no-progress' } })` when a host check
-proves no progress, including a completed invocation that merely repeats a wait.
-Three such completions block new claims for that head even after a webhook.
-Use `{ kind: 'verified', evidence: 'thread:123:resolved' }` for a newly verified change;
-credited evidence IDs persist for that head, so replay does not reset the count. A new head has a fresh budget.
-`resetProgressBudget(repository, number, expectedHead, reason)` permits an explicit
-operator retry and rejects active claims or stale heads. `summary()` exposes the
-persisted head, limit, count and exhaustion state. The first progress outcome saves
-the configured limit for that head. Configuration changes and restarts retain it;
-an explicit reset or a new head adopts the current limit. The host verifies evidence and classifies
-errors; Agent text, result status, and elapsed time do not choose this policy.
-
-See [durable retry budgets](https://vitehub.dev/docs/agents/invocations#durable-retry-budgets)
-for a worker example. Budgets are opt-in and do not change existing inbox callers.
 
 ### Provider exit evidence
 

@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { PullRequestInbox } from '../src/server/github-inbox.ts'
+import { PullRequestInbox } from '../src/presets/babysitter/inbox/store.ts'
 import { createLibsqlAgentState } from '../src/state/sqlite.ts'
 
 const repository = 'vite-hub/vitehub'

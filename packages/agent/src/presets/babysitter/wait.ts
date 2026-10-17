@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import type { GitHubEvidence, PullRequestWait, Snapshot } from "../../server/github-inbox.ts";
+import type { GitHubEvidence } from "./inbox/types.ts";
+import type { PullRequestWait } from "./inbox/wait-state.ts";
+import type { Snapshot } from "./inbox/store.ts";
 import type { GitHubRequiredCheckState } from "../../server/github-required-checks.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../../internal/runtime-type.ts";
 

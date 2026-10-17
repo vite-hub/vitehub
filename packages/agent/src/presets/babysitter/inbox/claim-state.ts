@@ -1,4 +1,4 @@
-import type { PullRequest } from '../github-pull-requests.ts'
+import type { PullRequest } from '../../../server/github-pull-requests.ts'
 import type { Claim, Snapshot } from './store.ts'
 
 /** REST fields are authoritative; older persisted GraphQL aliases may be stale. */

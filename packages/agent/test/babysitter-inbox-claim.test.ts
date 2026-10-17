@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PullRequestInbox } from '../src/server/github-inbox.ts'
-import { snapshotPullRequest, claimStopReason, createClaimStopCheck } from '../src/server/github-inbox.ts'
+import { PullRequestInbox } from '../src/presets/babysitter/inbox/store.ts'
+import { snapshotPullRequest, claimStopReason, createClaimStopCheck } from '../src/presets/babysitter/inbox/claim-state.ts'
 
 async function fixture(clock?: () => number) {
   const inbox = new PullRequestInbox({path: ':memory:', repositories: ['vite-hub/vitehub'], clock})

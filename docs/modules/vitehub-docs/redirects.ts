@@ -111,6 +111,7 @@ export const docsPageRedirects = {
   "/docs/console/usage": "/docs/development/console",
   "/docs/reference/channels": "/docs/channels",
   "/docs/reference/diagnostics": "/docs/reference/errors-diagnostics",
+  "/docs/reference/github-inbox-waits": "/docs/agents/babysitter",
   "/docs/reference/realtime": "/docs/realtime",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/server-primitives/env-bridge": "/docs/env/bridge",

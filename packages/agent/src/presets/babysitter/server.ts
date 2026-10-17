@@ -22,23 +22,13 @@ import {
   createGitHubPullRequestOperations,
 } from "../../server/github.ts";
 import type { GitHubHost } from "../../server/github.ts";
-import {
-  PullRequestInbox,
-  normalizePullRequest,
-  snapshotPrompt,
-  assertPromptFits,
-  snapshotPullRequest,
-  createClaimStopCheck,
-  claimStopReason,
-  hydrateSnapshot,
-  reconcileOneSnapshot,
-  readPullRequestThreads,
-  detectChangedPullRequests,
-  probeChangedSnapshots,
-} from "../../server/github-inbox.ts";
-import type { Claim, PullRequestInboxStorage, ReadGraphql, Snapshot } from "../../server/github-inbox.ts";
-import { hydrateFailedCiEvidence } from "../../server/github-inbox/ci-evidence.ts";
-import type { PullRequestWake } from "../../server/github-inbox/wait-state.ts";
+import { PullRequestInbox, normalizePullRequest, type Claim, type Snapshot } from "./inbox/store.ts";
+import { snapshotPrompt, assertPromptFits } from "./inbox/snapshot-prompt.ts";
+import { snapshotPullRequest, createClaimStopCheck, claimStopReason } from "./inbox/claim-state.ts";
+import { hydrateSnapshot, reconcileOneSnapshot, readPullRequestThreads, detectChangedPullRequests, probeChangedSnapshots, type ReadGraphql } from "./inbox/snapshot-sync.ts";
+import type { PullRequestInboxStorage } from "./inbox/storage.ts";
+import { hydrateFailedCiEvidence } from "./inbox/ci-evidence.ts";
+import type { PullRequestWake } from "./inbox/wait-state.ts";
 import { createHash } from "node:crypto";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import type { BabysitterAgent, BabysitterPassResult } from "../babysitter.ts";
@@ -58,6 +48,8 @@ import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
 import { hasFailedActions, rerunFailedActions } from "./ci-recovery.ts";
 import { createBabysitterStatusRecovery, isWorkerBlocker } from "./status-recovery.ts";
+
+export type { PullRequestInboxStorage } from "./inbox/storage.ts";
 
 declare const __VITEHUB_AGENT_BUILD_REVISION__: string;
 

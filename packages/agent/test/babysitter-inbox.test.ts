@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PullRequestInbox, normalizePullRequest } from '../src/server/github-inbox.ts'
+import { PullRequestInbox, normalizePullRequest } from '../src/presets/babysitter/inbox/store.ts'
 import { resolveBabysitterLifecycleFilter } from '../src/presets/babysitter.ts'
 const repository = 'vite-hub/vitehub'
 const repo = { full_name: repository }

@@ -1,7 +1,7 @@
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
-import { PullRequestInbox } from '../src/server/github-inbox.ts'
-import { hydrateSnapshot, reconcileOneSnapshot, readPullRequestThreads } from '../src/server/github-inbox.ts'
+import { PullRequestInbox } from '../src/presets/babysitter/inbox/store.ts'
+import { hydrateSnapshot, reconcileOneSnapshot, readPullRequestThreads } from '../src/presets/babysitter/inbox/snapshot-sync.ts'
 const repo = 'vite-hub/vitehub'
 const pr = { number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'a', ref: 'fix' }, base: { ref: 'main', sha: 'base' } }
 const check = { id: 1, head_sha: 'a', name: 'ci', status: 'completed', conclusion: 'success' }

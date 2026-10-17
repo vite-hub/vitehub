@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { createCheckWait, wakeReasons } from '../src/presets/babysitter/wait.ts'
-import { PullRequestInbox } from '../src/server/github-inbox.ts'
+import { PullRequestInbox } from '../src/presets/babysitter/inbox/store.ts'
 
 const repository = 'example/project'
 const pr = { number: 7, state: 'open', head: { sha: 'a', ref: 'repair' }, base: { ref: 'main' } }

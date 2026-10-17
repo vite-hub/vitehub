@@ -70,7 +70,6 @@ export default defineConfig({
       "src/presets/labeller.ts",
       "src/presets/babysitter/server.ts",
       "src/server/github.ts",
-      "src/server/github-inbox.ts",
       "src/server/internal.ts",
       "src/server/registry.ts",
       "src/server/workspace.ts",
