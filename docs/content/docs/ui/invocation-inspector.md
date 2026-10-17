@@ -44,7 +44,7 @@ The error appears in the outcome section with the Invocation status.
 
 ### Compact panel
 
-Set `:show-timeline="false"` to hide the timeline. Set `show-capabilities` to include the grouped Capability summary. Use the `actions` slot for a close button and `metadata` for your own section.
+Set `:show-timeline="false"` to hide the timeline. Set `:show-sources="false"` when a separate Workspace view already displays Sources. Set `show-capabilities` to include the grouped Capability summary. Use the `actions` slot for a close button and `metadata` for your own section.
 
 ::component-preview{name="InvocationInspectorCompactExample" reset}
 ::
@@ -89,7 +89,6 @@ Include instruction content only when the current viewer may inspect it. The com
 | `showError`        | `boolean`             | `true`   | Shows the terminal error in the outcome section.      |
 | `showTimeline`     | `boolean`             | `true`   | Shows the run timeline.                               |
 | `showCapabilities` | `boolean`             | `false`  | Shows the embedded Capability summary.                |
-| `showSources`      | `boolean`             | `true`   | Shows captured Workspace Sources in Agent setup.      |
 
 #### Events
 

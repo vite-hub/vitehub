@@ -17,6 +17,8 @@ Provider selection belongs to application or host configuration, not to a Defini
 
 The `deno`, `netlify`, and `node` presets have no built-in Sandbox provider, so `vitehub({ preset, sandbox: true })` fails during configuration for them. Without an explicit `provider`, the runtime detects Cloudflare or Vercel from the environment. Both providers run remote, potentially billed infrastructure. Sandbox has no local in-process provider.
 
+On the Vite or Nuxt dev server, the Vercel provider works when Vercel credentials are set. The Cloudflare provider does not: the `cloudflare` preset writes the Sandbox Durable Object and Container only to `.output/server/wrangler.json`, and the dev server cannot host a Container. Build, then run `npx wrangler --cwd .output/server dev`. Wrangler needs Docker to run the Container.
+
 ### Vercel options
 
 | Option | Default | Description |

@@ -38,92 +38,126 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./ai": {
       "types": "./dist/ai.d.ts",
-      "import": "./dist/ai.js"
+      "import": "./dist/ai.js",
+      "require": "./dist/ai.js",
+      "default": "./dist/ai.js"
     },
     "./blob-database": {
       "types": "./dist/blob-database.d.ts",
-      "import": "./dist/blob-database.js"
+      "import": "./dist/blob-database.js",
+      "require": "./dist/blob-database.js",
+      "default": "./dist/blob-database.js"
     },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
       "import": "./dist/cloudflare.js"
     },
-    "./collections": {
-      "types": "./dist/collections.d.ts",
-      "import": "./dist/collections.js"
-    },
-    "./collections/client": {
-      "types": "./dist/collections/client.d.ts",
-      "import": "./dist/collections/client.js"
-    },
     "./loader": {
       "types": "./dist/loader.d.ts",
-      "import": "./dist/loader.js"
+      "import": "./dist/loader.js",
+      "require": "./dist/loader.js",
+      "default": "./dist/loader.js"
     },
     "./mountx": {
       "types": "./dist/mountx.d.ts",
-      "import": "./dist/mountx.js"
+      "import": "./dist/mountx.js",
+      "require": "./dist/mountx.js",
+      "default": "./dist/mountx.js"
     },
     "./nitro": {
       "types": "./dist/nitro.d.ts",
-      "import": "./dist/nitro.js"
+      "import": "./dist/nitro.js",
+      "require": "./dist/nitro.js",
+      "default": "./dist/nitro.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
-      "import": "./dist/nuxt.js"
-    },
-    "./publish": {
-      "types": "./dist/publish.d.ts",
-      "import": "./dist/publish.js"
+      "import": "./dist/nuxt.js",
+      "require": "./dist/nuxt.js",
+      "default": "./dist/nuxt.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
-      "import": "./dist/runtime.js"
+      "import": "./dist/runtime.js",
+      "require": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
+      "import": "./dist/server.js",
+      "require": "./dist/server.js",
+      "default": "./dist/server.js"
     },
     "./source-metadata": {
       "types": "./dist/source-metadata.d.ts",
-      "import": "./dist/source-metadata.js"
+      "import": "./dist/source-metadata.js",
+      "require": "./dist/source-metadata.js",
+      "default": "./dist/source-metadata.js"
     },
     "./test": {
       "types": "./dist/test.d.ts",
-      "import": "./dist/test.js"
+      "import": "./dist/test.js",
+      "require": "./dist/test.js",
+      "default": "./dist/test.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./package.json": "./package.json",
     "./internal/runtime/assets": {
       "types": "./dist/runtime/assets.d.ts",
-      "import": "./dist/runtime/assets.js"
+      "import": "./dist/runtime/assets.js",
+      "require": "./dist/runtime/assets.js",
+      "default": "./dist/runtime/assets.js"
     },
     "./internal/runtime/hosted": {
       "types": "./dist/hosted.d.ts",
-      "import": "./dist/hosted.js"
+      "import": "./dist/hosted.js",
+      "require": "./dist/hosted.js",
+      "default": "./dist/hosted.js"
     },
     "./internal/runtime/hosted-vercel-blob": {
       "types": "./dist/hosted-vercel-blob.d.ts",
-      "import": "./dist/hosted-vercel-blob.js"
+      "import": "./dist/hosted-vercel-blob.js",
+      "require": "./dist/hosted-vercel-blob.js",
+      "default": "./dist/hosted-vercel-blob.js"
+    },
+    "./internal/runtime/history-dev": {
+      "types": "./dist/runtime/history-dev.d.ts",
+      "import": "./dist/runtime/history-dev.js",
+      "require": "./dist/runtime/history-dev.js",
+      "default": "./dist/runtime/history-dev.js"
     },
     "./internal/runtime/state": {
       "types": "./dist/runtime/state.d.ts",
-      "import": "./dist/runtime/state.js"
+      "import": "./dist/runtime/state.js",
+      "require": "./dist/runtime/state.js",
+      "default": "./dist/runtime/state.js"
     },
     "./internal/runtime/workspace": {
       "types": "./dist/runtime/workspace.d.ts",
-      "import": "./dist/runtime/workspace.js"
+      "import": "./dist/runtime/workspace.js",
+      "require": "./dist/runtime/workspace.js",
+      "default": "./dist/runtime/workspace.js"
+    },
+    "./internal/path": {
+      "types": "./dist/internal/path.d.ts",
+      "import": "./dist/internal/path.js"
     },
     "./internal/stores/github": {
       "types": "./dist/providers/github/store.d.ts",
-      "import": "./dist/providers/github/store.js"
+      "import": "./dist/providers/github/store.js",
+      "require": "./dist/providers/github/store.js",
+      "default": "./dist/providers/github/store.js"
     }
   },
   "scripts": {
@@ -133,12 +167,13 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
@@ -166,7 +201,6 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui",
     "drizzle-orm": "catalog:database",
     "miniflare": "4.20260730.0",
     "@libsql/client": "catalog:database"
@@ -175,7 +209,6 @@
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:ui",
     "drizzle-orm": "catalog:database"
   },
   "peerDependenciesMeta": {
@@ -183,9 +216,6 @@
       "optional": true
     },
     "vite": {
-      "optional": true
-    },
-    "vue": {
       "optional": true
     },
     "drizzle-orm": {

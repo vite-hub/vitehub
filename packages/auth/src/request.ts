@@ -43,7 +43,6 @@ function readNodeRequestURL(request: AuthNodeRequest): URL {
 function toBodyStream(value: unknown): ReadableStream<Uint8Array> | undefined {
   if (value instanceof ReadableStream) return value
   if (value instanceof Uint8Array) return new Blob([value]).stream()
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Hosts store an already read request body as a string.
   if (typeof value === "string") return new Blob([value]).stream()
   if (value instanceof URLSearchParams) return new Blob([value.toString()]).stream()
   if (value instanceof Object && Object.getPrototypeOf(value) === Object.prototype) return new Blob([JSON.stringify(value)]).stream()
@@ -78,7 +77,6 @@ function readNodeRequestBody(event: AuthNodeRequestEvent): ReadableStream<Uint8A
         return
       }
       const value = chunk.value
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Node streams yield strings when an encoding is set.
       if (typeof value === "string") controller.enqueue(new TextEncoder().encode(value))
       else if (value instanceof Uint8Array) controller.enqueue(value)
       else controller.error(new TypeError("[vitehub] Auth request body chunks must be strings or bytes."))

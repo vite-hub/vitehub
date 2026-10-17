@@ -97,7 +97,6 @@ async function resolvePackageJson(name: string, fromDir: string): Promise<string
 }
 
 function parsePackageJson(value: unknown, path: string): Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.parse returns an untrusted runtime value that must be checked at this boundary.
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw internalErrorDiagnostics.INTERNAL_B0045({ message: `Expected ${path} to contain a JSON object.` })
   }

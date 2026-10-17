@@ -164,6 +164,14 @@ describe.runIf(process.platform === "linux")("Babysitter dependency install cach
     expect(record?.cache).toBeUndefined();
     expect(await readdir(cache)).toEqual([]);
   });
+
+  it("uses an environment-selected cache directory on any filesystem", async () => {
+    const pnpm = await fakePnpm();
+    const cache = await directory("default-cache");
+    const install = createBabysitterInstaller(true, { ...pnpm.env, BABYSITTER_INSTALL_CACHE: cache }, "test/repo");
+    expect((await install(await workspace(), signal()))?.cache).toBe("miss");
+    expect(await readdir(cache)).toHaveLength(1);
+  });
 });
 
 describe("Babysitter workspace sweep", () => {

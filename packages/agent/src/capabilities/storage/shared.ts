@@ -23,7 +23,6 @@ export function assertString(value: unknown, label: string): string {
 
 export function method<T extends (...args: never[]) => unknown>(handle: unknown, primitive: string, name: string): T {
   const fn = typeof handle === "object" && handle !== null ? (handle as Record<string, unknown>)[name] : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider handles expose optional methods that must be callable before binding.
   if (typeof fn !== "function") throw agentDiagnostics.AGENT_R0230({ message: `[vitehub] ${primitive} primitive does not expose ${name}().` })
   return fn.bind(handle) as T
 }
@@ -40,7 +39,6 @@ export async function storageValue<T>(result: MaybePromise<T | [Error, undefined
 export function selectStore(handle: unknown, primitive: "Blob" | "KV", store?: string): unknown {
   if (!store) return handle
   const storeFn = typeof handle === "object" && handle !== null ? (handle as { store?: unknown }).store : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider handles expose optional methods that must be callable before binding.
   if (typeof storeFn !== "function") throw agentDiagnostics.AGENT_R0231({ message: `[vitehub] ${primitive} Capability store selection requires the ${primitive.toLowerCase()} primitive to expose store().` })
   return storeFn.call(handle, store)
 }

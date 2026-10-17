@@ -7,9 +7,11 @@ import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/verc
 import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
-import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition } from "../../build/assets.ts"
+import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, resolveWorkspaceDefinitionModule } from "../../build/assets.ts"
+import { collectWorkspaceContributions } from "../../build/contributions.ts"
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
@@ -18,13 +20,16 @@ import { normalizeWorkspaceOptions } from "../../config.ts"
 import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
 import { installHostedWorkspaceRuntime } from "../../hosted.ts"
 import { installHostedVercelBlobWorkspaceRuntime } from "../../hosted-vercel-blob.ts"
+import { workspaceHistoryDevRuntimeRoute } from "../../history-dev.ts"
 import { inspectWorkspaceDefinitions } from "../../inspect.ts"
+import { registerWorkspaceHistoryDevEndpoint, writeWorkspaceHistoryDevHandler } from "./history-dev.ts"
 import { configureCloudflareArtifacts } from "../../integrations/cloudflare.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 import { isWorkspaceStore } from "../../storage/provider.ts"
 
 import type { AliasOptions, HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { CloudflareProviderDeploymentOutputStateReader, ProviderDeploymentOutputWriter } from "@vite-hub/internal/build/deployment-output"
+import type { CollectedWorkspaceContribution } from "../../build/contributions.ts"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
@@ -262,7 +267,6 @@ function babelNamespaceMemberNames(
   if (parent?.node.type === "MemberExpression" && parent.node.object === path.node) {
     if (!reachesRequestedExport(parent)) return []
     const name = parent.node.property?.name ?? parent.node.property?.value
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel member names cross the parser boundary as identifiers or literals.
     return typeof name === "string" ? [name] : []
   }
   if (
@@ -282,7 +286,6 @@ function babelNamespaceMemberNames(
       const references = parent.scope.getBinding(objectProperty.value.name)?.referencePaths ?? []
       if (!references.some(reachesRequestedExport)) return []
       const name = objectProperty.key?.name ?? objectProperty.key?.value
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel destructuring keys cross the parser boundary as identifiers or literals.
       return typeof name === "string" ? [name] : []
     }) ?? []
   }
@@ -441,7 +444,6 @@ function babelStringValue(node: BabelNode | undefined, path: BabelBindingPath, s
     && node.callee.property.name === "join"
   ) {
     const values = node.callee.object.elements?.map(element => babelStringValue(element ?? undefined, path, seen))
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel literal evaluation must validate every computed array element before joining it.
     if (values?.every(value => typeof value === "string")) return values.join("-")
   }
 }
@@ -543,7 +545,6 @@ function sourceImportsFeedingWorkspaceStore(
         visitor: {
           ExportNamedDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel export sources may be absent or non-string parser nodes.
             if (typeof specifier !== "string") return
             for (const exported of path.node.specifiers ?? []) {
               const exportedAs = String(exported.exported?.name ?? exported.exported?.value)
@@ -556,12 +557,10 @@ function sourceImportsFeedingWorkspaceStore(
           },
           ExportAllDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel export-all sources may be absent or non-string parser nodes.
             if (typeof specifier === "string" && exportedName !== "default") imports.push({ importedName: exportedName, specifier })
           },
           ImportDeclaration(path: BabelNodePath) {
             const specifier = path.node.source?.value
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel import sources may be absent or non-string parser nodes.
             if (typeof specifier !== "string") return
             for (const imported of path.node.specifiers ?? []) {
               if (imported.local?.type !== "Identifier" || !imported.local.name) continue
@@ -630,12 +629,10 @@ function sourceImportsFeedingWorkspaceStore(
                 : undefined
             if (assignedName !== exportedName) return
             const specifier = required.arguments[0]?.value
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
             if (typeof specifier !== "string") return
             const importedName = right?.type === "MemberExpression"
               ? right.property?.name ?? right.property?.value
               : "default"
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
             imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, specifier })
           },
           VariableDeclarator(path: BabelNodePath) {
@@ -656,7 +653,6 @@ function sourceImportsFeedingWorkspaceStore(
               && awaited.arguments?.length === 1
             ) {
               const specifier = awaited.arguments[0]?.value
-              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import arguments must be statically resolvable strings.
               if (typeof specifier !== "string") return
               if (path.node.id?.type === "ObjectPattern") {
                 // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
@@ -673,7 +669,6 @@ function sourceImportsFeedingWorkspaceStore(
                     : babelPathOrBindingIsExported(reference, exportedName))
                   if (!reaches) continue
                   const importedName = property.key?.name ?? property.key?.value
-                  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import destructuring keys cross the parser boundary.
                   imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
                 }
               }
@@ -684,7 +679,6 @@ function sourceImportsFeedingWorkspaceStore(
                 const reachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
                   ? babelPathReachesExportedStore(reference)
                   : babelPathOrBindingIsExported(reference, exportedName)
-                // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Dynamic import member names cross the parser boundary.
                 if (typeof selectedDynamicImportName === "string" && binding?.referencePaths?.some(reachesRequestedExport)) {
                   imports.push({ importedName: selectedDynamicImportName, localName, specifier })
                 }
@@ -704,7 +698,6 @@ function sourceImportsFeedingWorkspaceStore(
               && required.arguments?.length === 1
             ) {
               const specifier = required.arguments[0]?.value
-              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
               if (typeof specifier !== "string") return
               // SAFETY: Babel's ObjectPattern discriminator above guarantees its properties collection.
               const properties = (path.node.id as BabelNode & { properties?: BabelNode[] }).properties
@@ -722,7 +715,6 @@ function sourceImportsFeedingWorkspaceStore(
                 const importedName = property.computed
                   ? babelStringValue(key, path)
                   : property.key?.name ?? property.key?.value
-                // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS destructuring keys cross the parser boundary as identifiers or literals.
                 imports.push({ importedName: typeof importedName === "string" ? importedName : undefined, localName, specifier })
               }
               return
@@ -738,7 +730,6 @@ function sourceImportsFeedingWorkspaceStore(
               || required.arguments?.length !== 1
             ) return
             const specifier = required.arguments[0]?.value
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS require arguments cross the parser boundary and must be string literals.
             if (typeof specifier !== "string") return
             const binding = path.scope.getBinding(path.node.id.name)
             const reachesRequestedExport = (reference: BabelNodePath) => exportedName === "default"
@@ -750,7 +741,6 @@ function sourceImportsFeedingWorkspaceStore(
             const selectedName = path.node.init?.type === "MemberExpression"
               ? path.node.init.property?.name ?? path.node.init.property?.value
               : "default"
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CommonJS member names cross the parser boundary as identifiers or literals.
             if (typeof selectedName === "string" && direct) imports.push({ importedName: selectedName, specifier })
             for (const name of selectedNames) imports.push({ importedName: name, localName: path.node.id.name, specifier })
           },
@@ -800,7 +790,6 @@ function babelEnvironmentKey(
     || node.object.property.name !== "env"
   ) return
   const key = node.property?.name ?? node.property?.value
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Environment member keys cross the parser boundary.
   return typeof key === "string" ? key : undefined
 }
 
@@ -870,7 +859,6 @@ function sourceInlineWorkspaceStoreOperations(
             const selectedName = argument?.type === "MemberExpression"
               ? argument.property?.name ?? argument.property?.value
               : undefined
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babel member names cross the parser boundary as identifiers or literals.
             if (!localName || (selectedName !== undefined && typeof selectedName !== "string")) return
             const operation: InlineWorkspaceStoreOperation = {
               kind: "spread",
@@ -892,9 +880,7 @@ function sourceInlineWorkspaceStoreOperations(
             let value = babelStringValue(valueNode, path)
             const environmentValue = value === undefined && babelEnvironmentKey(valueNode, path) !== undefined
             if (environmentValue) value = babelEnvironmentValue(valueNode, path, env)
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property values cross the Babel boundary as unknown values.
             const stringValue = typeof value === "string" ? value : undefined
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parsed property names cross the Babel boundary as unknown values.
             if (typeof name === "string") {
               operations.push({
                 kind: "property",
@@ -937,7 +923,6 @@ function reconstructCloudflareArtifactStore(
       continue
     }
     const imported = operation.localName === undefined ? undefined : importedValues.get(operation.localName)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Imported Workspace store properties cross the module-loader boundary as unknown values.
     if (typeof imported === "string") {
       reconstructed[operation.name] = imported
       continue
@@ -1048,18 +1033,22 @@ async function resolveDefinitionCloudflareArtifactsConfigs(
   const sourceModuleResolver = createSourceModuleResolver(rootDir, aliases, resolveModule)
   const configs: ResolvedWorkspaceModuleOptions[] = []
   for (const definition of definitions) {
-    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
+    const definitionFile = resolveWorkspaceDefinitionModule(loader, definition, rootDir)
+    if (!inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
     let loaded: WorkspaceDefinitionInput
     try {
-      loaded = await loadDiscoveredWorkspaceDefinition(loader, definition)
+      loaded = await loadDiscoveredWorkspaceDefinition(loader, definition, rootDir)
       const commonJsLoaded: WorkspaceDefinitionInput & { default?: WorkspaceDefinitionInput } = loaded
       loaded = commonJsLoaded.default ?? loaded
     }
     catch (error) {
-      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definition.path, loader, sourceModuleResolver)) continue
-      const source = await readSourceModule(definition.path)
+      if (inspection?.artifactsOnly && !await sourceModuleMayUseCloudflareArtifacts(definitionFile, loader, sourceModuleResolver, new Set(), definition.export)) continue
+      const source = await readSourceModule(definitionFile)
       if (source && sourceHasUnresolvedWorkspaceRoot(source, loader)) throw error
-      const store = await loadFactoredCloudflareArtifactStore(definition, loader, sourceModuleResolver, resolution?.env || process.env)
+      // Factored store analysis reads the default export only.
+      const store = definition.export
+        ? undefined
+        : await loadFactoredCloudflareArtifactStore({ ...definition, path: definitionFile }, loader, sourceModuleResolver, resolution?.env || process.env)
       if (!store) {
         if (inspection?.artifactsOnly) continue
         throw error
@@ -1183,6 +1172,10 @@ export interface WorkspaceNitroConfigOptions {
   env?: Record<string, string | undefined>
   hosting?: string
   nitro?: unknown
+  /** Vite plugins that can contribute Workspace Definitions through `vitehub.workspaces`. */
+  plugins?: readonly unknown[]
+  /** Server directories used when collecting contributed Workspace Definitions. */
+  serverDirs?: string[]
   viteRoot?: string
   workspace?: false | WorkspaceModuleOptions
 }
@@ -1236,8 +1229,12 @@ function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | Wor
   return { projectRoot: resolvedProjectRoot, viteRoot: resolvedViteRoot }
 }
 
-function discoverDefinitions(roots: WorkspacePluginRoots, serverDirs?: string[]) {
-  return discoverViteWorkspaceDefinitions(roots.viteRoot, { serverDirs, serverRootDir: roots.projectRoot })
+function discoverDefinitions(roots: WorkspacePluginRoots, serverDirs?: string[], contributions?: readonly CollectedWorkspaceContribution[]) {
+  return discoverViteWorkspaceDefinitions(roots.viteRoot, { contributions, serverDirs, serverRootDir: roots.projectRoot })
+}
+
+async function collectPluginWorkspaceContributions(plugins: readonly unknown[] | undefined, roots: WorkspacePluginRoots, serverDirs?: string[]) {
+  return await collectWorkspaceContributions(plugins, { projectRoot: roots.projectRoot, root: roots.viteRoot, serverDirs })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1416,10 +1413,17 @@ function shouldInstallNitroWorkspacePlugin(
     || (hasNitroConfig(config) && definitions.length > 0)
 }
 
-function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
+function readNitroBaseURL(config: ResolvedConfig | undefined): string | undefined {
+  const nitro: unknown = config ? Reflect.get(config, "nitro") : undefined
+  const baseURL: unknown = isRecord(nitro) ? nitro.baseURL : undefined
+  return hasRuntimeType(baseURL, "string") ? baseURL : process.env.NITRO_APP_BASE_URL
+}
+
+function mergeNitroWorkspaceConfig(value: unknown, historyDevHandler?: string): NitroConfig {
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
   const kit = createNitroServerKit(nitro)
   kit.addPlugin(generatedNitroWorkspacePlugin)
+  if (historyDevHandler) kit.addHandler({ handler: historyDevHandler, route: workspaceHistoryDevRuntimeRoute })
   // SAFETY: The kit preserves the Nitro config object shape while adding the generated plugin.
   return kit.config as NitroConfig
 }
@@ -1601,7 +1605,8 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   })
   if (!normalized) return null
 
-  const definitions = discoverDefinitions(roots)
+  const contributions = await collectPluginWorkspaceContributions(options.plugins, roots, options.serverDirs)
+  const definitions = discoverDefinitions(roots, options.serverDirs, contributions)
   if (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0) return null
 
   const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
@@ -1674,9 +1679,13 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   let registryContents = "export default {}\n"
   let server: ViteDevServer | undefined
   let serverDirs: string[] | undefined
+  let contributions: CollectedWorkspaceContribution[] = []
+  // Each plugin instance owns one history dev route, so a CLI process that loads the config does not replace it.
+  const historyDevServerId = globalThis.crypto.randomUUID()
+  let historyDevHandlerInstalled = false
 
   async function refreshManifest(roots: WorkspacePluginRoots) {
-    const definitions = discoverDefinitions(roots, serverDirs)
+    const definitions = discoverDefinitions(roots, serverDirs, contributions)
     const state = await refreshWorkspaceBuildState(roots.projectRoot, definitions)
     manifest = state.manifest
     registryContents = state.registryContents
@@ -1733,7 +1742,8 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           },
         },
       }
-      const definitions = normalized ? discoverDefinitions(roots, serverDirs) : []
+      if (normalized) contributions = await collectPluginWorkspaceContributions(config.plugins, roots, serverDirs)
+      const definitions = normalized ? discoverDefinitions(roots, serverDirs, contributions) : []
       if (normalized && shouldInstallNitroWorkspacePlugin(config, runtimeOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(runtimeOptions, normalized) ? normalized : false
         const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
@@ -1746,7 +1756,12 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         const usesCloudflareArtifacts = artifacts.length > 0
         const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
         await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides)
-        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
+        // CLI discovery loads the config without a server, so it must not add a route.
+        const historyDevHandler = env?.command === "serve" && Reflect.get(config, "vitehubCliDiscovery") !== true
+          ? await writeWorkspaceHistoryDevHandler({ importBase, projectRoot: roots.projectRoot, serverId: historyDevServerId })
+          : undefined
+        historyDevHandlerInstalled = Boolean(historyDevHandler)
+        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, historyDevHandler)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
         // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
@@ -1777,6 +1792,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         hosting: resolvedHosting,
         rootDir: roots.projectRoot,
       })
+      if (resolvedOptions) contributions = await collectPluginWorkspaceContributions(config.plugins, roots, serverDirs)
       assetsRegistryFile = resolve(roots.projectRoot, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
       await initializeWorkspaceAssetRegistry(assetsRegistryFile)
       await refreshManifest(roots)
@@ -1800,7 +1816,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       await refreshManifest(roots)
       if (resolved.command !== "build" || !assetsRegistryFile) return
 
-      const definitions = discoverDefinitions(roots, serverDirs)
+      const definitions = discoverDefinitions(roots, serverDirs, contributions)
       await syncWorkspaceBuildAssets(definitions, roots.projectRoot, resolvedOptions, assetsRegistryFile)
     },
     async buildEnd(error) {
@@ -1818,7 +1834,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         owner: "workspace",
         rootDir: roots.projectRoot,
         write: async ({ readCloudflareState, signal, write }) => {
-          const definitions = discoverDefinitions(roots, serverDirs)
+          const definitions = discoverDefinitions(roots, serverDirs, contributions)
           await copyVercelFunctionRuntimePackages({
             packages: vercelFunctionRuntimePackages(),
             rootDir: roots.projectRoot,
@@ -1875,6 +1891,12 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         label: "Workspace Dev",
         route: workspaceDevRoute,
       })
+      await registerWorkspaceHistoryDevEndpoint(devServer, {
+        available: () => historyDevHandlerInstalled,
+        nitroBaseURL: () => readNitroBaseURL(resolved),
+        projectRoot: roots.projectRoot,
+        serverId: historyDevServerId,
+      })
     },
     vitehub: {
       cli: async () => {
@@ -1886,7 +1908,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           ? { projectRoot, viteRoot }
           : resolveWorkspacePluginRoots(resolved?.root ?? process.cwd(), publicOptions)
         const artifacts = resolvedOptions
-          ? await resolveCloudflareArtifactsConfigs(resolvedOptions, discoverDefinitions(roots, serverDirs), roots.projectRoot, {
+          ? await resolveCloudflareArtifactsConfigs(resolvedOptions, discoverDefinitions(roots, serverDirs, contributions), roots.projectRoot, {
               aliases: resolved?.resolve ? workspaceDefinitionLoaderAliases(resolved.resolve.alias) : undefined,
               resolveModule: resolved?.createResolver?.(),
             })
@@ -1899,7 +1921,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
               const roots = projectRoot && viteRoot
                 ? { projectRoot, viteRoot }
                 : resolveWorkspacePluginRoots(resolved?.root ?? process.cwd(), publicOptions)
-              return inspectWorkspaceDefinitions({ projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
+              return inspectWorkspaceDefinitions({ plugins: resolved?.plugins, projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
             },
           }],
           providerOutput: artifacts.length > 0
