@@ -2051,6 +2051,15 @@ export interface AgentPreparationOptions {
   route?: string
 }
 
+export interface AgentShutdownOptions {
+  /**
+   * Default for `VITEHUB_SHUTDOWN_DRAIN_MS`: how long a stop signal waits for inline Chat
+   * invocations and active webhook queue deliveries. The variable wins when it is set.
+   * Defaults to 0, which interrupts the work at once.
+   */
+  drainMs?: number
+}
+
 export interface AgentModuleOptions {
   /** Prepare startup Workspace sources on a persistent Nitro host. */
   preparation?: AgentPreparationOptions
@@ -2062,11 +2071,17 @@ export interface AgentModuleOptions {
   providers?: AgentProvidersOptions
   routes?: AgentRoutesOptions
   runtime?: AgentRuntime
+  /**
+   * Drain Agent work on SIGTERM and SIGINT on a persistent Node host, then exit.
+   * Set `false` when the application installs its own stop handler.
+   */
+  shutdown?: false | AgentShutdownOptions
 }
 
 export interface ResolvedAgentModuleOptions {
   preparation?: AgentPreparationOptions
   execution: AgentExecution
+  shutdown: false | AgentShutdownOptions
   imports: boolean
   integrations: Required<AgentIntegrationsOptions>
   providers: {

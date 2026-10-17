@@ -1,11 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Plugin } from "vite";
+import type { ProcessShutdownDrains, ProcessStopSignal } from "./internal/shutdown-drain.ts";
 
-type ProcessHostStopSignal = "SIGINT" | "SIGTERM";
+type ProcessHostStopSignal = ProcessStopSignal;
 
 /** The part of `process` that the generated stop handler uses. Tests pass a replacement. */
 export interface ProcessHostStopRuntime {
+  __vitehubShutdown?: ProcessShutdownDrains;
   exit(code: number): void;
   listeners(signal: ProcessHostStopSignal): unknown[];
   off(signal: ProcessHostStopSignal, listener: (signal: ProcessHostStopSignal) => void): unknown;
@@ -18,7 +20,9 @@ export interface ProcessHostStopRuntime {
  * SIGTERM and SIGINT first stop admission with `host.close()`, which waits for the
  * invocations that the host tracks. HTTP stays up, so webhooks still reach durable
  * queues. Then the server's own signal listeners close HTTP, and the process exits.
- * A second signal does not start more work.
+ * A second signal does not start more work. The drain is registered in
+ * `process.__vitehubShutdown`, and the process exits once, after every registered drain
+ * settles. This includes the Agent shutdown drain of the generated webhook queue plugin.
  *
  * The Nitro Node server calls srvx `serve()` after it runs plugins, and srvx adds its
  * graceful shutdown listeners there. Nitro does not expose an option that disables
@@ -50,9 +54,11 @@ export function installProcessHostStop(
         serverListeners.push([signal, handler]);
       }
     }
+    const shutdown = (runtime.__vitehubShutdown ??= { drains: new Set(), exited: false });
     let stopping: Promise<void> | undefined;
     const stop = (signal: ProcessHostStopSignal) => {
-      stopping ??= (async () => {
+      if (stopping) return;
+      stopping = (async () => {
         console.info("[vitehub]", JSON.stringify({ event: "process.stop.draining", signal, timestamp: new Date().toISOString() }));
         try {
           await host.close();
@@ -68,6 +74,16 @@ export function installProcessHostStop(
           closeServer.catch((error: unknown) => console.error("[vitehub]", error)),
           new Promise((resolve) => setTimeout(resolve, 10_000).unref()),
         ]);
+      })();
+      shutdown.drains.add(stopping);
+      void (async () => {
+        let settled = -1;
+        while (settled !== shutdown.drains.size) {
+          settled = shutdown.drains.size;
+          await Promise.allSettled(shutdown.drains);
+        }
+        if (shutdown.exited) return;
+        shutdown.exited = true;
         console.info("[vitehub]", JSON.stringify({ event: "process.stop.exited", signal, timestamp: new Date().toISOString() }));
         runtime.exit(0);
       })();
