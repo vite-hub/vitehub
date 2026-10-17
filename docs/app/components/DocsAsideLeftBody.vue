@@ -18,7 +18,7 @@ const section = computed(() => getDocsSectionForPath(docsManifest.sections, rout
 const pageGroups = computed(() => {
   if (!section.value) return [];
   const groups = getDocsSidebarGroups(section.value);
-  const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
+  const perspective = getDocsPageByPath("/docs/getting-started/built-for-vue");
   if (section.value.id !== "ui" || !perspective) return groups;
   return groups.map((group) =>
     group.label === "Start" && !group.pages.some((page) => page.path === perspective.path)
@@ -31,7 +31,6 @@ const related = computed(() =>
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
-const platformSections = computed(() => docsManifest.sections.filter(section => section.category === "Platform"));
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
@@ -40,7 +39,7 @@ function isActive(path: string) {
 
 <template>
   <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
-    <template v-for="(pageGroup, pageGroupIndex) in pageGroups" :key="pageGroup.label || `pages-${pageGroupIndex}`">
+    <template v-for="(pageGroup, index) in pageGroups" :key="pageGroup.label || `pages-${index}`">
       <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
         <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink

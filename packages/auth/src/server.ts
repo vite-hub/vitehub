@@ -30,8 +30,11 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 // Capture the intrinsic typed-array brand getter before mutable prototype state
 // can be changed by application code. The getter itself performs the internal
 // brand check and remains valid for values from other JavaScript realms.
+// Resolve the shared %TypedArray%.prototype through a sibling typed-array
+// constructor. This avoids depending on a potentially replaced
+// Uint8Array.prototype chain during module initialization.
 const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
-  Object.getPrototypeOf(Uint8Array.prototype),
+  Object.getPrototypeOf(Int8Array.prototype),
   Symbol.toStringTag,
 )?.get
 
@@ -587,12 +590,12 @@ function bridgeAuthorizationBody(
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, [])
+        const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
         if (result.done) {
           release()
           controller.close()
         }
-        else controller.enqueue(result.value)
+        else controller.enqueue(result.value as Uint8Array)
       }
       catch (error) {
         release()
