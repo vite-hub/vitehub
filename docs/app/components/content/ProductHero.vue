@@ -446,11 +446,15 @@ const channelPath = computed(() =>
     border-right: 0;
   }
 
-  /* The row has an underline indicator, so the active file does not also get the left bar. */
+  /* The row has an underline indicator, so the active file does not also get the left bar or a number. */
   .vh-hero-panel :deep([role="tab"]) {
     width: auto;
     flex: 0 0 auto;
     border-left: 0;
+  }
+
+  .vh-hero-panel :deep([role="tab"])::before {
+    content: none;
   }
 }
 
