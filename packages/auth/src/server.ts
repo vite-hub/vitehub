@@ -393,12 +393,12 @@ function bridgeAuthorizationBody(
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, [])
+        const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
         if (result.done) {
           release()
           controller.close()
         }
-        else controller.enqueue(result.value)
+        else controller.enqueue(result.value as Uint8Array)
       }
       catch (error) {
         release()
@@ -491,10 +491,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
+      : new Response(body as ReadableStream<Uint8Array> | null, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
     if (typeof nativeBodyReader !== "function") return
-    const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
+    const bridgedBody = bridgeAuthorizationBody(body as ReadableStream<Uint8Array>, nativeBodyReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
