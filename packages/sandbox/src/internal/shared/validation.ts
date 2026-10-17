@@ -63,7 +63,6 @@ function hasStandardValidator<TInput, TOutput>(
 
   // Lazy schema getters can create the own marker when first read.
   const standard = value['~standard']
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Standard Schema validators cross the public boundary and must expose a callable validate method.
   return Object.hasOwn(value, '~standard') && isObject(standard) && typeof standard.validate === 'function'
 }
 

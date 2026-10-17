@@ -26,7 +26,6 @@ import { AgentInvocationTimeline, invocationTimeline } from "./agent-invocation-
 export { invocationActivities } from "../internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "../internal/invocation-conversation.ts";
 import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
-import { payloadText } from "../internal/payload-text.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
 import { AgentToolList } from "./agent-tool-list.ts";
@@ -130,6 +129,22 @@ function renderFolderIcon() {
 type InspectTarget = "agent" | "workspace";
 type InspectHandler = (target: InspectTarget, path?: string) => void;
 
+function payloadText(value: unknown): string {
+  if (hasRuntimeType(value, "string")) return value;
+  const ancestors: object[] = [];
+  try {
+    return JSON.stringify(value, function (this: unknown, _key, item: unknown) {
+      if (hasRuntimeType(item, "bigint")) return `${item}n`;
+      if (!hasRuntimeType(item, "object") || item === null) return item;
+      while (ancestors.length && ancestors.at(-1) !== this) ancestors.pop();
+      if (ancestors.includes(item)) return "[Circular]";
+      ancestors.push(item);
+      return item;
+    }, 2) ?? String(value);
+  } catch (error) {
+    return error instanceof Error ? `[Unable to display payload: ${error.message}]` : "[Unable to display payload]";
+  }
+}
 
 function payloadPreview(value: unknown, text: string): string {
   const source = hasRuntimeType(value, "string") ? value : text.replaceAll(/\s+/g, " ");
@@ -1199,7 +1214,6 @@ function renderConfiguration(
   selectTool: (name: string) => void,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
   const channelsCatalogMalformed = configuration.channels !== undefined && !Array.isArray(configuration.channels);
   const recordedChannels = Array.isArray(configuration.channels) ? configuration.channels : [];
@@ -1792,6 +1806,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
+
             ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, props.showSources, selectTool) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(

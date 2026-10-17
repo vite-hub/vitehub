@@ -198,7 +198,6 @@ function nitroOptions(nuxt: ReturnType<typeof createNuxt>["nuxt"]): Record<strin
 
 function nitroPlugins(nuxt: ReturnType<typeof createNuxt>["nuxt"]): string[] {
   const plugins = nitroOptions(nuxt).plugins
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro's plugin boundary accepts mixed values; this helper narrows the test fixture to generated paths.
   if (!Array.isArray(plugins) || !plugins.every(plugin => typeof plugin === "string")) {
     throw new TypeError("Expected string-valued Nitro plugins.")
   }
@@ -485,12 +484,14 @@ describe("ViteHub Nuxt integration", () => {
 
     const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
     expect(plugins.map(plugin => plugin.name)).toEqual([
+      "vite-hub/nitro-file-url",
+      "vite-hub/nitro-cache-bypass",
       "existing-nitro-plugin",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite",
     ])
-    const kvResolver = plugins[1]!
-    const blobResolver = plugins[2]!
+    const kvResolver = plugins[3]!
+    const blobResolver = plugins[4]!
     const context = { marker: "nitro-context" }
     expect(Reflect.apply(kvResolver.resolveId as Function, context, ["#vitehub/kv/config"])).toBe("\0#vitehub/kv/config")
     expect(Reflect.apply(kvResolver.load as Function, context, ["\0#vitehub/kv/config"])).toBe(
@@ -627,7 +628,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "vite-hub/console-cli" }),
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt", invoke: true })`,
+      `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt", invoke: true, capabilities: {`,
     )
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleBlob("/tmp/vitehub-nuxt", vitehubConsoleBlob, ["default"])`,
@@ -674,7 +675,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(production.nuxt.options.devServerHandlers).toBeUndefined()
     expect(production.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt" })`,
+      `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt", capabilities: {`,
     )
   })
 
@@ -747,6 +748,19 @@ describe("ViteHub Nuxt integration", () => {
     }, application.nuxt)
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
     expect(generated).toContain(`d1: { binding: "${config ? "APP_DB" : "DB"}",`)
+    await application.runCloseHook()
+  })
+
+  it.each([
+    { content: true, dialect: "" },
+    { content: false, dialect: 'dialect: "postgresql",' },
+  ])("adds the default Cloudflare D1 host resource only for SQLite Definitions: $dialect", async ({ content, dialect }) => {
+    await mkdir("/tmp/vitehub-nuxt/custom-server/databases", { recursive: true })
+    await writeFile("/tmp/vitehub-nuxt/custom-server/databases/config.ts", `export default defineDatabase({ ${dialect} schema: {} })\n`)
+    const application = createNuxt(true)
+    await viteHubNuxtModule({ preset: "cloudflare", database: true }, application.nuxt)
+
+    expect(Boolean((application.nuxt.options as { content?: { database?: unknown } }).content?.database)).toBe(content)
     await application.runCloseHook()
   })
 
@@ -1422,7 +1436,6 @@ describe("ViteHub Nuxt integration", () => {
       if (!isTestRecord(invocationRootPlugin)) throw new TypeError("Expected the Console invocation root plugin.")
       const configResolved = invocationRootPlugin.configResolved
       const configResolvedHandler = isTestRecord(configResolved) ? configResolved.handler : configResolved
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects.
       if (typeof configResolvedHandler !== "function") throw new TypeError("Expected a Console configResolved hook.")
       await Reflect.apply(configResolvedHandler, {}, [{ root: "/tmp/vitehub-nuxt" }])
       const startupRefreshed = await readFile(generatedPlugin, "utf8")
@@ -1466,7 +1479,6 @@ describe("ViteHub Nuxt integration", () => {
 
       const closeBundle = invocationRootPlugin.closeBundle
       const closeBundleHandler = isTestRecord(closeBundle) ? closeBundle.handler : closeBundle
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects.
       if (typeof closeBundleHandler !== "function") throw new TypeError("Expected a Console closeBundle hook.")
       await Reflect.apply(closeBundleHandler, {}, [])
       await expect(readFile(generatedPlugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
@@ -2563,6 +2575,12 @@ describe("ViteHub Nuxt integration", () => {
       },
       replace: {
         __VITEHUB_AGENT_APP_ROOT__: JSON.stringify("/tmp/vitehub-nuxt"),
+      },
+      rollupConfig: {
+        plugins: [
+          expect.objectContaining({ name: "vite-hub/nitro-file-url" }),
+          expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),
+        ],
       },
       sandbox: true,
       workflows: true,

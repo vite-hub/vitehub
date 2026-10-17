@@ -44,7 +44,6 @@ function assertHostedConfig(config: false | ResolvedKVModuleOptions | undefined)
 }
 
 function deserializeValue(value: unknown) {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Hosted drivers return the serialized representation written by unstorage.
   if (typeof value !== "string") return value
   // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- This is the decoder used by unstorage's ordinary read path.
   return destr(value)

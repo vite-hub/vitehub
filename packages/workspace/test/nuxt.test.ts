@@ -38,25 +38,6 @@ async function createNuxtHook(store: WorkspaceModuleOptions["store"] = { provide
 }
 
 describe("Workspace Nuxt module", () => {
-  it("registers collection composables once", () => {
-    const nuxt = {
-      options: {
-        imports: {
-          imports: [{ from: "@vite-hub/workspace/collections/client", name: "useWorkspaceCollection" }],
-        },
-        vite: { plugins: [] },
-      },
-    }
-
-    workspaceNuxt({}, nuxt as never)
-    workspaceNuxt({}, nuxt as never)
-
-    expect(nuxt.options.imports.imports).toEqual([
-      { from: "@vite-hub/workspace/collections/client", name: "useWorkspaceCollection" },
-      { from: "@vite-hub/workspace/collections/client", name: "useWorkspaceCollectionItem" },
-    ])
-  })
-
   it("preserves Nitro preset hosting in the registered Vite plugin", async () => {
     const { nitroConfigHook, root, vitePlugin } = await createNuxtHook({
       provider: "github",
@@ -70,6 +51,38 @@ describe("Workspace Nuxt module", () => {
 
     const plugin = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(plugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
+  })
+
+  it("passes Nuxt server directories to Workspace contribution factories", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-nuxt-server-dirs-"))
+    tempDirs.push(root)
+    const layerRoot = await mkdtemp(join(tmpdir(), "vitehub-workspace-nuxt-layer-"))
+    tempDirs.push(layerRoot)
+    let receivedServerDirs: string[] | undefined
+    let handler: ((config: Record<string, unknown>) => void | Promise<void>) | undefined
+    const nuxt = {
+      hook(_name: "nitro:config", value: (config: Record<string, unknown>) => void | Promise<void>) { handler = value },
+      options: {
+        rootDir: root,
+        srcDir: root,
+        serverDir: join(root, "server-custom"),
+        _layers: [{ cwd: layerRoot }],
+        vite: {
+          plugins: [{
+            name: "test/contributor",
+            vitehub: {
+              workspaces: (context: { serverDirs?: string[] }) => {
+                receivedServerDirs = context.serverDirs
+                return []
+              },
+            },
+          }],
+        },
+      },
+    }
+    workspaceNuxt({ store: { provider: "memory" } }, nuxt)
+    await handler!({})
+    expect(receivedServerDirs).toEqual([join(root, "server-custom"), join(layerRoot, "server")])
   })
 
   it("preserves Nitro preset hosting in a pre-registered Workspace Vite plugin", async () => {

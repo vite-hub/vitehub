@@ -89,7 +89,6 @@ const scope = globalThis as ConsoleInvocationScope
 const fakeInvocations = (name: string) => ({ name }) as unknown as AgentInvocations
 
 function isPluginHookObject(value: unknown): value is { handler: unknown } {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin hooks are functions or hook objects at this test boundary.
   return value !== null && typeof value === "object" && "handler" in value
 }
 
@@ -99,13 +98,11 @@ function withViteLogger<T extends object>(config: T): T & { logger: { warn: () =
 }
 
 function callPluginHook(hook: unknown, context: unknown, args: readonly unknown[] = []): unknown {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin hooks are functions or hook objects at this test boundary.
   const candidate = typeof hook === "function"
     ? hook
     : isPluginHookObject(hook)
       ? hook.handler
       : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The structural Vite hook boundary is validated before invocation.
   if (typeof candidate !== "function") throw new TypeError("Expected a callable Vite plugin hook.")
   return Reflect.apply(candidate, context, args)
 }
@@ -600,6 +597,39 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain('"databases":{"definitions":[]')
       expect(generated).not.toContain("inherited/server/databases/config.ts")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+
+  it("registers the configured Agent runtime capabilities for Console invocations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-agent-capabilities-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "support.agent.ts"), "export default {}\n")
+      const plugin = consoleVitePlugin({
+        console: { auth: false },
+        preset: "node",
+        runtimeCapabilityImports: {
+          blob: "vite-hub/_internal/blob",
+          console: "vite-hub/console/server",
+          db: "vite-hub/database/drizzle",
+          kv: "vite-hub/_internal/kv",
+        },
+        sections: ["agents"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { plugins: string[] }, root: string } = { root }
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`import { blob as vitehubConsoleAgentBlob } from "vite-hub/_internal/blob"`)
+      expect(generated).toContain(`import { agentDb as vitehubConsoleAgentDb } from "vite-hub/database/drizzle"`)
+      expect(generated).toContain(`capabilities: { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, kv: vitehubConsoleAgentKv }`)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1223,7 +1253,6 @@ describe("Agent invocation console", () => {
       })
       // SAFETY: Vite plugin options form a recursive array, and this test narrows each flattened candidate structurally before using it as a plugin.
       const pluginCandidates = (plugins as unknown[]).flat(Infinity)
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin options can be nested and mixed at this test boundary, so narrow the flattened value by its plugin name.
       const plugin = pluginCandidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
 
@@ -4301,7 +4330,6 @@ describe("Agent invocation console", () => {
     const secondAgentRealm = { process }
     const unboundAgentRealm = { process }
 
-    // doctor-disable-next-line typescript/evidence/no-object-parameters -- VM contexts accept object realms and the test only checks injected symbol state.
     const bind = async (projectRoot: string, realm: object, identity?: string) => {
       const plugin = consoleInvocationRootPlugin(projectRoot, identity)
       // SAFETY: The console plugin declares this environment predicate on its Vite Plugin contract.
@@ -4310,7 +4338,6 @@ describe("Agent invocation console", () => {
       const buildStart = plugin.buildStart as unknown as (this: typeof context) => Promise<void>
       // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This test invokes a Vite object hook with a focused fake context.
       const resolveId = plugin.resolveId as unknown as (
-        // doctor-disable-next-line typescript/evidence/no-object-parameters -- The fake Vite hook context is intentionally structural.
         this: object,
         source: string,
         importer: string | undefined,

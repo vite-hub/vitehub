@@ -614,7 +614,6 @@ describe("agent Vite plugin", () => {
           // SAFETY: This hook fixture does not read the Vite plugin context.
           {} as never,
           "ssr",
-          // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The fixture supplies the server environment fields exercised by the hook.
           config as never,
           // SAFETY: This hook fixture does not read the environment options argument.
           {} as never,
@@ -2019,7 +2018,7 @@ describe("agent Vite plugin", () => {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            plugins: [schedulePlugin],
+            plugins: [schedulePlugin, { name: "@vite-hub/connections/vite" }, { name: "@vite-hub/database/vite" }],
             root,
           } as never,
         )
@@ -2031,6 +2030,9 @@ describe("agent Vite plugin", () => {
       const standaloneRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
       expect(standaloneRegistry).toContain('registry["agent/support"]')
       expect(standaloneRegistry).toContain('import("../../server/agents/support.ts")')
+      expect(standaloneRegistry).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
+      expect(standaloneRegistry).toContain("capabilities: { schedule: { schedules: vitehubSchedules } }")
+      expect(standaloneRegistry).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
@@ -2908,7 +2910,7 @@ export default defineAgent({
         const hooks = new Map<string, () => void>()
         let startup: (() => void) | undefined
         // Execute the generated plugin with an earlier process start and a deferred timer.
-        const install = new Function("resumeWebhookQueues", "performance", "setTimeout", "process", `${queuePlugin.replace(/^import .*\n/m, "").replace("export default ", "return ").replace("import.meta.prerender", "false")}`)(
+        const install = new Function("resumeWebhookQueues", "performance", "setTimeout", "process", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
           resumeWebhookQueues,
           { timeOrigin: Date.now() - 60_000 },
           (callback: () => void) => { startup = callback },
@@ -2930,7 +2932,9 @@ export default defineAgent({
         expect(queuePlugin).toContain("nitroApp.hooks.hook('close', shutdownWebhookQueues)")
         expect(queuePlugin).toContain("shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listeners(signal).some(listener => listener.name === 'shutdown'))")
         expect(queuePlugin).toContain("nodeProcess?.prependOnceListener(signal, shutdownWebhookQueues)")
+        // The Agent shutdown drain owns the exit through its runtime, not a direct process.exit().
         expect(queuePlugin).not.toContain("process.exit")
+        expect(queuePlugin).toContain("installAgentShutdownDrain({ chat: drainInlineChatInvocations, queues }, nitroApp, undefined, nodeProcess)")
         expect(webhookRoute).toContain(
           "return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })",
         )
@@ -3211,6 +3215,8 @@ export default defineAgent({
     expect(pkg.exports?.["./cloudflare/state"]).toEqual({
       types: "./dist/cloudflare/state.d.ts",
       import: "./dist/cloudflare/state.js",
+      require: "./dist/cloudflare/state.js",
+      default: "./dist/cloudflare/state.js",
     })
   })
 
@@ -3221,6 +3227,8 @@ export default defineAgent({
     expect(pkg.exports?.["./server/internal"]).toEqual({
       types: "./dist/server/internal.d.ts",
       import: "./dist/server/internal.js",
+      require: "./dist/server/internal.js",
+      default: "./dist/server/internal.js",
     })
   })
 
@@ -3238,7 +3246,7 @@ export default defineAgent({
     if (!isTestRecord(pkg) || !isTestRecord(pkg.dependencies)) throw new Error("Expected package dependencies metadata.")
 
     expect(config).toContain('"esbuild"')
-    expect(pkg.dependencies?.esbuild).toBe("catalog:esbuild-v27")
+    expect(pkg.dependencies?.esbuild).toBe("catalog:tooling")
   })
 
   it("publishes Schedule as an optional Agent integration peer", async () => {
@@ -3266,6 +3274,8 @@ export default defineAgent({
     expect(pkg.exports?.["./output"]).toEqual({
       types: "./dist/output.d.ts",
       import: "./dist/output.js",
+      require: "./dist/output.js",
+      default: "./dist/output.js",
     })
   })
 })
@@ -5038,6 +5048,7 @@ describe("server helpers", () => {
       },
       driver: { run },
       messages: {
+        ...(options.isBot ? { allowBots: true } : {}),
         ...(options.identity ? { identity: options.identity } : {}),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         ...(options.transcripts ? { transcripts: { maxPerUser: 50, retention: "30d" as const } } : {}),
@@ -6185,6 +6196,55 @@ describe("server helpers", () => {
       await handler(request(2104, 789, false, true), "telegram", options)
       expect(run).toHaveBeenCalledTimes(replyToSubscribedThreads ? 2 : 1)
       expect(deliveryKinds).toEqual(replyToSubscribedThreads ? ["mention", "subscribed"] : ["mention"])
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    { allowBots: undefined, multipleChannels: false },
+    { allowBots: true, multipleChannels: false },
+    { allowBots: true, multipleChannels: true },
+  ])("admits messages from other bots only with allowBots: $allowBots, multiple Channels: $multipleChannels", async ({ allowBots, multipleChannels }) => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-bot-authors-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "accepted")
+    const filter = vi.fn(() => true)
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture omits host-only context that these routes do not inspect.
+      defineAgent({
+        messages: { state, stream: false, triggerHistory: "none" },
+        channels: {
+          ...multipleChannels ? { web: webChat() } : {},
+          telegram: testTelegram(telegram, {
+            adapter: () => adapter as never,
+            messages: { ...allowBots === undefined ? {} : { allowBots }, filter },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    const request = (id: number, isBot: boolean) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ update_id: id, message: {
+        chat: { id: 791, type: "group" },
+        from: { id: isBot ? 999 : 123, username: isBot ? "other-bot" : "maxi", is_bot: isBot },
+        isMention: true,
+        message_id: id,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+    const options = { agentName: "support" }
+    try {
+      await expect(handler(request(2200, true), "telegram", options)).resolves.toMatchObject({ status: 200 })
+      expect(run).toHaveBeenCalledTimes(allowBots ? 1 : 0)
+      expect(filter).toHaveBeenCalledTimes(allowBots ? 1 : 0)
+      await handler(request(2201, false), "telegram", options)
+      expect(run).toHaveBeenCalledTimes(allowBots ? 2 : 1)
+      const deliveries = await handler.deliveries(request(2201, false), "telegram", options)
+      expect(deliveries.find(delivery => delivery.sourceId === "2200")?.status).toBe(allowBots ? "completed" : "rejected")
     } finally {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })

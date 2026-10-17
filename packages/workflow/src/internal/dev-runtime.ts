@@ -24,7 +24,6 @@ export interface WorkflowDevGeneratedState {
 
 export function createWorkflowDevRuntimeModule(state: WorkflowDevGeneratedState, importBase = workflowPackageName): string {
   const options = {
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Generated options omit configError when no config error exists.
     ...(state.configError ? { configError: state.configError } : {}),
     configuredProvider: state.configuredProvider,
   }

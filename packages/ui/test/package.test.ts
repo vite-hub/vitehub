@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
-import { componentEntryName, componentNames } from "../src/component-entries.ts";
+import { componentNames } from "../src/component-names.ts";
 
 interface PackageManifest {
   dependencies: Record<string, string>;
@@ -66,12 +66,10 @@ const compactInvocationRules = `  .vh-invocation-thread__content {
     margin-inline-start: 1rem;
   }`;
 
-const componentEntries = componentNames.map((name) => `./${componentEntryName(name)}`);
-
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", ...componentEntries, "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
+      [".", "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
     );
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
@@ -93,13 +91,13 @@ describe("@vite-hub/ui package contract", () => {
       "@nuxt/kit": "4.5.2",
       "@types/node": "catalog:tooling",
       "nostics": "catalog:runtime",
+      "reka-ui": "catalog:ui",
     });
   });
 
   // Each fresh Node process gets its own timeout and reports the failing entrypoint.
   it.each([
     ".",
-    ...componentEntries,
     "./headless",
     "./nuxt",
     "./primitive-rail",
@@ -108,12 +106,9 @@ describe("@vite-hub/ui package contract", () => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
   });
 
-  it("keeps component entry exports identical to the root barrel", async () => {
-    const root = await import("../dist/index.js");
-    for (const [entry, component] of componentEntries.map((entry, index) => [entry, componentNames[index]!] as const)) {
-      const subpath = await import(`../dist/${entry.slice(2)}.js`);
-      expect(subpath[component], entry).toBe(root[component]);
-    }
+  it("exports every component from the root entry", async () => {
+    const root: Record<string, unknown> = await import("../dist/index.js");
+    for (const component of componentNames) expect(root[component], component).toBeDefined();
   });
 
   it("ships compact invocation styles for narrow sessions and viewports", () => {

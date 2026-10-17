@@ -336,7 +336,6 @@ export function defineMcpToolCapability<
           : options.unavailableNotice(unavailable)
         if (notice.trim()) {
           const input = context.input.get()
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Agent input context is an untrusted runtime boundary.
           const inputContext = input.context && typeof input.context === "object" && !Array.isArray(input.context)
             // SAFETY: The object guard above establishes a record-shaped input context.
             ? input.context as Record<string, unknown>
