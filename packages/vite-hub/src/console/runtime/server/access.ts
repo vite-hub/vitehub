@@ -84,7 +84,9 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     while (prototype !== null) {
       const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
       const constructor = descriptor?.value
-      if (typeof constructor === "function" && constructor.name === "Response" && constructor.prototype === prototype) {
+      const constructorPrototype = typeof constructor === "function" ? Object.getOwnPropertyDescriptor(constructor, "prototype") : undefined
+      if (typeof constructor === "function" && constructor.name === "Response" && constructor.prototype === prototype
+        && constructorPrototype?.writable === false && constructorPrototype.configurable === false) {
         if (!(value instanceof constructor)) return
         const find = (name: string): PropertyDescriptor | undefined => {
           let current: object | null = prototype
@@ -99,7 +101,9 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
         const foreignHeaders = find("headers")?.get
         const foreignBodyUsed = find("bodyUsed")?.get
         const foreignClone = find("clone")?.value
-        if (![foreignStatus, foreignStatusText, foreignHeaders, foreignBodyUsed, foreignClone].every(item => typeof item === "function")) return
+        const foreignBody = find("body")?.get
+        const foreignArrayBuffer = find("arrayBuffer")?.value
+        if (![foreignStatus, foreignStatusText, foreignHeaders, foreignBodyUsed, foreignBody, foreignClone, foreignArrayBuffer].every(item => typeof item === "function")) return
         const status = Reflect.apply(foreignStatus, value, [])
         const statusText = Reflect.apply(foreignStatusText, value, [])
         const headers = Reflect.apply(foreignHeaders, value, [])
@@ -107,7 +111,11 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
         if (typeof status !== "number" || typeof statusText !== "string" || typeof bodyUsed !== "boolean" || bodyUsed) return
         const cloned = Reflect.apply(foreignClone, value, [])
         if (!(cloned instanceof constructor)) return
-        return value as Response
+        Reflect.apply(foreignStatus, cloned, [])
+        const bytes = await Reflect.apply(foreignArrayBuffer, cloned, [])
+        if (!(bytes instanceof ArrayBuffer)) return
+        const body = Reflect.apply(foreignBody, value, [])
+        return new Response(body === null ? null : bytes, { headers: new Headers(headers), status, statusText })
       }
       prototype = Object.getPrototypeOf(prototype)
     }
