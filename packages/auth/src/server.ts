@@ -382,7 +382,12 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // Cross-runtime implementations may be ordinary functions, but caller
     // supplied arrows and concise methods have distinctive source forms. Keep
     // those out of the normalization boundary before they can be invoked.
-    if (source.includes("=>") || /^\s*[^\s(]+\s*\([^)]*\)\s*\{/.test(source)) return false
+    if (source.includes("=>")) return false
+    // Cross-runtime Web API implementations (for example undici) commonly
+    // stringify as concise methods with a full implementation body. Reject
+    // the short, caller-authored method-shaped functions used to spoof an
+    // operation while allowing those substantive implementations through.
+    if (/^\s*[^\s(]+\s*\([^)]*\)\s*\{/.test(source) && source.length < 256) return false
     return true
   }
   catch {
