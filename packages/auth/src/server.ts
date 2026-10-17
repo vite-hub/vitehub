@@ -33,6 +33,16 @@ declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
 
 type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
 
+function isCallable(value: unknown): value is (...args: never[]) => unknown {
+  try {
+    Reflect.apply(Function.prototype.toString, value, [])
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
   return Boolean(options && Object.keys(options).length > 0)
 }
@@ -288,6 +298,18 @@ async function runAccessAuthorize(
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
+// Capture the platform accessors before user authorization code can mutate the
+// global prototype.  Later provenance checks must compare against these stable
+// references rather than whatever descriptors happen to be installed now.
+const trustedResponseGetters = Object.fromEntries(
+  authorizationResponseProperties.map(key => [key, Object.getOwnPropertyDescriptor(Response.prototype, key)?.get]),
+) as Record<typeof authorizationResponseProperties[number], (() => unknown) | undefined>
+
+function hasTrustedResponseDescriptors(prototype: object): boolean {
+  return authorizationResponseProperties.every(key =>
+    Object.getOwnPropertyDescriptor(prototype, key)?.get === trustedResponseGetters[key])
+}
+
 const authorizationResponsePrototypeLimit = 32
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
@@ -326,11 +348,34 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
   try {
     let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
+    let shadowedResponseProperties = false
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (targets.has(current)) return true
-      if (seen.has(current)) return false
-      seen.add(current)
-      current = Object.getPrototypeOf(current)
+      const prototype = current
+      if (targets.has(prototype)) {
+        if (prototype === Response.prototype && !hasTrustedResponseDescriptors(prototype)) return false
+        return !shadowedResponseProperties
+      }
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      const owner = prototype
+      const constructorSource = typeof constructor === "function" ? Function.prototype.toString.call(constructor) : ""
+      const platformConstructor = constructor?.name === "Response" && (/^class\b/.test(constructorSource) || constructorSource.includes("[native code]"))
+      const platformGetters = authorizationResponseProperties.every((key) => {
+        const getter = Object.getOwnPropertyDescriptor(owner, key)?.get
+        if (typeof getter !== "function") return false
+        const getterSource = Function.prototype.toString.call(getter)
+        if (!getterSource.includes("webidl.brandCheck(") && !getterSource.includes("[native code]")) return false
+        try { Reflect.apply(getter, Object.create(owner), []) ; return false }
+        catch { try { Reflect.apply(getter, value, []); return true } catch { return false } }
+      })
+      const ownSnapshot = authorizationResponseProperties.every(key => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key)
+        return descriptor && "value" in descriptor
+      })
+      if (platformConstructor && !ownSnapshot && platformGetters && !shadowedResponseProperties) return true
+      if (authorizationResponseProperties.some((key) => Object.hasOwn(owner, key))) shadowedResponseProperties = true
+      current = Object.getPrototypeOf(prototype)
     }
     return false
   }
@@ -370,7 +415,6 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  // Use native operations on native stream state, never caller-supplied reader methods.
   const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
   const reader = Reflect.apply(getReader, body, [])
   const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
@@ -385,24 +429,14 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
     async pull(controller) {
       try {
         const result = await Reflect.apply(read, reader, [])
-        if (result.done) {
-          release()
-          controller.close()
-        }
+        if (result.done) { release(); controller.close() }
         else controller.enqueue(result.value)
       }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
+      catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
-      try {
-        await Reflect.apply(cancel, reader, [reason])
-      }
-      finally {
-        release()
-      }
+      try { await Reflect.apply(cancel, reader, [reason]) }
+      finally { release() }
     },
   }, { highWaterMark: 0 })
   return { stream, release }
@@ -413,6 +447,24 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   try {
     const candidate = Object(value)
     if (!await hasResponsePrototype(candidate)) return
+    // Authenticate local Responses through their intrinsic getters before any
+    // ordinary reads. Proxies and shadowed subclasses cannot satisfy these
+    // private-brand checks and must fail closed instead of being normalized.
+    if (value instanceof Response) {
+      const nativeDescriptors = authorizationResponseProperties.every(key =>
+        responsePropertyDescriptor(candidate, key)?.get === trustedResponseGetters[key])
+      if (!nativeDescriptors) return
+      try {
+        for (const key of authorizationResponseProperties) {
+          const getter = trustedResponseGetters[key]
+          if (typeof getter !== "function") return
+          Reflect.apply(getter, candidate, [])
+        }
+      }
+      catch {
+        return
+      }
+    }
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
@@ -427,12 +479,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
-      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+      responsePropertyDescriptor(candidate, key)?.get === trustedResponseGetters[key])
     let nativeProperties = false
     let nativeBodyUnused = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
-        const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+        const getter = trustedResponseGetters[key]
         return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
       const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
@@ -452,9 +504,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeBodyMethod = body === null
-      || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
+    const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
+    // Preserve an authenticated local Response even after its body is consumed or locked.
+    // Body-state checks belong only to normalization, where we would otherwise take ownership.
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
@@ -592,7 +645,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  if (authorize !== true && !isCallable(authorize)) {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {

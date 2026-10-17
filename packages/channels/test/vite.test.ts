@@ -124,6 +124,21 @@ describe("hubChannels", () => {
     expect(invalidateModule).toHaveBeenCalledWith(virtualModule)
   })
 
+  it("ignores inherited server directory configuration", async () => {
+    const root = await createTempProject()
+    await writeChannel(root, "server/channels/own.ts")
+    const externalRoot = await mkdtemp(join(tmpdir(), "vitehub-channels-inherited-server-"))
+    tempDirs.push(externalRoot)
+    await writeChannel(externalRoot, "channels/inherited.ts")
+    const plugin = hubChannels()
+    const config = Object.create({ [VITEHUB_SERVER_DIRS]: [externalRoot] }) as Record<PropertyKey, unknown>
+
+    await (plugin.config as unknown as (config: Record<PropertyKey, unknown>) => Promise<unknown>)(config)
+    await resolvePlugin(plugin, root)
+
+    expect(plugin.api.getDefinitions()).toEqual([expect.objectContaining({ name: "own" })])
+  })
+
   it("refreshes directory definitions from configured server directories", async () => {
     const root = await createTempProject()
     const serverDir = join(root, "custom-server")
