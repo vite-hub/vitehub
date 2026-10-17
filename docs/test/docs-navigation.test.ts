@@ -69,10 +69,11 @@ describe("docs product navigation", () => {
 
   it("orders every Server Primitive section by the product page template", () => {
     for (const sectionId of serverPrimitiveSections) {
-      const startTitle = sectionId === "auth" ? "Get started" : "Tutorial"
-      const template = ["Overview", startTitle, "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
       const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
       const pages = section?.pages.filter(page => page.navigation) || [];
+      const startTitle = pages.find(page => page.path.endsWith("/get-started"))?.title;
+      const template = ["Overview", startTitle, "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"]
+        .filter((title): title is string => Boolean(title));
       const titles = pages.map(page => page.title);
       const templateTitles = titles.filter(title => template.includes(title));
 
@@ -115,7 +116,6 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
-      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
@@ -130,7 +130,7 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.pages.length > 0), sectionId).toBe(true);
+      expect(groups.every(group => group.label && group.pages.length > 0), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");

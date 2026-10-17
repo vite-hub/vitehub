@@ -72,7 +72,8 @@ function validPath(value: unknown): value is string {
       || (index === 0 && normalized.toLowerCase() === ".vitehub")
       || (index === 0 && /^vitehu~\d+$/.test(normalized))
     return traversal || reserved
-  })
+  })) return false
+  return true
 }
 
 export function decodeWorkspaceChangePayload(decoder: decoding.Decoder): RealtimeWorkspaceChange | undefined {
