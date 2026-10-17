@@ -471,7 +471,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // self-consistent forged prototypes while still allowing implementations
     // whose own methods expose the same Headers data to be copied below.
     let branded = false
-    const headerTargets = [Headers, await getUndiciHeaders()].filter(Boolean) as Array<typeof Headers>
+    // Include the candidate realm's constructor so supported Web runtimes such
+    // as Deno, Bun, and workers can validate their own Headers internal slots.
+    // The constructor/prototype consistency checks above prevent ordinary
+    // response-shaped objects from selecting an unrelated implementation.
+    const headerTargets = [Headers, await getUndiciHeaders(), headerConstructor]
+      .filter((target): target is typeof Headers => typeof target === "function")
     for (const HeaderCtor of headerTargets) {
       try {
         Reflect.apply(Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "get")!.value, headers, ["content-type"])
