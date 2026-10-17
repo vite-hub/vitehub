@@ -1,4 +1,4 @@
-import { envAccessActor } from "@vite-hub/env/internal/connections"
+import { envAccessActor, envAccessAgentParents } from "@vite-hub/env/internal/connections"
 
 import type { EnvActor } from "@vite-hub/env/bridge"
 
@@ -37,6 +37,21 @@ export function callerActor(options: Pick<UseConnectionOptions, "access" | "acto
   return options.actor ?? "server"
 }
 
+/**
+ * The registered Agents that the calling Agent extends, nearest first, as `agent:` actors.
+ * Only the Agent runtime vouches for them, through the Env access context. Other callers inherit nothing.
+ */
+export function callerInheritedActors(options: Pick<UseConnectionOptions, "access">): string[] {
+  return options.access ? envAccessAgentParents(options.access).map(name => `agent:${name}`) : []
+}
+
+/** The rule of an actor. An `agent:` actor without its own rule uses the rule of the nearest Agent it extends. */
+function accessRule(access: Readonly<Record<string, ConnectionAccessRule>>, actor: string, inherited: readonly string[] = []): ConnectionAccessRule | undefined {
+  const candidates = actor.startsWith("agent:") ? [actor, ...inherited.filter(parent => parent.startsWith("agent:"))] : [actor]
+  const match = candidates.find(candidate => Object.hasOwn(access, candidate))
+  return match ? access[match] : undefined
+}
+
 function allowsWrite(rule: ConnectionAccessRule, action: string, highRisk: boolean): boolean {
   const write = rule.write
   if (!write) return false
@@ -46,7 +61,8 @@ function allowsWrite(rule: ConnectionAccessRule, action: string, highRisk: boole
 
 /**
  * Decide one call. `approved` is set when a stored approval replays the call, so
- * the policy can still deny it but does not ask for approval again.
+ * the policy can still deny it but does not ask for approval again. `inherited` lists
+ * the `agent:` actors that an Agent actor extends, nearest first.
  */
 export function decide(input: {
   action: string
@@ -54,6 +70,7 @@ export function decide(input: {
   approved?: boolean
   definition: ConnectionDefinition
   highRisk: boolean
+  inherited?: readonly string[]
   write: boolean
 }): ConnectionDecision {
   const agent = input.actor.startsWith("agent:")
@@ -63,7 +80,7 @@ export function decide(input: {
     if (input.highRisk || input.action === "fetch") return "deny"
     return agent && !input.approved ? "approve" : "allow"
   }
-  const rule = Object.hasOwn(access, input.actor) ? access[input.actor] : undefined
+  const rule = accessRule(access, input.actor, input.inherited)
   if (!rule) return "deny"
   if (!input.write) return rule.read ? "allow" : "deny"
   if (!allowsWrite(rule, input.action, input.highRisk)) return "deny"

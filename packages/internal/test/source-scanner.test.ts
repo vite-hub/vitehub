@@ -480,6 +480,18 @@ describe("source scanner", () => {
     expect(calls[0]?.arguments).toEqual(["\"real\"", "{ ok: true }"])
   })
 
+  it.each(["𐐀", "\u200C", "\u200D"]) ("ignores calls embedded in Unicode identifiers: %s", (prefix) => {
+    const suffix = prefix === "𐐀" ? "𐐀" : prefix
+    const calls = findIdentifierCalls([
+      `${prefix}defineThing({ value: "prefix" })`,
+      `defineThing${suffix}({ value: "suffix" })`,
+    ].join("\n"), "defineThing")
+
+    expect(calls).toEqual([])
+    expect(findDefaultExportCall(`export default ${prefix}defineThing({ value: "embedded" })`, ["defineThing"])).toBeUndefined()
+    expect(findDefaultExportCall(`export default defineThing${suffix}({ value: "embedded" })`, ["defineThing"])).toBeUndefined()
+  })
+
   it("ignores function declarations with matching names", () => {
     const defineCalls = findIdentifierCalls([
       `function defineThing(value: string) { return value }`,
@@ -710,6 +722,32 @@ describe("source scanner", () => {
       .toEqual([argument])
   })
 
+  it("scans generic annotations after an earlier arrow and assertion in linear time", () => {
+    // Each `<` checks the code before it for an assertion type. A regex
+    // that splits long identifiers in many ways took seconds here.
+    const argument = [
+      `({ env: runtimeEnv }) => {`,
+      `  const env = runtimeEnv as unknown as ServerEnv`,
+      `  const options = { enabled: true }`,
+      `  return {`,
+      `    getUserInfo: async (token: Parameters<ReturnType<typeof github>["getUserInfo"]>[0]) => token,`,
+      `  }`,
+      `}`,
+    ].join("\n")
+    const started = performance.now()
+    const calls = findIdentifierCalls(`export default defineAuth(${argument})`, "defineAuth")
+    expect(performance.now() - started).toBeLessThan(500)
+    expect(calls.map(call => call.arguments)).toEqual([[argument]])
+  }, 1_000)
+
+  it("does not rescan repeated assertion suffixes", () => {
+    const assertion = `${"as A ".repeat(1_000)}!`
+    const started = performance.now()
+    expect(findDefaultExportCall(`export default defineSchedule({ cron: '0 8 * * *' } ${assertion})`, ["defineSchedule"]))
+      .toBeDefined()
+    expect(performance.now() - started).toBeLessThan(1_000)
+  }, 2_000)
+
   it.each(["|| fallback", "+ extra", " > limit", "(argument)", " ^ bar()", " ^ (bar())", " - (bar())"])("rejects runtime suffixes after generic assertions: %s", (suffix) => {
     expect(findDefaultExportCall(`export default defineSchedule({ cron: '0 8 * * *' } satisfies Record<string, unknown>${suffix})`, ["defineSchedule"]))
       .toBeUndefined()
@@ -829,6 +867,13 @@ describe("source scanner", () => {
       `() => { try {} catch (error) /\\)/.test(")") }`,
       `{ id: "daily" }`,
     ])
+  })
+
+  it("does not match names inside Unicode identifiers", () => {
+    const source = `export default αdefineThing({ value: "fake" })`
+
+    expect(findIdentifierCalls(source, "defineThing")).toEqual([])
+    expect(findDefaultExportCall(source, ["defineThing"])).toBeUndefined()
   })
 
   it("ignores TypeScript type member signatures with matching names", () => {

@@ -6,15 +6,15 @@ export function isMissingWorkspacePathError(error: unknown): boolean {
   return error instanceof Error && error.message.includes("Workspace path does not exist:")
 }
 
-export function pathInSessionScope(path: string, paths: string[] | undefined): boolean {
+function pathInSessionScope(path: string, paths: string[] | undefined): boolean {
   return !paths || paths.some(scope => path === scope || path.startsWith(`${scope}/`))
 }
 
-export function pathIntersectsSessionScope(path: string, paths: string[] | undefined): boolean {
+function pathIntersectsSessionScope(path: string, paths: string[] | undefined): boolean {
   return pathInSessionScope(path, paths) || Boolean(paths?.some(scope => scope.startsWith(`${path}/`)))
 }
 
-export function mkdirPathInSessionScope(path: string, paths: string[] | undefined): boolean {
+function mkdirPathInSessionScope(path: string, paths: string[] | undefined): boolean {
   return pathInSessionScope(path, paths) || Boolean(paths?.some(scope => scope.startsWith(`${path}/`)))
 }
 
