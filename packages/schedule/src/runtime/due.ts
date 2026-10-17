@@ -87,8 +87,8 @@ function matchesCronHour(cron: ScheduleCron, fields: ScheduleDateFields): boolea
   return cron.days.includes(fields.day) && cron.weekdays.includes(fields.weekday)
 }
 
-/** Offset changes that tzdb uses when a clock goes back: 30 minutes (Lord Howe), one hour, and two hours. */
-const repeatedLocalTimeOffsetsMs = [30, 60, 120].map(minutes => minutes * minuteMs)
+/** Rollback sizes used by tzdb, including historical date-line changes. */
+const repeatedLocalTimeOffsetsMs = [30, 60, 120, 24 * hourMinutes].map(minutes => minutes * minuteMs)
 
 function sameLocalMinute(left: ScheduleDateFields, right: ScheduleDateFields): boolean {
   return left.minute === right.minute && left.hour === right.hour && left.day === right.day && left.month === right.month
