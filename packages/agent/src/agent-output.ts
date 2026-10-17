@@ -961,7 +961,9 @@ function isResponseLike(value: unknown): value is Response {
     if (!hasRuntimeType(statusText, "string")) return false
     if (!isRuntimeObject(headers) || !("get" in headers) || !("forEach" in headers)) return false
     if (!hasRuntimeType(headers.get, "function") || !hasRuntimeType(headers.forEach, "function")) return false
-    if (body === null) return true
+    // A bodyless response is only trusted when the host brand operation
+    // succeeded. An own-tagged object with `body: null` is caller-defined.
+    if (body === null) return trustedResponse
     if (!isRuntimeObject(body)) return false
     // A stream may already be locked by its caller. In that state acquiring a
     // reader throws even though the value is a genuine Web Stream. Use the
@@ -992,7 +994,17 @@ function isResponseLike(value: unknown): value is Response {
       }
       streamPrototype = Object.getPrototypeOf(streamPrototype) as object | null
     }
-    if (!lockedAccessor || !streamReader) return false
+    // Some independent Fetch implementations expose a Web Stream facade
+    // through a proxy. Its methods work when read from the instance, even
+    // though the proxy target's prototype has no corresponding descriptors.
+    if (!lockedAccessor || !streamReader) {
+      const directLocked = (body as { locked?: unknown }).locked
+      const directReader = (body as { getReader?: unknown }).getReader
+      if (!hasRuntimeType(directReader, "function")) return false
+      lockedAccessor = () => (body as { locked?: unknown }).locked
+      streamReader = directReader as (...args: unknown[]) => unknown
+      if (directLocked !== undefined && !hasRuntimeType(directLocked, "boolean")) return false
+    }
     try {
       // Use the stream's own prototype operation so foreign-realm brands are
       // accepted; the host realm's intrinsic rejects those streams.
