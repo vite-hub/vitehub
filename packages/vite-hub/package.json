@@ -183,11 +183,11 @@
       "require": "./dist/_internal/rate-limit/runtime/console.js",
       "default": "./dist/_internal/rate-limit/runtime/console.js"
     },
-    "./_internal/sandbox/runtime/state": {
-      "types": "./dist/_internal/sandbox/runtime/state.d.ts",
-      "import": "./dist/_internal/sandbox/runtime/state.js",
-      "require": "./dist/_internal/sandbox/runtime/state.js",
-      "default": "./dist/_internal/sandbox/runtime/state.js"
+    "./_internal/sandbox-task/runtime/state": {
+      "types": "./dist/_internal/sandbox-task/runtime/state.d.ts",
+      "import": "./dist/_internal/sandbox-task/runtime/state.js",
+      "require": "./dist/_internal/sandbox-task/runtime/state.js",
+      "default": "./dist/_internal/sandbox-task/runtime/state.js"
     },
     "./_internal/schedule": {
       "types": "./dist/_internal/schedule.d.ts",
@@ -783,11 +783,11 @@
       "require": "./dist/runtime/node.js",
       "default": "./dist/runtime/node.js"
     },
-    "./sandbox": {
-      "types": "./dist/sandbox.d.ts",
-      "import": "./dist/sandbox.js",
-      "require": "./dist/sandbox.js",
-      "default": "./dist/sandbox.js"
+    "./sandbox-task": {
+      "types": "./dist/sandbox-task.d.ts",
+      "import": "./dist/sandbox-task.js",
+      "require": "./dist/sandbox-task.js",
+      "default": "./dist/sandbox-task.js"
     },
     "./schedule": {
       "types": "./dist/schedule.d.ts",
@@ -1040,7 +1040,7 @@
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",

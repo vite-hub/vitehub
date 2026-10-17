@@ -97,6 +97,12 @@
       "require": "./dist/runtime/hosted.js",
       "default": "./dist/runtime/hosted.js"
     },
+    "./runtime/postgres": {
+      "types": "./dist/runtime/postgres.d.ts",
+      "import": "./dist/runtime/postgres.js",
+      "require": "./dist/runtime/postgres.js",
+      "default": "./dist/runtime/postgres.js"
+    },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
@@ -139,12 +145,6 @@
       "import": "./dist/runtime/state.js",
       "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
-    },
-    "./runtime/postgres": {
-      "types": "./dist/runtime/postgres.d.ts",
-      "import": "./dist/runtime/postgres.js",
-      "require": "./dist/runtime/postgres.js",
-      "default": "./dist/runtime/postgres.js"
     }
   },
   "scripts": {

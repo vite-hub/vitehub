@@ -10,23 +10,23 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `runSandbox` from `@vite-hub/sandbox` | Invoke a discovered Definition by name. Returns a native `Response`. |
-| `defineSandbox` from `@vite-hub/sandbox` | Declare a free-form `<path>.sandbox.ts` Definition. |
-| `resolveSandboxRunner` from `@vite-hub/sandbox` | Resolve a runner and read its `executionAuthority` before execution. |
-| `readRequestPayload`, `readValidatedPayload` from `@vite-hub/sandbox` | Read a request body, then validate it with a Standard Schema or a validation function. |
-| `hubSandbox` from `@vite-hub/sandbox/vite` | Register discovery, types, package preparation, and Provider Output. |
+| `runSandboxTask` from `@vite-hub/sandbox-task` | Invoke a discovered Definition by name. Returns a native `Response`. |
+| `defineSandboxTask` from `@vite-hub/sandbox-task` | Declare a free-form `<path>.sandbox-task.ts` Definition. |
+| `resolveSandboxTaskRunner` from `@vite-hub/sandbox-task` | Resolve a runner and read its `executionAuthority` before execution. |
+| `readRequestPayload`, `readValidatedPayload` from `@vite-hub/sandbox-task` | Read a request body, then validate it with a Standard Schema or a validation function. |
+| `hubSandboxTask` from `@vite-hub/sandbox-task/vite` | Register discovery, types, package preparation, and Provider Output. |
 
-Applications that use the `vite-hub` distribution import the same runtime APIs from `vite-hub/sandbox`.
+Applications that use the `vite-hub` distribution import the same runtime APIs from `vite-hub/sandbox-task`.
 
 ## Run a Sandbox
 
-`runSandbox(name, payload?, options?)` infers its payload type from the default function and returns a native Web `Response`. A zero-argument function accepts an `unknown` payload.
+`runSandboxTask(name, payload?, options?)` infers its payload type from the default function and returns a native Web `Response`. A zero-argument function accepts an `unknown` payload.
 
 ```ts [server/api/release-notes-json.post.ts]
-import { runSandbox } from '@vite-hub/sandbox'
+import { runSandboxTask } from '@vite-hub/sandbox-task'
 
 export default defineEventHandler(async () => {
-  const response = await runSandbox('release-notes', { notes: 'ship it' }, {
+  const response = await runSandboxTask('release-notes', { notes: 'ship it' }, {
     context: { requestId: 'release-notes-42' },
   })
   if (!response.ok)
@@ -43,4 +43,4 @@ export default defineEventHandler(async () => {
 
 Payloads, context, and results use JSON serialization. Nested `Blob` and `Uint8Array` values cross the Box boundary through invocation-local Box files, so you do not convert them to base64. Node.js `Buffer` values keep their `Buffer` type.
 
-Failures, including timeouts and cleanup failures, return a non-2xx JSON `Response`. A timed-out attempt returns the `SANDBOX_TIMEOUT` code.
+Failures, including timeouts and cleanup failures, return a non-2xx JSON `Response`. A timed-out attempt returns the `SANDBOX_TASK_TIMEOUT` code.

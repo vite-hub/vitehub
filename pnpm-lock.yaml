@@ -544,9 +544,9 @@ importers:
       '@vite-hub/realtime':
         specifier: workspace:*
         version: link:packages/realtime
-      '@vite-hub/sandbox':
+      '@vite-hub/sandbox-task':
         specifier: workspace:*
-        version: link:packages/sandbox
+        version: link:packages/sandbox-task
       '@vite-hub/schedule':
         specifier: workspace:*
         version: link:packages/schedule
@@ -1987,7 +1987,7 @@ importers:
         specifier: catalog:tooling
         version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
-  packages/sandbox:
+  packages/sandbox-task:
     dependencies:
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
@@ -2051,7 +2051,7 @@ importers:
         specifier: catalog:runtime
         version: 4.6.7
 
-  packages/sandbox/examples/vite:
+  packages/sandbox-task/examples/vite:
     dependencies:
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
@@ -2059,7 +2059,7 @@ importers:
       '@vercel/sandbox':
         specifier: catalog:sandbox
         version: 3.8.0
-      '@vite-hub/sandbox':
+      '@vite-hub/sandbox-task':
         specifier: workspace:*
         version: link:../..
       h3:
@@ -2407,9 +2407,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
-      '@vite-hub/sandbox':
+      '@vite-hub/sandbox-task':
         specifier: workspace:*
-        version: link:../sandbox
+        version: link:../sandbox-task
       '@vite-hub/schedule':
         specifier: workspace:*
         version: link:../schedule

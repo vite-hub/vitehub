@@ -41,7 +41,7 @@ instead of one root barrel.
 | `@vite-hub/rate-limit` | Rate Limit declarations, runtime decisions, drivers, and provider output | `@vite-hub/rate-limit`, `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/drivers/*`, `@vite-hub/rate-limit/vite` |
 | `@vite-hub/realtime` | Realtime documents, server routes, history, and Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
 | `@vite-hub/runtime` | Runtime Host Context, Runtime Capability handles, Policy Decisions, approvals, Trace Events, leases | `@vite-hub/runtime` |
-| `@vite-hub/sandbox` | Sandbox Definitions, Sandbox Runs, Sandbox Provider integration | `@vite-hub/sandbox`, `@vite-hub/sandbox/vite` |
+| `@vite-hub/sandbox-task` | Sandbox Definitions, Sandbox Runs, Sandbox Provider integration | `@vite-hub/sandbox-task`, `@vite-hub/sandbox-task/vite` |
 | `@vite-hub/schedule` | Static schedules, manual runs, cron Provider Output | `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, `@vite-hub/schedule/vite` |
 | `@vite-hub/shell` | Shell-shaped runtime execution providers and Workspace shell integration helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Source Loaders for file, glob, markdown, GitHub, custom, and MCP resource retrieval | `@vite-hub/source`, `@vite-hub/source/*` |

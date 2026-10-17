@@ -93,7 +93,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter with request bindings and tracked background work. |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
-| `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
+| `vite-hub/sandbox-task` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static Schedule Definitions, manual runs, and Schedule Run stores. |
 | `vite-hub/schedule/runtime/process` | Process Runtime that runs Static Schedules in a long-lived Node process. |
 | `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Schedule Runs. |
@@ -190,7 +190,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/shell/providers/just-bash` | Shell Package | Just Bash Shell provider. |
 | `@vite-hub/shell/workspace` | Shell Package | Read-only Workspace filesystem adapters and mount paths for Shell providers. |
 | `@vite-hub/ui` and `@vite-hub/ui/headless` | UI Package | AI SDK-native Vue components and headless message scrolling. |
-| `@vite-hub/sandbox` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
+| `@vite-hub/sandbox-task` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
 | `@vite-hub/schedule` and `@vite-hub/schedule/runtime` | Schedule Package | Schedule Definition helpers, manual runs, and Schedule Run stores. |
 | `@vite-hub/schedule/runtime/kv` | Schedule Package | Explicit storage adapter; requires the optional `@vite-hub/kv` peer. |
 | `@vite-hub/schedule/runtime/process` | Schedule Package | Process Runtime that runs Static Schedules in a long-lived Node process. |
@@ -222,7 +222,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/queue/vite` | Register the Queue Vite Integration. |
 | `@vite-hub/rate-limit/vite` | Register Rate Limit source collection and provider output. |
 | `@vite-hub/realtime/vite` | Register Realtime Definition discovery and generated runtime wiring. |
-| `@vite-hub/sandbox/vite` | Register the Sandbox Vite Integration. |
+| `@vite-hub/sandbox-task/vite` | Register the Sandbox Vite Integration. |
 | `@vite-hub/schedule/vite` | Register the Schedule Vite Integration. |
 | `@vite-hub/source/vite` | Register Source discovery, generated artifacts, and Nitro route integration. |
 | `@vite-hub/workflow/vite` | Register the Workflow Vite Integration. |

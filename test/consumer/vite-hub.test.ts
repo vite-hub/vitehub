@@ -1260,21 +1260,21 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         server.close()
         await once(server, "close")
         if (response.status !== 200 || body !== "handled") throw new Error("Queue callback failed: " + response.status + " " + body)
-        process.stdout.write(JSON.stringify(globalThis.__vitehubQueueSandboxResult))
+        process.stdout.write(JSON.stringify(globalThis.__vitehubQueueSandboxTaskResult))
       `,
         ],
         appDir,
       )
-      const sandboxResult = JSON.parse(callbackInvocation.stdout) as {
+      const sandboxTaskResult = JSON.parse(callbackInvocation.stdout) as {
         code?: string
         message?: string
         optimized?: boolean
       }
-      expect(sandboxResult.message || "").toContain("offline provider proof:")
-      expect(sandboxResult.message || "").not.toContain('Unknown sandbox "image-optimizer"')
-      expect(sandboxResult.message || "").not.toContain("requires @vercel/sandbox")
-      expect(sandboxResult.message || "").not.toContain("Cannot find package")
-      expect(sandboxResult.code || "").not.toBe("ERR_MODULE_NOT_FOUND")
+      expect(sandboxTaskResult.message || "").toContain("offline provider proof:")
+      expect(sandboxTaskResult.message || "").not.toContain('Unknown Sandbox Task "image-optimizer"')
+      expect(sandboxTaskResult.message || "").not.toContain("requires @vercel/sandbox")
+      expect(sandboxTaskResult.message || "").not.toContain("Cannot find package")
+      expect(sandboxTaskResult.code || "").not.toBe("ERR_MODULE_NOT_FOUND")
 
       const vercelFunctionsRoot = join(appDir, ".vercel/output/functions")
       const queueFunctionRoot = dirname(queueCallback)
@@ -1381,8 +1381,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/state")
       expect(workflowRegistry).toContain("setWorkspaceDependencyRuntimeLoaders")
-      expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox/runtime/state")
-      expect(workflowRegistry).not.toContain("vite-hub/sandbox")
+      expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox-task/runtime/state")
+      expect(workflowRegistry).not.toContain("vite-hub/sandbox-task")
       expect(workflowRegistry).toContain("vite-hub/shell/workspace")
       expect(workspacePlugin).toContain("vite-hub/_internal/workspace/runtime")
       expect(nativeWorkflow).toContain('"use workflow"')

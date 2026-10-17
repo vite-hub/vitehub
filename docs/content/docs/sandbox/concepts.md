@@ -14,7 +14,7 @@ process limits.
 
 ## A run has two sides
 
-The application calls `runSandbox(name, payload, options)` and receives a
+The application calls `runSandboxTask(name, payload, options)` and receives a
 native `Response`. The named project receives the payload inside its own
 entrypoint. Keep request validation and user authentication in the application,
 then pass only the data the isolated project needs.

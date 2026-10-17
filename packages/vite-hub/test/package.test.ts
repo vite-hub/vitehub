@@ -139,9 +139,9 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
   "@vite-hub/rate-limit/runtime/console",
-  "@vite-hub/sandbox/runtime/empty-registry",
-  "@vite-hub/sandbox/runtime/provider-loader",
-  "@vite-hub/sandbox/runtime/state",
+  "@vite-hub/sandbox-task/runtime/empty-registry",
+  "@vite-hub/sandbox-task/runtime/provider-loader",
+  "@vite-hub/sandbox-task/runtime/state",
   "@vite-hub/schedule/runtime/dev",
   "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
@@ -669,7 +669,7 @@ describe("framework package contract", () => {
     );
     expect(consoleKV).toContain("loadedStore.value === store");
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/section.vue`)).toBe(true);
-    for (const page of ["workflows", "queues", "rate-limits", "schedules", "sandboxes", "workspaces"]) {
+    for (const page of ["workflows", "queues", "rate-limits", "schedules", "sandbox-tasks", "workspaces"]) {
       expect(existsSync(`${packageRoot}/dist/console/runtime/pages/${page}.vue`)).toBe(false);
     }
     expect(

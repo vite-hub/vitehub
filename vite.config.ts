@@ -68,7 +68,7 @@ export default defineConfig({
       "knip:catalog": {
         cache: false,
         command:
-          "vp run -t @vite-hub/sandbox#build && vp run -t @vite-hub/queue#build && vp exec knip --include catalog --no-progress --reporter compact",
+          "vp run -t @vite-hub/sandbox-task#build && vp run -t @vite-hub/queue#build && vp exec knip --include catalog --no-progress --reporter compact",
       },
       "kv:e2e": {
         cache: false,
@@ -114,8 +114,8 @@ export default defineConfig({
       },
       "sandbox:e2e": {
         cache: false,
-        command: "node packages/sandbox/test/e2e.mjs",
-        dependsOn: ["@vite-hub/sandbox#build"],
+        command: "node packages/sandbox-task/test/e2e.mjs",
+        dependsOn: ["@vite-hub/sandbox-task#build"],
       },
       "schedule:e2e": {
         cache: false,

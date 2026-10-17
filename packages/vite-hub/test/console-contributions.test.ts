@@ -10,7 +10,7 @@ import { consoleBuiltinSectionIds, consolePrimitives, consoleSectionRouteName, i
 
 describe("Console section contributions", () => {
   it("registers the owner sections with valid ids that do not replace built-in sections", () => {
-    expect([...consoleContributedSections.keys()]).toEqual(["email", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"])
+    expect([...consoleContributedSections.keys()]).toEqual(["email", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules"])
     for (const [id, section] of consoleContributedSections) {
       expect(section.descriptor.id).toBe(id)
       expect(isConsoleSectionId(id)).toBe(true)
@@ -27,7 +27,7 @@ describe("Console section contributions", () => {
 
     expect(describeConsoleContributedSections(sections).map(section => section.id)).toEqual([
       "rate-limits",
-      "sandboxes",
+      "sandbox-tasks",
       "workspaces",
       "workflows",
       "queues",

@@ -83,8 +83,8 @@ interface InternalWorkflowModuleOptions {
   providerImportAliases?: Record<string, string>
   includeUserAppEntry?: boolean
   workspaceDependencyRuntimeImports?: {
-    sandbox?: string
-    sandboxRuntimeState?: string
+    sandboxTask?: string
+    sandboxTaskRuntimeState?: string
     shellWorkspace?: string
   }
   workspaceImportBase?: string

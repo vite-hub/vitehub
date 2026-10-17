@@ -1346,7 +1346,7 @@ describe("Agent invocation console", () => {
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
-        sections: ["sandboxes", "workspaces"],
+        sections: ["sandbox-tasks", "workspaces"],
       })
       const config: {
         nitro?: { handlers: Array<{ route: string }>; plugins: string[] }
@@ -1379,7 +1379,7 @@ describe("Agent invocation console", () => {
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
-        sections: ["databases", "sandboxes", "workspaces"],
+        sections: ["databases", "sandbox-tasks", "workspaces"],
       })
       const config: {
         database: false
@@ -1410,14 +1410,14 @@ describe("Agent invocation console", () => {
       await mkdir(join(viteRoot, "src"), { recursive: true })
       await writeFile(join(projectRoot, "package.json"), "{}\n")
       await writeFile(join(projectRoot, "src/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
-      await writeFile(join(projectRoot, "src/unrelated.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
-      await writeFile(join(viteRoot, "src/preview.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
+      await writeFile(join(projectRoot, "src/unrelated.sandbox-task.ts"), "export default defineSandboxTask({ run: async () => undefined })\n")
+      await writeFile(join(viteRoot, "src/preview.sandbox-task.ts"), "export default defineSandboxTask({ run: async () => undefined })\n")
       await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
-        sections: ["rate-limits", "sandboxes", "schedules"],
+        sections: ["rate-limits", "sandbox-tasks", "schedules"],
       })
       const config: { nitro?: { plugins: string[] }; root: string } = { root: viteRoot }
 
@@ -1428,7 +1428,7 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(projectRoot)}`)
       expect(generated).toContain(`"file":"src/api.ts","name":"api","source":"require-rate-limit"`)
-      expect(generated).toContain(`"file":"app/src/preview.sandbox.ts","name":"preview","source":"vite-suffix"`)
+      expect(generated).toContain(`"file":"app/src/preview.sandbox-task.ts","name":"preview","source":"vite-suffix"`)
       expect(generated).not.toContain(`"name":"unrelated"`)
       expect(generated).toContain(`{"label":"File","value":"server/schedules/adhoc.ts"},{"label":"Source","value":"server-schedules"}`)
       expect(generated).not.toContain(`"file":"../`)
@@ -1444,12 +1444,12 @@ describe("Agent invocation console", () => {
     try {
       await mkdir(join(root, "src"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
-      await writeFile(join(root, "src/preview.sandbox.ts"), `export default defineSandbox({ run: async () => { throw new Error("must not run") } })\n`)
+      await writeFile(join(root, "src/preview.sandbox-task.ts"), `export default defineSandboxTask({ run: async () => { throw new Error("must not run") } })\n`)
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
         resolveKVStores: () => false,
-        sections: ["sandboxes"],
+        sections: ["sandbox-tasks"],
       })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
@@ -1463,7 +1463,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"sandboxes":{"definitions":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"src/preview.sandbox.ts","name":"preview","source":"vite-suffix"}],"kind":"definition-catalog"}}, `)
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"sandbox-tasks":{"definitions":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"src/preview.sandbox-task.ts","name":"preview","source":"vite-suffix"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("must not run")
     }
     finally {

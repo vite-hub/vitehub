@@ -26,7 +26,7 @@ describe("workspace inventory", () => {
       "rate-limit",
       "realtime",
       "runtime",
-      "sandbox",
+      "sandbox-task",
       "schedule",
       "shell",
       "source",

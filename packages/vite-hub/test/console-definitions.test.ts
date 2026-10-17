@@ -76,7 +76,7 @@ function definitionSummaries(name: string): Record<string, ConsoleDefinitionSumm
     }],
     sandboxes: [{
       fields: [{ label: "Kind", value: "Definition" }],
-      file: `src/${name}.sandbox.ts`,
+      file: `src/${name}.sandbox-task.ts`,
       name,
       source: "vite-suffix",
     }],
@@ -189,12 +189,12 @@ describe("Console definition inspection", () => {
     expect(await definitionsHandler(event("?section=sandboxes"))).toEqual({
       definitions: [{
         fields: [{ label: "Kind", value: "Definition" }],
-        file: "src/release.sandbox.ts",
+        file: "src/release.sandbox-task.ts",
         name: "release",
         source: "vite-suffix",
       }],
       kind: "definition-catalog",
-      section: "sandboxes",
+      section: "sandbox-tasks",
     })
   })
 

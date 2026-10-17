@@ -90,7 +90,7 @@ const mocks = vi.hoisted(() => ({
     ...nitro,
     unexpectedQueue: true,
   })),
-  sandboxHook: vi.fn((config: { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean; nitro?: Record<string, unknown> }) => ({
+  sandboxTaskHook: vi.fn((config: { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean; nitro?: Record<string, unknown> }) => ({
     nitro: {
       ...config.nitro,
       sandbox: config[VITEHUB_NITRO_CONFIG_CONTEXT],
@@ -227,7 +227,7 @@ describe("ViteHub Nuxt integration", () => {
     mocks.envHook.mockClear()
     mocks.outputHook.mockClear()
     mocks.queueNitroConfig.mockClear()
-    mocks.sandboxHook.mockClear()
+    mocks.sandboxTaskHook.mockClear()
     mocks.useEnvPlugin.mockClear()
     mocks.uiModule.mockReset()
     mocks.workflowNitroConfig.mockClear()
@@ -279,8 +279,8 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       {
-        name: "@vite-hub/sandbox/vite",
-        config: mocks.sandboxHook,
+        name: "@vite-hub/sandbox-task/vite",
+        config: mocks.sandboxTaskHook,
       },
       {
         name: "@vite-hub/workflow/vite",
@@ -509,9 +509,9 @@ describe("ViteHub Nuxt integration", () => {
 
   it("installs Nitro modules owned by replayed ViteHub plugins", async () => {
     const setup = vi.fn()
-    const nitroModule = { name: "@vite-hub/sandbox/provider-runtime", setup }
+    const nitroModule = { name: "@vite-hub/sandbox-task/provider-runtime", setup }
     mocks.vitehub.mockReturnValue([{
-      name: "@vite-hub/sandbox/vite",
+      name: "@vite-hub/sandbox-task/vite",
       nitro: nitroModule,
     }])
     const { nuxt, runNitroConfigHook } = createNuxt()
@@ -534,8 +534,8 @@ describe("ViteHub Nuxt integration", () => {
     })
     mocks.vitehub.mockReturnValue([
       {
-        name: "@vite-hub/sandbox/vite",
-        config: mocks.sandboxHook,
+        name: "@vite-hub/sandbox-task/vite",
+        config: mocks.sandboxTaskHook,
         configResolved,
       },
       {
@@ -1888,8 +1888,8 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("installs discovered Sandbox metadata for a Sandbox-only Console", async () => {
-    const definition = "/tmp/vitehub-nuxt/preview.sandbox.ts"
-    await writeFile(definition, `export default defineSandbox({ run: async () => { throw new Error("must not run") } })\n`)
+    const definition = "/tmp/vitehub-nuxt/preview.sandbox-task.ts"
+    await writeFile(definition, `export default defineSandboxTask({ run: async () => { throw new Error("must not run") } })\n`)
     try {
       const development = createNuxt(true)
 
@@ -1907,7 +1907,7 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"sandboxes":{"definitions":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"preview.sandbox.ts","name":"preview","source":"vite-suffix"}],"kind":"definition-catalog"}}, `)
+      expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"sandbox-tasks":{"definitions":[{"fields":[{"label":"Kind","value":"Definition"}],"file":"preview.sandbox-task.ts","name":"preview","source":"vite-suffix"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("must not run")
     }
     finally {
@@ -2472,7 +2472,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "vite-hub/deployment-preset" }),
       expect.objectContaining({ name: "@vite-hub/agent/vite" }),
       existingQueuePlugin,
-      expect.objectContaining({ name: "@vite-hub/sandbox/vite" }),
+      expect.objectContaining({ name: "@vite-hub/sandbox-task/vite" }),
       expect.objectContaining({ name: "@vite-hub/workflow/vite" }),
       existingPlugin,
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
@@ -2522,7 +2522,7 @@ describe("ViteHub Nuxt integration", () => {
       }),
       expect.anything(),
     )
-    expect(mocks.sandboxHook).toHaveBeenCalledWith(
+    expect(mocks.sandboxTaskHook).toHaveBeenCalledWith(
       expect.objectContaining({
         [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
         [VITEHUB_PROJECT_ROOT]: "/tmp/vitehub-nuxt",
@@ -2672,8 +2672,8 @@ describe("ViteHub Nuxt integration", () => {
     await development.runNitroConfigHook(nitroConfig)
 
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
-    expect(generated).not.toContain(`"sandboxes"`)
-    expect(generated).not.toContain(`"section":"sandboxes"`)
+    expect(generated).not.toContain(`"sandbox-tasks"`)
+    expect(generated).not.toContain(`"section":"sandbox-tasks"`)
   })
 
   it("keeps Sandbox Console metadata disabled when replay runs on an unsupported preset", async () => {
@@ -2684,8 +2684,8 @@ describe("ViteHub Nuxt integration", () => {
     await development.runNitroConfigHook(nitroConfig)
 
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
-    expect(generated).not.toContain(`"sandboxes"`)
-    expect(generated).not.toContain(`"section":"sandboxes"`)
+    expect(generated).not.toContain(`"sandbox-tasks"`)
+    expect(generated).not.toContain(`"section":"sandbox-tasks"`)
   })
 
   it("removes Blob Console metadata when Nuxt replay disables Blob", async () => {

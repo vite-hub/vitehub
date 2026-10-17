@@ -218,7 +218,7 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
           kv: false,
           queue: true,
           rateLimit: true,
-          sandbox: true,
+          sandboxTask: true,
           workflow: false,
           workspace: false,
         }),

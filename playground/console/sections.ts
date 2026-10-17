@@ -33,7 +33,7 @@ export const playgroundConsoleContributions = [
   {
     description: "Inspect discovered Sandbox Definitions without starting runtime resources.",
     icon: "i-lucide-container",
-    id: "sandboxes",
+    id: "sandbox-tasks",
     label: "Sandboxes",
     view: {
       kind: "definition-catalog",

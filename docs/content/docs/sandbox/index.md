@@ -19,20 +19,20 @@ Prove successful execution, cancellation, timeout, and cleanup on the selected p
 ::product-hero{tagline="Run a named package project in an isolated Box, on Cloudflare or Vercel Sandbox chosen in config." hosts="Vercel, Cloudflare"}
   :::code-group
   ```ts [Definition and route]
-  // server/sandboxes/release-notes/index.ts
-  interface SandboxPayload {
+  // server/sandbox-tasks/release-notes/index.ts
+  interface SandboxTaskPayload {
     notes?: string
   }
 
-  export default async function releaseNotes(payload: SandboxPayload = {}) {
+  export default async function releaseNotes(payload: SandboxTaskPayload = {}) {
     return { text: payload.notes?.toUpperCase() || 'No notes' }
   }
 
   // server/api/release-notes-json.post.ts
-  import { runSandbox } from '@vite-hub/sandbox'
+  import { runSandboxTask } from '@vite-hub/sandbox-task'
 
   export default defineEventHandler(async () => {
-    const response = await runSandbox('release-notes', { notes: 'ship it' }, {
+    const response = await runSandboxTask('release-notes', { notes: 'ship it' }, {
       context: { requestId: 'release-notes-42' },
     })
     if (!response.ok)
@@ -42,11 +42,11 @@ Prove successful execution, cancellation, timeout, and cleanup on the selected p
   ```
 
   ```ts [vite.config.ts]
-  import { hubSandbox } from '@vite-hub/sandbox/vite'
+  import { hubSandboxTask } from '@vite-hub/sandbox-task/vite'
   import { defineConfig } from 'vite'
 
   export default defineConfig({
-    plugins: [hubSandbox({ provider: 'vercel' })],
+    plugins: [hubSandboxTask({ provider: 'vercel' })],
   })
   ```
 
@@ -68,11 +68,11 @@ Prove successful execution, cancellation, timeout, and cleanup on the selected p
 
 ::product-features
   :::product-feature-item{title="A Sandbox is a package project" icon="i-lucide-box" to="/docs/sandbox/configure"}
-  One folder under `server/sandboxes`, with `package.json` and an entrypoint.
+  One folder under `server/sandbox-tasks`, with `package.json` and an entrypoint.
   :::
 
   :::product-feature-item{title="Every run returns a native Response" icon="i-lucide-code-2" to="/docs/sandbox/server-api"}
-  Failures and `SANDBOX_TIMEOUT` return a non-2xx JSON `Response`.
+  Failures and `SANDBOX_TASK_TIMEOUT` return a non-2xx JSON `Response`.
   :::
 
   :::product-feature-item{title="Pick the provider in config, not the Definition" icon="i-lucide-cloud-cog" to="/docs/sandbox/hosts"}
