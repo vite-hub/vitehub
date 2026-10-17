@@ -636,10 +636,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             const resolvedAuthConfig = { ...callbackAuthConfig, developmentSecretEnvKey: envKey }
             const resolvedHandlers = await writeConsoleAuthHandlers(callbackRoot, resolvedAuthConfig, callbackBaseURL)
             if (callbackSections.includes("connections")) await writeConsoleConnectionsActor(callbackRoot, resolvedHandlers.middleware)
-            if (inlineConsoleAuthConfig === callbackAuthConfig && root === callbackRoot) {
-              inlineConsoleAuthConfig = resolvedAuthConfig
-              consoleAuthHandlers = resolvedHandlers
-            }
+            inlineConsoleAuthConfig = resolvedAuthConfig
+            consoleAuthHandlers = resolvedHandlers
           })
         }
       }
@@ -689,7 +687,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       const nitro = viteConfig.nitro ??= {}
       const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, baseURL, sections, consoleAuthHandlers, previousConsoleAuthHandlers)
       const connectionsActor = sections.includes("connections")
-        ? await writeConsoleConnectionsActor(root, consoleAuthHandlers?.auth === true ? "console-auth" : resolvedAppAuth ? "app-auth" : "none")
+        ? await writeConsoleConnectionsActor(root, consoleAuthHandlers?.middleware)
         : undefined
       const alias = kit.config.alias ?? {}
       viteConfig.nitro = {

@@ -424,8 +424,8 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
     secret = randomBytes(32).toString("hex")
     await mkdir(dirname(secretPath), { recursive: true })
     await writeFile(secretPath, secret, { mode: 0o600 })
-    await chmod(secretPath, 0o600)
   }
+  await chmod(secretPath, 0o600)
   return { generated: true, secret, envKey }
 }
 
