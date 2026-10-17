@@ -680,9 +680,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       if (typeof getter !== "function") return undefined
       const source = Function.prototype.toString.call(getter)
       // Native accessor formatting differs between Workerd/V8 versions. Keep
-      // the native body and getter shape checks, but allow engines that omit
-      // the `function` prefix or vary whitespace in Function#toString().
-      if (!/^(?:function\s+)?get(?:\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
+      // the native body and function shape checks while allowing anonymous
+      // accessors and runtime-specific whitespace.
+      if (!/^function(?:\s+get(?:\s+\w+)?|\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
       try {
         const sql = Reflect.get(storage, "sql")
         return hasCloudflareSqlExec(sql) ? sql : undefined
