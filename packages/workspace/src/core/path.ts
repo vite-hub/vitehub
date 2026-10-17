@@ -4,7 +4,9 @@ import { minimatch } from "minimatch"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import { workspacePathError } from "./errors.ts"
-export { normalizeSafeWorkspacePath } from "../internal/path.ts"
+import { normalizeSafeWorkspacePath } from "../internal/path.ts"
+
+export { normalizeSafeWorkspacePath }
 export type { SafeWorkspacePathOptions } from "../internal/path.ts"
 
 import type { ReadFileOptions, ReadFileResult, WorkspaceContent, WorkspaceContentStream } from "./types.ts"

@@ -6,8 +6,6 @@ const route = useRoute();
 const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
 // The catalog and every product Overview are landing pages: no sidebar, one centered column.
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
-
-// On docs pages the sidebar sits on the left edge of the viewport. The page content centers in the remaining space.
 const docsShellUi = {
   root: "lg:!flex lg:!flex-row lg:!items-start lg:!gap-0",
   left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
@@ -17,32 +15,13 @@ const docsShellUi = {
 
 <template>
   <UMain>
-    <UContainer v-if="isSupportMatrix">
-      <AnnouncementBanner />
-      <slot />
-    </UContainer>
-
-    <div v-else-if="isLanding" class="vh-docs-landing">
-      <slot />
-    </div>
-
-    <UPage v-else :ui="docsShellUi">
+    <UPage v-if="isSupportMatrix" :ui="docsShellUi">
       <template #left>
-        <UPageAside class="vh-docs-aside">
+        <UPageAside class="vh-docs-aside hidden lg:block">
           <DocsAsideLeftTop />
           <DocsAsideLeftBody />
         </UPageAside>
       </template>
-
-      <div class="vh-docs-main">
-        <AnnouncementBanner />
-        <slot />
-      </div>
-    </UPage>
-
-    <AppFooter class="vh-docs-footer" />
-  </UMain>
-</template>
 
 <style scoped>
 .vh-docs-main,
@@ -64,6 +43,11 @@ const docsShellUi = {
 
 .vh-docs-main {
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem);
+}
+
+.vh-docs-support-matrix {
+  max-width: none;
+  width: 100%;
 }
 
 .vh-docs-landing {

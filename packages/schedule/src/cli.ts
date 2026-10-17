@@ -1,6 +1,6 @@
 import { runScheduleRunCli } from "./cli-static.ts"
 export { parseScheduleRunArgs, runScheduleRunCli } from "./cli-static.ts"
-export { scheduleDevRunHeader, scheduleDevRunRoute, scheduleConsoleRunRoute } from "./dev.ts"
+export { scheduleConsoleRunRoute } from "./dev.ts"
 
 import {
   discoverViteHubDevServer,
