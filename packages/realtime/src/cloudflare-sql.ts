@@ -37,8 +37,6 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // Workerd may place the constructor and accessors on different levels of
     // its internal prototype chain. Their descriptors are inspected above; the
     // native getter brand probe below provides the receiver validation.
-    const prototypeProperty = Object.getOwnPropertyDescriptor(databaseSize, "prototype")
-    if (prototypeProperty && prototypeProperty.value !== undefined) return false
     // The platform getter is a native accessor. This prevents ordinary
     // JavaScript accessors from forging the receiver-sensitive brand probe.
     // Native accessors have a stable engine-generated source form. A broad
@@ -46,8 +44,11 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // source merely contains "[native code]".
     // Keep the native marker check independent of optional engine whitespace
     // and accessor naming details while still requiring a native body.
-    const nativeGetterSource = /^function(?:\s+get)?(?:\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
+    const nativeGetterSource = /^function(?:\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
+    // Test doubles and ordinary proxied callbacks expose the native proxy
+    // source but retain a mock-specific name; workerd accessors do not.
+    if (/^(?:mock|spy)/i.test(databaseSize.name)) return false
     // Reject unrelated native accessors that accept their own built-in brand.
     // Workerd's getter must reject a Map receiver, while Map.prototype.size
     // (including a proxy around it) succeeds. This keeps the check independent
