@@ -536,11 +536,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         || !inlineConsoleAuthConfig
         || inlineConsoleAuthConfig.provider !== "github"
         || Boolean(developmentSecretEnvKey)
-      consoleAuthHandlers = inlineConsoleAuthConfig && canWriteInlineAuth ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined
-      refreshConsoleAuthClient = consoleAuthConfig
+      consoleAuthHandlers = inlineConsoleAuthConfig && consoleAuthMode !== false && canWriteInlineAuth ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined
+      refreshConsoleAuthClient = inlineConsoleAuthConfig && consoleAuthMode !== false
         ? serializeConsoleRefresh(async () => {
             const refreshConfig = inlineConsoleAuthConfig
-            consoleAuthHandlers = await writeConsoleAuthHandlers(root!, refreshConfig!, baseURL)
+            if (!refreshConfig || !root) return
+            consoleAuthHandlers = await writeConsoleAuthHandlers(root, refreshConfig, baseURL)
           })
         : undefined
       projectRoot = resolveViteHubProjectRoot(root)
@@ -619,18 +620,26 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       const previousConsoleAuthHandlers = consoleAuthHandlers
       baseURL = config.base
       if (inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig && inlineConsoleAuthConfig.provider === "github") {
+        const callbackRoot = root
+        const callbackBaseURL = baseURL
+        const callbackSections = [...sections]
+        const callbackAuthConfig = inlineConsoleAuthConfig
         inlineConsoleAuthConfig = {
           ...inlineConsoleAuthConfig,
           // SAFETY: Vite preserves the Env plugin’s optional selected root in resolved config.
           developmentSecretEnvKey: (config as typeof config & { __vitehubEnvDevelopmentSecretEnvKey?: string }).__vitehubEnvDevelopmentSecretEnvKey,
         }
         const envConfig = config as typeof config & { __vitehubEnvOnResolved?: Array<(envKey: string | undefined) => Promise<void> | void> }
-        if (!inlineConsoleAuthConfig.developmentSecretEnvKey) {
+        if (consoleAuthMode === true && !inlineConsoleAuthConfig.developmentSecretEnvKey) {
           ;(envConfig.__vitehubEnvOnResolved ??= []).push(async envKey => {
-            if (!envKey || !inlineConsoleAuthConfig || !root) return
-            inlineConsoleAuthConfig = { ...inlineConsoleAuthConfig, developmentSecretEnvKey: envKey }
-            consoleAuthHandlers = await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL)
-            if (sections.includes("connections")) await writeConsoleConnectionsActor(root, consoleAuthHandlers.middleware)
+            if (!envKey || !callbackRoot) return
+            const resolvedAuthConfig = { ...callbackAuthConfig, developmentSecretEnvKey: envKey }
+            const resolvedHandlers = await writeConsoleAuthHandlers(callbackRoot, resolvedAuthConfig, callbackBaseURL)
+            if (callbackSections.includes("connections")) await writeConsoleConnectionsActor(callbackRoot, resolvedHandlers.middleware)
+            if (inlineConsoleAuthConfig === callbackAuthConfig && root === callbackRoot) {
+              inlineConsoleAuthConfig = resolvedAuthConfig
+              consoleAuthHandlers = resolvedHandlers
+            }
           })
         }
       }
