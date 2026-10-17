@@ -15,6 +15,7 @@ import {
   connectionApprovalCountsSchema,
   connectionConnectURL,
   connectionListSchema,
+  connectionNextStep,
   loadConnectionApprovals,
   requestConnectionsManagement,
 } from "../src/console/runtime/client/connections-management.ts"
@@ -170,6 +171,22 @@ describe("Connections management client", () => {
     expect(connectionConnectURL("/_vitehub/connections", "gmail")).toBe("/_vitehub/connections/connect/gmail")
     expect(connectionConnectURL("/app/_vitehub/connections/", "team.mail")).toBe("/app/_vitehub/connections/connect/team.mail")
     expect(connectionConnectURL("/_vitehub/connections", "a b")).toBe("/_vitehub/connections/connect/a%20b")
+    expect(connectionConnectURL("/app/_vitehub/connections", "gmail", "/app/_vitehub/connections"))
+      .toBe("/app/_vitehub/connections/connect/gmail?return=%2Fapp%2F_vitehub%2Fconnections")
+  })
+
+  it.each([
+    ["oauth2", "disconnected", [], { kind: "connect", label: "Connect" }],
+    ["oauth2", "revoked", [], { kind: "connect", label: "Connect" }],
+    ["oauth2", "reauth_required", [], { kind: "connect", label: "Reconnect" }],
+    ["oauth2", "connected", ["mail.send"], { kind: "connect", label: "Reconnect" }],
+    ["oauth2", "connected", [], undefined],
+    ["api-key", "disconnected", [], { kind: "key", label: "Set key" }],
+    ["api-key", "revoked", [], { kind: "key", label: "Set key" }],
+    ["api-key", "reauth_required", [], { kind: "key", label: "Replace key" }],
+    ["api-key", "connected", [], undefined],
+  ] as const)("names the next step of a %s Connection that is %s (missing %o)", (credential, status, missing, expected) => {
+    expect(connectionNextStep({ credential, scopes: { declared: [], granted: [], missing: [...missing] }, status })).toEqual(expected)
   })
 })
 

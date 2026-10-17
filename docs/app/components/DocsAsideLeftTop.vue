@@ -8,10 +8,9 @@ const sectionPath = computed(() => currentSection.value?.path || "/docs");
 const sectionTitle = computed(() => currentSection.value?.title || "All products");
 const sectionCategory = computed(() => {
   const category = currentSection.value?.category;
-  if (!category) return "Getting started";
-  return category === currentSection.value?.title ? "" : category;
+  return category || "Getting started";
 });
-const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
+const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDocsPath(sectionPath.value));
 </script>
 
 <template>
@@ -121,6 +120,7 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
   color: var(--ui-text-dimmed);
   font-size: 0.625rem;
   font-weight: 600;
+
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -832,8 +832,11 @@ export function consoleMockAPI(): Plugin {
             return
           }
           if (request.method === "GET" && url.pathname.startsWith("/_vitehub/connections/connect/")) {
-            response.setHeader("content-type", "text/html; charset=utf-8")
-            response.end("<!doctype html><title>Connected</title><p>Synthetic playground. No provider was contacted. You can close this tab.</p>")
+            // Synthetic playground: no provider is contacted. Return to the Console like the real result page.
+            const back = url.searchParams.get("return")
+            response.statusCode = 302
+            response.setHeader("location", back?.startsWith("/") && !back.startsWith("//") ? back : "/_vitehub/connections")
+            response.end()
             return
           }
           if (await handleAPI(request, response, url)) return

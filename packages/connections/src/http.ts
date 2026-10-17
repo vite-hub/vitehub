@@ -1,7 +1,8 @@
 import { isConnectionError } from "./errors.ts";
 import { checkConnectionsAccess } from "./internal/http-access.ts";
-import { connectionsRoutes, errorResponse, errorStatus, json, page } from "./internal/http-routes.ts";
+import { connectionsRoutes, errorResponse, errorStatus, json } from "./internal/http-routes.ts";
 import { managementErrorBody } from "./internal/http-diagnostics.ts";
+import { page, requestReturnPath } from "./internal/http-page.ts";
 import { CONNECTIONS_ROUTE } from "./route.ts";
 import { getConnectionsRuntime } from "./runtime/state.ts";
 
@@ -27,9 +28,10 @@ export interface ConnectionsHandlerOptions {
  * the Connections runtime only through the access that the policy grants for this request.
  *
  * - `POST /_vitehub/connections` runs one JSON action.
- * - `GET /_vitehub/connections/connect/:name` starts the web authorization flow.
+ * - `GET /_vitehub/connections/connect/:name` starts the web authorization flow. An optional
+ *   `?return=/path` names a same-origin page, such as the Console, to return to.
  * - `GET /_vitehub/connections/callback` completes it. The OAuth `state` is single-use and bound to
- *   the browser and the manager that started the flow.
+ *   the browser and the manager that started the flow. The result page returns to the `return` page.
  */
 export function createConnectionsHandler(
   options: ConnectionsHandlerOptions,
@@ -51,11 +53,14 @@ export function createConnectionsHandler(
       return await route.handle(check.access, base);
     } catch (error) {
       if (request.method === "GET") {
-        return page(
-          "Connection failed",
-          isConnectionError(error) ? error.message : "The connection could not be completed.",
-          errorStatus(error),
-        );
+        return page({
+          code: isConnectionError(error) ? error.code : "CONNECTION_FAILED",
+          message: isConnectionError(error) ? error.message : "The connection could not be completed.",
+          outcome: "error",
+          returnTo: requestReturnPath(request),
+          status: errorStatus(error),
+          title: "Connection failed",
+        });
       }
       return errorResponse(error);
     }
