@@ -19,6 +19,8 @@ const trustedResponseStatusGetter = typeof Response === "function"
   ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
   : undefined
 
+const validatedResponsePipeThrough = new WeakMap<object, (this: object, ...args: unknown[]) => unknown>()
+
 export function agentResultKind(result: unknown): string {
   if (result === null) return "null"
   if (isAsyncIterable(result)) return "stream"
@@ -1028,6 +1030,9 @@ function isResponseLike(value: unknown): value is Response {
       // object cannot establish the Response classification.
       if (lockedAccessor() !== true) return false
     }
+    const pipeThrough = getPrototypeMethod(body, "pipeThrough")
+    if (!pipeThrough) return false
+    validatedResponsePipeThrough.set(body, pipeThrough as (this: object, ...args: unknown[]) => unknown)
     return true
   }
   catch {
@@ -1089,7 +1094,7 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   if (isResponseLike(value)) {
     const body = value.body
     if (body) {
-      const pipeThrough = getPrototypeMethod(body, "pipeThrough")
+      const pipeThrough = validatedResponsePipeThrough.get(body)
       if (!pipeThrough) throw new TypeError("Response body does not expose pipeThrough")
       for await (const text of pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
         if (text) yield { text, type: "text-delta" }
