@@ -203,8 +203,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     if (response) return response
     if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
-  let sections: ConsoleAccess["sections"] = "all"
-  if (policy.authorize) {
+  let sections: ConsoleAccess["sections"]
+  if (policy.authorize && policy.mode !== "host-managed") {
     const request = consoleRequest(event)
     const result: unknown = await policy.authorize(user ? { request, user } : { request })
     const response = await authorizationResponse(result)
