@@ -444,7 +444,9 @@ function hasNativeDateJSONHook(value: object): boolean {
     if (!getTimeDescriptor && !toISOStringDescriptor) {
       if (toJSONDescriptor) return false
       const hook = Reflect.get(value, "toJSON")
-      return hasRuntimeType(hook, "function") ? isIntrinsicDateJSON(hook) || isNative(hook) : false
+      // A hidden prototype prevents us from proving which serializer would run.
+      // Reject any callable hook so a throwing proxy cannot cross validation.
+      return hasRuntimeType(hook, "function")
     }
     if (!isNative(getTime) || !isNative(toISOString)) return false
     let prototype: object | null = Reflect.getPrototypeOf(value)
@@ -453,7 +455,7 @@ function hasNativeDateJSONHook(value: object): boolean {
       visited.add(prototype)
       const descriptor = Reflect.getOwnPropertyDescriptor(prototype, "toJSON")
       if (descriptor) {
-        if ("value" in descriptor) return hasRuntimeType(descriptor.value, "function") ? isIntrinsicDateJSON(descriptor.value) || isNative(descriptor.value) : false
+        if ("value" in descriptor) return hasRuntimeType(descriptor.value, "function") ? isIntrinsicDateJSON(descriptor.value) : false
         // An accessor may expose the native hook while hiding its value from
         // descriptor inspection. Treat it as unsafe once native Date methods
         // identify the surrounding object as a Date proxy.
@@ -463,7 +465,7 @@ function hasNativeDateJSONHook(value: object): boolean {
     }
     // Hidden prototype proxies still expose the native Date methods.
     const hook = Reflect.get(value, "toJSON")
-    return hasRuntimeType(hook, "function") ? isIntrinsicDateJSON(hook) || isNative(hook) : false
+    return hasRuntimeType(hook, "function") ? isIntrinsicDateJSON(hook) : false
   }
   catch {
     return false
