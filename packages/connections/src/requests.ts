@@ -105,7 +105,33 @@ export function createRequestScheduler() {
     const stop = () => clearTimeout(timer)
     const signal = init.signal ? AbortSignal.any([init.signal, timeout.signal]) : timeout.signal
     try {
-      return { response: await dispatch({ ...init, signal }), stop }
+      const response = await dispatch({ ...init, signal })
+      if (!response.body) {
+        stop()
+        return { response, stop: () => undefined }
+      }
+      const reader = response.body.getReader()
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            const chunk = await reader.read()
+            if (chunk.done) {
+              stop()
+              controller.close()
+            }
+            else controller.enqueue(chunk.value)
+          }
+          catch (error) {
+            stop()
+            controller.error(error)
+          }
+        },
+        async cancel(reason) {
+          stop()
+          await reader.cancel(reason)
+        },
+      })
+      return { response: new Response(body, response), stop }
     }
     catch (error) {
       stop()
