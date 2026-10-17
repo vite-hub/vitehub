@@ -320,7 +320,20 @@ function hasResponsePrototype(value: unknown): boolean {
       if (typeof constructor === "function"
         && constructor.name === "Response"
         && constructor.prototype === owner
-        && authorizationResponseProperties.every(key => Object.getOwnPropertyDescriptor(owner, key)?.get)) return true
+        && authorizationResponseProperties.every((key) => {
+          const getter = Object.getOwnPropertyDescriptor(owner, key)?.get
+          const nativeGetter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+          if (typeof getter !== "function" || typeof nativeGetter !== "function") return false
+          // Native Web IDL accessors retain their source representation across realms.
+          if (Function.prototype.toString.call(getter) !== Function.prototype.toString.call(nativeGetter)) return false
+          try {
+            Reflect.apply(getter, value, [])
+            return true
+          }
+          catch {
+            return false
+          }
+        })) return true
       prototype = Object.getPrototypeOf(prototype)
     }
   }

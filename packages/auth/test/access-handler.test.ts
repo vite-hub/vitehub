@@ -150,6 +150,24 @@ describe("Auth access handlers", () => {
     expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
   })
 
+  it("rejects forged Response prototypes", async () => {
+    const ForgedResponse = function Response() {}
+    const forgedPrototype = Object.create(null, {
+      constructor: { value: ForgedResponse },
+      status: { get: Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get },
+      statusText: { get: Object.getOwnPropertyDescriptor(Response.prototype, "statusText")?.get },
+      headers: { get: Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get },
+      body: { get: Object.getOwnPropertyDescriptor(Response.prototype, "body")?.get },
+    })
+    ForgedResponse.prototype = forgedPrototype
+    const spoofedResponse = Object.create(forgedPrototype)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoofedResponse as never }] },
+    }))
+
+    expect((await handler(new Request("https://app.example/")))?.status).toBe(403)
+  })
+
   it("rejects response-shaped objects without a genuine body slot", async () => {
     const spoofedResponse = runInNewContext(`Object.create({
       get status() { return 409 },
