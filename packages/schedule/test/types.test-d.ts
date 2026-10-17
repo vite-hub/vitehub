@@ -83,12 +83,13 @@ it("types the Process Schedule Runtime", () => {
 
 it("types generated Nitro Process Runtime options", () => {
   expectTypeOf<ScheduleProcessRuntimeOptions>().toEqualTypeOf<{
+    catchUpMs?: number
     concurrency?: number
     driver: "process"
     intervalMs?: number
     prefix?: string
   }>()
-  hubSchedule({ runtime: { concurrency: 2, driver: "process", intervalMs: 5_000, prefix: "app:schedule" } })
+  hubSchedule({ runtime: { catchUpMs: 0, concurrency: 2, driver: "process", intervalMs: 5_000, prefix: "app:schedule" } })
 
   // @ts-expect-error Generated Process Runtime does not serialize test clocks.
   hubSchedule({ runtime: { driver: "process", now: () => new Date() } })
