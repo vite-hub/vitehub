@@ -18,7 +18,6 @@ function propertyName(property: ESTree.ObjectProperty | ESTree.SpreadElement | E
   if (property.type !== "Property") return
   const key = property.key
   if (key.type === "Identifier") return key.name
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Literal AST keys can be strings, numbers, or other primitives.
   if (key.type === "Literal" && typeof key.value === "string") return key.value
 }
 
@@ -55,7 +54,6 @@ function describeDocument(node: ESTree.Node | undefined): string {
   if (node.type === "ObjectExpression") {
     const values = properties(node)
     const workspace = literal(values.get("workspace"))
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only a string literal names a Workspace statically.
     if (typeof workspace === "string") return `Workspace ${JSON.stringify(workspace)} (Markdown file per path)`
     if (values.has("load") && values.has("save")) return "custom adapter (inline load/save)"
   }
@@ -63,7 +61,6 @@ function describeDocument(node: ESTree.Node | undefined): string {
   if (callee === "workspaceDocument") {
     const argument = node.type === "CallExpression" ? node.arguments[0] : undefined
     const name = argument && argument.type !== "SpreadElement" ? literal(argument) : undefined
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only a string literal names a Workspace statically.
     return typeof name === "string" ? `Workspace ${JSON.stringify(name)} (Markdown file per path)` : "Workspace (dynamic name)"
   }
   if (callee) return `custom adapter (${callee}())`

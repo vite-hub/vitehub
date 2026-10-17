@@ -963,12 +963,6 @@
       "require": "./dist/workspace/loader.js",
       "default": "./dist/workspace/loader.js"
     },
-    "./workspace/publish": {
-      "types": "./dist/workspace/publish.d.ts",
-      "import": "./dist/workspace/publish.js",
-      "require": "./dist/workspace/publish.js",
-      "default": "./dist/workspace/publish.js"
-    },
     "./workspace/runtime": {
       "types": "./dist/workspace/runtime.d.ts",
       "import": "./dist/workspace/runtime.js",

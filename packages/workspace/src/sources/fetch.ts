@@ -231,7 +231,6 @@ function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMeth
       ? method.toUpperCase()
       : ""
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Report the primitive representation of malformed opaque configuration without coercing objects or invoking their getters.
     const label = hasRuntimeType(method, "string") ? method : typeof method
     throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${label}" is not supported in v1. Use GET, HEAD, or POST.` })
   }

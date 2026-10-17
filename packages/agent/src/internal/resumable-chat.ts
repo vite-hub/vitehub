@@ -172,7 +172,6 @@ export function createResumableChatProcessCustody<TContext>(
   const invocationRuns = new Map<string, ResumableChatProcessRun>()
   const latestRuns = new Map<string, ResumableChatProcessRun>()
 
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route options can arrive from untyped JavaScript, so validate the public runtime boundary before invocation.
   const ttlMs = typeof config?.ttlMs === "number" && config.ttlMs > 0
     ? config.ttlMs
     : resumableChatDefaultTtlMs
@@ -258,7 +257,6 @@ export function createResumableChatProcessCustody<TContext>(
 
   return {
     async session(context, identity) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Route options can arrive from untyped JavaScript, so validate the public runtime boundary before invocation.
       if (!config || typeof config !== "object" || typeof config.owner !== "function") {
         throw agentDiagnostics.AGENT_R0569({ message: "[vitehub] Resumable web chat requires route.resumable.owner()." })
       }
@@ -266,7 +264,6 @@ export function createResumableChatProcessCustody<TContext>(
         throw agentDiagnostics.AGENT_R0570({ message: '[vitehub] Resumable web chat requires route.resumable.scope to be "process"; streams do not survive process replacement or cross-instance routing.' })
       }
       const owner = await config.owner(context)
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript owner callbacks can violate the declared return type at this public runtime boundary.
       if (typeof owner !== "string" || !owner.trim()) {
         throw agentDiagnostics.AGENT_R0571({ message: "[vitehub] Resumable web chat owner must be a non-empty string." })
       }

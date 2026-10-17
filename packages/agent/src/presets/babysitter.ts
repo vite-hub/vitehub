@@ -263,30 +263,19 @@ export function resolveBabysitterLifecycleFilter(
 
 export const babysitter: BabysitterAgent = defineAgent({
   options: {
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default filter is constrained by BabysitterOptions at the public preset boundary.
     filter: {} as GitHubPullRequestFilter,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented driver union.
     driver: "codex" as BuiltInAgentDriverName,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented merge union.
     merge: false as BabysitterMerge,
     reviewChecks: [] as string[],
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented prefix list.
     noFindingsReviews: [] as string[],
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented login list.
     ignoreFeedbackAuthors: [] as string[],
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented budget union.
     noProgressBudget: 3 as number | false,
     deferWhilePending: true,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented install union.
     install: true as BabysitterInstall,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented login allowlist.
     mentionAllowlist: [] as string[],
     concurrency: 1,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented admission options.
     admission: {} as BabysitterAdmissionOptions,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented lifecycle options.
     lifecycle: {} as BabysitterLifecycleOptions,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- No placement keeps every pass on this host.
     placement: undefined as BabysitterPlacement | undefined,
     autoMerge: false,
   },
@@ -312,7 +301,6 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (!validInstall(install)) {
       throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
     }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Placement callbacks come from user configuration at this runtime boundary.
     if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function"))) {
       throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive? } functions.");
     }

@@ -84,7 +84,6 @@ const sourceBindingLineage = new WeakMap<object, WorkspaceSourceInput>()
 function sameWorkspaceSourceBinding(key: string, left: WorkspaceSourceInput | undefined, right: WorkspaceSourceInput | undefined): boolean {
   if (left === right) return true
   if (!left || !right) return false
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only object Source definitions participate in binding lineage.
   if (typeof left !== "object" || typeof right !== "object") return false
   if ((sourceBindingLineage.get(left) ?? left) !== (sourceBindingLineage.get(right) ?? right)) return false
   const leftBinding = normalizeWorkspaceSource(key, left)
@@ -686,11 +685,6 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       list: writeFs.list,
       materializeSources,
       mkdir: writeFs.mkdir,
-      publish: async (options) => {
-        const { publishWorkspace } = await import("../lifecycle.ts")
-        const resolvedStore = createWritableFacadeStore({ ...workspace, fs: writeFs })
-        await publishWorkspace(resolvedDefinition, resolvedStore, options)
-      },
       rebase,
       readFile: writeFs.readFile,
       rm: writeFs.rm,
@@ -751,7 +745,6 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       fs: writeFs,
       history: writableHistory,
       materializeSources,
-      publish: writeWorkspace.publish,
       snapshot: writeWorkspace.snapshot,
       startSession: writeWorkspace.startSession,
       sync: writeWorkspace.sync,
@@ -872,7 +865,6 @@ async function resolveWorkspaceSource(
       },
     },
   })
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- String and callable Sources have no object-definition lineage to look up.
   sourceBindingLineage.set(result, typeof input === "object" ? sourceBindingLineage.get(input) ?? input : input)
   return result
 }

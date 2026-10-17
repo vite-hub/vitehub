@@ -1484,7 +1484,6 @@ function deliveryOutcomeObservation(observation: TraceEventLogEntry): boolean {
 function observationTitle(observation: TraceEventLogEntry | undefined): string | undefined {
   if (observation?.name !== "agent.title.recorded") return
   const value = observation.attributes?.["vitehub.session.title"]
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Trace attributes are unknown; a title is a trimmed, bounded string and all other values are omitted.
   if (typeof value !== "string") return
   return value.trim().slice(0, MAX_METADATA_STRING_LENGTH) || undefined
 }

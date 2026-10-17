@@ -614,7 +614,6 @@ describe("agent Vite plugin", () => {
           // SAFETY: This hook fixture does not read the Vite plugin context.
           {} as never,
           "ssr",
-          // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The fixture supplies the server environment fields exercised by the hook.
           config as never,
           // SAFETY: This hook fixture does not read the environment options argument.
           {} as never,

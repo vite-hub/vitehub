@@ -21,18 +21,15 @@ function requiredEnv(name: string): string {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub responses are untrusted JSON.
   return value !== null && typeof value === "object"
 }
 
 function isVerifiedEmail(value: unknown): value is { email: string, primary?: unknown } {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub responses are untrusted JSON.
   return isRecord(value) && value.verified === true && typeof value.email === "string" && value.email !== ""
 }
 
 // SAFETY: A GitHub /user response with a login and a numeric id. Better Auth keeps it as profile data.
 function isGitHubProfile(value: unknown): value is GitHubProfile {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub responses are untrusted JSON.
   return isRecord(value) && typeof value.login === "string" && typeof value.id === "number"
 }
 
@@ -103,7 +100,6 @@ export function createInlineConsoleAuth(config: InlineConsoleAuth): ConsoleAuthD
     }),
     // Organization membership is checked at sign-in. The session ends membership access at expiry.
     authorize: ({ user }) => user.emailVerified === true
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Better Auth user fields are extensible, so verify email is a string before comparing it with the allowlist.
       && typeof user.email === "string"
       && (!allowedEmails || allowedEmails.has(user.email.toLowerCase())),
     signIn: { provider: "github", scopes: orgs.length ? ["read:org", "user:email"] : ["user:email"] },

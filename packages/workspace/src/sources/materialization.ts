@@ -561,7 +561,6 @@ async function reconcileRemovedStartupSourcesInternal(
 ) {
   const workspaceIndex = await readStartupIndex(store, startupWorkspacesMetaKey)
   const workspaces = new Set(Array.isArray(workspaceIndex)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted Workspace names at the untyped Store boundary.
     ? workspaceIndex.filter((name): name is string => typeof name === "string")
     : [])
   workspaces.add(workspace)

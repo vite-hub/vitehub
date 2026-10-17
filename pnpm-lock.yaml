@@ -739,7 +739,7 @@ importers:
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vercel/connect':
         specifier: 2.5.2
-        version: 2.5.2(42bc57f755bb6ad942a2e19c78ac4623)
+        version: 2.5.2(d0346f005d2e6b2cc13b0494ce312fbf)
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.11.0(rollup@4.64.8)
@@ -817,8 +817,8 @@ importers:
         specifier: catalog:chat
         version: 4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
       '@github-tools/eve-extension':
-        specifier: 0.8.0
-        version: 0.8.0(8869caf862955d82eb620236e2672587)
+        specifier: 0.8.1
+        version: 0.8.1(da058420352687aac46bbc053aaf36c6)
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
@@ -853,11 +853,11 @@ importers:
         specifier: catalog:ai
         version: 1.0.0-beta.16(ai@7.0.143(zod@4.6.7))(better-sqlite3@12.9.0)
       eve:
-        specifier: 0.72.1
-        version: 0.72.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
+        specifier: 0.80.1
+        version: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       evlog:
         specifier: ^2.32.0
-        version: 2.33.0(cf35d3483f96bccad8fc6fb9cb29dbe1)
+        version: 2.33.0(1280fb0d1ea32b1a7b470c5e57929d20)
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
@@ -2505,7 +2505,7 @@ importers:
         version: 1.0.0-beta.16(ai@6.0.309(zod@4.6.7))(better-sqlite3@12.9.0)
       evlog:
         specifier: ^2.28.1
-        version: 2.29.0(8a8b5a530137b31a60ce4dc1aba254fe)
+        version: 2.29.0(13b003e2364120e37bdedff6accdafbe)
       google-auth-library:
         specifier: catalog:storage
         version: 10.9.1
@@ -4553,8 +4553,8 @@ packages:
     peerDependencies:
       vue: 3.5.44
 
-  '@github-tools/eve-extension@0.8.0':
-    resolution: {integrity: sha512-y5nUP/0rd104lyCkBkfrSmEtrJShmLUX9yruCQTGzrOWmeW4txoUwkuGTcBOMyb2FIm6rCPLKi49DeB89s+NyA==}
+  '@github-tools/eve-extension@0.8.1':
+    resolution: {integrity: sha512-wOVaEiPfI0xtWJ8DuBlWjjxE8VJhKLrybCVUF9ppA0O69OsmKSNvoQSLofhu8Ok9a40xWEANB3qTZozpWNx8fA==}
     engines: {node: '>=24'}
     peerDependencies:
       '@vercel/connect': '>=0.3.2'
@@ -4563,22 +4563,25 @@ packages:
       '@vercel/connect':
         optional: true
 
-  '@github-tools/sdk@1.17.0':
-    resolution: {integrity: sha512-xfeAZ09IlO+N/pbLqSTXgwZxaUUeFw5wBxPabeDdKPYUNJMZ8HmP0YnPgrCmjIwszHdCjosaBHTibus2NagdEw==}
+  '@github-tools/sdk@1.18.0':
+    resolution: {integrity: sha512-ThD3KnwB9YFKKNambdrvZXPCRup7zKc4geahc94bAI1vmbfcj0LB1xTf0jU9PlunVZWbvFMeIllKslUGDYTVXw==}
     peerDependencies:
-      '@ai-sdk/workflow': ^1.0.16
+      '@ai-sdk/workflow': ^1.0.16 || ^2.0.0
+      '@tanstack/ai': ~0.64.0
+      '@tanstack/ai-vercel-gateway': ~0.3.2
       '@vercel/connect': '>=0.3.2'
-      '@workflow/ai': ^4.1.2
       ai: 7.0.143
       eve: '>=0.44.0'
-      workflow: ^4.5.0
+      workflow: ^4.5.0 || ^5.0.0
       zod: ^4.3.6
     peerDependenciesMeta:
       '@ai-sdk/workflow':
         optional: true
-      '@vercel/connect':
+      '@tanstack/ai':
         optional: true
-      '@workflow/ai':
+      '@tanstack/ai-vercel-gateway':
+        optional: true
+      '@vercel/connect':
         optional: true
       eve:
         optional: true
@@ -11490,15 +11493,15 @@ packages:
       better-sqlite3:
         optional: true
 
-  eve@0.72.1:
-    resolution: {integrity: sha512-D72hUlYoJVwsmS7JMcHLDmMgYozHujNy5VvWiEpXmhia8TnzT0do7hcM1A4SXjVhoZRiVRgKo8LZGBx8LH4gTw==}
+  eve@0.80.1:
+    resolution: {integrity: sha512-s890vy5W9Cqovq2ceIb+oe7zLVclPPidceso9ln17ljNwRLGE+92uGz1K7tayvhcXVK/z5bjx0szLNeLR2ItPA==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
       '@opentelemetry/api': ^1.0.0
       ai: 7.0.143
       braintrust: ^3.0.0
-      chat: ^4.41.0
+      chat: ^4.42.0
       dd-trace: ^6.13.0
       just-bash: ^3.1.0
       microsandbox: ^0.5.0
@@ -18461,21 +18464,22 @@ snapshots:
       '@floating-ui/utils': 0.2.12
       vue: 3.5.44(typescript@6.0.3)
 
-  '@github-tools/eve-extension@0.8.0(8869caf862955d82eb620236e2672587)':
+  '@github-tools/eve-extension@0.8.1(da058420352687aac46bbc053aaf36c6)':
     dependencies:
-      '@github-tools/sdk': 1.17.0(23680d6ad97430a01025ce5f833e762e)
-      eve: 0.72.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
+      '@github-tools/sdk': 1.18.0(fa7202fd2f4a0437a976387c7e2d793e)
+      eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       zod: 4.6.7
     optionalDependencies:
-      '@vercel/connect': 2.5.2(42bc57f755bb6ad942a2e19c78ac4623)
+      '@vercel/connect': 2.5.2(d0346f005d2e6b2cc13b0494ce312fbf)
     transitivePeerDependencies:
       - '@ai-sdk/workflow'
       - '@nestjs/common'
       - '@nestjs/core'
       - '@nuxt/kit'
       - '@orpc/server'
+      - '@tanstack/ai'
+      - '@tanstack/ai-vercel-gateway'
       - '@tanstack/start-client-core'
-      - '@workflow/ai'
       - ai
       - effect
       - elysia
@@ -18492,15 +18496,15 @@ snapshots:
       - vite
       - workflow
 
-  '@github-tools/sdk@1.17.0(23680d6ad97430a01025ce5f833e762e)':
+  '@github-tools/sdk@1.18.0(fa7202fd2f4a0437a976387c7e2d793e)':
     dependencies:
       ai: 7.0.143(zod@4.6.7)
-      evlog: 2.33.0(cf35d3483f96bccad8fc6fb9cb29dbe1)
+      evlog: 2.33.0(1280fb0d1ea32b1a7b470c5e57929d20)
       octokit: 5.0.5
       zod: 4.6.7
     optionalDependencies:
-      '@vercel/connect': 2.5.2(42bc57f755bb6ad942a2e19c78ac4623)
-      eve: 0.72.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
+      '@vercel/connect': 2.5.2(d0346f005d2e6b2cc13b0494ce312fbf)
+      eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       workflow: 5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0)
     transitivePeerDependencies:
       - '@nestjs/common'
@@ -25740,7 +25744,7 @@ snapshots:
     dependencies:
       execa: 5.1.1
 
-  '@vercel/connect@2.5.2(42bc57f755bb6ad942a2e19c78ac4623)':
+  '@vercel/connect@2.5.2(d0346f005d2e6b2cc13b0494ce312fbf)':
     dependencies:
       '@vercel/oidc': 4.0.1
     optionalDependencies:
@@ -25748,7 +25752,7 @@ snapshots:
       '@modelcontextprotocol/sdk': 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
       ai: 7.0.143(zod@4.6.7)
       better-auth: 1.7.10(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261016.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@5.0.5)(vue@3.5.44(typescript@6.0.3))
-      eve: 0.72.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
+      eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
 
   '@vercel/detect-agent@1.2.5': {}
 
@@ -28841,7 +28845,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  eve@0.72.1(@opentelemetry/api@1.9.1)(ai@6.0.309(zod@4.6.7))(chat@4.42.0(ai@6.0.309(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.49)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0):
+  eve@0.80.1(@opentelemetry/api@1.9.1)(ai@6.0.309(zod@4.6.7))(chat@4.42.0(ai@6.0.309(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.49)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0):
     dependencies:
       ai: 6.0.309(zod@4.6.7)
       nitro: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
@@ -28852,7 +28856,7 @@ snapshots:
       just-bash: 3.6.0
     optional: true
 
-  eve@0.72.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0):
+  eve@0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0):
     dependencies:
       ai: 7.0.143(zod@4.6.7)
       nitro: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
@@ -28880,12 +28884,12 @@ snapshots:
     dependencies:
       eventsource-parser: 3.1.1
 
-  evlog@2.29.0(8a8b5a530137b31a60ce4dc1aba254fe):
+  evlog@2.29.0(13b003e2364120e37bdedff6accdafbe):
     optionalDependencies:
       '@nestjs/common': 11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nuxt/kit': 4.6.2(@nuxt/schema@4.6.2)(confbox@0.3.1)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.3)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.8))
       ai: 6.0.309(zod@4.6.7)
-      eve: 0.72.1(@opentelemetry/api@1.9.1)(ai@6.0.309(zod@4.6.7))(chat@4.42.0(ai@6.0.309(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.49)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
+      eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@6.0.309(zod@4.6.7))(chat@4.42.0(ai@6.0.309(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.49)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       express: 5.2.1
       fastify: 5.12.5
       h3: 2.0.2(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0)
@@ -28896,14 +28900,14 @@ snapshots:
       react: 19.2.6
       vite: '@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)'
 
-  evlog@2.33.0(cf35d3483f96bccad8fc6fb9cb29dbe1):
+  evlog@2.33.0(1280fb0d1ea32b1a7b470c5e57929d20):
     optionalDependencies:
       '@nestjs/common': 11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core': 11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nuxt/kit': 4.6.2(@nuxt/schema@4.6.2)(confbox@0.3.1)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.3)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.8))
       ai: 7.0.143(zod@4.6.7)
       effect: 4.0.5
-      eve: 0.72.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
+      eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.143(zod@4.6.7))(chat@4.42.0(ai@7.0.143(zod@4.6.7))(workflow@5.2.2(@aws-sdk/credential-provider-web-identity@3.972.80)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       express: 5.2.1
       fastify: 5.12.5
       h3: 1.15.11

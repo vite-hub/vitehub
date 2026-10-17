@@ -40,12 +40,10 @@ const presetCacheDrivers: Partial<Record<DeploymentPreset, CacheDriver>> = {
 }
 
 function trimmed(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cache options come from user config, so optional strings are checked at runtime.
   return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
 
 function isCacheDriver(value: unknown): value is CacheDriver {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The driver literal comes from user config and is checked before use.
   return typeof value === "string" && Object.hasOwn(cacheDriverPresets, value)
 }
 
