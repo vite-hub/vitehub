@@ -348,7 +348,7 @@ export function formatConsoleUsageTimestamp(value: string, timeZone?: string): s
     hour: "numeric",
     minute: "2-digit",
     month: "short",
-    ...(timeZone ? { timeZone } : {}),
+    ...(timeZone ? { timeZone } : undefined),
   }).format(new Date(value));
 }
 
@@ -357,6 +357,6 @@ export function formatConsoleUsageDateTime(value: string, timeZone?: string): st
   return new Intl.DateTimeFormat("en", {
     dateStyle: "full",
     timeStyle: "long",
-    ...(timeZone ? { timeZone } : {}),
+    ...(timeZone ? { timeZone } : undefined),
   }).format(new Date(value));
 }

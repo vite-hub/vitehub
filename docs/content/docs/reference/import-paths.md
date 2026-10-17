@@ -106,13 +106,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/source/github` | GitHub Source implementation, loaded only when selected. |
 | `vite-hub/source/mcp` | MCP Resources implementation with its private SDK closure. |
 | `vite-hub/source/vite` | Source discovery, generated artifacts, and Nitro route integration for custom Vite plugin composition. |
-| `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | AI interface components, headless message scrolling, and default styles. |
-| `vite-hub/ui/attachment`, `vite-hub/ui/bubble`, `vite-hub/ui/marker`, `vite-hub/ui/message`, and `vite-hub/ui/trace` | Focused imports for shadcn/ui Agent interface parts. |
-| `vite-hub/ui/agent-chat`, `vite-hub/ui/agent-chat-message`, `vite-hub/ui/agent-chat-prompt`, `vite-hub/ui/agent-message-parts` | Focused imports for chat components. |
-| `vite-hub/ui/agent-invocation`, `vite-hub/ui/agent-invocation-inspector`, `vite-hub/ui/agent-invocation-list`, `vite-hub/ui/agent-invocation-timeline` | Focused imports for agent Invocation components. |
-| `vite-hub/ui/agent-capability-inspector`, `vite-hub/ui/agent-tool-list`, `vite-hub/ui/agent-trace` | Focused imports for capability and trace inspection components. |
-| `vite-hub/ui/agent-code-view`, `vite-hub/ui/agent-file`, `vite-hub/ui/agent-file-diff`, `vite-hub/ui/agent-multi-file-diff`, `vite-hub/ui/agent-patch-diff`, `vite-hub/ui/agent-unresolved-file` | Focused imports for code and diff components. |
-| `vite-hub/ui/agent-file-tree`, `vite-hub/ui/agent-markdown`, `vite-hub/ui/agent-session` | Focused imports for file tree, Markdown, and session components. |
+| `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | Every AI interface component, headless message scrolling, and default styles. |
 | `vite-hub/ui/nuxt` and `vite-hub/ui/vite` | Register the canonical UI package for Nuxt or Vue with Vite. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
@@ -163,8 +157,8 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/box/ssh` | Box Package | `sshLaunch` and `serveSsh` for a trusted SSH command transport. |
 | `@vite-hub/channels` | Channels Package | Outbound Channel Definitions with `defineOutboundChannel()`, explicit clients, portable types, and normalized delivery results. |
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
-| `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `oauth2()`, `apiKey()`, `useConnection()`, the Google preset, and typed Gmail Operations. |
-| `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access, management and OAuth routes, and the Agent primitive handle. |
+| `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `apiKey()`, the Google preset, and typed Gmail Operations. |
+| `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, management and OAuth routes, and the Agent primitive handle. |
 | `@vite-hub/content` and `@vite-hub/content/client` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, and typed client. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
 | `@vite-hub/email` | Email Package | Explicit clients, portable types, and normalized errors. |
@@ -195,7 +189,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/shell` | Shell Package | Command analysis and provider-neutral Shell runtime execution. |
 | `@vite-hub/shell/providers/cloudflare` and `@vite-hub/shell/providers/just-bash` | Shell Package | Cloudflare and Just Bash Shell providers. |
 | `@vite-hub/shell/workspace` | Shell Package | Read-only Workspace filesystem adapters and mount paths for Shell providers. |
-| `@vite-hub/ui`, `@vite-hub/ui/agent-*`, and `@vite-hub/ui/headless` | UI Package | AI SDK-native Vue components and headless message scrolling. |
+| `@vite-hub/ui` and `@vite-hub/ui/headless` | UI Package | AI SDK-native Vue components and headless message scrolling. |
 | `@vite-hub/sandbox` | Sandbox Package | Sandbox Definition and Sandbox Run helpers. |
 | `@vite-hub/schedule` and `@vite-hub/schedule/runtime` | Schedule Package | Schedule Definition helpers and Runtime Schedule helpers. |
 | `@vite-hub/schedule/runtime/kv` | Schedule Package | Explicit storage adapter; requires the optional `@vite-hub/kv` peer. |

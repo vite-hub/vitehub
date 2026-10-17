@@ -108,25 +108,25 @@ beforeEach(() => {
   useRealHost = false
   pendingEnv = undefined
   for (const name of [
-    "GITHUB_APP_ID",
-    "GITHUB_APP_INSTALLATION_ID",
-    "GITHUB_APP_PRIVATE_KEY",
-    "GITHUB_APP_PRIVATE_KEY_PATH",
+    "VITEHUB_GITHUB_APP_ID",
+    "VITEHUB_GITHUB_INSTALLATION_ID",
+    "VITEHUB_GITHUB_PRIVATE_KEY",
+    "VITEHUB_GITHUB_PRIVATE_KEY_PATH",
     "VITEHUB_GITHUB_APP_ID",
     "VITEHUB_GITHUB_APP_INSTALLATION_ID",
     "VITEHUB_GITHUB_APP_PRIVATE_KEY",
     "VITEHUB_GITHUB_APP_PRIVATE_KEY_PATH",
-    "GITLAB_BASE_URL",
+    "VITEHUB_GITLAB_BASE_URL",
     "VITEHUB_GITLAB_BASE_URL",
     "VITEHUB_GITLAB_TOKEN",
-    "FORGEJO_BASE_URL",
+    "VITEHUB_FORGEJO_BASE_URL",
     "VITEHUB_FORGEJO_BASE_URL",
     "VITEHUB_FORGEJO_TOKEN",
   ])
     vi.stubEnv(name, "")
   vi.stubEnv("VITEHUB_GITHUB_TOKEN", "github-token")
-  vi.stubEnv("GITLAB_TOKEN", "gitlab-token")
-  vi.stubEnv("FORGEJO_TOKEN", "code-host-token")
+  vi.stubEnv("VITEHUB_GITLAB_TOKEN", "gitlab-token")
+  vi.stubEnv("VITEHUB_FORGEJO_TOKEN", "code-host-token")
 })
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -459,21 +459,20 @@ describe("Code Host capability", () => {
   it.each(["github", "gitlab", "forgejo"] as const)("names missing Server Env credentials for %s", async host => {
     for (const name of [
       "VITEHUB_GITHUB_TOKEN",
-      "GH_TOKEN",
-      "GITHUB_TOKEN",
-      "GITHUB_APP_ID",
-      "GITHUB_APP_PRIVATE_KEY",
-      "GITHUB_APP_PRIVATE_KEY_PATH",
+      "FORGES_GITHUB_TOKEN",
       "VITEHUB_GITHUB_APP_ID",
-      "VITEHUB_GITHUB_APP_PRIVATE_KEY",
-      "GITLAB_TOKEN",
+      "FORGES_GITHUB_APP_ID",
+      "VITEHUB_GITHUB_PRIVATE_KEY",
+      "FORGES_GITHUB_PRIVATE_KEY",
+      "VITEHUB_GITHUB_PRIVATE_KEY_PATH",
       "VITEHUB_GITLAB_TOKEN",
-      "FORGEJO_TOKEN",
+      "FORGES_GITLAB_TOKEN",
       "VITEHUB_FORGEJO_TOKEN",
+      "FORGES_FORGEJO_TOKEN",
     ])
       vi.stubEnv(name, "")
     await expect(run(await tools(codeHost({ ...base, host })), "read_thread", { number: 1 })).rejects.toThrow(
-      host === "github" ? "GITHUB_APP_ID" : host === "gitlab" ? "GITLAB_TOKEN" : "FORGEJO_TOKEN",
+      host === "github" ? "VITEHUB_GITHUB_APP_ID" : host === "gitlab" ? "VITEHUB_GITLAB_TOKEN" : "VITEHUB_FORGEJO_TOKEN",
     )
   })
 
@@ -481,9 +480,9 @@ describe("Code Host capability", () => {
     const key = generateKeyPairSync("rsa", { modulusLength: 2048 })
       .privateKey.export({ type: "pkcs8", format: "pem" })
       .toString()
-    vi.stubEnv("GITHUB_APP_ID", explicit ? "991" : "992")
-    vi.stubEnv("GITHUB_APP_PRIVATE_KEY", key)
-    vi.stubEnv("GITHUB_APP_INSTALLATION_ID", explicit ? "42" : "")
+    vi.stubEnv("VITEHUB_GITHUB_APP_ID", explicit ? "991" : "992")
+    vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", key)
+    vi.stubEnv("VITEHUB_GITHUB_INSTALLATION_ID", explicit ? "42" : "")
     const fixture = fixtureFetch([
       {
         request: { method: "GET", url: "https://api.github.com/repos/acme/app/installation" },
@@ -541,7 +540,7 @@ describe("Code Host capability", () => {
       },
     ])
     vi.stubGlobal("fetch", fixture.fetch)
-    vi.stubEnv("GITLAB_BASE_URL", "https://gitlab.example.com")
+    vi.stubEnv("VITEHUB_GITLAB_BASE_URL", "https://gitlab.example.com")
     const set = await tools(codeHost({ host: "gitlab", repositories: ["platform/team/api"] }))
     expect(await run(set, "read_file", { path: "a.ts", ref: "main" })).toMatchObject({ content: "hello" })
     expect(fixture.calls[0]?.authorization).toBe("Bearer gitlab-token")
