@@ -501,7 +501,13 @@ describe("resolveDBViteConfig", () => {
       .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
   })
 
-  it("stops opaque declarations before TypeScript declarations", async () => {
+  it.each([
+    "interface Marker { value: string }",
+    "type Marker = { value: string }",
+    "enum Marker { value }",
+    "namespace Marker { export const value = 1 }",
+    "declare const marker: string",
+  ])("stops opaque declarations before TypeScript declaration: %s", async (typescriptDeclaration) => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {
       const file = join(rootDir, "server/databases", name, "config.ts")
@@ -509,7 +515,7 @@ describe("resolveDBViteConfig", () => {
       await writeFile(file, [
         "import { defineDatabase } from '@vite-hub/database'",
         "const cloudflare = { binding: 'DB_SHARED' }",
-        "interface Marker { value: string }",
+        typescriptDeclaration,
         `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
       ].join("\n"))
     }
