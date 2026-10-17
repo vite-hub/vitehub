@@ -119,6 +119,22 @@ describe("cloudflare queue runtime", () => {
     })).toThrow("Cloudflare queue binding is invalid.")
   })
 
+  it("names only identifier bindings in a missing binding error", () => {
+    let error: unknown
+    try {
+      createCloudflareQueueClient({ binding: "../not a binding", provider: "cloudflare" })
+    }
+    catch (cause) {
+      error = cause
+    }
+    expect(error).toMatchObject({
+      code: "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
+      details: { provider: "cloudflare" },
+      message: "[vitehub] Cloudflare queue requires a concrete request-scoped binding.",
+    })
+    expect(error).not.toHaveProperty("details.binding")
+  })
+
   it("accepts Cloudflare bindings implemented by a class", async () => {
     class QueueBinding {
       async send() {}
@@ -418,9 +434,11 @@ describe("cloudflare queue runtime", () => {
       }),
     })
 
+    const binding = getCloudflareQueueBindingName("welcome")
     await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
       code: "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED",
-      details: { provider: "cloudflare" },
+      details: { binding, provider: "cloudflare" },
+      message: expect.stringContaining(`"${binding}" is not in the Worker env`),
     })
   })
 

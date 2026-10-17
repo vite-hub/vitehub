@@ -18,11 +18,12 @@ import { discoverScheduleDefinitions, isServerScheduleDefinition } from "./disco
 import { inspectScheduleDefinitions } from "./inspect.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
 import { generateProviderOutputsWithinLock, readDefinitionCrons, readRuntimeDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
+import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-module.ts"
 import { scheduleDevRuntimeRoute } from "./dev.ts"
 import { registerScheduleDevEndpoint } from "./vite-dev.ts"
 
-import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -53,7 +54,6 @@ const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
 const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
-const registryImportAnchor = ".vitehub/schedule/registry.js"
 const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registry.js"
 const generatedNitroRuntimeRegistry = ".vitehub/nitro/schedule/runtime-registry.js"
@@ -61,6 +61,18 @@ const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js
 const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.mjs"
 const generatedNitroDevHandlerDirectory = ".vitehub/nitro/schedule/dev-handlers"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
+
+// The Nitro dev handler imports the registry in Nitro's own environment graph, so invalidate it there too.
+function invalidateScheduleRegistry(server: ViteDevServer): void {
+  const registry = server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
+  if (registry) server.moduleGraph.invalidateModule(registry)
+  for (const environment of Object.values(server.environments ?? {})) {
+    const module = environment.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
+    if (!module) continue
+    environment.moduleGraph.invalidateModule(module)
+    if (environment.config.consumer === "server") environment.hot.send({ type: "full-reload" })
+  }
+}
 
 export interface ScheduleProcessRuntimeOptions {
   concurrency?: number
@@ -239,7 +251,8 @@ function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], mo
 async function addNitroScheduleDevHandler(value: unknown, roots: ReturnType<typeof resolveSchedulePluginRoots>, serverId: string, importBase?: string): Promise<NitroConfig> {
   const handler = resolve(roots.projectRoot, generatedNitroDevHandlerDirectory, `${serverId}.ts`)
   await mkdir(dirname(handler), { recursive: true })
-  const contents = renderViteHubNitroDevHandler({ context: { rootDir: roots.viteRoot, serverId }, export: "handleScheduleDevRequest", module: `${importBase ?? schedulePackageName}/runtime/dev` })
+  // The Static Schedule registry is a Vite virtual module, so the Nitro dev environment loads it with the app code.
+  const contents = renderViteHubNitroDevHandler({ context: { rootDir: roots.viteRoot, serverId }, contextModules: { registry: SCHEDULE_REGISTRY_ID }, export: "handleScheduleDevRequest", module: `${importBase ?? schedulePackageName}/runtime/dev` })
   if (!existsSync(handler) || await readFile(handler, "utf8") !== contents) await writeFile(handler, contents, "utf8")
   const nitro = cloneNitroConfig(value)
   if (Array.isArray(nitro.handlers) && nitro.handlers.some(entry => isRecord(entry) && entry.route === scheduleDevRuntimeRoute)) return nitro
@@ -616,9 +629,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   }
 
   function createRegistryContents() {
-    const definitions = discoverRegistrySchedules()
-    const registryImport = projectRoot ? resolve(projectRoot, registryImportAnchor) : registryImportAnchor
-    return createRuntimeRegistryContents(registryImport, definitions)
+    return renderScheduleRegistryModule(discoverRegistrySchedules())
   }
 
   function createTargetsContents() {
@@ -665,8 +676,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           return typeof baseURL === "string" ? baseURL : process.env.NITRO_APP_BASE_URL
         },
       })
-      const { registerScheduleDevRunEndpoint } = await import("./dev-run.ts")
-      registerScheduleDevRunEndpoint(server, { serverId: devServerId })
     },
     async configResolved(config) {
       resolved = config
@@ -722,10 +731,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
 
       // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
       await writeScheduleTypes(projectRoot ?? context.server.config.root, discoverRegistrySchedules(), (options as InternalScheduleVitePluginOptions).typesImportBase)
-      const registryModule = context.server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
-      if (registryModule) {
-        context.server.moduleGraph.invalidateModule(registryModule)
-      }
+      invalidateScheduleRegistry(context.server)
       const targetsModule = context.server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_TARGETS_ID)
       if (targetsModule) {
         context.server.moduleGraph.invalidateModule(targetsModule)

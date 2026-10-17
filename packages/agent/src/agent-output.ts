@@ -525,6 +525,7 @@ function withFallbackUsageMetadata(
   if (transport) result.transport = transport
   if (usage) result.usage = usage
   return result
+
 }
 
 export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown, run?: Partial<AgentRunMetadata>): AgentUsageRecord | undefined {
