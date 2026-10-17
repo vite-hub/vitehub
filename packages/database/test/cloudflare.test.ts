@@ -204,7 +204,16 @@ describe("Cloudflare D1 binding projections", () => {
       const resource = form === "explicit-equal" ? "shared" : name
       await writeDefinition(rootDir, name, `${form === "normalized" ? "" : "binding: 'HOST_DB',"} databaseId: '${resource}-id', databaseName: '${resource}-db',`)
     }
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrowError(expect.objectContaining({ code: "DATABASE_C0008" }))
+  })
+
+  it("rejects bindings that collide after configuration resolution", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["alpha", "beta"]) {
+      await writeDefinition(rootDir, name, `databaseId: '${name}-id', databaseName: '${name}-db',`)
+    }
     const config = resolveDBViteConfig(undefined, rootDir)!
+    config.databases.beta!.cloudflare!.binding = config.databases.alpha!.cloudflare!.binding
 
     expect(() => resolveCloudflareD1Bindings(config)).toThrowError(expect.objectContaining({ code: "DATABASE_B0006" }))
   })

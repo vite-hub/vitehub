@@ -390,6 +390,226 @@ describe("resolveDBViteConfig", () => {
     })
   })
 
+  it("rejects named databases whose default D1 bindings collide", async () => {
+    const rootDir = await createTempProject()
+    const cloudflare = "    databaseId: 'database-id',\n    databaseName: 'database',"
+    await writeDefinition(rootDir, "server/databases/foo-bar/config.ts", "events", { cloudflare })
+    await writeDefinition(rootDir, "server/databases/foo_bar/config.ts", "accounts", { cloudflare })
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({
+      code: "DATABASE_C0008",
+      message: expect.stringContaining('resolve to the same Cloudflare D1 binding "DB_FOO_BAR"'),
+    }))
+  })
+
+  it.each(["reference", "spread"] as const)("does not check opaque %s resources as native D1 bindings", async (form) => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        `const cloudflare = { databaseId: '${name}-id', databaseName: '${name}-db', http: true }`,
+        `export default defineDatabase({ name: '${name}', cloudflare: ${form === "reference" ? "cloudflare" : "{ ...cloudflare }"}, schema: {} })`,
+      ].join("\n"))
+    }
+
+    const resolved = resolveDBViteConfig(undefined, rootDir)!
+    for (const name of resolved.databaseNames) {
+      expect(resolved.definitionDefaults.cloudflareProjections[name]?.resource).toBe("opaque")
+      const definition = { cloudflare: { databaseId: `${name}-id`, databaseName: `${name}-db`, http: true as const }, drizzle: {}, name, schema: {} }
+      expect(runtimeConfig(definition, resolved.definitionDefaults).cloudflare?.binding).toBeUndefined()
+    }
+  })
+
+  it("checks opaque shorthand resource properties that resolve to undefined", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const databaseId = undefined",
+        "const databaseName = undefined",
+        "const cloudflare = { databaseId, databaseName, binding: 'DB_SHARED' }",
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+  })
+
+  it("does not check opaque HTTP-only references as native D1 bindings", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const cloudflare = { http: true }",
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
+  })
+
+  it("checks opaque HTTP configs when a later spread disables HTTP", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const native = { http: false }",
+        "const cloudflare = { http: true, ...native }",
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_C0008" }))
+  })
+
+  it("does not synthesize a native binding for unresolved opaque resources", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "declare const cloudflare: unknown",
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
+  })
+
+  it.each(["reference", "spread"] as const)("checks opaque %s definitions that inherit native D1 resources", async (form) => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const cloudflare = { binding: 'DB_SHARED' }",
+        `export default defineDatabase({ name: '${name}', cloudflare: ${form === "reference" ? "cloudflare" : "{ ...cloudflare }"}, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig({ driver: "d1", binding: "DB_SHARED", databaseId: "id", databaseName: "name" }, rootDir))
+      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+  })
+
+  it("checks opaque explicit bindings without an integration binding", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const cloudflare = { binding: 'DB_SHARED', ...{} }",
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
+      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+  })
+
+  it("unwraps chained parenthesized TypeScript assertions for opaque bindings", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const cloudflare = ({ binding: 'DB_SHARED' } as CloudflareD1Config | undefined) as CloudflareD1Config",
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
+      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+  })
+
+  it("unwraps parenthesized satisfies expressions for opaque bindings", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const shared = ({ binding: 'DB_SHARED' } satisfies CloudflareD1Config)",
+        `export default defineDatabase({ name: '${name}', cloudflare: shared, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
+      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+  })
+
+  it.each([
+    "interface Marker { value: string }",
+    "type Marker = { value: string }",
+    "enum Marker { value }",
+    "namespace Marker { export const value = 1 }",
+    "declare const marker: string",
+    "async function marker() {}",
+    "export async function marker() {}",
+    "abstract class Marker {}",
+    "export abstract class Marker {}",
+    "export { cloudflare }",
+    "export * from './marker'",
+  ])("stops opaque declarations before TypeScript declaration: %s", async (typescriptDeclaration) => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "const cloudflare = { binding: 'DB_SHARED' }",
+        typescriptDeclaration,
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
+      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+  })
+
+  it("ignores commented opaque declarations when checking ownership", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "/* const cloudflare = { databaseId: 'commented-id', databaseName: 'commented-name' } */",
+        "const cloudflare = { binding: 'DB_SHARED' }",
+        `export default defineDatabase({ name: '${name}', cloudflare, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig({ driver: "d1", binding: "DB_SHARED", databaseId: "id", databaseName: "name" }, rootDir))
+      .toThrow(/DATABASE_C0008|same Cloudflare D1 binding/)
+  })
+
+  it("resolves exported opaque declarations", async () => {
+    const rootDir = await createTempProject()
+    for (const name of ["foo-bar", "foo_bar"]) {
+      const file = join(rootDir, "server/databases", name, "config.ts")
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        `export const cloudflare = { databaseId: '${name}-id', databaseName: '${name}-db' }`,
+        `export default defineDatabase({ name: '${name}', cloudflare: { ...cloudflare }, schema: {} })`,
+      ].join("\n"))
+    }
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
+  })
+
   it("resolves default migrations from a forwarded server directory", async () => {
     const rootDir = await createTempProject()
     const serverDir = join(rootDir, "backend")
