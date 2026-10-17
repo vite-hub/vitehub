@@ -11,6 +11,7 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `blob` from `@vite-hub/blob` | Read and write the Default Blob Store or named Blob Stores. |
+| `image`, `file` from `@vite-hub/blob` | Validate stored Blob references and describe them as JSON Schema for pickers. |
 | `detectContentType` from `vite-hub/blob/content-type` or `@vite-hub/blob/content-type` | Classify common image and PDF signatures before storage. |
 | `ensureBlob` from `@vite-hub/blob` or `@vite-hub/blob/ensure` | Validate upload size and content type. |
 | `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and Provider Output. |
@@ -293,6 +294,76 @@ if (uploadError) throw uploadError
 Send `upload.headers` unchanged with the `PUT` body. `contentType` binds the upload MIME type into the signed request. `createOnly` binds a provider condition that rejects the upload when the object already exists; drivers that cannot enforce it throw instead of silently allowing an overwrite.
 
 Cloudflare R2 signs through its S3-compatible HTTP credentials, including when normal reads and writes use a Workers binding. A binding alone cannot mint a presigned URL, so configure `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` through runtime environment values. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) accept expiries from 1 second through 7 days, and the [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
+
+## Blob reference schemas
+
+A record that points at a stored object, such as a post cover or an attachment, keeps a Blob reference: the object's pathname plus the content type and size recorded at upload.
+
+```ts
+interface BlobReference {
+  pathname: string
+  contentType?: string
+  size?: number
+}
+```
+
+`image()` and `file()` from `@vite-hub/blob` return validators for that shape. A reference has no URL, because signed and served URLs expire or depend on routes. Serve or sign the pathname when you read the record. A reference also has no store name. The schema's `store` option names the store.
+
+```ts [server/api/profile/avatar.put.ts]
+import { image } from '@vite-hub/blob'
+
+const avatar = image({ maxSize: '2MB' })
+
+export default defineEventHandler(async (event) => {
+  const result = avatar['~standard'].validate(await readBody(event))
+  if (result.issues) {
+    throw createError({ statusCode: 400, message: result.issues[0]!.message })
+  }
+  await saveAvatar(event, result.value) // { pathname, contentType, size }
+})
+```
+
+The validators accept a `BlobObject` from `blob.put()` or `blob.handleUpload()`, or its JSON form, and return only `pathname`, `contentType`, and `size`. They check:
+
+- The value is an object with a string `pathname`.
+- The pathname is relative to its Blob Store. It has no leading slash, no backslashes, no control characters, and no empty, `.`, or `..` segments. It is not under the `_vitehub/derived/` cache namespace that `blob.put()` also rejects.
+- `contentType` matches `accept`, ignoring case and parameters such as `; charset=utf-8`. A reference must include `contentType` when the schema has `accept`.
+- `size`, when present, is a non-negative integer no larger than `maxSize`.
+
+A failed check returns every issue at once, with a `path` such as `['pathname']`. The validators don't read the Blob Store. They don't prove that the object exists, and they compare `maxSize` only with the recorded `size`. Enforce upload limits with [`ensureBlob()`](#ensureblobblob-options) or `handleUpload({ ensure })`.
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `store` | `BlobStoreName` | Named Blob Store that holds the object. Defaults to `default`. |
+| `accept` | `string \| string[]` | MIME types or patterns, such as `image/png`, `image/*`, or `*/*`. `image()` defaults to `image/*`. `file()` accepts every type by default. |
+| `maxSize` | `BlobSize` | Largest recorded `size`, such as `512KB` or `8MB`. |
+
+Invalid options throw when the schema is defined.
+
+### JSON Schema and pickers
+
+Both validators implement [Standard Schema](https://standardschema.dev) and Standard JSON Schema. `['~standard'].jsonSchema.input({ target })` and `.output({ target })` return an object schema for `draft-2020-12`, `draft-07`, or `openapi-3.0`, and throw for other targets. The schema carries an `x-vitehub-blob` keyword that forms read to render an image or file picker for the right store. This is the input schema for `image({ store: 'media', maxSize: '8MB' })`, without the property descriptions:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "pathname": { "type": "string", "minLength": 1 },
+    "contentType": { "type": "string", "minLength": 1 },
+    "size": { "type": "integer", "minimum": 0, "maximum": 8388608 }
+  },
+  "required": ["pathname", "contentType"],
+  "x-vitehub-blob": { "kind": "image", "store": "media", "accept": ["image/*"], "maxSize": "8MB" }
+}
+```
+
+The output schema also sets `additionalProperties: false`, because validation drops extra fields. `accept` and `maxSize` appear in the hint only when they restrict the value.
+
+### Use with other schema libraries
+
+Pass `image()` or `file()` anywhere that reads a Standard Schema directly, such as an Agent tool `inputSchema`, or call `['~standard'].validate()` yourself.
+
+Zod 4 and Valibot object schemas accept only their own schema types. `z.object({ cover: image() })` throws `Invalid element at key "cover": expected a Zod schema`, and a Valibot `v.object()` with an `image()` entry fails when it parses. These schemas can't be fields inside a Zod or Valibot object yet.
 
 ## `ensureBlob(blob, options)`
 

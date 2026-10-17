@@ -34,6 +34,7 @@ it("drives process wake scanning with TestClock", async () => {
       Effect.gen(function* () {
         const testClock = yield* TestClock.make()
         const runtime = yield* makeProcessWakeRuntime({
+          catchUpMs: 0,
           concurrency: 1,
           context: {
             reportError: vi.fn(),
@@ -71,6 +72,7 @@ it("starts polling after an initial scan failure is retried", async () => {
       Effect.gen(function* () {
         const testClock = yield* TestClock.make()
         const runtime = yield* makeProcessWakeRuntime({
+          catchUpMs: 0,
           concurrency: 1,
           context: {
             reportError: vi.fn(),
@@ -99,6 +101,78 @@ it("starts polling after an initial scan failure is retried", async () => {
   )
 
   expect(wakes.some(wake => wake.scheduledAt.getTime() === 60_000)).toBe(true)
+})
+
+it("checks every minute since the previous scan when a timer fires late", async () => {
+  const wakes: RuntimeScheduleWake[] = []
+  let now = new Date(59_900)
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const testClock = yield* TestClock.make()
+        const runtime = yield* makeProcessWakeRuntime({
+          catchUpMs: 60 * 60_000,
+          concurrency: 1,
+          context: {
+            reportError: vi.fn(),
+            async wake(input) {
+              wakes.push(input)
+            },
+          },
+          intervalMs: 60_000,
+          now: () => now,
+        }).pipe(Effect.provideService(Clock.Clock, testClock))
+
+        yield* runtime.reconcile([record()])
+        // The next scan runs 120.2 s later. Without catch-up it would check only the 180 s minute.
+        now = new Date(180_100)
+        yield* testClock.adjust(60_000)
+        yield* Effect.yieldNow
+        yield* Effect.yieldNow
+        yield* runtime.close
+      }),
+    ),
+  )
+
+  expect(wakes.map(wake => wake.scheduledAt.getTime())).toEqual([0, 60_000, 120_000, 180_000])
+})
+
+it("does not replay a minute after the wall clock moves backward", async () => {
+  const wakes: RuntimeScheduleWake[] = []
+  let now = new Date(0)
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const testClock = yield* TestClock.make()
+        const runtime = yield* makeProcessWakeRuntime({
+          catchUpMs: 60 * 60_000,
+          concurrency: 1,
+          context: {
+            reportError: vi.fn(),
+            async wake(input) {
+              wakes.push(input)
+            },
+          },
+          intervalMs: 60_000,
+          now: () => now,
+        }).pipe(Effect.provideService(Clock.Clock, testClock))
+
+        yield* runtime.reconcile([record()])
+        now = new Date(60_000)
+        yield* testClock.adjust(60_000)
+        yield* Effect.yieldNow
+        now = new Date(0)
+        yield* testClock.adjust(60_000)
+        yield* Effect.yieldNow
+        now = new Date(60_000)
+        yield* testClock.adjust(60_000)
+        yield* Effect.yieldNow
+        yield* runtime.close
+      }),
+    ),
+  )
+
+  expect(wakes.map(wake => wake.scheduledAt.getTime())).toEqual([0, 60_000])
 })
 
 it("preserves defect identity without exposing Effect FiberFailure", async () => {

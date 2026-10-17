@@ -545,6 +545,100 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("does not enable Database inspection from an inherited Vite config key", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-inherited-database-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({
+        console: { auth: false, authorize: hostManagedAuthorize },
+        preset: "node",
+        sections: [],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config = Object.assign(Object.create({ database: true }), { root }) as {
+        nitro?: { plugins: string[] }
+        root: string
+      }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).not.toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv","databases"])`)
+      expect(generated).not.toContain("installConsoleDatabase(")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("does not use an inherited Database project root for enabled inspection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-inherited-database-root-"))
+    const inheritedRoot = join(root, "inherited")
+    try {
+      await mkdir(join(inheritedRoot, "server/databases"), { recursive: true })
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(inheritedRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
+      const plugin = consoleVitePlugin({
+        console: { auth: false, authorize: hostManagedAuthorize },
+        preset: "node",
+        sections: ["databases"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config = Object.assign(Object.create({ database: { projectRoot: inheritedRoot } }), { root }) as {
+        nitro?: { plugins: string[] }
+        root: string
+      }
+
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain('"databases":{"definitions":[]')
+      expect(generated).not.toContain("inherited/server/databases/config.ts")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+
+  it("registers the configured Agent runtime capabilities for Console invocations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-agent-capabilities-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "support.agent.ts"), "export default {}\n")
+      const plugin = consoleVitePlugin({
+        console: { auth: false },
+        preset: "node",
+        runtimeCapabilityImports: {
+          blob: "vite-hub/_internal/blob",
+          console: "vite-hub/console/server",
+          db: "vite-hub/database/drizzle",
+          kv: "vite-hub/_internal/kv",
+        },
+        sections: ["agents"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { plugins: string[] }, root: string } = { root }
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`import { blob as vitehubConsoleAgentBlob } from "vite-hub/_internal/blob"`)
+      expect(generated).toContain(`import { agentDb as vitehubConsoleAgentDb } from "vite-hub/database/drizzle"`)
+      expect(generated).toContain(`capabilities: { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, kv: vitehubConsoleAgentKv }`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it.each(["/portal/", "https://cdn.example/portal/"])("prefixes Nitro Console routes and assets with the Vite base path %s", async (base) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-base-host-"))
     try {

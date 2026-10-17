@@ -54,7 +54,7 @@ async function mockHost(host: typeof hosts[number], options: ForgeOptionsBase) {
   if (realRequests) return actual[host](options).create()
   const previous = stores.get(host)
   if (previous) return previous.create()
-  const factory = fake({ kind: host, instance: new URL(options.baseUrl || (host === "gitlab" ? "https://gitlab.com" : "https://codeberg.org")).host })
+  const factory = fake({ forge: host, instance: new URL(options.baseUrl || (host === "gitlab" ? "https://gitlab.com" : "https://codeberg.org")).host })
   const provider = factory.create()
   const create = provider.webhooks.create
   const update = provider.webhooks.update
