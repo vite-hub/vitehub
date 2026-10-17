@@ -83,7 +83,9 @@ const agentCapabilities = {
 } satisfies Record<string, string>;
 
 const movedLearningPages = new Map(Object.entries({
+
   "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
+
   "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/getting-started/migrate-from-nuxthub",
   "/docs/getting-started/concepts/workspace-and-sources": "/docs/workspace/concepts",
   "/docs/getting-started/concepts/auth-users-and-agent-invokers": "/docs/agents/invokers",
@@ -95,6 +97,7 @@ const movedLearningPages = new Map(Object.entries({
 }));
 
 export const docsPageRedirects = {
+  "/docs/getting-started/built-for-vue": "/docs/ui/built-for-vue",
   "/blog/agents": "/docs/getting-started/first-agent",
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/evlog": "/docs/agents/observability",

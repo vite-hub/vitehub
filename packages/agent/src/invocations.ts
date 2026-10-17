@@ -268,6 +268,13 @@ export interface AgentInvocationsOptions {
   /** Retain resolved instructions and tool contracts independently of other trace content. Defaults to metadata. */
   configuration?: TraceEventContentPolicy
   content?: TraceEventContentPolicy
+  /**
+   * How journal storage failures affect a run. Defaults to `"best-effort"`.
+   * `"best-effort"`: a run starts when the store does not confirm its claim, running state, or first cancellation check. It stops only when the store reports another owner or a cancellation request.
+   * `"strict"`: a run does not start until the store confirms these writes and reads.
+   * Channel replay is always strict, because the journal claim is its duplicate protection.
+   */
+  enforcement?: "best-effort" | "strict"
   metadataContent?: readonly string[]
   observations?: AgentInvocationObservationOptions
   /** Rewrite an observation after the content policy and before the store receives it. Return undefined to drop it. A throwing hook drops the observation. */
@@ -323,10 +330,22 @@ export interface AgentInvocations {
   prune(options?: AgentInvocationPruneOptions): Promise<AgentInvocationPruneResult>
 }
 
+interface AgentInvocationBindOptions {
+  agentName?: string
+  cancellationDriver?: AgentInvocationCancellationDriver
+  deferClaim?: boolean
+  /** Overrides the configured enforcement for this run. Channel replay passes `"strict"`. */
+  enforcement?: AgentInvocationsOptions["enforcement"]
+  terminalTakeover?: boolean
+  requireNew?: boolean
+  replaceClaimToken?: string
+  recoverPending?: boolean
+}
+
 interface BoundAgentInvocations extends AgentInvocations {
   [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
     context: AgentRuntimeContext<TRuntimeConfig>,
-    options?: { agentName?: string, cancellationDriver?: AgentInvocationCancellationDriver, deferClaim?: boolean, terminalTakeover?: boolean, requireNew?: boolean, replaceClaimToken?: string, recoverPending?: boolean },
+    options?: AgentInvocationBindOptions,
   ): Promise<AgentInvocationJournal<TRuntimeConfig>>
   [recoverInterruptedAgentInvocationsSymbol](options: Parameters<typeof failInterruptedAgentInvocations>[1]): Promise<number>
 }
@@ -370,9 +389,17 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   prepareWorkflowDispatch(binding: AgentInvocationWorkflowBinding): Promise<boolean>
   confirmWorkflowDispatch(binding?: AgentInvocationWorkflowBinding): Promise<boolean>
   releaseClaim(): Promise<void>
+  /** Persists the running state. Returns false when the store did not confirm it; a retry continues in the background. */
   running(): Promise<boolean>
+  /**
+   * Whether the run may start after {@link running} returned false.
+   * Best-effort journals allow it unless the store reported another owner or a cancellation request, and log one warning.
+   */
+  startsUnconfirmed(): boolean
+  /** Whether the invocation still has a safe claim state at the dispatch boundary. */
+  dispatchAllowed(): boolean
   /** Records the Driver dispatch boundary without delaying execution. */
-  driverStarted(): void
+  driverStarted(): boolean
   setAnnotations(annotations: AgentRunMetadata["annotations"]): Promise<void>
   /** Persist resolved run metadata while this journal owns the execution claim. */
   setRunMetadata(run: AgentRunMetadata): Promise<boolean>
@@ -1850,6 +1877,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (options.redactError !== undefined && !hasRuntimeType(options.redactError, "function")) {
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations redactError must be a function." })
   }
+  if (options.enforcement !== undefined && options.enforcement !== "best-effort" && options.enforcement !== "strict") {
+    throw agentDiagnostics.AGENT_R0624({ message: '[vitehub] Agent Invocations enforcement must be "best-effort" or "strict".' })
+  }
   const storeTimeoutMs = options.storeTimeoutMs ?? STORE_OPERATION_TIMEOUT_MS
   if (!Number.isSafeInteger(storeTimeoutMs) || storeTimeoutMs < 1 || storeTimeoutMs > 60_000) {
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations storeTimeoutMs must be an integer between 1 and 60000." })
@@ -1901,14 +1931,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
       context: AgentRuntimeContext<TRuntimeConfig>,
-      bindOptions: { agentName?: string, cancellationDriver?: AgentInvocationCancellationDriver, deferClaim?: boolean, terminalTakeover?: boolean, requireNew?: boolean, replaceClaimToken?: string, recoverPending?: boolean } = {},
+      bindOptions: AgentInvocationBindOptions = {},
     ): Promise<AgentInvocationJournal<TRuntimeConfig>> {
       const runId = context.run?.runId || createInvocationId()
       const agentName = bindOptions.agentName || context.agentIdentity?.name
       const recordId = await agentInvocationId(runId, agentName)
+      const strict = (bindOptions.enforcement ?? options.enforcement) === "strict"
+      let unconfirmedWarned = false
+      const warnUnconfirmed = (operation: string) => {
+        if (unconfirmedWarned) return
+        unconfirmedWarned = true
+        console.warn(`[vitehub] Agent Invocation ${JSON.stringify(recordId)} continues without a confirmed ${operation}. Its journal record can be missing or stale until a retry succeeds.`)
+      }
       let claimId = createInvocationId()
       let claimConfirmed = false
       let claimUncertain = false
+      let claimConflict = false
       let claimHandedOff = false
       let claimAttempt = 0
       let claimRenewals = Promise.resolve()
@@ -1977,6 +2015,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (!unregisterCancellation || finished || cancellation.signal.aborted) return
         const summary = await boundedStore(() => store.getSummary(recordId))
         if (initial && (summary === storeOperationTimedOut || summary === undefined)) {
+          // A best-effort run reads the request again at the next poll.
+          if (!strict) {
+            warnUnconfirmed("cancellation check")
+            return
+          }
           throw agentDiagnostics.AGENT_R0973({ message: summary === storeOperationTimedOut
             ? "[vitehub] Initial Agent Invocation cancellation check timed out."
             : "[vitehub] Initial Agent Invocation cancellation check failed." })
@@ -2079,8 +2122,21 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           claimConfirmed = true
           claimUncertain = false
         }
+        else if (claim === false) {
+          // A confirmed ownership loss remains a conflict even if a later
+          // renewal is unavailable. Do not let uncertainty reopen dispatch.
+          claimConflict = true
+        }
         claimUnavailable = claim !== true && claim !== false
         ownsRecord = claim === true
+        // Best-effort may dispatch while the running state is still being
+        // retried. If that retry confirms that this claim was lost, stop the
+        // active Driver instead of allowing it to overlap the replacement
+        // owner. Unavailable results remain best-effort and keep retrying.
+        // A confirmed claim loss must stop an active Driver even when the
+        // running state was already persisted. Otherwise a replacement owner
+        // can overlap this invocation after renewal reports the lost claim.
+        if (claim === false && driverDispatched && !finished) requestCancellation()
         if (ownsRecord) {
           const latest = await boundedStore(() => store.getSummary(recordId))
           if (latest && latest !== storeOperationTimedOut) {
@@ -2354,7 +2410,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         abortSignal: cancellation.signal,
         get createdNew() { return createdNew },
         get reusedTerminal() { return finished && !createdNew },
-        get claimStatus() { return ownsRecord ? "owned" : claimUnavailable ? "unavailable" : "conflict" },
+        get claimStatus() { return ownsRecord ? "owned" : claimConflict ? "conflict" : claimUnavailable ? "unavailable" : "conflict" },
         async getWorkflowDispatchAttempted() {
           const record = await boundedStore(() => store.getSummary(recordId))
           if (!record || record === storeOperationTimedOut) return undefined
@@ -2554,13 +2610,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             return runningPersisted
           }
           if (await markRunning()) return true
+          // The update can lose a confirmed claim after its renewal but before
+          // the store write. Revalidate before allowing best-effort dispatch;
+          // a confirmed loss aborts the invocation, while an unavailable
+          // renewal remains eligible for best-effort recovery.
+          if (claimConfirmed && !claimUnavailable) await renew()
+          if (cancellation.signal.aborted) return false
           const latest = await boundedStore(() => store.getSummary(recordId))
+          // A best-effort run may start without the running state, so it must
+          // still observe a cancellation request that the store returned.
+          if (!strict && latest && latest !== storeOperationTimedOut) readCancellationRequest(latest)
           // A reused terminal record is intentionally immutable, but the new
           // execution still runs its lifecycle hooks and Driver. Treat that
-          // case as ready; an active record whose update failed must remain
-          // blocked until the recovery retry succeeds.
+          // case as ready; a strict active record whose update failed must
+          // remain blocked until the recovery retry succeeds.
           if (latest && latest !== storeOperationTimedOut && terminalStatus(latest.status) && !latest.cancelRequestedAt) return true
-          if (cancellationDriver?.enforced === false && !cancellationWarningPrepared && latest && latest !== storeOperationTimedOut && !terminalStatus(latest.status)) {
+          if (strict && cancellationDriver?.enforced === false && !cancellationWarningPrepared && latest && latest !== storeOperationTimedOut && !terminalStatus(latest.status)) {
             throw agentDiagnostics.AGENT_R0973({ message: "[vitehub] Initial custom Driver cancellation state could not be persisted." })
           }
           if (runningRetry) return false
@@ -2578,15 +2643,34 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           registerAgentInvocationRecovery(context, runningRetry)
           return false
         },
+        startsUnconfirmed() {
+          // Only a store answer stops a best-effort run: another owner holds the claim, or a cancellation request was read.
+          const conflict = claimConflict || (!ownsRecord && !claimUnavailable)
+          if (strict || conflict || cancellation.signal.aborted) return false
+          warnUnconfirmed("running state")
+          return true
+        },
+        dispatchAllowed() {
+          if (cancellation.signal.aborted || claimConflict) return false
+          return !strict || ownsRecord
+        },
         driverStarted() {
-          if (finished || finishing || driverDispatched) return
+          // Keep the final ownership check adjacent to the dispatch marker.
+          // A renewal can confirm a claim loss after the caller's check but
+          // before this boundary is reached; do not start the Driver then.
+          if (cancellation.signal.aborted || claimConflict) return false
+          if (finished || finishing || driverDispatched) return true
           driverDispatched = true
-          if (!cancellationDriver || cancellationDriver.enforced) return
+          if (!cancellationDriver || cancellationDriver.enforced) return true
           cancelNotEnforcedBy = cancellationDriver.name
           const retry = (async () => {
             const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
             while (!finished && !finishing) {
               if (await update({ cancelNotEnforcedBy, cancelWarningPending: false, status: "running", timestamp: new Date().toISOString() })) return
+              // The write may race a claim replacement. Revalidate after the
+              // failed write so a confirmed loss cancels the active Driver.
+              if (claimConfirmed && !claimUnavailable) await renew()
+              if (cancellation.signal.aborted) return
               if (Date.now() >= deadline) return
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
@@ -2595,6 +2679,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             }
           })()
           registerAgentInvocationRecovery(context, retry)
+          return true
         },
         async setAnnotations(annotations) {
           if (finished || finishing) return
@@ -2851,7 +2936,7 @@ export function isAgentInvocations(value: unknown): value is AgentInvocations {
 export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeConfig>(
   invocations: AgentInvocations | undefined,
   context: AgentRuntimeContext<TRuntimeConfig>,
-  options?: { agentName?: string, cancellationDriver?: AgentInvocationCancellationDriver, deferClaim?: boolean, terminalTakeover?: boolean, requireNew?: boolean, replaceClaimToken?: string, recoverPending?: boolean },
+  options?: AgentInvocationBindOptions,
 ): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!invocations) return
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.

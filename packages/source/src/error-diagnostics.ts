@@ -34,6 +34,8 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_R0024: dynamicError,
     SOURCE_R0025: dynamicError,
     SOURCE_R0026: dynamicError,
+    SOURCE_R0027: dynamicError,
+    SOURCE_R0028: dynamicError,
     SOURCE_B0001: dynamicError,
     SOURCE_B0002: dynamicError,
     SOURCE_B0003: dynamicError,
