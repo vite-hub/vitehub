@@ -72,7 +72,6 @@ function multipartUrl(baseURL: string, action: string, pathname: string, query: 
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upload responses cross an untrusted HTTP boundary.
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
@@ -81,21 +80,16 @@ function isResponseLike(value: unknown): value is Response {
     // Cross-realm Response instances do not pass an instanceof check, but
     // expose the same fetch response contract.
     && typeof value.ok === "boolean"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response methods cross an untrusted transport boundary.
     && typeof value.json === "function"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response methods cross an untrusted transport boundary.
     && typeof value.text === "function"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response properties cross an untrusted transport boundary.
     && typeof value.status === "number"
 }
 
 function isString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upload responses cross an untrusted HTTP boundary.
   return typeof value === "string"
 }
 
 function isFiniteNonNegativeNumber(value: unknown): value is number {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upload response sizes cross an untrusted HTTP boundary.
   return typeof value === "number" && Number.isFinite(value) && value >= 0
 }
 
@@ -146,7 +140,6 @@ function parseMultipartPart(value: unknown): { part: BlobMultipartPart } {
   if (!isRecord(value) || !isRecord(value.part) || !isString(value.part.etag)) {
     throw new Error("Upload request returned malformed JSON.")
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upload responses cross an untrusted HTTP boundary.
   if (typeof value.part.partNumber !== "number" || !Number.isSafeInteger(value.part.partNumber) || value.part.partNumber < 1) {
     throw new Error("Upload request returned malformed JSON.")
   }

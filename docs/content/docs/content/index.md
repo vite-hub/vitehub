@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-file-text
 ---
 
+::agent-only{skill="content"}
+Use Content to parse, query, search, and serve Markdown or other Source content through Comark. It is for application content, not arbitrary code execution.
+
+Read [Get started](/docs/content/get-started). Use [Server API](/docs/content/server-api) for queries and routes.
+
+Keep content definitions and Source access explicit. Validate front matter and route parameters before using a result in a response.
+
+Prove one local content query, one filtered or paginated query, and one served response. Include missing and malformed content cases.
+::
+
 ::product-hero{tagline="Parsed Markdown, JSON, YAML, and media from Sources, plus editable document collections with drafts and publishing, served from one generated route on every preset." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-group
   ```ts [Definition]
@@ -74,6 +84,10 @@ icon: i-lucide-file-text
 
   :::product-feature-item{title="Edit documents with drafts and publishing" icon="i-lucide-file-pen" to="/docs/content/configure#document-collections"}
   Collections validate frontmatter fields, save drafts to Workspace history, and serve only what you publish.
+  :::
+
+  :::product-feature-item{title="Preview drafts through your real pages" icon="i-lucide-eye" to="/docs/content/preview"}
+  A signed cookie makes one browser read drafts while the public site serves published content.
   :::
 
   :::product-feature-item{title="Documents, navigation, and search from server code" icon="i-lucide-code-2" to="/docs/content/server-api"}

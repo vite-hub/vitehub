@@ -480,12 +480,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function stringValue(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace responses are untrusted JSON, so strings are validated at the host boundary.
   return typeof value === "string" ? value : undefined;
 }
 
 function numericValue(value: unknown): number | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace responses are untrusted JSON, so numbers are validated at the host boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 

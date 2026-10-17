@@ -20,7 +20,9 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
+  (page) =>
+    !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) &&
+    !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -201,6 +203,5 @@ describe("UI documentation", () => {
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
     expect(page).toContain("@vite-hub/ui` is ViteHub's Vue component package.");
-    expect(page).toContain("I am Maxi");
   });
 });

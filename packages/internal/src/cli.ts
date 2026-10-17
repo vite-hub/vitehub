@@ -153,7 +153,6 @@ export async function collectViteHubCliContribution(plugins: readonly unknown[])
   const steps = new Map<string, ProvisionStep>()
 
   for (const plugin of plugins) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin discovery accepts unknown runtime values and only object plugins can own CLI metadata.
     if (!plugin || typeof plugin !== "object" || !Object.hasOwn(plugin, "vitehub")) continue
     const metadata = (plugin as ViteHubCliContributingPlugin).vitehub
     const contributor = await resolveContributor(metadata?.cli)
@@ -417,7 +416,6 @@ export async function discoverViteHubDevServer<TDiscovery extends { root?: unkno
     return
   }
   const isCompatibleRoot = options.isCompatibleRoot ?? ((rootDir: string, serverRoot: string) => serverRoot === rootDir)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the untrusted discovery root before comparing it with the local project.
   if (discovery.root !== undefined && typeof discovery.root !== "string") {
     options.stderr.write("Invalid Vite Development Server discovery root.\n")
     return

@@ -1,6 +1,6 @@
 ---
 title: Schedule server API
-description: Create, update, run, and inspect Runtime Schedules from server code.
+description: Run Static Schedule Definitions on demand and read Schedule Runs from server code.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
@@ -11,121 +11,65 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `defineSchedule` from `@vite-hub/schedule` | Declare a Static Schedule Definition. |
-| `defineScheduleTarget` from `@vite-hub/schedule` | Declare a cronless target for Runtime Schedules. |
-| `schedules`, `validateRuntimeScheduleCron` from `@vite-hub/schedule` or `@vite-hub/schedule/runtime` | Manage Runtime Schedules and validate cron strings. |
-| `executeSchedule`, `executeStaticSchedule`, `executeRuntimeSchedule`, `createScheduleRun` from `@vite-hub/schedule/runtime` | Execute schedules from provider hooks or custom runtime wiring. |
-| `createMemoryRuntimeScheduleStore`, `createKVRuntimeScheduleStore` from `@vite-hub/schedule/runtime` | Configure Runtime Schedule storage. |
+| `runSchedule` from `@vite-hub/schedule/runtime` | Run a Definition that sets `manual: true` now. |
+| `executeSchedule`, `executeStaticSchedule`, `createScheduleRun` from `@vite-hub/schedule/runtime` | Execute one occurrence from provider hooks or custom runtime wiring. |
 | `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `@vite-hub/schedule/runtime` | Configure Schedule Run storage. |
-| `setRuntimeScheduleStore`, `setScheduleRunStore`, `setScheduleRuntimeRegistry` from `@vite-hub/schedule/runtime` | Wire custom runtime state. |
-| `installScheduleRuntime` from `@vite-hub/schedule/runtime/driver` | Connect stored Runtime Schedules to a host-owned wake driver. |
-| `createProcessScheduleWakeDriver` from `@vite-hub/schedule/runtime/process` | Scan and wake due Runtime Schedules inside a long-running process. |
+| `setScheduleRunStore`, `setScheduleRuntimeRegistry` from `@vite-hub/schedule/runtime` | Wire custom runtime state. |
+| `installProcessScheduleRuntime` from `@vite-hub/schedule/runtime/process` | Run Static Schedule Definitions on their cron inside a long-running process. |
 | `createScheduleKVStorage` from `@vite-hub/schedule/runtime` | Adapt a ViteHub KV store to Schedule storage. |
 | `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` | Discover Schedule Definitions in a build integration. |
 | `hubSchedule`, `createScheduleNitroConfig` from `@vite-hub/schedule/vite` | Register discovery and generated provider output. |
 
-Schedule Definition, Runtime Schedule, Schedule Run, and Schedule Store types are exported from `@vite-hub/schedule`.
+Schedule Definition, Schedule Run, and Schedule Store types are exported from `@vite-hub/schedule`.
 
-This is a breaking import change. Move execution, storage, and runtime state helpers from `@vite-hub/schedule` to `@vite-hub/schedule/runtime`. Move `discoverScheduleDefinitions` to `@vite-hub/schedule/vite`. Framework applications use `vite-hub/schedule/runtime` for runtime helpers. Build integrations import discovery from the owner package. The main entry no longer loads file discovery or its build dependencies; helper behavior is unchanged.
+Execution, storage, and runtime state helpers live in `@vite-hub/schedule/runtime`. `discoverScheduleDefinitions` lives in `@vite-hub/schedule/vite`. Framework applications use `vite-hub/schedule/runtime` for runtime helpers. The main entry does not load file discovery or its build dependencies.
 
-## Create recurring Runtime Schedules
+## Run a Definition now
 
-Runtime Schedules are cron schedules stored by ViteHub. A Runtime Schedule can target only a Runtime Schedule Target that opted into runtime reuse. Set an IANA `timeZone` when the cron must follow local civil time and daylight-saving changes. Omit it to use UTC.
+`runSchedule(name, { registry })` runs one Static Schedule Definition immediately. The Definition must set `manual: true`. Each call creates a new Schedule Run with a `srun_manual_` id, so a manual run never collides with a cron occurrence.
 
-Use `defineScheduleTarget()` when the handler runs only through Runtime Schedules and doesn't need its own build-time cron. These targets don't emit static provider output.
-
-```ts [server/schedules/report.ts]
-import { defineScheduleTarget } from '@vite-hub/schedule'
-
-export default defineScheduleTarget<{ prompt: string }>({
-  async handler({ input }) {
-    if (input) await generateReport(input.prompt)
-  },
-})
-```
-
-`defineSchedule()` remains cron-required and can opt into runtime reuse with `allowRuntimeSchedules`:
-
-```ts [server/schedules/daily-report.ts]
-import { defineSchedule } from '@vite-hub/schedule'
-
-export default defineSchedule({
-  allowRuntimeSchedules: true,
-  cron: '0 8 * * *',
-  async handler() {
-    await sendDailyReport()
-  },
-})
-```
-
-Use the `schedules` Runtime Helper from server code.
-
-```ts [server/api/schedules.post.ts]
-import { schedules } from '@vite-hub/schedule/runtime'
+```ts [server/api/reports/run.post.ts]
+import registry from '#vitehub/schedule/registry'
+import { runSchedule } from '@vite-hub/schedule/runtime'
 
 export default defineEventHandler(async () => {
-  return schedules.create({
-    cron: '30 8 * * 1-5',
-    id: 'weekday-report',
-    input: { prompt: 'Summarize yesterday' },
-    target: 'report',
-    timeZone: 'Europe/Copenhagen',
-  })
+  const run = await runSchedule('daily-report', { registry })
+  return { id: run.id, status: run.status }
 })
 ```
 
-## Runtime Schedule input
+When the handler fails, `runSchedule()` resolves with the failed run. It rejects with `SCHEDULE_DEFINITION_NOT_FOUND` for an unknown name and with `SCHEDULE_MANUAL_RUN_DISABLED` when the Definition does not set `manual: true`.
 
-| Input | Type | Required | Description |
+## Run Static Schedules in a custom Node process
+
+The generated Process Runtime calls `installProcessScheduleRuntime()`. Call it yourself when a custom long-running host does not use the generated Nitro wiring:
+
+```ts [server/schedule-runtime.ts]
+import registry from '#vitehub/schedule/registry'
+import { createKVScheduleRunStore } from '@vite-hub/schedule/runtime'
+import { scheduleKVStorage } from '@vite-hub/schedule/runtime/kv'
+import { installProcessScheduleRuntime } from '@vite-hub/schedule/runtime/process'
+
+const controller = await installProcessScheduleRuntime({
+  onError: error => console.error(error),
+  registry,
+  scheduleRunStore: createKVScheduleRunStore({ kvStore: scheduleKVStorage }),
+})
+
+process.once('SIGTERM', () => void controller.close())
+```
+
+| Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `cron` | `string` | create only | Five-field cron expression evaluated in `timeZone`, or UTC when `timeZone` is omitted. |
-| `target` | `ScheduleTargetName` | create only | A `defineScheduleTarget()` declaration or Static Schedule Definition that set `allowRuntimeSchedules: true`. |
-| `id` | `string` | No | Stable Runtime Schedule id. ViteHub generates one when omitted. |
-| `enabled` | `boolean` | No | Whether the Runtime Schedule executes. Defaults to `true` on create. |
-| `input` | `unknown` | No | Opaque input passed to the target handler as `context.input`. |
-| `timeZone` | `string` | No | Named IANA time zone used to evaluate the cron expression. Numeric offsets such as `+01:00` are rejected. Defaults to UTC. |
-| `console` | `ScheduleConsoleOptions` | No | `enabled: false` hides the Runtime Schedule in the Console. `dispatch` is stored and shown, but the Console is read-only and does not run Schedules. |
+| `registry` | `ScheduleDefinitionRegistry` | Required | Static Schedule Definitions that this process runs. |
+| `scheduleRunStore` | `ScheduleRunStore` | Required | Stores Schedule Runs. Catch-up after a restart reads the newest run of each Schedule from it. |
+| `onError` | `(error: unknown) => void` | None | Receives handler, store, and `waitUntil` failures. |
+| `intervalMs` | `number` | `60_000` | Milliseconds between two checks, from 1 to 60000. |
+| `concurrency` | `number` | `1` | Maximum number of runs at the same time. |
+| `catchUpMs` | `number` | One hour | How far back the runtime runs minutes that no process checked. `0` disables catch-up. |
 
-`RuntimeScheduleUpdateInput` accepts `cron`, `target`, `enabled`, `input`, and `timeZone`. Create stores an input snapshot. Providing `input` on update replaces the complete snapshot; omitting it preserves the existing value. Schedule does not merge or interpret input, and the configured store must support the value's serialization requirements. Omitting `timeZone` on update preserves the stored zone; set it explicitly to `UTC` to reset UTC evaluation.
+Call `controller.close()` during shutdown. It waits for active runs and their `waitUntil` work, then stops the timer.
 
-Local cron matching follows conventional daylight-saving behavior: a local time missing during a DST gap is skipped, while both distinct instants in a repeated local time during a DST overlap run.
+## Read Schedule Runs
 
-## Runtime helper methods
-
-| Method | Description |
-| --- | --- |
-| `schedules.create(input)` | Creates a Runtime Schedule. |
-| `schedules.list()` | Lists Runtime Schedules. |
-| `schedules.get(id)` | Reads one Runtime Schedule. |
-| `schedules.update(id, input)` | Updates a Runtime Schedule. |
-| `schedules.delete(id)` | Deletes a Runtime Schedule. |
-| `schedules.enable(id)` | Sets `enabled` to `true`. |
-| `schedules.disable(id)` | Sets `enabled` to `false`. |
-| `schedules.run(id, options?)` | Executes one Runtime Schedule immediately. |
-| `schedules.listRuns()` | Lists Schedule Run records. |
-| `schedules.getRun(id)` | Reads one Schedule Run record. |
-| `schedules.listAttempts(runId)` | Lists attempts for one Schedule Run. |
-
-One-time delayed execution is not part of the first-version Scheduling vocabulary; use a recurring cron schedule, Queue delay, or Workflow design when that matches the actual behavior.
-
-## Definition-owned target inputs
-
-The Vite Integration writes `.vitehub/schedule.d.ts`. Include it in your TypeScript project. The Nuxt Integration includes it automatically. The generated `ScheduleTargetRegistry` maps eligible names to their definitions. `schedules.create()` checks input against the selected target:
-
-```ts
-const record = await schedules.create({
-  target: "daily-report",
-  cron: "0 9 * * *",
-  input: { prompt: "Summarize yesterday" },
-})
-await schedules.update(record.id, {
-  target: "daily-report",
-  input: { prompt: "Summarize this week" },
-})
-await schedules.update(record.id, { enabled: false })
-```
-
-When an update changes `input`, also supply `target`. When an update changes `target`, supply the new input or `input: undefined` to clear it. An ID alone does not identify a definition type. Stored records can outlive a deployment, so `get()`, `list()`, and `update()` return unknown input. Handler input remains optional; targets must handle records with no input.
-
-Use `schedules.dynamic.create()` and `schedules.dynamic.update()` when names or stored input come from external data. The dynamic methods validate target eligibility and Schedule fields. They do not validate a target's business input. Validate that data in the application and again in a target that reads durable records.
-
-This is a breaking change: include the generated declarations for typed application calls, and move operational calls with unknown names to `schedules.dynamic`. There is no permissive string overload on typed creation.
+`getScheduleRunStore()` returns the installed store. `listRuns({ scheduleId, limit })` lists runs newest first, and `listAttempts(runId)` lists the attempts of one run. `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store in development.
