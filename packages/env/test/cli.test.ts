@@ -82,7 +82,7 @@ describe("env CLI", () => {
     }).run(["--stage", "staging"], context)
 
     expect(exitCode).toBe(0)
-    expect(inputs).toEqual([{ env: { KEEP: "1" }, rootDir: "/app", stage: "staging" }])
+    expect(inputs).toEqual([{ env: { KEEP: "1" }, rootDir: "/app", stage: "staging", stderr: context.stderr }])
     expect(output.stdout).toContain("Server Env (stage: staging)")
     expect(output.stdout).toMatch(/apiToken\s+available\s+host env\s+yes\s+yes/)
     expect(output.stdout).toMatch(/remote\s+available\s+provider:vault\s+yes\s+yes/)

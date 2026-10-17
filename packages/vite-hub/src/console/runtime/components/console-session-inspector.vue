@@ -5,6 +5,7 @@ import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
+import ConsoleState from "./console-state.vue";
 import ConsoleWorkspaceHistory from "./console-workspace-history.vue";
 import { matchesWorkspaceFile } from "./console-workspace-file";
 import { useConsoleWordWrap } from "./console-wrap";
@@ -879,13 +880,11 @@ function message(error: unknown) {
       <div v-if="workspaceLoading && !selectedPath" class="session-inspector__state">
         <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading Workspace…
       </div>
-      <UEmpty
-        :ui="{ root: 'border-0' }"
+      <ConsoleState
         v-else-if="workspaceError && !selectedPath"
-        icon="i-lucide-folder-x"
+        :error="workspaceError"
         title="Workspace unavailable"
-        :description="workspaceError"
-        :actions="[{ label: 'Try again', onClick: loadWorkspace }]"
+        :retry="loadWorkspace"
       />
       <template v-else-if="workspace || selectedPath">
         <div class="session-inspector__workspace-body" :data-tree-open="treeOpen && !!workspace">

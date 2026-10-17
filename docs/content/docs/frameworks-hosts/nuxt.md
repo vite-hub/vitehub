@@ -85,6 +85,7 @@ Definition.
 | Database on Cloudflare | With the `cloudflare` preset, `database` defaults to `driver: 'd1'`. This configures one D1 host resource that Nitro and Nuxt Content share. |
 | Console | The Console runs as Nuxt pages. Install `@nuxt/ui`, `@iconify-json/lucide`, and `@iconify-json/ph`. Read [Console](/docs/development/console). |
 | Server auto-imports | When Nitro auto-imports are on, server code can use `kv` (with `kv`), `blob` (with `blob`), and `db` and `schema` (with `database`) without an import. Explicit `vite-hub/*` imports also work. An entry with the same name from another source fails module setup. |
+| Database tables from modules | A Nuxt module adds Database tables with the same Vite plugin contribution as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. Read [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
 | Connections | Not supported by the Nuxt module yet. `connections` fails during module setup. Use the Vite integration for Connections. |
 
 ## Inspect the output

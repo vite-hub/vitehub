@@ -66,6 +66,17 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
   }))
 }
 
+/** Normalize a UI message stream response so lifecycle handling can observe its events. */
+export function normalizeUIMessageStreamResponse(value: unknown): (Response & { body: ReadableStream<Uint8Array> }) | undefined {
+  if (!isUIMessageStreamResponse(value)) return undefined
+  return createAgentUIMessageStreamResponse({
+    headers: value.headers,
+    status: value.status,
+    statusText: value.statusText,
+    stream: normalizeUiMessageStream(uiMessageStreamFromResponse(value)),
+  })
+}
+
 export function createAgentUIMessageStream(options: {
   execute: (context: { writer: AgentUIMessageStreamWriter }) => MaybePromise<void>
 }): ReadableStream<unknown> {
@@ -106,7 +117,7 @@ export function createAgentUIMessageStreamResponse(options: {
   status?: number
   statusText?: string
   stream: ReadableStream<unknown>
-}): Response {
+}): Response & { body: ReadableStream<Uint8Array> } {
   const headers = new Headers(options.headers)
   for (const [key, value] of Object.entries(uiMessageStreamHeaders)) {
     if (!headers.has(key)) headers.set(key, value)
@@ -120,11 +131,12 @@ export function createAgentUIMessageStreamResponse(options: {
       controller.enqueue(encoder.encode(`data: ${JSON.stringify(part)}\n\n`))
     },
   }))
+  // SAFETY: Constructing a Response with a ReadableStream always creates a non-null body.
   return new Response(stream, {
     headers,
     status: options.status,
     statusText: options.statusText,
-  })
+  }) as Response & { body: ReadableStream<Uint8Array> }
 }
 
 export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {
