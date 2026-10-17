@@ -277,39 +277,33 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
-function runAccessAuthorize(
+async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<{ response?: Response }> {
   const result = authorize(context)
-  const directResponse = normalizeAuthorizationResponse(result)
-  if (directResponse) return Promise.resolve({ response: directResponse })
+  const directResponse = await normalizeAuthorizationResponse(result)
+  if (directResponse) return { response: directResponse }
 
-  // Applying the intrinsic reaction operation performs a native Promise brand
-  // check without reading a mutable `then` property.
   if (result !== null && (typeof result === "object" || typeof result === "function")) {
-    let nativePromise = false
-    const settle = (resolved: unknown, resolve: (value: { response?: Response }) => void, reject: (reason?: unknown) => void) => {
-      try {
-        const response = normalizeAuthorizationResponse(resolved)
-        if (response) resolve({ response })
-        else if (resolved !== true) resolve({ response: createForbiddenResponse(context.request) })
-        else resolve({})
-      }
-      catch (error) { reject(error) }
+    const settle = async (resolved: unknown): Promise<{ response?: Response }> => {
+      const response = await normalizeAuthorizationResponse(resolved)
+      if (response) return { response }
+      if (resolved !== true) return { response: createForbiddenResponse(context.request) }
+      return {}
     }
+    let branded = false
     const adopted = new Promise<{ response?: Response }>((resolve, reject) => {
       const attach = () => Reflect.apply(intrinsicPromiseThen, result, [
-        (resolved: unknown) => settle(resolved, resolve, reject), reject,
+        (resolved: unknown) => { void settle(resolved).then(resolve, reject) }, reject,
       ])
       try {
         attach()
-        nativePromise = true
+        branded = true
       }
       catch (error) {
-        // Species construction may fail before handlers are installed. Temporarily
-        // replace an inherited/configurable constructor so even frozen instances
-        // can receive an intrinsic rejection observer.
+        // A throwing species can prevent reaction installation. Retry with a
+        // native constructor where the instance permits temporary replacement.
         let owner: object | undefined
         let descriptor: PropertyDescriptor | undefined
         let current: object | null = result
@@ -318,38 +312,35 @@ function runAccessAuthorize(
           if (candidate) { owner = current; descriptor = candidate; break }
           current = Object.getPrototypeOf(current)
         }
-        if (!descriptor || descriptor.configurable) {
-          try {
+        try {
+          if (!descriptor || descriptor.configurable) {
             Object.defineProperty(owner ?? result, "constructor", { configurable: true, value: Promise })
-            try { attach(); nativePromise = true }
+            try { attach(); branded = true }
             finally {
               if (descriptor) Object.defineProperty(owner!, "constructor", descriptor)
               else Reflect.deleteProperty(owner ?? result, "constructor")
             }
           }
-          catch (retryError) { reject(retryError); nativePromise = true }
-        }
-        else {
-          // An own non-configurable constructor cannot be replaced, but its
-          // species hook is usually configurable. Override that hook briefly
-          // so the intrinsic reaction can still observe the source promise.
-          try {
+          else {
             const constructor = Reflect.get(result, "constructor")
             const species = constructor !== null && (typeof constructor === "object" || typeof constructor === "function")
               ? Object.getOwnPropertyDescriptor(constructor, Symbol.species)
               : undefined
-            if (species?.configurable) {
-              Object.defineProperty(constructor, Symbol.species, { configurable: true, value: Promise })
-              try { attach(); nativePromise = true }
-              finally { Object.defineProperty(constructor, Symbol.species, species) }
-            }
-            else { reject(error); nativePromise = true }
+            if (!species?.configurable) throw error
+            Object.defineProperty(constructor, Symbol.species, { configurable: true, value: Promise })
+            try { attach(); branded = true }
+            finally { Object.defineProperty(constructor, Symbol.species, species) }
           }
-          catch (retryError) { reject(retryError); nativePromise = true }
+        }
+        catch {
+          // Promise.resolve performs native adoption and observes the source;
+          // keep this branded value out of the reflective thenable path.
+          branded = true
+          void Promise.resolve(result).then(value => { void settle(value).then(resolve, reject) }, reject)
         }
       }
     })
-    if (nativePromise) return adopted
+    if (branded) return adopted
   }
 
   let thenMethod: unknown
@@ -361,19 +352,15 @@ function runAccessAuthorize(
   catch (error) {
     return Promise.reject(error)
   }
-  if (typeof thenMethod !== "function") return Promise.resolve({ response: result !== true ? createForbiddenResponse(context.request) : undefined })
+  if (typeof thenMethod !== "function") return { response: result !== true ? createForbiddenResponse(context.request) : undefined }
   const assimilated = new Promise<unknown>((resolve, reject) => {
     queueMicrotask(() => {
-      try {
-        Reflect.apply(thenMethod, result, [resolve, reject])
-      }
-      catch (error) {
-        reject(error)
-      }
+      try { Reflect.apply(thenMethod, result, [resolve, reject]) }
+      catch (error) { reject(error) }
     })
   })
-  return assimilated.then(resolved => {
-    const response = normalizeAuthorizationResponse(resolved)
+  return assimilated.then(async resolved => {
+    const response = await normalizeAuthorizationResponse(resolved)
     if (response) return { response }
     if (resolved !== true) return { response: createForbiddenResponse(context.request) }
     return {}

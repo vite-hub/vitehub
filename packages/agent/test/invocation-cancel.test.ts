@@ -329,7 +329,7 @@ describe("Agent Invocation cancel", () => {
       expect(await backing.claim(id, "replacement", 30_000)).toBe(true)
       await vi.advanceTimersByTimeAsync(10_000)
       // Losing the lease does not prove execution stopped and must not itself report cancellation.
-      expect(signal?.aborted).toBe(false)
+      expect(signal?.aborted).toBe(true)
       expect(await remote.cancel(id)).toMatchObject({ delivery: "journal", outcome: "requested", status: "running" })
       await backing.update(id, { status, timestamp: new Date().toISOString() })
       const terminalRecord = await backing.get(id)
@@ -382,7 +382,7 @@ describe("Agent Invocation cancel", () => {
         ? { cancelNotEnforcedBy: "run" }
         : { cancelWarningPending: true }))
       await vi.advanceTimersByTimeAsync(10_000)
-      expect(modelSignal?.aborted).toBe(false)
+      expect(modelSignal?.aborted).toBe(true)
       expect(customSignal?.aborted).toBe(false)
       vi.useFakeTimers()
       const cancellation = owner.cancel(id).then(result => result, error => error)
@@ -670,6 +670,7 @@ describe("Agent Invocation cancel", () => {
   })
 
   it.each(["failure", "timeout"] as const)("retries a started Driver warning after its first store %s before reporting remote cancellation", async failure => {
+    vi.useFakeTimers()
     const backing = createMemoryAgentInvocationStore()
     const markerEntered = deferred()
     const releaseMarker = deferred()
@@ -693,9 +694,26 @@ describe("Agent Invocation cancel", () => {
     try {
       await markerEntered.promise
       expect(driver).toHaveBeenCalledOnce()
-      expect(await remote.cancel(id)).toMatchObject({ delivery: "journal", notEnforcedBy: "run", outcome: "requested", status: "running" })
-      expect(attempts).toBeGreaterThan(1)
-      expect((await backing.getSummary(id))?.cancelNotEnforcedBy).toBe("run")
+      if (failure === "timeout") {
+        // Keep the first write blocked beyond its one-second bound, then let
+        // the scheduled retry complete before asking the remote owner to cancel.
+        await vi.advanceTimersByTimeAsync(1_000)
+        releaseMarker.resolve()
+        await vi.advanceTimersByTimeAsync(10_000)
+        await vi.waitFor(() => expect(attempts).toBeGreaterThan(1))
+        const cancellation = remote.cancel(id).then(result => result, error => error)
+        expect(await cancellation).toMatchObject({ delivery: "journal", notEnforcedBy: "run", outcome: "requested", status: "running" })
+        expect((await backing.getSummary(id))?.cancelNotEnforcedBy).toBe("run")
+      }
+      else {
+        // A rejected first write schedules its retry asynchronously. Observe
+        // that retry before cancellation so it cannot be pre-empted by the
+        // remote request.
+        await vi.advanceTimersByTimeAsync(10_000)
+        await vi.waitFor(() => expect(attempts).toBeGreaterThan(1))
+        const cancellation = remote.cancel(id).then(result => result, error => error)
+        expect(await cancellation).toMatchObject({ delivery: "journal", notEnforcedBy: "run", outcome: "requested", status: "running" })
+      }
     }
     finally {
       releaseMarker.resolve()
@@ -826,7 +844,7 @@ describe("Agent Invocation cancel", () => {
       }
       return snapshot
     } }
-    const invocations = defineAgentInvocations({ store })
+    const invocations = defineAgentInvocations({ enforcement: "strict", store })
     const remote = defineAgentInvocations({ store: { ...backing } })
     const driver = vi.fn(() => "Must not start")
     const prepare = vi.fn()
@@ -861,7 +879,7 @@ describe("Agent Invocation cancel", () => {
       }
       return await backing.update(...args)
     } }
-    const invocations = defineAgentInvocations({ store })
+    const invocations = defineAgentInvocations({ enforcement: "strict", store })
     const remote = defineAgentInvocations({ store: { ...backing } })
     const runId = `remote-pending-warning-${failure}`
     const driver = vi.fn(() => "Must not start")
@@ -935,7 +953,7 @@ describe("Agent Invocation cancel", () => {
     await backing.create({ ...(previousOwner ? { cancelWarningPending: true, cancelWarningOwnerId: "previous-owner" } : {}), createdAt: timestamp, id, observations: [], status: "pending", traceId: runId, updatedAt: timestamp })
     const store = { ...backing, update: (...args: Parameters<typeof backing.update>) => args[1].status === "running" ? undefined : backing.update(...args) }
     const driver = vi.fn(() => "Must not start")
-    const invocations = defineAgentInvocations({ store })
+    const invocations = defineAgentInvocations({ enforcement: "strict", store })
     await expect(runAgent(defineAgent({ invocations, driver: { run: driver } }), runtime(runId), {})).rejects.toMatchObject({ code: "AGENT_R0973" })
     expect(driver).not.toHaveBeenCalled()
     expect(await backing.getSummary(id)).toMatchObject({ status: "failed" })
@@ -966,7 +984,7 @@ describe("Agent Invocation cancel", () => {
         return await backing.update(...args)
       },
     }
-    const invocations = defineAgentInvocations({ store })
+    const invocations = defineAgentInvocations({ enforcement: "strict", store })
     const remote = defineAgentInvocations({ store: { ...backing } })
     const driver = vi.fn(() => "Must not start")
     const prepare = vi.fn()

@@ -103,6 +103,125 @@ describe("realtime server handler", () => {
     expect(response.status).toBe(404)
   })
 
+  it("ignores inherited Cloudflare storage contexts", async () => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    const context = Object.create({ storage: { sql: { exec } } })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    }) as Request & { runtime?: unknown }
+    request.runtime = { cloudflare: { context } }
+    const handler = createRealtimeHandler(realtimeRegistry())
+
+    const response = await handler.fetch(request) as Response & { crossws?: unknown }
+
+    expect(response.crossws).toBeDefined()
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it.each(["method", "getter"])("ignores fabricated inherited SQL %s", async (kind) => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    const getter = vi.fn(() => exec)
+    const prototype = Object.defineProperty({}, "exec", kind === "getter" ? { get: getter } : { value: exec })
+    const sql = Object.create(prototype)
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    }) as Request & { runtime?: unknown }
+    request.runtime = { cloudflare: { context: { storage: { sql } } } }
+
+    const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
+
+    expect(response.crossws).toBeDefined()
+    expect(exec).not.toHaveBeenCalled()
+    expect(getter).not.toHaveBeenCalled()
+  })
+
+  it("rejects an unrelated native sql accessor", async () => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    const storagePrototype = Object.create(null)
+    Object.defineProperty(storagePrototype, "exec", { value: exec })
+    Object.defineProperty(storagePrototype, "sql", Object.getOwnPropertyDescriptor(Object.prototype, "__proto__")!)
+    const storage = Object.create(storagePrototype)
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    }) as Request & { runtime?: unknown }
+    request.runtime = { cloudflare: { context: { storage } } }
+
+    const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
+
+    expect(response.crossws).toBeDefined()
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it.each(["method", "getter"])("ignores polluted Object.prototype SQL %s", async (kind) => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    const getter = vi.fn(() => exec)
+    const previous = Object.getOwnPropertyDescriptor(Object.prototype, "exec")
+    Object.defineProperty(Object.prototype, "exec", {
+      configurable: true,
+      ...kind === "getter" ? { get: getter } : { value: exec },
+    })
+    try {
+      serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+        exists: vi.fn().mockResolvedValue(false),
+        readFile: vi.fn(),
+        stat: vi.fn().mockResolvedValue(undefined),
+      }))
+      const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+        headers: { upgrade: "websocket" },
+      }) as Request & { runtime?: unknown }
+      request.runtime = { cloudflare: { context: { storage: { sql: {} } } } }
+
+      const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
+
+      expect(response.crossws).toBeDefined()
+      expect(exec).not.toHaveBeenCalled()
+      expect(getter).not.toHaveBeenCalled()
+    }
+    finally {
+      if (previous) Object.defineProperty(Object.prototype, "exec", previous)
+      else Reflect.deleteProperty(Object.prototype, "exec")
+    }
+  })
+
+  it("rejects polluted inherited SQL methods on plain storage carriers", async () => {
+    const exec = vi.fn(() => ({ toArray: () => [] }))
+    const sql = {}
+    Object.defineProperty(Object.prototype, "exec", { configurable: true, value: exec })
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      headers: { upgrade: "websocket" },
+    }) as Request & { runtime?: unknown }
+    request.runtime = { cloudflare: { context: { storage: { sql } } } }
+
+    try {
+      const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
+
+      expect(response.crossws).toBeDefined()
+      expect(exec).not.toHaveBeenCalled()
+    } finally {
+      delete (Object.prototype as { exec?: unknown }).exec
+    }
+  })
+
   it("rejects unauthenticated definitions before opening a room", async () => {
     serverMocks.getSession.mockResolvedValue(null)
     const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
@@ -1054,9 +1173,10 @@ describe("tiptap-markdown documents", () => {
 })
 
 describe("workspace changes", () => {
-  it.each(["docs//file.md", "docs///file.md"])("rejects noncanonical path %s in every change field", (path) => {
+  it.each(["docs/.. /secret", "docs/.git /config", "docs/git~1/config", "vitehu~1/config", "docs//file.md", "docs///file.md"])("rejects unsafe or noncanonical path %s in every change field", (path) => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "delete", path }))).toBeUndefined()
+
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: path, to: "docs/new.md" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: path }))).toBeUndefined()
   })
@@ -1068,11 +1188,17 @@ describe("workspace changes", () => {
       .toEqual({ operation: "move", from: "docs/old.md", to: "docs/new.md" })
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "../secret" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: ".vitehub/config" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "nested/.vitehub/config" })))
+      .toEqual({ operation: "create", path: "nested/.vitehub/config" })
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "nested/.VITEHUB/config" })))
+      .toEqual({ operation: "create", path: "nested/.VITEHUB/config" })
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: ".VITEHUB/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: ".ViteHub/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "VITEHU~1/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT/config" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git /config" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/git~1/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git./config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.GIT /config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git::$INDEX_ALLOCATION/config" }))).toBeUndefined()
@@ -1081,12 +1207,13 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "C:/outside/file" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "C:outside" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.. " }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/..:stream/config" }))).toBeUndefined()
+    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.:stream/config" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/.git " }))).toBeUndefined()
-    expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "docs/git~1" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path: "vitehu~1/config" }))).toBeUndefined()
 
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: "docs\\new.md" }))).toBeUndefined()
-    for (const path of ["docs/git~1", "vitehu~1/config", "docs/.git ", "docs/.git:stream", ".VITEHUB/config"]) {
+    for (const path of ["docs/.git ", "docs/git~1", "vitehu~1/config", "docs/.. /secret", "docs/.git:stream", ".VITEHUB/config"]) {
       expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
       expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: path, to: "docs/new.md" }))).toBeUndefined()
       expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/old.md", to: path }))).toBeUndefined()
@@ -1094,7 +1221,7 @@ describe("workspace changes", () => {
     expect(decodeWorkspaceChange(new Uint8Array([4, 1, 123]))).toBeUndefined()
   })
 
-  it.each(["docs/.git ", "docs/git~1/config", "vitehu~1/config"])("rejects protected Windows path %s", (path) => {
+  it.each(["docs/.. ", "C:secret", "docs/.git ", "git~1", "vitehu~1/config"])("rejects Windows-equivalent unsafe path %s", (path) => {
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "create", path }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: path, to: "docs/safe.md" }))).toBeUndefined()
     expect(decodeWorkspaceChange(encodeWorkspaceChange({ operation: "move", from: "docs/safe.md", to: path }))).toBeUndefined()

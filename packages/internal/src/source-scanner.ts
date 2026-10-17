@@ -143,8 +143,12 @@ function skipBlockComment(source: string, index: number) {
   return end === -1 ? source.length : end + 2
 }
 
+// ECMAScript IdentifierPart includes the two join controls in addition to
+// Unicode ID_Continue characters.
+const identifierCharPattern = /(?:[\p{ID_Continue}$]|\u200C|\u200D)/u
+
 function isIdentifierChar(char: string | undefined) {
-  return !!char && /[\p{ID_Continue}$]/u.test(char)
+  return !!char && identifierCharPattern.test(char)
 }
 
 function isIdentifierStart(char: string | undefined) {
