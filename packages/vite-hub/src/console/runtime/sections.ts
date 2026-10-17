@@ -139,7 +139,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("workspaces", "Workspaces", "i-lucide-folder-kanban", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
   primitive("workflows", "Workflows", "i-ph-git-branch-light", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
   primitive("queues", "Queues", "i-ph-tray-light", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
-  primitive("schedules", "Schedules", "i-lucide-calendar-clock", "schedule", "Declare static cron schedules and manage recurring Runtime Schedules."),
+  primitive("schedules", "Schedules", "i-lucide-calendar-clock", "schedule", "Declare static cron schedules and run them on the host."),
 ]
 
 /** Guides that the Overview links next to the primitives. */
@@ -219,7 +219,6 @@ const consoleSectionIdPattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
 /** Returns true for a lowercase route segment. Built-in and contributed section ids use this form. */
 export function isConsoleSectionId(value: unknown): value is ConsoleSectionId {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Section ids come from untrusted JSON and browser storage.
   return typeof value === "string" && consoleSectionIdPattern.test(value)
 }
 
@@ -232,9 +231,8 @@ export function isConsoleConnectionsEnabled(options: { connections?: unknown }, 
   const connections = options.connections
   if (!connections) return false
   if (development) return true
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Options cross the host boundary as unknown values.
   if (typeof connections !== "object" || connections === null) return false
-  return "management" in connections && Boolean(connections.management)
+  return Object.hasOwn(connections, "management") && Boolean(Reflect.get(connections, "management"))
 }
 
 /** Route name of a contributed section. The Console serves it at `/_vitehub/<id>`. */

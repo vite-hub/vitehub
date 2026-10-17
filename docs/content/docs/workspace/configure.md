@@ -77,11 +77,30 @@ export default defineWorkspace({ store: dropStore })
 
 Choose one stable workspace identity per document or folder. Use the same identity and prefix after a restart. The default prefix is `vitehub/workspace-history`; custom prefixes accept letters, numbers, underscores, dashes, and single slashes. Each Store owns its Blob namespace. Do not write its objects through another API.
 
-Normal `fs` writes stage changes in the Store instance. Call `snapshot()` or `history.checkpoint()` to publish them. A successful `history.commit()` replaces the staged tree with its complete file set. Failed commits preserve staged changes. Staged changes are lost when the instance stops; published revisions are durable. Other instances observe published heads, and a staged checkpoint fails if its base head moved.
+Normal `fs` writes stage changes in the Store instance and follow the `main` ref. Call `snapshot()` or `history.checkpoint()` to commit them to `main`. A successful `history.commit()` to `main` replaces the staged tree with the new head. Commits to other refs leave it alone. Failed commits preserve staged changes. Staged changes are lost when the instance stops; committed revisions are durable. Other instances observe committed heads, and a staged checkpoint fails if its base head moved.
+
+Keep work that must survive a restart, such as editor drafts, on its own ref. Commit each save with `history.commit({ ref: 'draft', ifHead, changes })`, then copy the chosen files to `published`. See [Refs](/docs/workspace/server-api#refs).
+
+#### Upgrade an existing history Database
+
+Named refs changed the schema. `workspace_history_workspaces` holds the deletion tombstone, `workspace_history_refs` has one row per Workspace and ref, and revisions record their `ref` in place of the `published` column, now `committed`. Regenerate migrations for new Databases. For a Database that already holds history, apply this SQL once so existing heads become `main`:
+
+```sql
+CREATE TABLE workspace_history_workspaces (workspace TEXT PRIMARY KEY NOT NULL, deleted INTEGER DEFAULT 0 NOT NULL);
+INSERT INTO workspace_history_workspaces (workspace, deleted) SELECT workspace, deleted FROM workspace_history_refs;
+ALTER TABLE workspace_history_refs RENAME TO workspace_history_refs_old;
+CREATE TABLE workspace_history_refs (workspace TEXT NOT NULL, ref TEXT NOT NULL, head TEXT, sequence INTEGER DEFAULT 0 NOT NULL, PRIMARY KEY (workspace, ref));
+INSERT INTO workspace_history_refs (workspace, ref, head, sequence) SELECT workspace, 'main', head, sequence FROM workspace_history_refs_old WHERE deleted = 0 AND head IS NOT NULL;
+DROP TABLE workspace_history_refs_old;
+ALTER TABLE workspace_history_revisions ADD COLUMN ref TEXT NOT NULL DEFAULT 'main';
+ALTER TABLE workspace_history_revisions RENAME COLUMN published TO committed;
+DROP INDEX workspace_history_timeline;
+CREATE INDEX workspace_history_timeline ON workspace_history_revisions (workspace, ref, committed, sequence);
+```
 
 Call `await dropStore.delete()` after application authorization to delete the workspace and all its history. Deletion first tombstones the identity, then removes objects and catalog rows. It is permanent. Use a new identity to create a replacement workspace. Retry `delete()` after a storage outage or after stopping an abandoned in-flight request. The tombstone prevents late commits from publishing. An interrupted upload can leave bytes that a later deletion sweep removes.
 
-The Store retains every published revision. It has no pruning API. Failed or conflicting uploads can leave reusable objects outside retained usage accounting until workspace deletion. See [host storage behavior](/docs/workspace/hosts#blob-database-history).
+The Store retains every committed revision on every ref. It has no pruning API. Failed or conflicting uploads can leave reusable objects outside retained usage accounting until workspace deletion. See [host storage behavior](/docs/workspace/hosts#blob-database-history).
 
 ### Local path locks
 
@@ -93,7 +112,7 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 
 ## Workspace Definition options
 
-`defineWorkspace()` accepts these top-level fields. The name comes from the discovered file path.
+`defineWorkspace()` accepts these top-level fields. The name comes from the discovered file path, or from the contribution when a package [contributes the Workspace](#contribute-workspace-definitions-from-a-package).
 
 | Option | Type | Description |
 | --- | --- | --- |
@@ -107,9 +126,55 @@ Set `ignore: 'git'` when the Local Store root is a Git checkout. Listings, snaps
 | `hooks` | `WorkspaceHooks` | Write lifecycle hooks. |
 | `plugins` | `WorkspacePlugin[]` | Bundled rules and hooks. |
 | `loaders` | `WorkspaceLoader[]` | Build-time or runtime loaders. |
-| `publish` | `WorkspacePublisher[]` | Publication behavior after snapshots or sync. |
 
 Instruction text reads scalar bindings with `{{ data.workspace.<name> }}` and file-backed bindings with `:insert{:markdown="data.workspace.<name>"}`. Only keys declared in `bindings` are available; ViteHub does not expose arbitrary Workspace files to Instruction Composition. See [Agent instructions](/docs/agents/instructions#insert-workspace-bindings).
+
+## Contribute Workspace Definitions from a package
+
+A package can register a Workspace from its own Vite plugin, so applications do not write `server/workspaces/<name>.ts` for it. Add `vitehub.workspaces` to the plugin object. Each entry has a `name` and a `definition` that names the module and export of a `defineWorkspace()` result:
+
+```ts [my-package/vite.ts]
+import { fileURLToPath } from 'node:url'
+import type { Plugin } from 'vite'
+import type { WorkspaceContributingPlugin } from '@vite-hub/workspace/vite'
+
+export function myPackage(): Plugin & WorkspaceContributingPlugin {
+  return {
+    name: 'my-package/vite',
+    vitehub: {
+      workspaces: () => [{
+        name: 'content',
+        definition: {
+          module: fileURLToPath(new URL('./runtime/workspace.js', import.meta.url)),
+          export: 'contentWorkspace',
+        },
+        reason: 'Stores CMS documents.',
+      }],
+    },
+  }
+}
+```
+
+```ts [my-package/runtime/workspace.ts]
+import { defineWorkspace } from '@vite-hub/workspace'
+
+export const contentWorkspace = defineWorkspace({ /* store, rules, plugins */ })
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Workspace name for `useWorkspace(name)`. |
+| `definition.module` | `string` | Absolute file path, `file:` URL, or package specifier that the application can import. Relative paths are rejected. |
+| `definition.export` | `string` | Export that holds the Workspace Definition. Defaults to `default`. |
+| `reason` | `string` | Optional. Why the package adds the Workspace. `vitehub inspect definitions` and the Console show it. |
+
+`vitehub.workspaces` accepts an array or a factory. The factory receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root, and can be async. The Workspace plugin can read contributions before your plugin's `config` hook runs, so compute them in the factory, not in your own hooks. The factory runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
+
+A contributed Workspace behaves like a discovered file. It is in the generated Nitro registry, in the `WorkspaceName` types, in `vitehub inspect definitions`, and in the Console Workspaces section. Its definition is loaded at build time for asset bundling and Cloudflare Artifacts, the same as discovered files. The definition must not set `name`.
+
+Each Workspace name has one definition. If a contribution reuses the name of a discovered file or of another contribution, the build fails with `WORKSPACE_B0003`, and the message names both sources or both plugins. An invalid contribution fails with `WORKSPACE_B0004`. If the named export is missing at runtime, the first `useWorkspace(name)` call throws a `TypeError` that names the module, export, and contributing plugin.
+
+`collectWorkspaceContributions(plugins, context)` from `@vite-hub/workspace/vite` returns the validated contributions. It helps when another build step needs the same list.
 
 ## Source Binding options
 

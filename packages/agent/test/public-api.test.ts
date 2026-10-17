@@ -60,7 +60,7 @@ it("does not publish Agent-specific error constructors", async () => {
   expect(capabilities).not.toHaveProperty("repositoryHostContext")
 })
 
-it("pins Effect to the Agent implementation dependency without leaking runtime failures", async () => {
+it("does not depend on Effect or leak its runtime failures", async () => {
   const dist = new URL("../dist/", import.meta.url)
   const javascript = (await Promise.all(
     (await readdir(dist, { recursive: true }))
@@ -68,7 +68,7 @@ it("pins Effect to the Agent implementation dependency without leaking runtime f
       .map(path => readFile(new URL(path, dist), "utf8")),
   )).join("\n")
   expect(javascript).not.toContain("FiberFailure")
-  expect(manifest).toMatchObject({ dependencies: { effect: "catalog:effect" } })
+  expect(manifest).not.toMatchObject({ dependencies: { effect: expect.anything() } })
   expect(manifest).not.toMatchObject({ devDependencies: { effect: expect.anything() } })
   expect(manifest).not.toMatchObject({ optionalDependencies: { effect: expect.anything() } })
   expect(manifest).not.toMatchObject({ peerDependencies: { effect: expect.anything() } })

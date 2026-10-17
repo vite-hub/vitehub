@@ -10,7 +10,11 @@ import {
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { resolveConsoleNewChatAgent } from "./console-new-chat";
+import {
+  resolveConsoleAgentInvocation,
+  resolveConsoleAgentInvocationOptions,
+  resolveConsoleNewChatAgent,
+} from "./console-new-chat";
 import {
   readConsoleAgentListOpen,
   rememberConsoleAgentListOpen,
@@ -34,6 +38,7 @@ import { useConsoleConnectionUnavailable } from "./console-connection";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleConnectionState from "./console-connection-state.vue";
+import ConsoleState from "./console-state.vue";
 import ConsoleInvocationComposer from "./console-invocation-composer.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSessionLoading from "./console-session-loading.vue";
@@ -225,7 +230,7 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
 );
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
 const selectedAgentInvocation = computed(() =>
-  selectedAgentName.value ? agentInvocationOptions.value[selectedAgentName.value] : undefined,
+  resolveConsoleAgentInvocation(selectedAgentName.value, agentInvocationOptions.value),
 );
 const newChatTargetName = computed(() =>
   resolveConsoleNewChatAgent(selectedAgentName.value, agentInvocationOptions.value),
@@ -414,7 +419,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function stringValue(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate strings at the capability boundary.
   return typeof value === "string" ? value : undefined;
 }
 
@@ -429,7 +433,6 @@ function capabilityLabel(id: string): string {
 }
 
 function numericValue(value: unknown): number | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate finite numbers at the capability boundary.
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
@@ -470,14 +473,6 @@ function observedConfiguration(
     const configuration = record(entry.attributes?.["vitehub.agent.configuration"]);
     if (configuration) return invocationConfiguration(configuration);
   }
-}
-
-function errorMessage(error: unknown): string | undefined {
-  return error instanceof Error
-    ? error.message
-    : error
-      ? "The console could not load this data."
-      : undefined;
 }
 
 async function selectInvocation(
@@ -635,7 +630,6 @@ async function loadAgents(): Promise<void> {
     const value = record(await requestConsole(props.agentsBase, { signal: controller.signal }));
     const names = Array.isArray(value?.agents)
       ? value.agents.filter((name): name is string => {
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The console API response is untrusted JSON, so validate every array entry before using it as an Agent identity.
           return typeof name === "string" && Boolean(name.trim());
         })
       : [];
@@ -644,7 +638,7 @@ async function loadAgents(): Promise<void> {
       const invocation = record(value?.invocation);
       agentInvocationOptions.value = Object.fromEntries(
         agentNames.value.flatMap((name) => {
-          const options = record(invocation?.[name]);
+          const options = record(resolveConsoleAgentInvocationOptions(invocation, name));
           if (!options) return [];
           const profiles = Array.isArray(options.profiles)
             ? options.profiles.flatMap((value) => {
@@ -1012,9 +1006,7 @@ onBeforeUnmount(() => {
                 >
                   <USkeleton v-for="index in 2" :key="index" class="h-8 rounded" />
                 </div>
-                <p v-else-if="errorMessage(capabilitiesError)" class="py-1 text-xs text-error">
-                  {{ errorMessage(capabilitiesError) }}
-                </p>
+                <ConsoleState v-else-if="capabilitiesError" compact :error="capabilitiesError" title="Could not load session filters" />
                 <template v-else>
                   <label class="grid gap-1.5 text-xs font-medium">
                     <span>Used capability</span>
@@ -1065,17 +1057,8 @@ onBeforeUnmount(() => {
       </template>
 
       <template #default>
-        <div v-if="!connectionUnavailable && errorMessage(agentsError)" class="px-3 pb-3">
-          <UAlert
-            color="error"
-            variant="subtle"
-            icon="i-ph-cloud-slash-light"
-            title="Could not load agents"
-            :description="errorMessage(agentsError)"
-            :actions="[
-              { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadAgents },
-            ]"
-          />
+        <div v-if="!connectionUnavailable && agentsError" class="px-3 pb-3">
+          <ConsoleState compact :error="agentsError" title="Could not load Agents" :retry="loadAgents" />
         </div>
         <section v-if="hasMultipleAgents" class="vitehub-console__agents shrink-0 px-1.5 pb-2">
           <h2 class="m-0">
@@ -1134,26 +1117,14 @@ onBeforeUnmount(() => {
           }}</span>
         </h2>
         <div
-          v-if="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
+          v-if="(!connectionUnavailable && list.error.value) || list.loadMoreError.value"
           class="px-3"
         >
-          <UAlert
-            color="error"
-            variant="subtle"
-            icon="i-ph-cloud-slash-light"
+          <ConsoleState
+            compact
+            :error="(!connectionUnavailable && list.error.value) || list.loadMoreError.value"
             title="Could not load sessions"
-            :description="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
-            :actions="
-              !connectionUnavailable && list.error.value
-                ? [
-                    {
-                      label: 'Try again',
-                      icon: 'i-ph-arrows-clockwise-light',
-                      onClick: list.refresh,
-                    },
-                  ]
-                : undefined
-            "
+            :retry="!connectionUnavailable && list.error.value ? list.refresh : undefined"
           />
           <UButton
             v-if="invocationItems.length && list.cursor.value && list.loadMoreError.value"
@@ -1189,7 +1160,7 @@ onBeforeUnmount(() => {
         <AgentInvocationList
           v-if="
             (!list.isLoading.value || invocationItems.length) &&
-            (!errorMessage(list.error.value) || invocationItems.length)
+            (!list.error.value || invocationItems.length)
           "
           class="vitehub-console__session-list min-h-0 flex-1 px-1.5 pb-3"
           :continuation-key="list.cursor.value"
@@ -1218,11 +1189,16 @@ onBeforeUnmount(() => {
           </template>
           <template #empty
             ><UEmpty
+              v-if="activeFilterCount"
               class="px-4"
               icon="i-ph-chat-dots-light"
-              :title="activeFilterCount ? 'No matching sessions' : 'No sessions yet'"
-              :description="activeFilterCount ? undefined : 'The first Agent Invocation will appear here.'"
-              :actions="activeFilterCount ? [{ label: 'Clear filters', onClick: resetSessionFilters }] : undefined"
+              title="No matching sessions"
+              :actions="[{ label: 'Clear filters', onClick: resetSessionFilters }]" /><ConsoleState
+              v-else
+              section="agents"
+              icon="i-ph-chat-dots-light"
+              title="No sessions yet"
+              description="Invoke an Agent from your app or from this Console. Its session appears here."
           /></template>
         </AgentInvocationList>
       </template>
@@ -1287,7 +1263,7 @@ onBeforeUnmount(() => {
             <ConsoleSessionLoading
               v-else
               class="h-full min-h-0"
-              :error="errorMessage(detail.error.value)"
+              :error="detail.error.value"
               :maximized="true"
               surface="inspector"
               @close="closeDetails"
@@ -1336,31 +1312,18 @@ onBeforeUnmount(() => {
                     />
                   </template>
                 </ConsoleSessionNavbar>
-                <UAlert
-                  v-if="!connectionUnavailable && invocationView && errorMessage(detail.error.value)"
-                  class="m-3 shrink-0"
-                  color="error"
-                  variant="subtle"
-                  icon="i-ph-cloud-slash-light"
-                  title="Could not refresh this session"
-                  :description="errorMessage(detail.error.value)"
-                  :actions="[
-                    { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
-                  ]"
-                />
+                <div v-if="!connectionUnavailable && invocationView && detail.error.value" class="m-3 shrink-0">
+                  <ConsoleState compact :error="detail.error.value" title="Could not refresh this session" :retry="refresh" />
+                </div>
                 <ConsoleSessionLoading
                   v-if="(detail.isLoading.value || initialSessionLoading) && !invocationView"
                   class="min-h-0 flex-1"
                 />
-                <UEmpty
-                  v-else-if="errorMessage(detail.error.value) && !invocationView"
-                  class="min-h-0 flex-1"
-                  icon="i-ph-cloud-slash-light"
+                <ConsoleState
+                  v-else-if="detail.error.value && !invocationView"
+                  :error="detail.error.value"
                   title="Could not load this session"
-                  :description="errorMessage(detail.error.value)"
-                  :actions="[
-                    { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
-                  ]"
+                  :retry="refresh"
                 />
                 <AgentInvocation
                   v-else-if="invocationView"
@@ -1399,7 +1362,7 @@ onBeforeUnmount(() => {
               <ConsoleSessionLoading
                 v-else
                 class="h-full min-h-0"
-                :error="errorMessage(detail.error.value)"
+                :error="detail.error.value"
                 surface="inspector"
                 @close="closeDetails"
                 @retry="refresh"
@@ -1447,33 +1410,20 @@ onBeforeUnmount(() => {
             </ConsoleSessionNavbar>
             <ConsoleSessionLoading v-if="initialSessionLoading" class="min-h-0 flex-1" />
             <div v-else-if="!selectedInvocationId" class="min-h-0 flex-1" />
-            <UEmpty
-              v-else-if="errorMessage(detail.error.value) && !invocationView"
-              class="min-h-0 flex-1"
-              icon="i-ph-cloud-slash-light"
+            <ConsoleState
+              v-else-if="detail.error.value && !invocationView"
+              :error="detail.error.value"
               title="Could not load this session"
-              :description="errorMessage(detail.error.value)"
-              :actions="[
-                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
-              ]"
+              :retry="refresh"
             />
             <ConsoleSessionLoading
               v-else-if="detail.isLoading.value && !invocationView"
               class="min-h-0 flex-1"
             />
             <div v-else-if="invocationView" class="flex min-h-0 flex-1 flex-col">
-              <UAlert
-                v-if="!connectionUnavailable && errorMessage(detail.error.value)"
-                class="m-3 shrink-0"
-                color="error"
-                variant="subtle"
-                icon="i-ph-cloud-slash-light"
-                title="Could not refresh this session"
-                :description="errorMessage(detail.error.value)"
-                :actions="[
-                  { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: refresh },
-                ]"
-              />
+              <div v-if="!connectionUnavailable && detail.error.value" class="m-3 shrink-0">
+                <ConsoleState compact :error="detail.error.value" title="Could not refresh this session" :retry="refresh" />
+              </div>
               <AgentInvocation
                 :header="false"
                 :invocation="invocationView"

@@ -71,7 +71,6 @@ For writable access, pass `useWorkspace(name, { mode: "write" }).fs` directly to
 ## Providers and boundaries
 
 - `@vite-hub/shell/providers/just-bash` runs selected commands in `just-bash` against a supplied filesystem adapter.
-- `@vite-hub/shell/providers/cloudflare` adapts a Cloudflare execution client and reports the boundary that client can prove.
 - A custom `ShellExecutionProvider` declares its boundary and implements execution for another host.
 
 Custom providers can return Shell Processes as class instances. Sessions read the process ID, command, and working directory from the provider handle when inspected. These public metadata fields are readonly. A failed metadata read does not prevent process cleanup.

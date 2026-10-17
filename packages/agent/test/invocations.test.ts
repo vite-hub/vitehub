@@ -4,6 +4,7 @@ import { createTraceEventLog, deriveTraceRuns, traceEventsToOpenTelemetrySpans }
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
 import { agentInvocationId, defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
@@ -993,9 +994,24 @@ describe("Agent Invocations", () => {
     expect(list).toHaveBeenCalledTimes(2)
   })
 
+  it.each([
+    ["Agent names", "listAgentNames"],
+    ["trigger labels", "listTriggeredBy"],
+    ["Capability IDs", "listCapabilityIds"],
+  ] as const)("rejects repeated cursors while listing %s", async (_label, method) => {
+    const memory = createMemoryAgentInvocationStore()
+    const { listAgentNames: _listAgentNames, listCapabilityIds: _listCapabilityIds, listTriggeredBy: _listTriggeredBy, ...fallback } = memory
+    const list = vi.fn(async () => ({ cursor: "same-page", invocations: [] }))
+    const invocations = defineAgentInvocations({ store: { ...fallback, list } })
+
+    await expect(invocations[method]()).rejects.toThrow("Agent Invocation listing returned a repeated pagination cursor")
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
   it("rejects startup when a stalled store prevents cancellation verification", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
+      enforcement: "strict",
       store: {
         ...memory,
         create: () => new Promise(() => {}),
@@ -1012,7 +1028,7 @@ describe("Agent Invocations", () => {
 
   it.each([false, true])("rejects stalled journal startup before lifecycle hooks, driver failure: %s", async (fail) => {
     const memory = createMemoryAgentInvocationStore()
-    const invocations = defineAgentInvocations({ store: {
+    const invocations = defineAgentInvocations({ enforcement: "strict", store: {
       ...memory,
       create: () => new Promise(() => {}),
     } })
@@ -1235,7 +1251,7 @@ describe("Agent Invocations", () => {
     const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
     let resolveCreate!: () => void
     const created = new Promise<void>((resolve) => { resolveCreate = resolve })
-    const invocations = defineAgentInvocations({ store: {
+    const invocations = defineAgentInvocations({ enforcement: "strict", store: {
       ...memory,
       async create(input) {
         await createGate
@@ -2196,6 +2212,167 @@ describe("Agent Invocations", () => {
         },
         pattern: { flags: "gi", lastIndex: 3, source: "vitehub" },
       },
+      visibility: "public",
+    })
+  })
+
+  it("serializes foreign-realm Error details when bounding invocation observations", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-error-details",
+      observations: [],
+      status: "running",
+      traceId: "foreign-error-details-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('Object.assign(new AggregateError([new Error("first")], "outer", { cause: "inner" }), { code: "E_OUTER" })')
+
+    await store.update("foreign-error-details", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-error-details"))?.observations[0]?.payload).toEqual({
+      value: {
+        error: {
+          cause: "inner",
+          code: "E_OUTER",
+          errors: [{ message: "first", name: "Error" }],
+          message: "outer",
+          name: "AggregateError",
+        },
+      },
+      visibility: "public",
+    })
+  })
+
+  it("recognizes foreign errors when stack formatting returns a non-string", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-error-custom-stack",
+      observations: [],
+      status: "running",
+      traceId: "foreign-error-custom-stack-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('Error.prepareStackTrace = () => undefined; Object.assign(new Error("message"), { code: "E_CUSTOM_STACK" })')
+
+    await store.update("foreign-error-custom-stack", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-error-custom-stack"))?.observations[0]?.payload).toEqual({
+      value: { error: { code: "E_CUSTOM_STACK", message: "message", name: "Error" } },
+      visibility: "public",
+    })
+  })
+
+  it("recognizes foreign errors when stack formatting throws", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "foreign-error-throwing-stack",
+      observations: [],
+      status: "running",
+      traceId: "foreign-error-throwing-stack-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const error = runInNewContext('Error.prepareStackTrace = () => { throw new Error("stack failure") }; Object.assign(new Error("message"), { code: "E_THROWING_STACK" })')
+
+    await store.update("foreign-error-throwing-stack", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("foreign-error-throwing-stack"))?.observations[0]?.payload).toEqual({
+      value: { error: { code: "E_THROWING_STACK", message: "message", name: "Error" } },
+      visibility: "public",
+    })
+  })
+
+  it("does not treat an Error subclass named AggregateError as aggregate", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "spoofed-aggregate-error",
+      observations: [],
+      status: "running",
+      traceId: "spoofed-aggregate-error-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    class SpoofedAggregateError extends Error {}
+    Object.defineProperty(SpoofedAggregateError.prototype, "name", { value: "AggregateError" })
+    const error = new SpoofedAggregateError("message")
+
+    await store.update("spoofed-aggregate-error", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("spoofed-aggregate-error"))?.observations[0]?.payload).toEqual({
+      value: { error: { message: "message", name: "AggregateError" } },
+      visibility: "public",
+    })
+  })
+
+  it("does not treat a prototype-shaped object as an Error", async () => {
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "spoofed-error",
+      observations: [],
+      status: "running",
+      traceId: "spoofed-error-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const prototype = { name: "Error", message: "spoofed" } as { name: string; message: string; constructor?: Function }
+    function constructor() {}
+    Object.defineProperty(constructor, "name", { value: "Error" })
+    Object.defineProperty(constructor, "prototype", { value: prototype })
+    prototype.constructor = constructor
+    const error = Object.create(prototype)
+    error.detail = "value"
+
+    await store.update("spoofed-error", {
+      observation: {
+        name: "workspace.materialized",
+        payload: { value: { error }, visibility: "public" },
+        sequence: 1,
+        timestamp: "2026-08-27T00:00:00.000Z",
+        type: "lifecycle",
+      },
+      timestamp: "2026-08-27T00:00:00.000Z",
+    })
+
+    expect((await store.get("spoofed-error"))?.observations[0]?.payload).toEqual({
+      value: { error: "[unsupported Object]" },
       visibility: "public",
     })
   })
@@ -3701,6 +3878,7 @@ describe("Agent Invocations", () => {
     let releaseCreate!: () => void
     const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
     const invocations = defineAgentInvocations({
+      enforcement: "strict",
       store: {
         ...memory,
         async create(input) {
@@ -4803,7 +4981,7 @@ describe("Agent Invocations", () => {
     }
     const agent = defineAgent({
       driver: { run: () => "done" },
-      invocations: defineAgentInvocations({ store }),
+      invocations: defineAgentInvocations({ enforcement: "strict", store }),
       runtime: false,
     })
 
@@ -4853,6 +5031,7 @@ describe("Agent Invocations", () => {
     let runningFailures = 1
     const recoveryTasks: Array<Promise<unknown>> = []
     const invocations = defineAgentInvocations({
+      enforcement: "strict",
       store: {
         ...memory,
         update(id, input, claimId) {
@@ -4875,6 +5054,29 @@ describe("Agent Invocations", () => {
     })
     expect(run).not.toHaveBeenCalled()
     expect(record && await memory.claim(record.id, "post-terminal", 30_000)).toBe(true)
+  })
+
+  it("dispatches the Driver when storeTimeoutMs covers a slow running write", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const store: AgentInvocationStore = {
+      ...memory,
+      async update(id, input, claimId) {
+        // A D1 primary in another region needs several round trips for one update.
+        if (input.status === "running") await new Promise(resolve => setTimeout(resolve, 1_200))
+        return memory.update(id, input, claimId)
+      },
+    }
+    const run = vi.fn(() => "done")
+    const invocations = defineAgentInvocations({ store, storeTimeoutMs: 10_000 })
+
+    await expect(runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), runtime("slow-running-write"), {})).resolves.toBe("done")
+    expect(run).toHaveBeenCalledOnce()
+    await expect(invocations.getByRunId("slow-running-write")).resolves.toMatchObject({ status: "completed" })
+  })
+
+  it.each([0, 1.5, 60_001])("rejects storeTimeoutMs %s", (storeTimeoutMs) => {
+    expect(() => defineAgentInvocations({ store: createMemoryAgentInvocationStore(), storeTimeoutMs }))
+      .toThrow("storeTimeoutMs must be an integer between 1 and 60000")
   })
 
   it("normalizes limits while preserving opaque custom-store cursors", async () => {

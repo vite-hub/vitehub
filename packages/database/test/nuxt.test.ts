@@ -15,6 +15,7 @@ import type { Plugin } from "vite"
 
 const cloudflareBridgeState = vi.hoisted(() => ({
   activeEnv: undefined as Record<string, unknown> | undefined,
+  scopedEnv: undefined as Record<string, unknown> | undefined,
   fallbackEnv: Object.defineProperties({ FALLBACK: "fallback", SHARED: "fallback" }, {
     DB: { value: "binding" },
     NATIVE: { value: "native" },
@@ -23,6 +24,15 @@ const cloudflareBridgeState = vi.hoisted(() => ({
 
 vi.mock("cloudflare:workers", () => ({ env: cloudflareBridgeState.fallbackEnv }))
 vi.mock("@vite-hub/database/runtime/state", () => ({
+  runWithActiveCloudflareEnv: (env: Record<string, unknown>, callback: () => unknown) => {
+    cloudflareBridgeState.scopedEnv = env
+    try {
+      return callback()
+    }
+    finally {
+      cloudflareBridgeState.scopedEnv = undefined
+    }
+  },
   setActiveCloudflareEnv: (env: Record<string, unknown>) => {
     cloudflareBridgeState.activeEnv = env
     ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = env
@@ -163,7 +173,6 @@ describe("Database Nuxt integration", () => {
         {
           handler: ".vitehub/nitro/database/middleware.ts",
           middleware: true,
-          route: "/**",
         },
       ],
       rollupConfig: {
@@ -219,6 +228,12 @@ describe("Database Nuxt integration", () => {
         SHARED: "event",
       })
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("event-binding")
+      const response = middleware({ env: { DB: "next-binding" } }, () => {
+        expect(cloudflareBridgeState.scopedEnv?.DB).toBe("next-binding")
+        return "next-response"
+      })
+      expect(response).toBe("next-response")
+      expect(cloudflareBridgeState.scopedEnv).toBeUndefined()
       middleware({})
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("native-binding")
       expect(Object.hasOwn(cloudflareBridgeState.activeEnv!, "DB")).toBe(true)
@@ -229,6 +244,52 @@ describe("Database Nuxt integration", () => {
     }
     finally {
       ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = previousEnv
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("wires Postgres Hyperdrive bindings and runtime into Cloudflare Nitro output", async () => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-database-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      await mkdir(join(rootDir, "server/databases"), { recursive: true })
+      await writeFile(join(rootDir, "server/databases/config.ts"), [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "import { pgTable, text } from 'drizzle-orm/pg-core'",
+        "export default defineDatabase({",
+        "  dialect: 'postgresql',",
+        "  cloudflare: { hyperdriveId: 'hyperdrive-id' },",
+        "  connection: { url: process.env.DATABASE_URL },",
+        "  schema: { notes: pgTable('notes', { title: text('title') }) },",
+        "})",
+        "",
+      ].join("\n"))
+      const { hooks, nuxt } = createNuxt({
+        dev: false,
+        nitro: { preset: "cloudflare_module" },
+        rootDir,
+        vite: {},
+      })
+
+      await hubDb()(undefined, nuxt)
+      const nitroConfig: Record<string, unknown> = { cloudflare: { wrangler: { hyperdrive: [{ binding: "OTHER", id: "other-id" }] } } }
+      await callHook(hooks, "nitro:config", nitroConfig)
+
+      expect(nitroConfig).toMatchObject({
+        alias: { "@vite-hub/database/drizzle": join(rootDir, ".vitehub/database/cloudflare-runtime.mjs") },
+        cloudflare: {
+          wrangler: {
+            hyperdrive: [
+              { binding: "OTHER", id: "other-id" },
+              { binding: "HYPERDRIVE", id: "hyperdrive-id" },
+            ],
+          },
+        },
+      })
+      const runtime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
+      expect(runtime).toContain("createPostgresDatabase(definition_0, {\"binding\":\"HYPERDRIVE\"")
+    }
+    finally {
       await rm(rootDir, { force: true, recursive: true })
     }
   })
@@ -471,6 +532,148 @@ describe("Database Nuxt integration", () => {
     }
   })
 
+  it("creates Postgres clients in the Nitro development runtime", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-local-postgres-"))
+    const buildDir = join(rootDir, ".nuxt")
+    try {
+      await mkdir(join(rootDir, "server/databases"), { recursive: true })
+      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ dialect: 'postgresql', connection: { url: process.env.DATABASE_URL }, schema: {} })\n")
+      const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: {} })
+      await hubDb()(undefined, nuxt)
+      await callHook(hooks, "nitro:config", {})
+
+      const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
+      expect(code).toMatch(/import \{ createPostgresDatabase \} from "file:.+\/runtime\/postgres\.js"/)
+      expect(code).toContain("db: createPostgresDatabase(definition_0, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps prototype-named Definitions addressable in Nitro development", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-local-proto-"))
+    const buildDir = join(rootDir, ".nuxt")
+    const definition = join(rootDir, "server/databases/__proto__/config.ts")
+    try {
+      await mkdir(dirname(definition), { recursive: true })
+      await writeFile(definition, 'export default defineDatabase({ name: "__proto__", schema: {} })\n')
+      const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: {} })
+      await hubDb()(undefined, nuxt)
+      await callHook(hooks, "nitro:config", {})
+      const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
+      const evaluable = code.replace(/^import .+$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
+      const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
+        { name: "__proto__", schema: { marker: "schema" } },
+        () => ({ marker: "database" }),
+        () => ({}),
+        () => new Error("missing"),
+      ) as { databases: Record<string, unknown>, useDatabase: (name: string) => unknown }
+
+      expect(Object.hasOwn(runtime.databases, "__proto__")).toBe(true)
+      expect(runtime.useDatabase("__proto__")).toEqual({ db: { marker: "database" }, schema: { marker: "schema" } })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("adds contributed tables to the Nitro development runtime", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-contributed-"))
+    const buildDir = join(rootDir, ".nuxt")
+    const definition = join(rootDir, "server/databases/config.ts")
+    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: "history-tables/schema" }, name: "history" }] } }
+    const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: { plugins: [contributor] } })
+    try {
+      await mkdir(dirname(definition), { recursive: true })
+      await mkdir(join(rootDir, "node_modules/history-tables"), { recursive: true })
+      await writeFile(join(rootDir, "node_modules/history-tables/package.json"), JSON.stringify({ exports: { "./schema": "./schema.mjs" }, name: "history-tables", type: "module" }))
+      await writeFile(join(rootDir, "node_modules/history-tables/schema.mjs"), "export const historySchema = { historyRefs: {} }\n")
+      await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
+      await hubDb()(undefined, nuxt)
+      await callHook(hooks, "nitro:config", {})
+      const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
+      expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
+      const evaluable = code.replace(/^import .+$/gm, "").replace(/^export /gm, "") + "\nreturn { useDatabase }"
+      const created: unknown[] = []
+      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
+        { name: "default", schema: { notes: "notes" } },
+        { historyRefs: "refs" },
+        (input: unknown) => created.push(input),
+        () => ({}),
+        () => new Error("missing"),
+      ) as { useDatabase: (name: string) => { schema: unknown } }
+
+      expect(runtime.useDatabase("default").schema).toEqual({ historyRefs: "refs", notes: "notes" })
+      expect(created).toEqual([{ name: "default", schema: { historyRefs: "refs", notes: "notes" } }])
+    }
+    finally {
+      await callHook(hooks, "close", {})
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("reads tables that a later Nuxt module contributes through nuxt.options.vite.plugins", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-module-contributed-"))
+    const buildDir = join(rootDir, ".nuxt")
+    const definition = join(rootDir, "server/databases/config.ts")
+    const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, srcDir: join(rootDir, "app"), vite: {} })
+    try {
+      await mkdir(dirname(definition), { recursive: true })
+      await mkdir(join(rootDir, "node_modules/history-tables"), { recursive: true })
+      await writeFile(join(rootDir, "node_modules/history-tables/package.json"), JSON.stringify({ exports: { "./schema": "./schema.mjs" }, name: "history-tables", type: "module" }))
+      await writeFile(join(rootDir, "node_modules/history-tables/schema.mjs"), "export const historySchema = { historyRefs: {} }\n")
+      await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
+      await hubDb()(undefined, nuxt)
+      // A Nuxt module that runs after the Database module adds its Vite plugin during setup.
+      const contexts: unknown[] = []
+      const vite = nuxt.options.vite as { plugins: unknown[] }
+      vite.plugins.push({
+        name: "history-owner/nuxt",
+        vitehub: {
+          databases: (context: unknown) => {
+            contexts.push(context)
+            return [{ definition: { export: "historySchema", module: "history-tables/schema" }, name: "history" }]
+          },
+        },
+      })
+      await callHook(hooks, "nitro:config", {})
+
+      const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
+      expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
+      expect(contexts).toEqual([expect.objectContaining({ projectRoot: rootDir, root: join(rootDir, "app") })])
+    }
+    finally {
+      await callHook(hooks, "close", {})
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("adds contributed tables to the hosted Nitro schema", async () => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, ".nuxt-contributed-"))
+    const definition = join(rootDir, "server/databases/config.ts")
+    const tables = join(rootDir, "vendor/history.ts")
+    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: tables }, name: "history" }] } }
+    try {
+      await mkdir(dirname(definition), { recursive: true })
+      await mkdir(dirname(tables), { recursive: true })
+      await writeFile(join(rootDir, "package.json"), "{}\n")
+      await writeFile(tables, "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'\nexport const historySchema = { historyRefs: sqliteTable('history_refs', { id: text('id') }) }\n")
+      await writeFile(definition, "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ connection: { url: 'libsql://db.example.com' }, schema: {} })\n")
+      const { hooks, nuxt } = createNuxt({ dev: false, nitro: { preset: "vercel" }, rootDir, vite: { plugins: [contributor] } })
+      await hubDb()(undefined, nuxt)
+      await callHook(hooks, "nitro:config", {})
+
+      const schema = await readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")
+      expect(schema).toContain('import { historySchema as contributedSchema_0 } from "../../../vendor/history.ts"')
+      expect(schema).toContain("export { table_0 as historyRefs }")
+      await expect(readFile(join(rootDir, ".vitehub/database/vercel-runtime.mjs"), "utf8")).resolves.toContain("schema/default.ts")
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("maintains the discovered database runtime for Nitro development", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-local-"))
     const buildDir = join(rootDir, ".nuxt")
@@ -495,7 +698,7 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", nitroConfig)
       expect(nitroConfig.alias).toEqual({ "@vite-hub/database/drizzle": runtimeFile })
       await expect(readFile(runtimeFile, "utf8")).resolves.toMatch(
-        /databases\/analytics\/config\.ts[\s\S]+"connection":\{"authToken":"dev-token","url":"libsql:\/\/dev\.example\.com"\}[\s\S]+"analytics":[\s\S]+export const databases[\s\S]+export const db[\s\S]+export const schema/,
+        /databases\/analytics\/config\.ts[\s\S]+"connection":\{"authToken":"dev-token","url":"libsql:\/\/dev\.example\.com"\}[\s\S]+\["analytics"\]:[\s\S]+export const databases[\s\S]+export const db[\s\S]+export const schema/,
       )
 
       await rm(join(serverDir, "databases/analytics"), { force: true, recursive: true })

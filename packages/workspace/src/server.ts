@@ -1,17 +1,16 @@
-import { createError, defineEventHandler, getQuery, getRouterParam } from "h3"
+import { createError, defineEventHandler, getRouterParam } from "h3"
 import { lookup } from "mrmime"
-import { Diagnostic } from "nostics"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
-import { getWorkspaceCollectionItem, queryWorkspaceCollection, workspaceCollectionEmpty } from "./collections.ts"
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
+import { workspaceDefinitionPlugins } from "./core/plugins.ts"
 import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 import { useWorkspace } from "./core/use.ts"
 import { withWorkspaceProgress } from "./session/progress.ts"
 
 import type { H3Event } from "h3"
-import type { WorkspaceCollectionOptions, WorkspaceCollectionQuery, WorkspaceCollectionSort } from "./collections.ts"
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "./core/use.ts"
 import type { ExecResult, WorkspaceDefinition, WorkspaceMaterializeSourcesOptions, WorkspaceName, WorkspacePrepareSessionProgressEvent, WorkspaceSession, WorkspaceSessionHost, WorkspaceSessionOptions } from "./core/types.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
@@ -37,7 +36,7 @@ type ResponseHeaders = ConstructorParameters<typeof Headers>[0]
 function hasWorkspaceCommitRules(definition: WorkspaceDefinition): boolean {
   return [
     ...Object.values(definition.rules || {}),
-    ...(definition.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
+    ...workspaceDefinitionPlugins(definition).flatMap(plugin => Object.values(plugin.rules || {})),
   ].some(rule => rule.commit !== undefined)
 }
 
@@ -53,18 +52,6 @@ export interface WorkspaceFileResponseOptions<Name extends WorkspaceName = Works
 
 export interface WorkspaceFileHandlerOptions<Name extends WorkspaceName = WorkspaceName> extends Omit<WorkspaceFileResponseOptions<Name>, "path"> {
   param?: string
-}
-
-export interface WorkspaceCollectionHandlerOptions<Name extends WorkspaceName = WorkspaceName> extends WorkspaceCollectionOptions<Name> {
-  facets?: string[]
-  filters?: string[]
-  item?: {
-    key: string
-    select?: string[]
-  }
-  searchFields?: string[]
-  select?: string[]
-  sort?: WorkspaceCollectionSort
 }
 
 export interface WorkspaceDevCommandInput<Name extends WorkspaceName = WorkspaceName> {
@@ -112,10 +99,70 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
   }
 }
 
-function headerValue(headers: Headers | Record<string, string | string[] | undefined>, name: string): string | undefined {
-  if (headers instanceof Headers) return headers.get(name) || undefined
-  const value = headers[name]
-  return Array.isArray(value) ? value[0] : value
+type WorkspaceDevHeaders = Headers | Record<string, string | string[] | undefined> | { get(name: string): string | null }
+
+function headerValue(headers: WorkspaceDevHeaders, name: string, expectedToken?: string): string | undefined {
+  try {
+  const prototype = Object.getPrototypeOf(headers)
+  const constructor = prototype
+    ? Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    : undefined
+  // `Symbol.toStringTag` is user-controllable, so it cannot establish the
+  // Headers brand on its own. A genuine cross-realm Headers instance exposes
+  // its own constructor on the prototype; use that signal before invoking any
+  // inherited getter.
+  const constructorSource = hasRuntimeType(constructor, "function")
+    ? Function.prototype.toString.call(constructor)
+    : ""
+  const prototypeGet = prototype
+    ? Object.getOwnPropertyDescriptor(prototype, "get")?.value
+    : undefined
+  const isCrossRealmHeaders = hasRuntimeType(constructor, "function")
+    && Reflect.get(constructor, "name") === "Headers"
+    && (constructor === (typeof Headers === "function" ? Headers : undefined)
+      || (/^class\s+Headers\b/.test(constructorSource) && constructorSource.includes("#"))
+      || /^function\s+Headers\(\)\s*\{\s*\[native code\]\s*\}$/.test(constructorSource)
+      || constructorSource.includes("webidl.brandCheck")
+      || constructorSource.includes("#"))
+    && Reflect.get(constructor, "prototype") === prototype
+    && (() => {
+      try {
+        return headers instanceof (constructor as new (...args: never[]) => object)
+      }
+      catch {
+        return false
+      }
+    })()
+    && hasRuntimeType(prototypeGet, "function")
+  if (isCrossRealmHeaders) {
+    const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
+    for (const getter of [get, prototypeGet]) {
+      if (!hasRuntimeType(getter, "function")) continue
+      try {
+        const value = Reflect.apply(getter, headers, [name])
+        return hasRuntimeType(value, "string") && value ? value : undefined
+      }
+      catch {}
+    }
+  }
+  try {
+    const ownGet = Object.hasOwn(headers, "get") ? Reflect.get(headers, "get") : undefined
+    if (hasRuntimeType(ownGet, "function")) {
+      const value = Reflect.apply(ownGet, headers, [name])
+      return hasRuntimeType(value, "string") && value ? value : undefined
+    }
+    if (!Object.hasOwn(headers, name)) return undefined
+    const value: unknown = Reflect.get(headers, name)
+    if (Array.isArray(value)) return hasRuntimeType(value[0], "string") ? value[0] : undefined
+    return hasRuntimeType(value, "string") ? value : undefined
+  }
+  catch {
+    return undefined
+  }
+  }
+  catch {
+    return undefined
+  }
 }
 
 function randomToken(): string {
@@ -155,9 +202,10 @@ export async function readWorkspaceDevToken(rootDir: string, options: WorkspaceD
   }
 }
 
-export async function validateWorkspaceDevToken(rootDir: string, headers: Headers | Record<string, string | string[] | undefined>, options: WorkspaceDevTokenOptions = {}): Promise<boolean> {
-  const token = headerValue(headers, workspaceDevTokenHeader)
-  return isViteHubSecretEqual(token, await ensureWorkspaceDevToken(rootDir, options))
+export async function validateWorkspaceDevToken(rootDir: string, headers: WorkspaceDevHeaders, options: WorkspaceDevTokenOptions = {}): Promise<boolean> {
+  const expectedToken = await ensureWorkspaceDevToken(rootDir, options)
+  const token = headerValue(headers, workspaceDevTokenHeader, expectedToken)
+  return isViteHubSecretEqual(token, expectedToken)
 }
 
 async function resolveWorkspace<Name extends WorkspaceName>(
@@ -176,88 +224,30 @@ function resolveWorkspaceFilePath(path: string, root: string | undefined): strin
 
 function resolveContentType(path: string, mediaType: string | undefined, contentTypes: Record<string, string> | undefined): string {
   if (mediaType) return mediaType
-  if (contentTypes?.[path]) return contentTypes[path]
+  if (contentTypes && Object.hasOwn(contentTypes, path) && contentTypes[path]) return contentTypes[path]
   const extension = path.includes(".") ? `.${path.split(".").at(-1)}` : ""
-  if (extension && contentTypes?.[extension]) return contentTypes[extension]
+  if (extension && contentTypes && Object.hasOwn(contentTypes, extension) && contentTypes[extension]) return contentTypes[extension]
   return lookup(path) || "application/octet-stream"
+}
+
+function errorMessage(error: unknown): string | undefined {
+  if (Object(error) !== error) return
+  try {
+    const message = Object.getOwnPropertyDescriptor(error, "message")?.value
+    return message === String(message) ? String(message) : undefined
+  }
+  catch {
+    return
+  }
 }
 
 function isNotFoundError(error: unknown): boolean {
   const code = getViteHubErrorShape(error)?.code
+  const message = errorMessage(error)
   return code === "WORKSPACE_NOT_FOUND"
     || code === "WORKSPACE_PATH_INVALID"
-    || (error instanceof Error && error.message.includes("Workspace file does not exist:"))
-    || (error instanceof Error && error.message.includes("Workspace path does not exist:"))
-}
-
-class WorkspaceCollectionRequestError extends Diagnostic {
-  constructor(message: string) {
-    super({ code: "WORKSPACE_R0067", docs: "https://vitehub.dev/docs/reference/diagnostics", why: message }, WorkspaceCollectionRequestError)
-    this.name = "WorkspaceCollectionRequestError"
-  }
-}
-
-function collectionQueryValue(query: Record<string, string | string[]>, key: string): string | undefined {
-  const value = query[key]
-  if (value === undefined) return
-  if (Array.isArray(value)) throw new WorkspaceCollectionRequestError(`Workspace collection query parameter "${key}" must have one value.`)
-  return value
-}
-
-function collectionLimit(query: Record<string, string | string[]>): number | undefined {
-  const value = collectionQueryValue(query, "limit")
-  if (value === undefined) return
-  if (!/^\d+$/.test(value)) throw new WorkspaceCollectionRequestError("Workspace collection limit must be a positive integer.")
-  const limit = Number(value)
-  if (!Number.isSafeInteger(limit) || limit < 1) throw new WorkspaceCollectionRequestError("Workspace collection limit must be a positive integer.")
-  return limit
-}
-
-function collectionFilters(query: Record<string, string | string[]>, allowed: string[] | undefined): WorkspaceCollectionQuery["filters"] {
-  const filters: NonNullable<WorkspaceCollectionQuery["filters"]> = {}
-  const allowedFields = new Set(allowed || [])
-  for (const [key, value] of Object.entries(query)) {
-    if (!key.startsWith("filter.") && !key.startsWith("empty.")) continue
-    const empty = key.startsWith("empty.")
-    const field = key.slice(empty ? "empty.".length : "filter.".length)
-    if (!allowedFields.has(field)) throw new WorkspaceCollectionRequestError(`Workspace collection filter "${field}" is not allowed.`)
-    if (empty) {
-      if (value !== "true") throw new WorkspaceCollectionRequestError(`Workspace collection empty filter "${field}" must be true.`)
-      filters[field] = workspaceCollectionEmpty
-      continue
-    }
-    const values = (Array.isArray(value) ? value : [value]).map(item => item.trim())
-    filters[field] = values
-  }
-  return filters
-}
-
-function parseWorkspaceCollectionQuery(
-  query: Record<string, string | string[]>,
-  options: WorkspaceCollectionHandlerOptions,
-): { itemValue?: string, page: WorkspaceCollectionQuery } {
-  for (const key of Object.keys(query)) {
-    if (!["cursor", "limit", "search", "value"].includes(key) && !key.startsWith("filter.") && !key.startsWith("empty.")) {
-      throw new WorkspaceCollectionRequestError(`Workspace collection query parameter "${key}" is not allowed.`)
-    }
-  }
-  const itemValue = collectionQueryValue(query, "value")
-  if (itemValue !== undefined && !options.item) throw new WorkspaceCollectionRequestError("Workspace collection item lookup is not enabled.")
-  const search = collectionQueryValue(query, "search")
-  if (search && !options.searchFields?.length) throw new WorkspaceCollectionRequestError("Workspace collection search is not enabled.")
-  return {
-    itemValue,
-    page: {
-      cursor: collectionQueryValue(query, "cursor"),
-      facets: options.facets,
-      filters: collectionFilters(query, options.filters),
-      limit: collectionLimit(query),
-      search,
-      searchFields: options.searchFields,
-      select: options.select,
-      sort: options.sort,
-    },
-  }
+    || message?.includes("Workspace file does not exist:") === true
+    || message?.includes("Workspace path does not exist:") === true
 }
 
 function workspaceSessionStarter(input: unknown): WorkspaceSessionStarter | undefined {
@@ -353,44 +343,6 @@ export function defineWorkspaceFileHandler<Name extends WorkspaceName>(
   return defineEventHandler((event: H3Event) => {
     const path = getRouterParam(event, options.param || "path") || ""
     return readWorkspaceFileResponse({ ...options, path })
-  })
-}
-
-export function defineWorkspaceCollectionHandler<Name extends WorkspaceName>(
-  options: WorkspaceCollectionHandlerOptions<Name>,
-): ReturnType<typeof defineEventHandler> {
-  return defineEventHandler(async (event: H3Event) => {
-    try {
-      const parsed = parseWorkspaceCollectionQuery(getQuery(event), options as WorkspaceCollectionHandlerOptions)
-      if (parsed.itemValue !== undefined && options.item) {
-        return await getWorkspaceCollectionItem({
-          ...options,
-          query: {
-            key: options.item.key,
-            select: options.item.select,
-            value: parsed.itemValue,
-          },
-        })
-      }
-      return await queryWorkspaceCollection({ ...options, query: parsed.page })
-    }
-    catch (error) {
-      if (error instanceof WorkspaceCollectionRequestError) {
-        throw createError({ cause: error, statusCode: 400, statusMessage: error.message })
-      }
-      if (getViteHubErrorShape(error)?.code === "WORKSPACE_COLLECTION_CURSOR_INVALID") {
-        const reason = getViteHubErrorShape(error)?.details?.reason
-        throw createError({
-          cause: error,
-          statusCode: reason === "stale" ? 409 : 400,
-          statusMessage: error instanceof Error ? error.message : "Invalid workspace collection cursor.",
-        })
-      }
-      if (isNotFoundError(error)) {
-        throw createError({ cause: error, statusCode: 404, statusMessage: "Workspace collection not found." })
-      }
-      throw createError({ cause: error, statusCode: 500, statusMessage: "Workspace collection query failed." })
-    }
   })
 }
 

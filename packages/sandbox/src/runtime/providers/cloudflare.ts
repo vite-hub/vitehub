@@ -19,10 +19,14 @@ type SandboxEvent = {
 export async function resolveCloudflareSandboxBox(options: SandboxOptions, context: { event?: SandboxEvent } = {}) {
   const env = getCloudflareEnv(context.event)
   const bindingName = options.provider.binding || 'SANDBOX'
-  const namespace = env?.[bindingName]
+  const namespace = env && Object.hasOwn(env, bindingName) ? env[bindingName] : undefined
 
   if (!namespace) {
-    throw sandboxErrorDiagnostics.SANDBOX_R0071({ message: `Cloudflare sandbox requires the "${bindingName}" binding. Set sandbox.binding or run inside Cloudflare.` })
+    throw sandboxErrorDiagnostics.SANDBOX_R0071({
+      message: `Cloudflare sandbox requires the "${bindingName}" binding. Set sandbox.binding or run inside Cloudflare. `
+        + "The cloudflare preset writes the binding and its Container to .output/server/wrangler.json, and the Vite or "
+        + "Nuxt dev server cannot host them: build, then run `npx wrangler --cwd .output/server dev` (needs Docker).",
+    })
   }
 
   return {

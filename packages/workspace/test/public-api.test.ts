@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -168,7 +169,6 @@ describe("workspace public API", () => {
   it("keeps workspace declarations installable without optional integration peers", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
-    const builtCollectionsClient = await readFile(new URL("../dist/collections/client.js", import.meta.url), "utf8")
     const builtCloudflareArtifactsStore = await readBuiltSourceModule("src/providers/cloudflare/artifacts-store.ts")
     const builtMountx = await readFile(new URL("../dist/mountx.js", import.meta.url), "utf8")
     const distDir = new URL("../dist/", import.meta.url)
@@ -184,7 +184,7 @@ describe("workspace public API", () => {
       "providers/github/store.js",
     ].map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
     const effectImport = /(?:from\s*|import\s*(?:\(\s*)?)["']effect(?:\/[^"']*)?["']/
-    const vueFreeBundles = (await Promise.all(["index.js", "server.js", "collections.js"]
+    const vueFreeBundles = (await Promise.all(["index.js", "server.js"]
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
     expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
@@ -193,11 +193,11 @@ describe("workspace public API", () => {
     expect(packageJson.devDependencies?.vite).toBe("catalog:vite")
     expect(packageJson.peerDependencies?.vite).toBe("catalog:vite-compat")
     expect(packageJson.peerDependenciesMeta?.vite).toEqual({ optional: true })
-    expect(packageJson.exports).toHaveProperty("./collections")
-    expect(packageJson.exports).toHaveProperty("./collections/client")
+    expect(packageJson.exports).not.toHaveProperty("./collections")
+    expect(packageJson.exports).not.toHaveProperty("./collections/client")
     expect(packageJson.exports).toHaveProperty("./mountx")
-    expect(packageJson.peerDependencies?.vue).toBe("catalog:ui")
-    expect(packageJson.peerDependenciesMeta?.vue).toEqual({ optional: true })
+    expect(packageJson.peerDependencies?.vue).toBeUndefined()
+    expect(packageJson.peerDependenciesMeta?.vue).toBeUndefined()
     expect(packageJson.dependencies?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependencies?.h3).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.h3).toBeUndefined()
@@ -217,7 +217,6 @@ describe("workspace public API", () => {
     expect(builtMountx).toContain('from "mountx/drivers/unstorage"')
     expect(vueFreeBundles).not.toContain('from "mountx')
     expect(vueFreeBundles).not.toMatch(/from\s*["']vue["']/)
-    expect(builtCollectionsClient).toMatch(/from\s*["']vue["']/)
   })
 
   it("keeps hosted runtime setup off the public Workspace surface", async () => {
@@ -333,47 +332,6 @@ describe("workspace public API", () => {
 
   it("identifies memory workspace stores", async () => {
     await expect(resolveWorkspaceStoreTarget(createMemoryWorkspaceStore())).resolves.toEqual({ provider: "memory" })
-  })
-
-  it("publishes from the writable facade without running definition sync", async () => {
-    const store = createMemoryWorkspaceStore()
-    const snapshot = vi.spyOn(store, "snapshot")
-    const publish = vi.fn(async () => {})
-    registerWorkspace("publish-api", defineWorkspace({
-      loaders: [{ name: "sync-probe", async load() {} }],
-      publish: [{ name: "test", publish }],
-      store,
-    }))
-
-    const workspace = useWorkspace("publish-api", { mode: "write" })
-    await workspace.publish({ name: "publish current state" })
-
-    expect(snapshot).not.toHaveBeenCalled()
-    expect(publish).toHaveBeenCalledOnce()
-  })
-
-  it("waits for in-flight definition sync before publishing", async () => {
-    let markSyncStarted!: () => void
-    const syncStarted = new Promise<void>((resolve) => { markSyncStarted = resolve })
-    let finishSync!: () => void
-    const syncing = new Promise<void>((resolve) => { finishSync = resolve })
-    const publish = vi.fn(async () => {})
-    registerWorkspace("publish-after-sync", defineWorkspace({
-      loaders: [{ name: "sync-probe", async load() { markSyncStarted(); await syncing } }],
-      publish: [{ name: "test", publish }],
-      store: { provider: "memory" },
-    }))
-
-    const workspace = useWorkspace("publish-after-sync", { mode: "write" })
-    const read = workspace.fs.exists("README.md")
-    await syncStarted
-    const publication = workspace.publish()
-    await Promise.resolve()
-    expect(publish).not.toHaveBeenCalled()
-
-    finishSync()
-    await Promise.all([read, publication])
-    expect(publish).toHaveBeenCalledTimes(2)
   })
 
   it("does not let explicit Source Sync satisfy definition readiness", async () => {
@@ -773,6 +731,24 @@ describe("workspace public API", () => {
     await expect(serverB.validateWorkspaceDevToken(runtimeRoot, new Headers({
       [serverB.workspaceDevTokenHeader]: token,
     }), tokenOptions)).resolves.toBe(true)
+  })
+
+  it("accepts workspace dev tokens from cross-realm Headers", async () => {
+    const root = await createRoot()
+    const { refreshWorkspaceDevToken, validateWorkspaceDevToken, workspaceDevTokenHeader } = await import("../src/server.ts")
+    const token = await refreshWorkspaceDevToken(root)
+    const headers = runInNewContext(`(() => {
+      class Headers {
+        #values = new Map()
+        constructor(entries) {
+          for (const [key, value] of entries) this.#values.set(key.toLowerCase(), value)
+        }
+        get(name) { return this.#values.get(name.toLowerCase()) ?? null }
+      }
+      return new Headers([[name, token]])
+    })()`, { name: workspaceDevTokenHeader, token }) as Headers
+
+    await expect(validateWorkspaceDevToken(root, headers)).resolves.toBe(true)
   })
 
   it("uses runtime workspace root for default local stores", async () => {

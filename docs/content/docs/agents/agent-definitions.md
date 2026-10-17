@@ -39,6 +39,23 @@ export default defineAgent({
 
 For application-supplied execution, use exactly one structural Driver variant: `{ model }`, `{ run }`, or [`{ ask }`](/docs/agents/agent-drivers#use-an-ask-driver).
 
+## Bound an Invocation budget
+
+Use the top-level `budget` option for per-invocation token and cost limits. ViteHub installs the same inspectable `budget` Capability used by reusable Capability lists:
+
+```ts [server/agents/review.ts]
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  budget: {
+    tokens: { total: 80_000, output: 12_000 },
+    usd: '0.10',
+    mode: 'observe',
+  },
+})
+```
+
+The default `observe` mode records limits and exceedance in the `budget` finish extension. `mode: 'enforce'` fails the Invocation after its normalized usage is available. See [Budget](/docs/agents/capabilities/budget) for provider support and the difference between an Invocation budget, Driver capacity, and host admission.
+
 ## Add abilities and context
 
 Capabilities decide which runtime abilities the selected Driver receives. Workspace context decides which files and Sources those abilities can reach.
@@ -87,6 +104,8 @@ export default defineAgent({
 The child gets a fresh runtime from the parent's configuration. `name` is not inherited; discovery names each Agent from its own file. Configure separate persistent storage when the Agents must keep separate data. An explicitly shared store or adapter remains shared.
 
 Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
+
+A discovered child also uses the [Connection access rules](/docs/connections/configure#access-rules) of the Agents it extends. A rule that names the child wins over an inherited rule.
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions in TypeScript with `?raw` and pass them through `driver.instructions`. Share Skills through explicit Sources or a directory link.
 
@@ -300,7 +319,7 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `data` | Validates structured Invocation input and types `data` at call sites and in hooks. |
 | `intercept` | Finishes an Invocation with app-computed output before the Driver runs. |
 | `channels` | Declares named Agent Channels and generated routes. |
-| `github` | Sets the Agent GitHub identity, for example `createGitHubHost()`. Provider Drivers receive its `access().env`, and pull request checkouts and `git()` use its token. Defaults to the identity passed as `github({ app })`. |
+| `github` | Sets the Agent GitHub identity, for example `createGitHubHost()`. Every Invocation gets it, including streamed runs. Provider Drivers receive its `access().env`, and pull request checkouts and `git()` use its token. Defaults to the identity passed as `github({ app })`. |
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
 | `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
 | `runtime` | Selects inline or Workflow-backed hosted execution. |

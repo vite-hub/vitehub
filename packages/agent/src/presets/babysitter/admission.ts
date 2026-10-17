@@ -128,8 +128,11 @@ async function readInvocationInputTokens(invocations: Pick<AgentInvocations, "li
   if (!invocations) throw new Error("No invocation journal is assigned.");
   const usage: Array<{ id: string; updatedAt: string; tokens: number }> = [];
   let cursor: string | undefined;
+  const seenCursors = new Set<string>();
   do {
     const page = await invocations.list({ cursor, limit: 100 });
+    if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.");
+    if (page.cursor) seenCursors.add(page.cursor);
     for (const summary of page.invocations) {
       if (Date.parse(summary.updatedAt) < since) continue;
       const record = await invocations.get(summary.id);
@@ -152,7 +155,7 @@ export function babysitterModelAdmission(accepting: boolean, snapshot: Pick<Snap
 }
 
 /** Sums the cached per-invocation maxima for a budget window. */
-export function sumInvocationInputTokens(usage: Map<string, { updatedAt: number; tokens: number }>, since: number): number {
+function sumInvocationInputTokens(usage: Map<string, { updatedAt: number; tokens: number }>, since: number): number {
   let total = 0;
   for (const entry of usage.values()) if (entry.updatedAt >= since) total += entry.tokens;
   return total;

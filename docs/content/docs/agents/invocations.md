@@ -231,7 +231,62 @@ Pass the OTLP base endpoint; ViteHub appends `/v1/logs` and `/v1/traces`. With `
 
 Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. See [`otlp()`](/docs/agents/capabilities/otlp) for batching, deduplication, privacy, and Capability-contribution details.
 
-To persist a queryable invocation journal, attach Agent Invocations to the Agent Definition. Storage durability and recovery guarantees still depend on the selected store and host lifecycle. The SQLite adapter accepts a local SQLite or remote libSQL URL:
+### Store invocation history
+
+To keep a queryable invocation journal, set `invocations` on the Agent Definition. History is opt-in. An Agent without a journal records no Invocations, unless the [Console](/docs/development/console) supplies its own journal.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations: 'database',
+})
+```
+
+| Value | Journal |
+| --- | --- |
+| `'database'` | The app's [ViteHub Database](/docs/database). It uses the `default` Database. |
+| `'memory'` | Memory of the server process. Records do not survive a restart, and replicas do not share them. |
+| `false` | No journal. This value also turns off the app-wide journal for this Agent. |
+| `{ store: 'database' \| 'memory', ...options }` | A built-in store with journal options. |
+| `{ store }` or `defineAgentInvocations({ store })` | A custom `AgentInvocationStore`. |
+
+The object form accepts every `defineAgentInvocations()` option except `store`. Set `database` to select another Database name. `database` is valid only with `store: 'database'`:
+
+```ts [server/agents/support.ts]
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations: { store: 'database', database: 'journal', content: 'content' },
+})
+```
+
+ViteHub creates one journal for each Agent Definition, not one for each request. The Database store connects to the Database on its first operation. Storage durability and recovery guarantees depend on the selected store and the host lifecycle.
+
+### Use one journal for every Agent
+
+Set `agent.invocations` in the ViteHub options to give every Agent Definition the same journal:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'cloudflare',
+    database: { driver: 'd1' },
+    agent: { invocations: 'database' },
+  })],
+})
+```
+
+In Nuxt, set the same value in the `vitehub` key of `nuxt.config.ts`. The app-wide journal applies to Agent Definitions from `vite-hub/agent` that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
+
+`agent.invocations` accepts `'database'`, `'memory'`, `false`, and the object form without the `redact` and `redactError` functions. Set those functions on the Agent Definition. `'database'` requires `database` in the ViteHub options. The app-wide journal requires Nitro-hosted Agents; Netlify and Deno Agent output fail the build. When the Console is enabled, it shows the app-wide journal.
+
+### Use a custom store
+
+Pass a store to `defineAgentInvocations()` when the built-in names do not fit. The SQLite adapter accepts a local SQLite or remote libSQL URL:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -269,6 +324,64 @@ const record = await invocations.get(invocationId, {
 Names match exactly, and matching observations keep their journal order. Other record fields remain unchanged. An empty array returns no observations; omitting `observationNames` returns all retained observations. Both forms return `undefined` for a missing Invocation. D1 and libSQL filter observation payloads in storage. Custom stores may ignore the optional read options; the Invocations wrapper still filters the returned record.
 
 The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Set `maxAgeMs` or `maxRecords` to `false` to disable that limit. Retention runs on creates and terminal transitions, so a journal without either event may retain an expired record. The age limit reads only the records it deletes. The count limit reads about `maxRecords` rows, so the SQLite and D1 adapters apply it on about 1 in `ceil(maxRecords / 100)` of these writes. Between runs, the terminal record count can exceed `maxRecords` by about 1%. `invocations.prune()` applies both limits immediately.
+
+### Choose how storage failures affect a run
+
+The journal is run history for the Console and the CLI. By default, a slow or unavailable store does not stop a run. Set `enforcement` to select this behavior:
+
+```ts
+const invocations = defineAgentInvocations({
+  enforcement: 'strict',
+  store,
+})
+```
+
+| `enforcement` | When the store does not confirm a startup operation |
+| --- | --- |
+| `'best-effort'` (default) | The run starts. The journal retries in the background and logs one warning for the Invocation. |
+| `'strict'` | The run does not start. |
+
+Each store operation has a limit of one second. A timeout, a rejected operation, or a missing result is not a confirmation. Before the Driver starts, a run needs three operations: the execution claim, the `running` state, and the first cancellation check. In best-effort mode, the journal retries the `running` state for up to 60 seconds and reads cancellation requests again every 10 seconds. A failed journal write does not change the result of the run.
+
+Best-effort mode still stops a run when the store answers with a reason to stop:
+
+- The store reports that another execution owner holds the claim. The run fails with `Could not persist the Invocation running state.`
+- The store returns a cancellation request. The run moves to `cancelled`.
+
+For a custom `run` Driver, strict mode also requires the cancellation warning state before dispatch. In best-effort mode, the Driver starts without it, and a remote `cancel()` can throw `AGENT_R0974` until the warning write succeeds.
+
+Best-effort history can be missing or stale. A record can stay `pending`, have no `startedAt` time, or have no observations until a retry succeeds. If the store does not recover, the journal can have no record of the run. Keep the product result in your application data. If the store does not answer, two runs with the same run ID can both start, because neither run can see the claim of the other. Use `'strict'` when the journal claim is your only protection against duplicate runs.
+
+Channel replay is always strict. `replayChannel()` and `dispatchChannelItems()` use the journal claim as the duplicate protection for each item, so this option does not apply to them. When a replay sends its claim to a Workflow worker, that worker is also strict. Other Workflow runs follow the configured enforcement.
+
+Live Channel webhook deliveries do not use the journal to prevent duplicates. The webhook route claims each delivery ID with `setIfNotExists()` in the State Adapter, and Chat SDK Channels, such as Telegram, skip a repeated message ID in the same State Adapter. Thus a provider retry does not start a second run in best-effort mode.
+
+### Store invocations in a ViteHub Database
+
+`invocations: 'database'` uses the Database adapter with its defaults. Use the adapter directly to set store options, such as retention:
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { createDatabaseAgentInvocationStore } from 'vite-hub/agent/invocations/database'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
+const invocations = defineAgentInvocations({
+  store: createDatabaseAgentInvocationStore({
+    database: 'default',
+    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+    maxRecords: 10_000,
+  }),
+})
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations,
+})
+```
+
+The adapter resolves the named Database for each operation and creates the ViteHub journal tables on first use. It supports a local SQLite Database, hosted libSQL through Drizzle, and a native Cloudflare D1 binding. Set `database` to another discovered Database name when the default is not the one the Agent should use. The adapter does not open or close the Database, and it does not migrate an existing custom journal.
+
+Use the direct SQLite adapter described above when the journal has its own SQLite or libSQL URL. Use the [`d1` adapter](#store-invocations-in-cloudflare-d1) when the Agent receives a D1 binding directly. The Database adapter is the portable choice when the host configuration already owns Database selection.
 
 Delete or prune terminal records on demand:
 
@@ -319,7 +432,7 @@ const invocations = defineAgentInvocations({
 
 `redact` runs after the content policy and before the journal bounds the observation. It applies to streamed observations, persisted observations, and `appendObservation()` evidence. Return `undefined` to drop evidence; `redactError` can likewise return `undefined` to store no error details while the record remains `failed`. Both hooks are synchronous.
 
-The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Trace persistence failures do not change the Agent Invocation result. The initial cancellation check must succeed before setup; a rejected, missing, or timed-out read fails startup with `AGENT_R0973`.
+The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Trace persistence failures do not change the Agent Invocation result. With `enforcement: 'strict'`, the initial cancellation check must succeed before setup; a rejected, missing, or timed-out read fails startup with `AGENT_R0973`. See [Choose how storage failures affect a run](#choose-how-storage-failures-affect-a-run).
 
 Use `triggeredBy` to filter persisted summaries by the person label recorded in `annotations.triggeredBy`. It matches the trimmed label exactly and composes with Agent, Capability, status, and text filters:
 
@@ -359,7 +472,16 @@ const invocations = defineAgentInvocations({
 
 Defaults are 32,768 observations, 65,536 UTF-16 code units of content strings per observation value budget, 16 MiB of serialized observation data, and a 1-second finish drain. Maximum values are 32,768 observations, 1,048,576 code units, 64 MiB, and 60 seconds. The byte limit counts the UTF-8 encoded observations array after privacy filtering. It does not limit provider output, the live trace log, or total process memory. A record keeps its resolved limits when another process resumes it.
 
-When a limit is reached, the journal marks `observationsTruncated` and gives lifecycle outcomes priority over ordinary observations. It can strip large outcome content to retain the outcome within the byte limit. `flushTimeoutMs` controls how long finish waits for queued observations; each individual store operation remains bounded to one second. A longer drain can preserve a long queue of successful writes but cannot make an unavailable store reliable.
+When a limit is reached, the journal marks `observationsTruncated` and gives lifecycle outcomes priority over ordinary observations. It can strip large outcome content to retain the outcome within the byte limit. `flushTimeoutMs` controls how long finish waits for queued observations. A longer drain can preserve a long queue of successful writes but cannot make an unavailable store reliable.
+
+Each store operation waits up to `storeTimeoutMs`: one second by default, at most 60 seconds. An operation that takes longer counts as unconfirmed, even if the write lands later, and an unconfirmed running transition stops the Invocation before its Driver starts. Raise the limit when the store is far from the runtime, such as a Cloudflare D1 primary in another region:
+
+```ts
+const invocations = defineAgentInvocations({
+  store: createDatabaseAgentInvocationStore(),
+  storeTimeoutMs: 10_000,
+})
+```
 
 When an application exposes the standard invocation journal route, inspect it without a dashboard:
 
@@ -455,7 +577,7 @@ if (result.notEnforcedBy) console.warn(`Cancel requested, not enforced by ${resu
 | `not-found` | The journal has no Invocation with this id and no local run received the request. |
 | `unavailable` | The store did not keep the request and no run in this process holds the Invocation. |
 
-Before setup, active runs check for a journal cancellation request. A rejected or missing read, or a check that exceeds one second, fails startup with `AGENT_R0973`. After startup, active runs read journal requests every 10 seconds, including after a lost lease stops claim renewal. A crashed owner or expired lease does not prove that a Driver stopped. An orphaned record remains pending or running until execution recovery observes its request; cancellation does not recover orphaned work or promise a completion deadline. Repeating the request does not change that state. Read the final journal status to confirm cancellation.
+Before setup, active runs check for a journal cancellation request. In strict mode, a rejected or missing read, or a check that exceeds one second, fails startup with `AGENT_R0973`. In best-effort mode, the run starts and reads the request again at the next poll. A cancellation request that the store returns always stops startup. After startup, active runs read journal requests every 10 seconds, including after a lost lease stops claim renewal. A crashed owner or expired lease does not prove that a Driver stopped. An orphaned record remains pending or running until execution recovery observes its request; cancellation does not recover orphaned work or promise a completion deadline. Repeating the request does not change that state. Read the final journal status to confirm cancellation.
 
 The Development Server command `vitehub agent invocations cancel <id>` checks all registered journals before cancellation. If distinct journals contain the same ID, it rejects the request with HTTP `409` without changing either record. Call the intended Agent's `invocations.cancel(id)` to select its journal. Registry entries that share one journal are checked once. If any journal lookup fails, the request fails before cancellation because uniqueness cannot be verified.
 
@@ -477,7 +599,7 @@ Cancellation before Driver dispatch stops startup without a `notEnforcedBy` warn
 
 Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, RPC endpoint, plugin, and assets do not exist when `console` is omitted or set to `false`.
 
-The Console guide covers Vite and Nuxt setup, fallback storage, production limits, usage records, and route authorization. An explicit `defineAgent({ invocations })` store remains authoritative when the Console is enabled.
+The Console guide covers Vite and Nuxt setup, fallback storage, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
 
 ## Control child work
 

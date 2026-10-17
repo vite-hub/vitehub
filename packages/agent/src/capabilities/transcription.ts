@@ -121,13 +121,11 @@ export function isTranscriptionError(value: unknown): boolean {
 }
 
 function assertDriver(driver: unknown): asserts driver is TranscriptionDriver {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- External transcription drivers must provide the required object and callable methods.
   if (!driver || typeof driver !== "object") throw agentDiagnostics.AGENT_R0257({ message: "[vitehub] Transcription driver must be an object." })
   const value = driver as Partial<TranscriptionDriver>
   if (!safeProvider(value.name)) {
     throw agentDiagnostics.AGENT_R0258({ message: "[vitehub] Transcription driver name must be a safe identifier." })
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- External transcription drivers must provide the required object and callable methods.
   if (typeof value.submit !== "function") throw agentDiagnostics.AGENT_R0259({ message: "[vitehub] Transcription driver submit must be a function." })
   if (typeof value.receive !== "function") throw agentDiagnostics.AGENT_R0260({ message: "[vitehub] Transcription driver receive must be a function." })
 }
