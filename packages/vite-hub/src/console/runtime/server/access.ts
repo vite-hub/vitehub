@@ -153,10 +153,18 @@ function isResponseLike(value: unknown): value is Response {
       proto = Object.getPrototypeOf(proto)
     }
     const headers = responseHeaders(value)
-    return typeof body === "function"
-      && typeof statusGetter === "function"
+    const tag = Object.prototype.toString.call(value)
+    const headersTag = headers && Object.prototype.toString.call(headers)
+    const headersConstructor = headers && (headers as { constructor?: unknown }).constructor
+    const stateSymbols = Object.getOwnPropertySymbols(value)
+    const hasResponseState = stateSymbols.some(symbol => ["body", "aborted", "error"].includes(symbol.description ?? ""))
+    return tag === "[object Response]"
+      && hasResponseState
+      && (typeof body === "function" || "body" in response)
+      && (typeof statusGetter === "function" || typeof response.status === "number")
       && headers !== undefined
       && typeof (headers as { get?: unknown }).get === "function"
+      && (headersTag === "[object Headers]" || (headersConstructor instanceof Function && headersConstructor.name === "Headers"))
       && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof (value as Record<string, unknown>)[method] === "function")
   }
   catch { return false }
