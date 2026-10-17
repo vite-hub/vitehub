@@ -176,7 +176,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
           // Nuxt's builder ignores node_modules, so watch each resolved dependency directly.
           const installContributionWatcher = (watchedFile: string) => {
-            if (contributionWatchers.has(watchedFile)) return
+            if (closed || contributionWatchers.has(watchedFile)) return
             try {
               const watcher = watchFs(watchedFile, (eventType) => {
                 if (eventType === "rename") {
