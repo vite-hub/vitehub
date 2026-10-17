@@ -102,8 +102,3 @@ export function defineOutboundChannel<
   validateChannelDefinition(definition)
   return definition
 }
-
-/**
- * @deprecated Use `defineOutboundChannel()`. This alias will be removed in the next release.
- */
-export const defineChannel: typeof defineOutboundChannel = defineOutboundChannel
