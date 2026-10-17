@@ -282,12 +282,11 @@ function createScope<T>(): Scope<T> {
   const Constructor = runtimeGlobal.AsyncLocalStorage
     ?? runtimeGlobal.process?.getBuiltinModule?.("node:async_hooks")?.AsyncLocalStorage
   if (Constructor) return new Constructor<T>()
-  return {
-    getStore: () => undefined,
-    run() {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.preview.run() needs an async request context (AsyncLocalStorage). Enable the host's async-context compatibility API." })
-    },
-  }
+  // Preview state must survive Promise continuations and remain isolated between
+  // concurrent requests. There is no safe synchronous fallback for that contract.
+  // Fail while the Content runtime is created so unsupported hosts are detected at
+  // startup/build time, instead of turning the first preview request into a 500.
+  throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content preview needs an async request context (AsyncLocalStorage). On Cloudflare Workers, enable the nodejs_als compatibility flag." })
 }
 
 /** Create the preview grant and request scope for one Content runtime. */

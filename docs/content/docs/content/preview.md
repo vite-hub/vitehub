@@ -58,6 +58,8 @@ ViteHub generates a Nitro plugin next to the Content route. It wraps Nitro's req
 
 This works the same with the `vitehub()` Vite plugin on Nitro 3 and with the `vite-hub/nuxt` module on Nuxt 4 (Nitro 2). It needs no Nitro experimental flag. Nuxt pages that load data with `useFetch()` during SSR forward the cookie to the server route, so the rendered page shows the draft too.
 
+Preview needs the host's `AsyncLocalStorage` request context. Cloudflare Workers users must enable the `nodejs_als` compatibility flag in the Worker configuration. ViteHub reports a configuration error when this API is unavailable, before serving requests.
+
 Call `content.preview.run(event, callback)` yourself only for requests that do not go through Nitro, such as a test or a custom server.
 
 ## Signing key
