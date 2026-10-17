@@ -87,7 +87,7 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
   return [...groups].map(([label, pages]) => ({
     label: pages.length > 1 ? label : null,
     pages,
-  }));
+  }))
 }
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */

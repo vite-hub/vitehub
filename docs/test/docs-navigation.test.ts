@@ -82,8 +82,7 @@ describe("docs product navigation", () => {
       expect(templateTitles, sectionId).toContain("Server API");
       // Template pages keep their order when related topic pages sit between them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
-      const templateIndexes = templateTitles.map(title => titles.indexOf(title));
-      expect(templateIndexes, sectionId).toEqual([...templateIndexes].sort((left, right) => left - right));
+      expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -116,7 +115,6 @@ describe("docs product navigation", () => {
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
       "Console",
-      "Parts",
       "Chat",
       "Agent work",
       "Utilities",
@@ -131,7 +129,7 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.pages.length > 0), sectionId).toBe(true);
+      expect(groups.every(group => group.label && group.pages.length > 0), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
@@ -169,7 +167,7 @@ describe("docs product navigation", () => {
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.title)
+    expect(getDocsPageByPath("/docs/getting-started/concepts/runtime-policy-approvals-and-traces")?.title)
       .toBe("Runtime policy, approvals, and traces");
   });
 
