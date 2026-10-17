@@ -5,11 +5,24 @@ import {
   type AgentInvocationListItem,
   type AgentInvocationView,
 } from "@vite-hub/ui";
-import { computed, onMounted, ref, shallowRef } from "vue";
+
+import { computed, onMounted, onUnmounted, ref } from "vue";
+ f1827ce977864dea471f7c1c3b1925e14a0c2818
 
 // Keep the server clock through hydration, then refresh prerendered timestamps.
 const now = useState("ui-dashboard-clock", () => Date.now());
-onMounted(() => { now.value = Date.now(); });
+
+const clock = ref<ReturnType<typeof setInterval>>();
+onMounted(() => {
+  now.value = Date.now();
+  clock.value = setInterval(() => {
+    now.value = Date.now();
+  }, 60_000);
+});
+onUnmounted(() => {
+  if (clock.value) clearInterval(clock.value);
+});
+ f1827ce977864dea471f7c1c3b1925e14a0c2818
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 
