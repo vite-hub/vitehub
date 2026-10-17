@@ -1589,11 +1589,12 @@ const supportedEveExtensionContracts = {
   },
   2: {
     config: [1],
-    // Preserve ViteHub's accepted epochs alongside GitHub Tools 0.8.0.
+    // Epochs whose tool shapes ViteHub's adapter is tested against: 20, GitHub Tools 0.8.0 (54/52),
+    // and GitHub Tools 0.8.1 built with Eve 0.72.1 (76/72).
     // This adapter-specific list is independent of Eve's runtime support table.
-    dynamicTool: [20, 52],
+    dynamicTool: [20, 52, 72],
     extension: [1],
-    tool: [20, 54],
+    tool: [20, 54, 76],
   },
 } satisfies Record<number, Record<string, readonly number[]>>
 

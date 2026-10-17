@@ -20,14 +20,14 @@ catalogMode: prefer
 
 catalogs:
   ai:
-    "@agntn/web": ^0.5.5
+    "@agntn/web": ^0.9.0
     "@ai-sdk/gateway": 4.0.103
     "@ai-sdk/mcp": 2.0.69
     "@ai-sdk/vue": 4.0.127
     "@modelcontextprotocol/sdk": ^1.32.1
     "@types/json-schema": ^7.0.15
     advocaat: ^0.0.6
-    agents: ^0.22.0
+    agents: ^0.28.1
     ai: 7.0.130
     evalite: 1.0.0-beta.16
   ai-compat:
