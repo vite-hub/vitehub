@@ -867,11 +867,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   options = withConnectionsDatabase(withDataDir({ ...options, console: resolveConsoleOptions(options.console) }))
   const plan = resolveDeploymentPlan(options.preset)
-  // Cloudflare has no durable local filesystem. Treat the shorthand database
-  // option as the host-native D1 driver so implicit databases (for example,
-  // the one enabled by Connections) are provisioned and bound like explicit
-  // D1 configurations.
-  if (plan.preset === "cloudflare" && options.database === true) options = { ...options, database: { driver: "d1" } }
   if (options.schedule && plan.preset === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0086({ message: "[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration." })
   }
