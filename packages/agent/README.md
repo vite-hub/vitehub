@@ -528,11 +528,9 @@ Publish the exported definition on npm and import it into `presets`. There is no
 
 
 
-## evlog integration
+## Observability
 
-Import `observability()` and `createAgentEvlog()` from `@vite-hub/agent/evlog`, not `@vite-hub/agent/capabilities`. This keeps unrelated Capabilities usable without the optional `evlog` peer. Applications can use `vite-hub/agent/evlog`. Install `evlog` when using this integration.
-
-`createAgentEvlog()` from `@vite-hub/agent/evlog` exports invocation lifecycle events through evlog. Add its `capability` to your Agent, connect its `drain` to the host, and await `flush()` after invocation background tasks finish. `@vite-hub/agent/evlog/posthog` adds PostHog events, Error Tracking and the official evlog log drain through optional dependencies.
+Configure observability once with `vitehub({ observability })`. It exports invocation lifecycle events, request failures and diagnostics through evlog. Install `evlog` when you use it. `useObservability()` from `@vite-hub/agent/observability` returns the configured instance. Hosts without `vitehub()` call `installObservability()` from `@vite-hub/agent/observability/host`. `posthog()` from `@vite-hub/agent/observability/posthog` adds PostHog events, Error Tracking and the official evlog log drain through optional dependencies.
 
 `createPapercutReporter()` from `@vite-hub/agent/capabilities` journals reports in persistent Agent Invocations before delivery and replays pending reports after restart. See [observability](../../docs/content/docs/agents/observability.md) for delivery, privacy and shutdown contracts.
 
@@ -707,7 +705,7 @@ agent: {
 
 The generated `/api/_vitehub/ready` route supports GET and HEAD, returning 503 until preparation succeeds. `requireNonEmpty` rejects an empty prepared Workspace; it is opt-in. Set `route` to change the readiness path.
 
-`agentEvlogPlugin(telemetry, reporters)` from `@vite-hub/agent/evlog` owns Nitro request IDs, drain and error hooks, reporter lifecycle, and shutdown flush. See the [observability guide](https://vitehub.dev/docs/agents/observability) for host drain reuse and background delivery.
+The Nitro plugin that `vitehub({ observability })` generates owns request IDs, drain and error hooks, reporter lifecycle, and shutdown flush. See the [observability guide](https://vitehub.dev/docs/agents/observability) for host drain reuse and background delivery.
 
 Set `transcripts: { retention: "forever" }` in `createLibsqlAgentState()` to preserve Chat transcript rows before startup expiry cleanup and ignore future transcript TTLs. Other state still expires normally. This cannot recover rows already deleted.
 
@@ -860,8 +858,7 @@ non-draft PR, and GitHub's live `mergeable_state: "clean"` on the default
 branch. The merge request pins the head SHA, so a concurrent push makes GitHub
 reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
 add a policy, such as a required approval check; return `true` or a reason. Any
-other result runs a normal repair pass. `autoMerge: true` is a deprecated alias
-for `merge: "auto"`.
+other result runs a normal repair pass.
 
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when

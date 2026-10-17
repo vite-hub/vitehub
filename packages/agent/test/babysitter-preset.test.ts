@@ -302,7 +302,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       },
     })] as never,
     // SAFETY: tests pass invalid merge values on purpose to cover runtime validation.
-    options: { filter: { labels: { allow: ["repair"] } }, autoMerge, ...(preset.merge === undefined ? {} : { merge: preset.merge as false }), ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
+    options: { filter: { labels: { allow: ["repair"] } }, ...(autoMerge ? { merge: "auto" as const } : {}), ...(preset.merge === undefined ? {} : { merge: preset.merge as false }), ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
     ...(preset.box ? { box: { runtime: "trusted-host" as const, requires: ["sh"], ...(preset.boxCheckout ? { checkout: { remote: "https://github.com/acme/other.git", ref: "main", sha: "d".repeat(40) } } : {}) } } : {}),
     driver: { kind: "codex", ...(preset.box || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } },
   }), "Preserve the documented API contract.");
@@ -1318,7 +1318,6 @@ describe("Babysitter preset runtime", () => {
   it("validates driver and merge options when the Agent is defined", () => {
     // @ts-expect-error -- an unknown merge mode is rejected at runtime too.
     expect(() => defineAgent({ extends: babysitter, options: { merge: "yes" } })).toThrow(/merge must be/);
-    expect(() => defineAgent({ extends: babysitter, options: { merge: "direct", autoMerge: true } })).toThrow(/deprecated/);
     // @ts-expect-error -- only provider Drivers can repair a checkout.
     expect(() => defineAgent({ extends: babysitter, options: { driver: "model" } })).toThrow(/driver must be/);
     expect(() => defineAgent({ extends: babysitter, options: { noFindingsReviews: [""] } })).toThrow(/noFindingsReviews cannot contain an empty prefix/);
