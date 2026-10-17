@@ -77,76 +77,8 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
     return new Response(body as BodyInit, init)
   }
   catch {
-    // Use the candidate's own Response constructor for values created by a
-    // separate realm. Its native accessors perform the Fetch brand check for
-    // that realm, while instanceof rejects response-shaped plain objects.
-    let prototype: object | null = Object.getPrototypeOf(value)
-    while (prototype !== null) {
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
-      const constructor = descriptor?.value
-      const constructorPrototype = typeof constructor === "function" ? Object.getOwnPropertyDescriptor(constructor, "prototype") : undefined
-      const isResponseConstructor = typeof constructor === "function" && constructor.name === "Response"
-        && constructor.prototype === prototype
-        && constructorPrototype?.writable === false && constructorPrototype.configurable === false
-        && ["error", "json", "redirect"].every(name => {
-          const descriptor = Object.getOwnPropertyDescriptor(constructor, name)
-          return typeof descriptor?.value === "function"
-        })
-      if (isResponseConstructor) {
-        if (!(value instanceof constructor)) return
-        // A native Response constructor must create a value with the same
-        // prototype. This rejects ordinary constructors that merely expose
-        // Response-shaped methods before any attacker-controlled accessors
-        // are used below.
-        let probe: unknown
-        try {
-          probe = constructor.error()
-          if (Object.getPrototypeOf(probe) !== prototype || !(probe instanceof constructor)) return
-        }
-        catch {
-          return
-        }
-        const find = (name: string): PropertyDescriptor | undefined => {
-          let current: object | null = prototype
-          while (current !== null) {
-            const found = Object.getOwnPropertyDescriptor(current, name)
-            if (found) return found
-            current = Object.getPrototypeOf(current)
-          }
-        }
-        const foreignStatus = find("status")?.get
-        const foreignStatusText = find("statusText")?.get
-        const foreignHeaders = find("headers")?.get
-        const foreignBodyUsed = find("bodyUsed")?.get
-        const foreignClone = find("clone")?.value
-        const foreignBody = find("body")?.get
-        const foreignArrayBuffer = find("arrayBuffer")?.value
-        if (![foreignStatus, foreignStatusText, foreignHeaders, foreignBodyUsed, foreignBody, foreignClone, foreignArrayBuffer].every(item => typeof item === "function")) return
-        const status = Reflect.apply(foreignStatus, value, [])
-        const statusText = Reflect.apply(foreignStatusText, value, [])
-        const headers = Reflect.apply(foreignHeaders, value, [])
-        const bodyUsed = Reflect.apply(foreignBodyUsed, value, [])
-        if (typeof status !== "number" || typeof statusText !== "string" || typeof bodyUsed !== "boolean" || bodyUsed) return
-        const cloned = Reflect.apply(foreignClone, value, [])
-        if (!(cloned instanceof constructor)) return
-        Reflect.apply(foreignStatus, cloned, [])
-        const bytes = await Reflect.apply(foreignArrayBuffer, cloned, [])
-        // `arrayBuffer()` creates the buffer in the response's realm, so a
-        // current-realm `instanceof ArrayBuffer` check rejects valid foreign
-        // responses. The typed-array constructor performs the cross-realm
-        // internal-slot check and gives us bytes that `Response` can consume.
-        let normalizedBytes: Uint8Array
-        try {
-          normalizedBytes = new Uint8Array(bytes)
-        }
-        catch {
-          return
-        }
-        const body = Reflect.apply(foreignBody, value, [])
-        return new Response(body === null ? null : normalizedBytes, { headers: new Headers(headers), status, statusText })
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
+    // Fetch response brand checks are realm-local. Without a trusted handoff
+    // from the foreign realm, structural fallbacks would accept forged objects.
     return
   }
 }
