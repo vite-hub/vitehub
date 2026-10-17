@@ -931,7 +931,8 @@ export class PullRequestInbox {
           || event === 'status' && payload.state === 'pending'
         const wake = (changed || !s.pr) && !pendingCi
         // New human feedback is new evidence on the same head. It resets an exhausted no-progress budget.
-        const human = String(payload.sender?.type ?? '').toLowerCase() === 'user' && !this.activityAuthors.has(String(payload.sender?.login ?? '').toLowerCase())
+        const actor = payload.sender ?? payload.comment?.user ?? payload.review?.user
+        const human = String(actor?.type ?? '').toLowerCase() === 'user' && !this.activityAuthors.has(String(actor?.login ?? '').toLowerCase())
         if (changed && human && ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event) && s.progressBudget?.exhausted) {
           s.progressBudget = { ...s.progressBudget, count: 0, exhausted: false, resetReason: `${event}:${payload.sender?.login ?? 'unknown'}` }
         }
