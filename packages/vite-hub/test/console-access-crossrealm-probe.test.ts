@@ -15,7 +15,7 @@ describe("cross-realm console access probe", () => {
     expect(request).not.toBeInstanceOf(Request)
     expect(response).not.toBeInstanceOf(Response)
     const authorize = vi.fn((() => response) as unknown as ConsoleAuthorize)
-    installConsoleAccess({ mode: "host-managed", authorize })
+    installConsoleAccess({ mode: "open", authorize })
     const result = await withConsoleAccess(() => "unreachable")({ req: request })
     expect(authorize).toHaveBeenCalledWith({ request })
     expect(authorize.mock.results[0]?.value).toBe(response)
@@ -44,7 +44,7 @@ describe("cross-realm console access probe", () => {
       text() { return Promise.resolve("") },
     })
     Object.defineProperty(response, Symbol.toStringTag, { value: "Response" })
-    installConsoleAccess({ mode: "host-managed", authorize: () => response })
+    installConsoleAccess({ mode: "open", authorize: () => response })
     const result = await withConsoleAccess(() => "unreachable")({ req: request })
     expect(result).toBeInstanceOf(Response)
     expect((result as Response).status).toBe(403)
@@ -74,7 +74,7 @@ describe("cross-realm console access probe", () => {
       bodyUsed: false, redirected: false, type: "default", url: "", status: 401,
       statusText: "Unauthorized", ok: false, headers: new Headers(),
     })
-    installConsoleAccess({ mode: "host-managed", authorize: () => response })
+    installConsoleAccess({ mode: "open", authorize: () => response })
     const result = await withConsoleAccess(() => "unreachable")({ req: request })
     expect(result).toBeInstanceOf(Response)
     expect((result as Response).status).toBe(403)
@@ -102,7 +102,7 @@ describe("cross-realm console access probe", () => {
       ok: false,
       headers: new Headers(),
     })
-    installConsoleAccess({ mode: "host-managed", authorize: () => response })
+    installConsoleAccess({ mode: "open", authorize: () => response })
     const result = await withConsoleAccess(() => "unreachable")({ req: request })
     expect(result).toBeInstanceOf(Response)
     expect((result as Response).status).toBe(403)
