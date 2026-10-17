@@ -1744,6 +1744,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
         version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
+      '@t3tools/provider-runtime':
+        specifier: 'catalog:'
+        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.2

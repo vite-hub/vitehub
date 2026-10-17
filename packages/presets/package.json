@@ -78,6 +78,7 @@
   "devDependencies": {
     "@libsql/client": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
+    "@t3tools/provider-runtime": "catalog:",
     "@types/node": "catalog:tooling",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/internal": "workspace:*",
