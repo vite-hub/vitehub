@@ -934,7 +934,12 @@ export class PullRequestInbox {
           || event === 'status' && payload.state === 'pending'
         const wake = (changed || !s.pr) && !pendingCi
         // New human feedback is new evidence on the same head. It resets an exhausted no-progress budget.
-        const actor = payload.sender ?? payload.comment?.user ?? payload.review?.user
+        // Use the feedback author's identity for feedback events. The webhook
+        // sender is the actor that delivered the event and can differ from the
+        // comment/review author (for example, imported or relayed activity).
+        const actor = event === 'issue_comment' || event === 'pull_request_review' || event === 'pull_request_review_comment'
+          ? (payload.comment?.user ?? payload.review?.user ?? payload.sender)
+          : payload.sender
         const human = String(actor?.type ?? '').toLowerCase() === 'user' && !this.activityAuthors.has(String(actor?.login ?? '').toLowerCase())
         const feedbackEvent = ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event)
         if (changed && human && feedbackEvent && s.progressBudget?.exhausted) {
