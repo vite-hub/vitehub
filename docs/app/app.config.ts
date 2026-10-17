@@ -196,10 +196,17 @@ export default defineAppConfig({
           trigger: "rounded-none px-4 py-2 text-sm text-muted data-[state=active]:text-highlighted hover:bg-transparent",
         },
       },
+      // Inline code wraps with the sentence. As an inline block, a long path pushed the page wider than a phone
+      // and moved the punctuation after it to its own line.
+      code: {
+        base: "inline box-decoration-clone wrap-break-word",
+      },
       pre: {
         slots: {
           root: "relative my-5 group",
-          header: "flex items-center gap-1.5 border border-default bg-default border-b-0 relative rounded-none px-4 py-3",
+          // The copy button sits over the end of the header, so long file names wrap before it.
+          header: "flex items-center gap-1.5 border border-default bg-default border-b-0 relative rounded-none ps-4 pe-12 py-3",
+          filename: "min-w-0 wrap-anywhere",
           base: "group font-mono text-sm/6 border border-default bg-muted rounded-none px-4 py-3 whitespace-pre-wrap wrap-break-word overflow-x-auto focus:outline-none",
           // Touch screens cannot reveal the hover-only copy button, so keep it visible and larger.
           copy: "pointer-coarse:opacity-100 pointer-coarse:size-9 pointer-coarse:justify-center pointer-coarse:top-[5px] pointer-coarse:end-[5px]",

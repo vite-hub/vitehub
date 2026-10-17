@@ -17,11 +17,11 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
   const provider = options.provider
 
   if (typeof provider === "string" && !knownProviders.has(provider)) {
-    throw queueErrorDiagnostics.QUEUE_C0001({ message: `Unknown \`queue.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare" or "vercel".` })
+    throw queueErrorDiagnostics.QUEUE_INVALID_PROVIDER({ provider })
   }
 
   if (typeof provider === "undefined" && hosting && !hosting.includes("cloudflare") && !hosting.includes("vercel")) {
-    throw queueErrorDiagnostics.QUEUE_C0002({ message: "`queue.provider` cannot be inferred for " + hosting + " hosting. Disable `queue` or select the Cloudflare or Vercel deployment preset." })
+    throw queueErrorDiagnostics.QUEUE_MISSING_PROVIDER({ hosting })
   }
 
   const resolved = provider || (hosting.includes("cloudflare") ? "cloudflare" : "vercel")
@@ -47,7 +47,7 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
 export function normalizeQueueOptions(options: QueueModuleOptions | undefined, input: QueueResolutionInput = {}): ResolvedQueueOptions | undefined {
   if (options === false) return undefined
   if (typeof options !== "undefined" && !isPlainObject(options)) {
-    throw queueErrorDiagnostics.QUEUE_C0003({ message: "`queue` must be a plain object." })
+    throw queueErrorDiagnostics.QUEUE_INVALID_CONFIG()
   }
   return resolveProvider(options || {}, normalizeHosting(input.hosting))
 }

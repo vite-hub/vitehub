@@ -209,9 +209,9 @@ export type DefinitionDecorationCarrier = Record<PropertyKey, unknown>
 export function copyDefinitionDecorations(source: DefinitionDecorationCarrier, target: DefinitionDecorationCarrier): void {
   const frameworkProperties = new Set<PropertyKey>([
     discoveredAgentName, agentDefinitionSourceSymbol, registeredWorkspaceAgentNames, "options", "configKey", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
-    "resolve", "run", "health", "status", "box", "github", "capabilities", "channels", "chat", "cli", "description",
+    "resolve", "run", "health", "status", "sandbox", "github", "capabilities", "channels", "chat", "cli", "description",
     "driver", "hooks", "invoker", "invocations", "messages", "name", "runtime", "runEvents", "uiMessageStream", "version", "workspace",
-    "bindings", "commit", "loaders", "plugins", "publish", "rootDir", "rules", "sourceRootDir", "sources", "store", "mode",
+    "bindings", "commit", "loaders", "plugins", "rootDir", "rules", "sourceRootDir", "sources", "store", "mode",
     Symbol.for("vitehub.baseAgentResolve"), Symbol.for("vitehub.baseAgentDefinitionResolve"),
     Symbol.for("vitehub.baseAgentCapabilitiesResolver"), Symbol.for("vitehub.baseAgentModel"),
     Symbol.for("vitehub.baseAgentDriverKind"), Symbol.for("vitehub.baseAgentDriver"),
@@ -297,7 +297,6 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
   return result
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Descriptor copying accepts arbitrary built-in and plain option objects.
 function clonePresetDescriptors(source: object, target: object, memo: WeakMap<object, unknown>, active: WeakMap<object, unknown>): void {
   for (const key of Reflect.ownKeys(source)) {
     const descriptor = Object.getOwnPropertyDescriptor(source, key)
@@ -358,7 +357,6 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value === null || !hasRuntimeType(value, "object")) return value
   if (active.has(value)) return active.get(value)
   if (memo.has(value)) return memo.get(value)
-  // doctor-disable-next-line typescript/evidence/no-object-parameters -- Each clone has its own built-in shape; this step only copies descriptors.
   const finish = (clone: object) => {
     memo.set(value, clone)
     clonePresetDescriptors(value, clone, memo, active)
@@ -468,7 +466,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
     throw new TypeError("[vitehub] A configured Agent requires only options defaults and a configure callback.")
   }
   if (input.configKey !== undefined && (!hasRuntimeType(input.configKey, "string") || !/^[a-z][a-zA-Z0-9]*$/.test(input.configKey)
-    || ["extends", "preset", "presets", "options", "configure", "driver", "workspace", "channels", "capabilities", "name", "description", "hooks", "data", "intercept", "github", "runtime", "invoker", "invocations", "messages", "box", "version", "resolve", "run", "health", "status", "chat", "cli", "configKey", "constructor", "prototype"].includes(input.configKey))) {
+    || ["extends", "preset", "presets", "options", "configure", "driver", "workspace", "channels", "capabilities", "name", "description", "hooks", "data", "intercept", "github", "runtime", "invoker", "invocations", "messages", "sandbox", "version", "resolve", "run", "health", "status", "chat", "cli", "configKey", "constructor", "prototype"].includes(input.configKey))) {
     throw new TypeError("[vitehub] Agent configKey must be a non-reserved configuration key.")
   }
   const configKey = hasRuntimeType(input.configKey, "string") ? input.configKey : undefined

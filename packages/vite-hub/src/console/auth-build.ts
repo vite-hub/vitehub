@@ -102,7 +102,6 @@ function resolveCloudflareAccessConsoleAuth(root: string, config: CloudflareAcce
     teamDomain: config.teamDomain ?? env({ source: env.source("CF_ACCESS_TEAM_DOMAIN") }),
   }
   for (const [key, value] of Object.entries(values)) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A setting is either a literal string or an Env declaration.
     if (typeof value === "string") {
       if (key === "teamDomain" ? !cloudflareAccessIssuer(value) : !value.trim()) {
         throw new TypeError(`[vitehub] Cloudflare Access Console Auth ${key} must be ${key === "teamDomain" ? "an HTTPS team domain such as acme.cloudflareaccess.com" : "a non-empty Application Audience (AUD) tag"}.`)

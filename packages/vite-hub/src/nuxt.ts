@@ -11,6 +11,7 @@ import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { resolveBlobViteConfig } from "@vite-hub/blob/vite"
+import { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } from "@vite-hub/database/config"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
@@ -18,6 +19,7 @@ import { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@vite-hub/source/vite"
 import { mergeConfig } from "vite"
 
+import { isIncludedNitroPlugin } from "./nitro-plugin.ts"
 import { vitehub } from "./index.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
@@ -58,21 +60,18 @@ type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"
 }
 
 function configuredProjectRoot(root: string, value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replayed Vite service configuration is an open integration boundary, so validate its runtime shape before reading the optional root.
   return value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
     ? resolve(root, value.projectRoot)
     : undefined
 }
 
 function configuredProjectRootOption(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replayed Vite service configuration is an open integration boundary, so validate its runtime shape before reading the optional root.
   return value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
     ? value.projectRoot
     : undefined
 }
 
 function configuredScanDirs(value: unknown): string[] | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Replayed Vite service configuration is an open integration boundary, so validate its runtime shape before reading scan directories.
   return value && typeof value === "object" && "scanDirs" in value && Array.isArray(value.scanDirs)
     ? value.scanDirs.filter((entry): entry is string => typeof entry === "string")
     : undefined
@@ -177,7 +176,7 @@ const nitroRuntimeResolverNames = new Set([
 
 const nitroConfigResolvedNames = new Set([
   ...nitroRuntimeResolverNames,
-  "@vite-hub/sandbox/vite",
+  "@vite-hub/sandbox-task/vite",
 ])
 
 function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {
@@ -669,7 +668,7 @@ async function applyNitroConfig(
     queue?: QueueModuleOptions
     rateLimit?: Parameters<typeof vitehub>[0]["rateLimit"]
     schedule?: Parameters<typeof vitehub>[0]["schedule"]
-    sandbox?: Parameters<typeof vitehub>[0]["sandbox"]
+    sandboxTask?: Parameters<typeof vitehub>[0]["sandboxTask"]
     workspace?: Parameters<typeof vitehub>[0]["workspace"]
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
@@ -800,6 +799,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (options.connections && nuxt.options.dev === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] connections is not supported by the Nuxt module yet. Use the Vite plugin." })
   }
+  // Only the Vite plugin enables the implicit default Database for Connections.
+  if (options.connections && !options.database) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections in the Nuxt module requires database and a Database Definition, because grants and activity are stored in the app database." })
+  }
   const plan = resolveDeploymentPlan(options.preset)
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
@@ -861,7 +864,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     kv: effectiveKV,
     preset: plan.preset,
     queue: effectiveQueue,
-    sandbox: options.sandbox === true && plan.services.sandbox.supported,
+    sandboxTask: options.sandboxTask === true && plan.services.sandbox.supported,
     workflow: effectiveWorkflow,
   })
   const configuredConsoleKV = effectiveKV && effectiveKV !== true ? effectiveKV : undefined
@@ -952,7 +955,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const generatedTypes = [
     relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/types.d.ts")),
     ...(effectiveQueue ? [relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/queue.d.ts"))] : []),
-    ...(options.schedule ? [relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/schedule.d.ts"))] : []),
     ...secondaryProjectRoots
       .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/**/*.d.ts"))),
   ]
@@ -962,9 +964,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
   addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, generatedData)
   if (options.database) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nuxt configuration accepts opaque user options at this integration boundary.
     const nuxtDatabaseOptions = nuxt.options.database && typeof nuxt.options.database === "object" ? nuxt.options.database : {}
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite configuration accepts opaque user options at this integration boundary.
     const viteDatabaseOptions = viteConfig.database && typeof viteConfig.database === "object" ? viteConfig.database : {}
     const viteDatabaseRoot = configuredProjectRoot(viteRoot, viteDatabaseOptions)
     const databaseOptions = {
@@ -973,13 +973,17 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       ...(viteDatabaseRoot !== undefined ? { projectRoot: viteDatabaseRoot } : {}),
       ...(options.database === true ? {} : options.database),
     }
-    await hubDatabaseNuxt({
-      ...(options.preset === "cloudflare" && !("driver" in databaseOptions) ? { driver: "d1" as const } : {}),
-      ...databaseOptions,
-    })(undefined, nuxt)
+    // Cloudflare apps default to a D1 host resource unless every Database Definition uses Postgres.
+    const defaultD1 = options.preset === "cloudflare" && !("driver" in databaseOptions) && !usesOnlyPostgresDatabases(
+      resolveViteHubProjectRoot(rootDir, { projectRoot: databaseOptions.projectRoot }),
+      databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+    )
+    await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
   const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
+    // Nuxt runs its own Nitro.
+    .filter(plugin => !isIncludedNitroPlugin(plugin))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
     .filter(plugin => !options.console || !["vite-hub/console", "vite-hub/console-invocation-root"].includes(plugin.name))
   const consoleFixtureSnapshot = resolvedConsoleFixture ? readConsoleFixture(resolvedConsoleFixture) : undefined
@@ -1274,7 +1278,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           : effectiveQueue === undefined
             ? undefined
             : replayConfig.queue ?? effectiveQueue,
-        sandbox: Boolean(replayConfig.sandbox ?? options.sandbox) && plan.services.sandbox.supported,
+        sandboxTask: Boolean(replayConfig.sandboxTask ?? options.sandboxTask) && plan.services.sandbox.supported,
         workspace: replayConfig.workspace ?? options.workspace,
         workflow: replayConfig.workflow ?? options.workflow,
       })
@@ -1432,3 +1436,8 @@ viteHubNuxtModule.getMeta = () => ({
 })
 
 export default viteHubNuxtModule
+
+function usesOnlyPostgresDatabases(rootDir: string, serverDirs: string[] | undefined) {
+  const definitions = discoverDatabaseDefinitions(rootDir, { serverDirs })
+  return definitions.length > 0 && definitions.every(definition => readDatabaseDefinitionDialect(definition.handler) === "postgresql")
+}

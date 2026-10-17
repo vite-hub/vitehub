@@ -1,10 +1,20 @@
 ---
 title: Schedule
 navigation.title: Overview
-description: Declare static cron schedules and manage recurring Runtime Schedules for eligible targets.
+description: Declare static cron schedules in files and run them on Cloudflare, Vercel, Deno, or a long-lived Node process.
 navigation.order: 1
 icon: i-lucide-calendar-clock
 ---
+
+::agent-only{skill="schedule"}
+Use Schedule for recurring wakeups or static cron declarations. A scheduled run should hand off to idempotent application or Agent work.
+
+Read [Get started](/docs/schedule/get-started), [Configure](/docs/schedule/configure), [Server API](/docs/schedule/server-api), or [Hosts](/docs/schedule/hosts).
+
+Keep the schedule definition separate from the work it starts. Use a stable key and record the last completed run when the action must not repeat.
+
+Prove one manual run, one scheduled wake, retry or overlap behavior, and the terminal state. Inspect generated cron or provider output.
+::
 
 ::product-hero{tagline="Run server code at cron times from a file that builds to Cloudflare, Vercel, or Deno cron output." hosts="Cloudflare, Vercel, Deno, Node, Docker"}
   :::code-group
@@ -20,41 +30,19 @@ icon: i-lucide-calendar-clock
   })
   ```
 
-  ```ts [Route]
-  import { schedules } from '@vite-hub/schedule/runtime'
+  ```ts [Manual run]
+  import registry from '#vitehub/schedule/registry'
+  import { runSchedule } from '@vite-hub/schedule/runtime'
 
   export default defineEventHandler(async () => {
-    return schedules.create({
-      cron: '30 8 * * 1-5',
-      id: 'weekday-report',
-      input: { prompt: 'Summarize yesterday' },
-      target: 'report',
-      timeZone: 'Europe/Copenhagen',
-    })
-  })
-  ```
-
-  ```ts [Agent]
-  import { defineAgent } from 'vite-hub/agent'
-  import { schedule } from 'vite-hub/agent/capabilities'
-
-  export default defineAgent({
-    driver: { model: 'openai/gpt-5.1-mini' },
-    capabilities: [
-      schedule({
-        allowSelfTarget: true,
-        delivery: 'origin',
-        mode: 'write',
-        timeZone: 'Asia/Bangkok',
-      }),
-    ],
+    const run = await runSchedule('daily-report', { registry })
+    return { id: run.id, status: run.status }
   })
   ```
 
   ```bash [CLI]
-  pnpm vitehub schedule list
-  pnpm vitehub schedule runs weekday-report --limit 5 --json
-  pnpm vitehub schedule run-runtime weekday-report
+  pnpm vitehub schedule run daily-report
+  pnpm vitehub schedule runs daily-report --limit 5 --json
   ```
   :::
 ::
@@ -65,20 +53,12 @@ icon: i-lucide-calendar-clock
   Deploys with the app; `manual: true` allows runs outside the cron.
   :::
 
-  :::product-feature-item{title="Create recurring work while the app runs" icon="i-lucide-calendar-clock" to="/docs/schedule/server-api"}
-  `schedules.create()` stores a cron for an opted-in target, with `timeZone`.
-  :::
-
-  :::product-feature-item{title="An Agent can schedule its own turns" icon="i-lucide-bot" to="/docs/schedule/agent-capability"}
-  One `cronjob` tool, limited by `targets` and gated by `policy`.
-  :::
-
   :::product-feature-item{title="One long-lived process runs every schedule" icon="i-lucide-cpu" to="/docs/schedule/configure#configure-the-vite-integration"}
   On Node, it scans once per minute; never use a serverless host.
   :::
 
-  :::product-feature-item{title="Inspect schedules and runs from the CLI" icon="i-lucide-terminal" to="/docs/schedule/hosts"}
-  Lists Runtime Schedules with their next due time and last run.
+  :::product-feature-item{title="Run and inspect from the CLI" icon="i-lucide-terminal" to="/docs/schedule/hosts"}
+  `vitehub schedule run` starts a manual run; `runs` lists recorded runs.
   :::
 
   :::product-feature-item{title="Cron output stays portable" icon="i-lucide-calendar-clock" to="/docs/schedule/server-api"}

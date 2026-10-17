@@ -10,7 +10,6 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_ACCESS_DENIED"
   | "CONSOLE_ACCESS_NOT_CONFIGURED"
   | "CONSOLE_AUTH_NOT_CONFIGURED"
-  | "CONSOLE_AUTHORIZE_REQUIRED"
   | "CONSOLE_CONFLICT"
   | "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_DEVELOPMENT_ONLY"
@@ -83,12 +82,6 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),
-    CONSOLE_AUTHORIZE_REQUIRED: code(
-      "A host-managed Console requires console.authorize.",
-      "Set console.authorize to a server file that default-exports defineConsoleAuthorize().",
-      `${consoleGuide}#how-each-mode-checks-a-request`,
-      "docs",
-    ),
     CONSOLE_AUTH_NOT_CONFIGURED: code(
       "Console Auth is not configured.",
       "Add a ViteHub Auth Definition, or set the Cloudflare Access team domain and audience.",
@@ -157,7 +150,6 @@ export interface ConsoleDiagnosticBody {
 const consoleDiagnosticCodes = new Set<string>(Object.keys(consoleDiagnostics))
 
 export function isConsoleDiagnosticCode(value: unknown): value is ConsoleDiagnosticCode {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Codes arrive from untrusted JSON.
   return typeof value === "string" && consoleDiagnosticCodes.has(value)
 }
 
