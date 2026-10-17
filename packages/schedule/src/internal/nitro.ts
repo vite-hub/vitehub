@@ -80,7 +80,7 @@ function renderNetlifyHandler(registryFile: string, runtimeImport: string, entri
 function renderNetlifyFunction(entry: ScheduleEntry, buildSecret: string): string {
   return [
     "export default async function vitehubScheduleWake() {",
-    `  const response = await fetch(new URL(${JSON.stringify(netlifyScheduleRoute)}, process.env.URL), {`,
+    `  const response = await fetch(new URL(${JSON.stringify(`/.netlify/functions/server${netlifyScheduleRoute}`)}, process.env.URL), {`,
     "    method: \"POST\",",
     `    headers: { authorization: \`Bearer \${process.env.CRON_SECRET || ${JSON.stringify(buildSecret)}}\`, "x-vitehub-schedule": ${JSON.stringify(entry.name)} },`,
     "  })",
