@@ -196,7 +196,9 @@ export function createVercelQueueConsumerRoutes(definitions: DiscoveredQueueDefi
       throw queueErrorDiagnostics.QUEUE_R0010({ message: `Queue names "${existing.name}" and "${definition.name}" collide after Vercel output sanitization:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved route: ${route}` })
     }
     routes.set(route, definition)
-    const consumer = sanitizeVercelConsumerName(`${route.slice(1)}/${segments.at(-1)}.func`)
+    // Nitro emits one function directory for the route, so the consumer group
+    // must use that function path (without the old standalone nested segment).
+    const consumer = sanitizeVercelConsumerName(`${route.slice(1)}.func`)
     return {
       consumer,
       handler: `${generatedQueueNitroVercelConsumerDir}/${consumer}.mjs`,

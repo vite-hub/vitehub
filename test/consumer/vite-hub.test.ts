@@ -1228,7 +1228,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "index.mjs",
       )
       expect(JSON.parse(await readFile(join(dirname(queueCallback), ".vc-config.json"), "utf8"))).toMatchObject({
-        experimentalTriggers: [{ consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Swelcome_Dfunc", type: "queue/v2beta" }],
+        experimentalTriggers: [{ consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Dfunc", type: "queue/v2beta" }],
       })
       const callbackInvocation = await run(
         "node",

@@ -500,7 +500,7 @@ describe("hubQueue", () => {
     expect(config).toHaveProperty(["nitro", "vercel", "functionRules", "/api/heavy"], { memory: 3009 })
     expect(config).toHaveProperty(["nitro", "vercel", "functionRules", "/api/vitehub/queues/vercel/welcome"], {
       experimentalTriggers: [{
-        consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Swelcome_Dfunc",
+        consumer: "api_Svitehub_Squeues_Svercel_Swelcome_Dfunc",
         topic: "topic--77656c636f6d65",
         type: "queue/v2beta",
       }],
