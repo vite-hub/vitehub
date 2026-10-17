@@ -22,7 +22,7 @@ import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-mo
 import { scheduleDevRuntimeRoute } from "./dev.ts"
 import { registerScheduleDevEndpoint } from "./vite-dev.ts"
 
-import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -61,6 +61,23 @@ const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js
 const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.mjs"
 const generatedNitroDevHandlerDirectory = ".vitehub/nitro/schedule/dev-handlers"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
+
+function invalidateScheduleRegistry(server: ViteDevServer): void {
+  const matches = (id: string | null | undefined) => id?.replace(/\\/g, "/") === RESOLVED_SCHEDULE_REGISTRY_ID
+  for (const module of server.moduleGraph.idToModuleMap.values()) {
+    if (matches(module.id)) server.moduleGraph.invalidateModule(module)
+  }
+  for (const environment of Object.values(server.environments ?? {})) {
+    let invalidated = false
+    for (const module of environment.moduleGraph.idToModuleMap.values()) {
+      if (matches(module.id)) {
+        environment.moduleGraph.invalidateModule(module)
+        invalidated = true
+      }
+    }
+    if (invalidated && environment.config.consumer === "server") environment.hot.send({ type: "full-reload" })
+  }
+}
 
 export interface ScheduleProcessRuntimeOptions {
   concurrency?: number
@@ -721,10 +738,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
 
       // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
       await writeScheduleTypes(projectRoot ?? context.server.config.root, discoverRegistrySchedules(), (options as InternalScheduleVitePluginOptions).typesImportBase)
-      const registryModule = context.server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
-      if (registryModule) {
-        context.server.moduleGraph.invalidateModule(registryModule)
-      }
+      invalidateScheduleRegistry(context.server)
       const targetsModule = context.server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_TARGETS_ID)
       if (targetsModule) {
         context.server.moduleGraph.invalidateModule(targetsModule)
