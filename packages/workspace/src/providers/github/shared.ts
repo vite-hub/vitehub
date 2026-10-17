@@ -313,9 +313,9 @@ export async function readGitHubFile(
   signal?: AbortSignal,
 ): Promise<Uint8Array> {
   return await githubRequest(repository, async (provider, repo) => {
-    if (entry.mode === "120000") return await forgeBlob(provider, repo, entry.sha, { signal });
-    const file = await provider.contents.file(repo, entry.path, { ref, signal });
-    return file.encoding === "binary" ? file.content : new TextEncoder().encode(file.content);
+    // GitHub's Contents API truncates or returns empty content for large files.
+    // Read the blob by sha so regular files are complete as well as symlinks.
+    return await forgeBlob(provider, repo, entry.sha, { signal });
   });
 }
 
