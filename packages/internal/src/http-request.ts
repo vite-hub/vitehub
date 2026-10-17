@@ -83,6 +83,36 @@ function primitiveRuntimeTag(value: unknown): string | undefined {
     : undefined
 }
 
+const blobPrototype = Blob.prototype
+const blobSizeGetter = Object.getOwnPropertyDescriptor(blobPrototype, "size")?.get
+const blobTypeGetter = Object.getOwnPropertyDescriptor(blobPrototype, "type")?.get
+const blobSliceMethod = Object.getOwnPropertyDescriptor(blobPrototype, "slice")?.value as ((this: Blob, start?: number, end?: number, contentType?: string) => Blob) | undefined
+
+function isBlobLike(value: unknown): value is Blob {
+  if (value === null || typeof value !== "object" || !blobSizeGetter || !blobTypeGetter) return false
+  try {
+    // Blob accessors perform an internal-slot brand check, unlike toStringTag.
+    Reflect.apply(blobSizeGetter, value, [])
+    Reflect.apply(blobTypeGetter, value, [])
+    return true
+  } catch {
+    return false
+  }
+}
+
+function normalizeForeignBlob(value: Blob): Blob | undefined {
+  if (!blobSizeGetter || !blobTypeGetter || !blobSliceMethod) return undefined
+  try {
+    const type = Reflect.apply(blobTypeGetter, value, [])
+    Reflect.apply(blobSizeGetter, value, [])
+    // Slice preserves the backing data without eagerly reading a file or
+    // allocating a second payload. Use intrinsics to ignore own properties.
+    return Reflect.apply(blobSliceMethod, value, [0, undefined, type])
+  } catch {
+    return undefined
+  }
+}
+
 const httpEffectBoundary = createEffectBoundary({
   aggregateMessage: "[vitehub] HTTP request failed.",
   interruptionMessage: "[vitehub] HTTP request was interrupted.",
@@ -159,11 +189,11 @@ function fetchOnce(
     Effect.sync(() => new AbortController()),
     controller => Effect.tryPromise({
       catch: cause => new HttpAttemptFailure({ cause, retryable: retryFetchError(cause) }),
-      try: () => {
+      try: async () => {
         const headers = new Headers(definition.headers)
         applyCookies(headers, definition.cookies)
         return send(urlWithQuery(definition).toString(), {
-          body: serializeRequestBody(definition.body, headers),
+          body: await serializeRequestBody(definition.body, headers),
           headers,
           method: definition.method,
           signal: controller.signal,
@@ -217,8 +247,12 @@ function applyCookies(headers: Headers, cookies: Record<string, string> | undefi
   headers.set("cookie", existing ? `${existing}; ${value}` : value)
 }
 
-function serializeRequestBody(body: unknown, headers: Headers): FetchBody | undefined {
+async function serializeRequestBody(body: unknown, headers: Headers): Promise<FetchBody | undefined> {
   if (body === undefined) return undefined
+  if (isBlobLike(body) && !(body instanceof Blob)) {
+    const normalized = normalizeForeignBlob(body)
+    if (normalized) return normalized
+  }
   if (
     primitiveRuntimeTag(body) === "[object String]"
     || body instanceof Uint8Array
