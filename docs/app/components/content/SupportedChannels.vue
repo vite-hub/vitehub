@@ -46,13 +46,13 @@ const channels = [
     name: "GitLab",
     helper: "gitlab()",
     icon: "i-simple-icons-gitlab",
-    to: "/docs/agents/code-host-channels",
+    to: "/docs/agents/forge-channels",
   },
   {
     name: "Forgejo",
     helper: "forgejo()",
     icon: "i-simple-icons-forgejo",
-    to: "/docs/agents/code-host-channels",
+    to: "/docs/agents/forge-channels",
   },
   { name: "Gmail", helper: "gmail()", icon: "i-simple-icons-gmail", to: "/docs/agents/gmail" },
 ];

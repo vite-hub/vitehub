@@ -1,5 +1,5 @@
 ---
-title: Code Host Channels
+title: Forge Channels
 description: Run an Agent on GitLab, Forgejo, and Codeberg pull request events.
 navigation.order: 40.6
 navigation.group: Connect
@@ -8,7 +8,7 @@ icon: i-lucide-git-pull-request
 
 `gitlab()` and `forgejo()` connect pull requests to an Agent. GitLab merge requests use the same pull request context. The merge request `iid` is the pull request number, including projects in nested groups.
 
-These Channels share filters, mentions, reconcile triggers, reply delivery, commit statuses, and managed activity comments with [`github()`](/docs/agents/channels#reconcile-github-pull-requests). Call `pullRequest.read(invocation)` to inspect the request. Its `provider` is `gitlab` or `forgejo`, and `instance` identifies the host.
+These Channels share filters, mentions, reconcile triggers, reply delivery, commit statuses, and managed activity comments with [`github()`](/docs/agents/channels#reconcile-github-pull-requests). Call `pullRequest.read(invocation)` to inspect the request. Its `provider` is `gitlab` or `forgejo`, and `instance` identifies the Forge instance.
 
 ## Add a Channel
 
@@ -36,9 +36,9 @@ The final reply is a pull request comment. Set `pullRequest.reply: false` to sto
 
 ## Server Env
 
-Explicit options take precedence over Server Env. The Channel reads the host variables when Server Env does not declare the field.
+Explicit options take precedence over Server Env. The Channel reads the Forge variables when Server Env does not declare the field.
 
-| Server Env field | Host variable | Default or use |
+| Server Env field | Forge variable | Default or use |
 | --- | --- | --- |
 | `gitlab.baseUrl` | `VITEHUB_GITLAB_BASE_URL` | `https://gitlab.com` |
 | `gitlab.token` | `VITEHUB_GITLAB_TOKEN` | Token for metadata and writes. |
@@ -80,9 +80,9 @@ Apply the reviewed plan:
 vitehub channels sync --stage <name> --url <https-origin> --channel <id> --apply --confirm-origin <https-origin>
 ```
 
-The plan shows the current and desired URL and each repository's hook ID, events, and active state. It lists each create or update. Events follow the enabled pull request and activity features. Host event groups can also deliver related issue events, which the Channel ignores.
+The plan shows the current and desired URL and each repository's hook ID, events, and active state. It lists each create or update. Events follow the enabled pull request and activity features. Forge event groups can also deliver related issue events, which the Channel ignores.
 
-Tokens and webhook secrets are never shown. The plan lists `webhookSecret` as unverifiable because hosts do not return it. Use `--force` to resend the secret to existing hooks. Sync never deletes hooks. It leaves hooks with other URLs unchanged and fails if a repository has duplicate hooks at the desired URL. Remove those duplicates before sync.
+Tokens and webhook secrets are never shown. The plan lists `webhookSecret` as unverifiable because Forges do not return it. Use `--force` to resend the secret to existing hooks. Sync never deletes hooks. It leaves hooks with other URLs unchanged and fails if a repository has duplicate hooks at the desired URL. Remove those duplicates before sync.
 
 Without `sync.repositories`, the Channel appears in the plan with no change and an unverifiable entry that names the option. You can still set up webhooks by hand. See [Channel Env and sync](/docs/agents/channels#channel-env) and [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks) for deployment checks and origin confirmation.
 
@@ -92,7 +92,7 @@ Sync manages JSON payloads for Forgejo hooks and accounts for its grouped event 
 
 Create the project or repository webhook for the generated Agent Channel route. Set the secret to the same value as `webhookSecret` or its Server Env field.
 
-| Host | Events to enable |
+| Forge | Events to enable |
 | --- | --- |
 | GitLab | Comments, Merge request events |
 | Forgejo or Codeberg | Pull Request, Pull Request Comment, Review |

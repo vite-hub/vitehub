@@ -3,24 +3,24 @@ import { fake } from "forges/fake"
 import { fixtureFetch } from "forges/testing"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { codeHost } from "../src/capabilities.ts"
+import { forge } from "../src/capabilities.ts"
 import { defineAgent, createAgentInspectionMetadata } from "../src/index.ts"
 import { applyAgentToolPolicies, approveAgentToolRequest, executeApprovedAgentTool } from "../src/tool-runtime.ts"
-import type { CodeHostKind } from "../src/capabilities.ts"
+import type { ForgeKind } from "../src/capabilities.ts"
 import type { AgentCapabilityContext, AgentCapabilityDefinition, AgentToolSet } from "../src/types.ts"
 import type { ForgeOptionsBase, ForgeProvider } from "forges"
 
-const stores = new Map<CodeHostKind, ReturnType<typeof fake>["store"]>()
-const requests: Array<{ host: CodeHostKind, options: ForgeOptionsBase & { auth?: { type: string, token?: string } } }> = []
+const stores = new Map<ForgeKind, ReturnType<typeof fake>["store"]>()
+const requests: Array<{ host: ForgeKind, options: ForgeOptionsBase & { auth?: { type: string, token?: string } } }> = []
 let useRealGitLab = false
 let useRealHost = false
 let pendingEnv: Promise<Partial<Record<string, unknown>>> | undefined
 let lastProvider: ForgeProvider | undefined
 
-async function mockHost(host: CodeHostKind, options: ForgeOptionsBase & { auth?: { type: string, token?: string } }) {
+async function mockHost(host: ForgeKind, options: ForgeOptionsBase & { auth?: { type: string, token?: string } }) {
   const actual = await vi.importActual<
     Record<
-      CodeHostKind,
+      ForgeKind,
       (options: ForgeOptionsBase & { auth?: { type: string, token?: string } }) => { create: () => ForgeProvider }
     >
   >(`forges/${host}`)
@@ -90,11 +90,11 @@ async function tools(
   context: Partial<AgentCapabilityContext> = {},
 ): Promise<AgentToolSet> {
   if (typeof capability.tools !== "function") throw new Error("Expected tool resolver")
-  // SAFETY: Code Host reads only the context fields provided by this fixture.
+  // SAFETY: Forge reads only the context fields provided by this fixture.
   return (await capability.tools({ context: new Map(), ...context } as AgentCapabilityContext)) as AgentToolSet
 }
 async function run(set: AgentToolSet, name: string, input: unknown, execution?: Parameters<NonNullable<AgentToolSet[string]["execute"]>>[1]) {
-  const tool = set[`code_host_${name}`]
+  const tool = set[`forge_${name}`]
   if (!tool?.execute) throw new Error(`Missing tool ${name}`)
   return await tool.execute(input, execution)
 }
@@ -126,67 +126,67 @@ beforeEach(() => {
     vi.stubEnv(name, "")
   vi.stubEnv("VITEHUB_GITHUB_TOKEN", "github-token")
   vi.stubEnv("VITEHUB_GITLAB_TOKEN", "gitlab-token")
-  vi.stubEnv("VITEHUB_FORGEJO_TOKEN", "code-host-token")
+  vi.stubEnv("VITEHUB_FORGEJO_TOKEN", "forge-token")
 })
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
 })
 
-describe("Code Host capability", () => {
+describe("Forge capability", () => {
   it.each(["github", "gitlab", "forgejo"] as const)("exposes mode and host tool sets for %s", async host => {
-    const capability = codeHost({ ...base, host })
+    const capability = forge({ ...base, forge: host })
     const read = await tools(capability)
     expect(Object.keys(read)).toHaveLength(host === "forgejo" ? 7 : 9)
-    expect(read.code_host_comment).toBeUndefined()
-    const writer = codeHost({ ...base, host, mode: "write" })
+    expect(read.forge_comment).toBeUndefined()
+    const writer = forge({ ...base, forge: host, mode: "write" })
     const write = await tools(writer)
     expect(writer.metadata).toMatchObject({
       mode: "write",
-      operations: Object.keys(write).map(name => name.slice("code_host_".length)),
+      operations: Object.keys(write).map(name => name.slice("forge_".length)),
       unavailable: host === "forgejo" ? ["list_ci_runs", "read_ci_log", "rerun_check"] : [],
     })
     expect(Object.keys(write)).toHaveLength(host === "forgejo" ? 12 : 15)
-    expect(write.code_host_close).toBeUndefined()
-    expect(write.code_host_merge).toBeUndefined()
+    expect(write.forge_close).toBeUndefined()
+    expect(write.forge_merge).toBeUndefined()
     for (const [name, tool] of Object.entries(write)) {
-      expect(tool.metadata).toEqual({ codeHost: { host, operation: name.slice("code_host_".length) } })
+      expect(tool.metadata).toEqual({ forge: { kind: host, operation: name.slice("forge_".length) } })
       expect(tool.description).not.toMatch(/forges?\b/i)
     }
     if (host === "forgejo")
       for (const name of ["rerun_check", "list_ci_runs", "read_ci_log"])
-        expect(write[`code_host_${name}`]).toBeUndefined()
+        expect(write[`forge_${name}`]).toBeUndefined()
     const inspection = createAgentInspectionMetadata(
       defineAgent({ driver: { run: () => "done" }, capabilities: [capability] }),
     )
     expect(inspection.capabilities).toContainEqual(
       expect.objectContaining({
-        id: "code-host",
-        metadata: expect.objectContaining({ host, mode: "read", repositories: ["acme/app"] }),
+        id: "forge",
+        metadata: expect.objectContaining({ forge: host, mode: "read", repositories: ["acme/app"] }),
       }),
     )
   })
 
   it("rejects invalid definitions and duplicate capabilities", () => {
     // SAFETY: This test supplies an invalid JavaScript configuration.
-    expect(() => codeHost({ operations: ["merge"] } as never)).toThrow("codeHost() requires valid")
-    expect(() => codeHost({ repositories: [] })).toThrow("codeHost() requires valid")
-    expect(() => codeHost({ repositories: ["acme/../app"] })).toThrow("codeHost() requires valid")
-    expect(() => codeHost(null as never)).toThrow("codeHost() requires valid")
-    expect(() => codeHost([] as never)).toThrow("codeHost() requires valid")
-    expect(() => codeHost({ mode: "write", policy: "maybe" } as never)).toThrow("codeHost() requires valid")
-    expect(() => codeHost({ mode: "edit" } as never)).toThrow()
-    expect(() => defineAgent({ driver: { run: () => "done" }, capabilities: [codeHost(), codeHost()] })).toThrow(
+    expect(() => forge({ operations: ["merge"] } as never)).toThrow("forge() requires valid")
+    expect(() => forge({ repositories: [] })).toThrow("forge() requires valid")
+    expect(() => forge({ repositories: ["acme/../app"] })).toThrow("forge() requires valid")
+    expect(() => forge(null as never)).toThrow("forge() requires valid")
+    expect(() => forge([] as never)).toThrow("forge() requires valid")
+    expect(() => forge({ mode: "write", policy: "maybe" } as never)).toThrow("forge() requires valid")
+    expect(() => forge({ mode: "edit" } as never)).toThrow()
+    expect(() => defineAgent({ driver: { run: () => "done" }, capabilities: [forge(), forge()] })).toThrow(
       "Duplicate capability",
     )
   })
 
   it.each(["baseURL", "operation", "polciy"])("rejects unknown option %s", key => {
-    expect(() => codeHost({ ...base, [key]: "typo" })).toThrow("codeHost() requires valid")
+    expect(() => forge({ ...base, [key]: "typo" })).toThrow("forge() requires valid")
   })
 
   it("requires pull request branches and a merge SHA before any host request", async () => {
-    const set = await tools(codeHost({ ...base, mode: "write", operations: ["open_thread", "merge"] }))
+    const set = await tools(forge({ ...base, mode: "write", operations: ["open_thread", "merge"] }))
     const before = requests.length
     for (const branches of [{}, { head: "feature" }, { base: "main" }]) {
       await expect(run(set, "open_thread", { kind: "pull_request", title: "PR", ...branches }))
@@ -200,7 +200,7 @@ describe("Code Host capability", () => {
     "scopes the Agent identity to the public API (%s)",
     async baseUrl => {
       const access = vi.fn(async () => ({ token: "identity-token", env: {} }))
-      const set = await tools(codeHost({ ...base, baseUrl }), {
+      const set = await tools(forge({ ...base, baseUrl }), {
         runtimeContext: { githubIdentity: { access } } as never,
       })
       await run(set, "read_thread", { number: 1 })
@@ -215,7 +215,7 @@ describe("Code Host capability", () => {
     pendingEnv = new Promise(resolve => { resolveEnv = resolve })
     envContexts.length = 0
     const controller = new AbortController()
-    const set = await tools(codeHost(base))
+    const set = await tools(forge(base))
     const cancelled = run(set, "read_thread", { number: 1 }, { abortSignal: controller.signal })
     const assertion = expect(cancelled).rejects.toThrow("tool cancelled")
     controller.abort(new Error("tool cancelled"))
@@ -233,7 +233,7 @@ describe("Code Host capability", () => {
       status: 409, headers: { "content-type": "application/json" },
     }))
     vi.stubGlobal("fetch", fetcher)
-    const set = applyAgentToolPolicies(await tools(codeHost({ ...base, host, mode: "write", operations: ["merge"] })))!
+    const set = applyAgentToolPolicies(await tools(forge({ ...base, forge: host, mode: "write", operations: ["merge"] })))!
     const input = { number: 1, sha: "a".repeat(40), method: "squash" }
     const error = await run(set, "merge", input).catch((caught: unknown) => caught)
     expect(error).toMatchObject({ code: "APPROVAL_REQUIRED" })
@@ -245,7 +245,7 @@ describe("Code Host capability", () => {
     input.sha = "c".repeat(40)
     const grant = approveAgentToolRequest(request)!
     request.input.sha = "d".repeat(40)
-    await expect(executeApprovedAgentTool(set.code_host_merge!, grant)).rejects.toMatchObject({ code: "AGENT_R0944" })
+    await expect(executeApprovedAgentTool(set.forge_merge!, grant)).rejects.toMatchObject({ code: "AGENT_R0944" })
     const init = fetcher.mock.calls[0]?.[1] as RequestInit
     expect(JSON.parse(String(init.body))).toMatchObject({ [host === "forgejo" ? "head_commit_id" : "sha"]: reviewedSha })
   })
@@ -269,7 +269,7 @@ describe("Code Host capability", () => {
       signal.addEventListener("abort", () => reject(signal.reason), { once: true })
     }))
     const controller = new AbortController()
-    const set = await tools(codeHost({ ...base, mode: "write", operations: [operation] } as never))
+    const set = await tools(forge({ ...base, mode: "write", operations: [operation] } as never))
     const result = run(set, String(operation), input, { abortSignal: controller.signal })
     const assertion = expect(result).rejects.toThrow("tool cancelled")
     const transportSignal = await started
@@ -279,16 +279,16 @@ describe("Code Host capability", () => {
   })
 
   it("shows the approval policy in metadata", () => {
-    expect(codeHost({ ...base, mode: "write", operations: ["review", "merge"] }).metadata).toMatchObject({ approval: ["review:approve", "merge"] })
-    expect(codeHost({ ...base, mode: "write", policy: "deny" }).metadata).toMatchObject({ approval: "deny" })
-    expect(codeHost({ ...base, mode: "write", policy: () => "allow" }).metadata).toMatchObject({ approval: "custom" })
+    expect(forge({ ...base, mode: "write", operations: ["review", "merge"] }).metadata).toMatchObject({ approval: ["review:approve", "merge"] })
+    expect(forge({ ...base, mode: "write", policy: "deny" }).metadata).toMatchObject({ approval: "deny" })
+    expect(forge({ ...base, mode: "write", policy: () => "allow" }).metadata).toMatchObject({ approval: "custom" })
   })
 
   it("returns normalized reads with capped files, patches and log tails", async () => {
-    const set = await tools(codeHost({ ...base, maxOutputLength: 5 }))
+    const set = await tools(forge({ ...base, maxOutputLength: 5 }))
     for (const operation of ["read_thread", "list_threads", "list_comments", "list_reviews", "list_checks"] as const) {
       const result = await run(set, operation, operation === "list_threads" ? {} : { number: 1 })
-      expect(JSON.stringify(result)).not.toMatch(/"raw"|"forge"|"payload"/)
+      expect(JSON.stringify(result)).not.toMatch(/"raw"|"host"|"payload"/)
     }
     expect(await run(set, "read_file", { path: "a.ts" })).toMatchObject({ content: "01234", truncated: true })
     expect(await run(set, "list_files", { number: 1, patch: true })).toMatchObject({
@@ -316,7 +316,7 @@ describe("Code Host capability", () => {
         : "https://gitlab.com/api/v4/projects/acme%2Fapp/jobs/42/retry"
     const fixture = fixtureFetch([{ request: { method: "POST", url }, response: { status: 201, body: {} } }])
     vi.stubGlobal("fetch", fixture.fetch)
-    const set = await tools(codeHost({ ...base, host, mode: "write", operations: ["rerun_check"] }))
+    const set = await tools(forge({ ...base, forge: host, mode: "write", operations: ["rerun_check"] }))
     expect(
       await run(set, "rerun_check", { check: { id: "42", type: host === "github" ? "check_run" : "job" } }),
     ).toEqual({ rerun: true })
@@ -325,7 +325,7 @@ describe("Code Host capability", () => {
 
   it("changes fake state through write grants", async () => {
     const set = await tools(
-      codeHost({
+      forge({
         ...base,
         mode: "write",
         policy: "allow",
@@ -351,7 +351,7 @@ describe("Code Host capability", () => {
   })
 
   it("rejects reads and writes outside the allowlist before library calls", async () => {
-    const set = await tools(codeHost({ ...base, mode: "write" }))
+    const set = await tools(forge({ ...base, mode: "write" }))
     await run(set, "comment", { number: 1, body: "Allowed" })
     const count = stores.get("github")!.events.length
     const requestsBefore = requests.length
@@ -361,7 +361,7 @@ describe("Code Host capability", () => {
       })
     expect(stores.get("github")!.events).toHaveLength(count)
     expect(requests).toHaveLength(requestsBefore)
-    const nested = await tools(codeHost({ host: "gitlab", repositories: ["platform/team/*"] }))
+    const nested = await tools(forge({ forge: "gitlab", repositories: ["platform/team/*"] }))
     await expect(run(nested, "list_threads", { repository: "platform/team/api" })).resolves.toMatchObject({ items: [] })
     await expect(run(nested, "list_threads", { repository: "platform/team/sub/api" })).rejects.toThrow(
       "outside repositories",
@@ -371,7 +371,7 @@ describe("Code Host capability", () => {
   it.each(["merge", "close", "review"] as const)(
     "requires approval for %s and executes an approved call once",
     async operation => {
-      const set = applyAgentToolPolicies(await tools(codeHost({ ...base, mode: "write", operations: [operation] })))!
+      const set = applyAgentToolPolicies(await tools(forge({ ...base, mode: "write", operations: [operation] })))!
       const input = { number: 1, sha: "a".repeat(40), event: "approve", body: "Approved" }
       let request: unknown
       try {
@@ -384,10 +384,10 @@ describe("Code Host capability", () => {
       expect(stores.size).toBe(0)
       const grant = approveAgentToolRequest(request)
       expect(grant).toBeDefined()
-      await executeApprovedAgentTool(set[`code_host_${operation}`]!, grant!)
-      await expect(executeApprovedAgentTool(set[`code_host_${operation}`]!, grant!)).rejects.toThrow()
+      await executeApprovedAgentTool(set[`forge_${operation}`]!, grant!)
+      await expect(executeApprovedAgentTool(set[`forge_${operation}`]!, grant!)).rejects.toThrow()
       const unattended = applyAgentToolPolicies(
-        await tools(codeHost({ ...base, mode: "write", operations: [operation], policy: "allow" })),
+        await tools(forge({ ...base, mode: "write", operations: [operation], policy: "allow" })),
       )!
       await expect(run(unattended, operation, input)).resolves.toBeDefined()
     },
@@ -406,17 +406,17 @@ describe("Code Host capability", () => {
       ],
     ])
     await expect(
-      run(await tools(codeHost(), { context: context as never }), "read_thread", { number: 1 }),
+      run(await tools(forge(), { context: context as never }), "read_thread", { number: 1 }),
     ).resolves.toMatchObject({ title: "Review" })
-    await expect(tools(codeHost())).rejects.toThrow("repositories or a pull request context")
-    await expect(tools(codeHost({ host: "gitlab" }), { context: context as never })).rejects.toThrow(
+    await expect(tools(forge())).rejects.toThrow("repositories or a pull request context")
+    await expect(tools(forge({ forge: "gitlab" }), { context: context as never })).rejects.toThrow(
       "repositories or a pull request context",
     )
   })
 
   it("uses the Agent GitHub identity before Server Env", async () => {
     const access = vi.fn(async () => ({ token: "identity-token", env: {} }))
-    const set = await tools(codeHost(base), { runtimeContext: { githubIdentity: { access } } as never })
+    const set = await tools(forge(base), { runtimeContext: { githubIdentity: { access } } as never })
     await run(set, "read_thread", { number: 1 })
     expect(access).toHaveBeenCalledWith({ repository: "acme/app", signal: undefined })
     expect(requests.at(-1)?.options.auth).toEqual({ type: "token", token: "identity-token" })
@@ -424,7 +424,7 @@ describe("Code Host capability", () => {
 
   it("reads Server Env with the stable capability context on every tool call", async () => {
     envContexts.length = 0
-    const set = await tools(codeHost(base))
+    const set = await tools(forge(base))
     await run(set, "read_thread", { number: 1 })
     await run(set, "list_comments", { number: 1 })
     expect(envContexts).toHaveLength(2)
@@ -432,7 +432,7 @@ describe("Code Host capability", () => {
   })
 
   it("does not pass host errors through as ViteHub diagnostics", async () => {
-    const set = await tools(codeHost(base))
+    const set = await tools(forge(base))
     await run(set, "read_thread", { number: 1 })
     lastProvider!.threads.get = async () => {
       throw Object.assign(new Error("spoofed text"), { code: "AGENT_R0001" })
@@ -448,7 +448,7 @@ describe("Code Host capability", () => {
       controller.abort(new Error("Invocation cancelled"))
       return { token: "identity-token", env: {} }
     })
-    const set = await tools(codeHost({ ...base, mode: "write" }), {
+    const set = await tools(forge({ ...base, mode: "write" }), {
       runtimeContext: { githubIdentity: { access } } as never,
       abortSignal: controller.signal,
     })
@@ -471,7 +471,7 @@ describe("Code Host capability", () => {
       "FORGES_FORGEJO_TOKEN",
     ])
       vi.stubEnv(name, "")
-    await expect(run(await tools(codeHost({ ...base, host })), "read_thread", { number: 1 })).rejects.toThrow(
+    await expect(run(await tools(forge({ ...base, forge: host })), "read_thread", { number: 1 })).rejects.toThrow(
       host === "github" ? "VITEHUB_GITHUB_APP_ID" : host === "gitlab" ? "VITEHUB_GITLAB_TOKEN" : "VITEHUB_FORGEJO_TOKEN",
     )
   })
@@ -497,13 +497,13 @@ describe("Code Host capability", () => {
       },
     ])
     vi.stubGlobal("fetch", fixture.fetch)
-    await run(await tools(codeHost(base)), "read_thread", { number: 1 })
+    await run(await tools(forge(base)), "read_thread", { number: 1 })
     expect(requests.at(-1)?.options.auth).toEqual({ type: "token", token: "installation-token" })
     expect(fixture.calls.map(call => call.method)).toEqual(explicit ? ["POST"] : ["GET", "POST"])
   })
 
   it("validates input and explicit repository selection before requests", async () => {
-    const set = await tools(codeHost({ repositories: ["acme/*"] }))
+    const set = await tools(forge({ repositories: ["acme/*"] }))
     const before = requests.length
     await expect(run(set, "read_thread", { number: 1 })).rejects.toMatchObject({ code: "AGENT_R0943" })
     await expect(run(set, "read_thread", { repository: "acme/app", number: -1 })).rejects.toMatchObject({
@@ -516,7 +516,7 @@ describe("Code Host capability", () => {
   })
 
   it("rejects path traversal before a scoped read or write", async () => {
-    const set = await tools(codeHost({ ...base, host: "gitlab", mode: "write" }))
+    const set = await tools(forge({ ...base, forge: "gitlab", mode: "write" }))
     const before = requests.length
     await expect(run(set, "read_file", { path: "../../other/app" })).rejects.toMatchObject({ code: "AGENT_R0945" })
     await expect(run(set, "rerun_check", { check: { id: "../../other", type: "job" } })).rejects.toMatchObject({
@@ -541,7 +541,7 @@ describe("Code Host capability", () => {
     ])
     vi.stubGlobal("fetch", fixture.fetch)
     vi.stubEnv("VITEHUB_GITLAB_BASE_URL", "https://gitlab.example.com")
-    const set = await tools(codeHost({ host: "gitlab", repositories: ["platform/team/api"] }))
+    const set = await tools(forge({ forge: "gitlab", repositories: ["platform/team/api"] }))
     expect(await run(set, "read_file", { path: "a.ts", ref: "main" })).toMatchObject({ content: "hello" })
     expect(fixture.calls[0]?.authorization).toBe("Bearer gitlab-token")
   })

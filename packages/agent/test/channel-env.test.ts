@@ -1243,26 +1243,26 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
   })
 })
 
-describe("Code Host Server Env discovery", () => {
+describe("Forge Server Env discovery", () => {
   it.each([
-    ["codeHost()", ["github"]],
-    ["codeHost({ host: 'gitlab' })", ["gitlab"]],
-    ["codeHost({ host: `gitlab` })", ["gitlab"]],
-    ["codeHost({ host: `${selected}` })", ["github", "gitlab", "forgejo"]],
-    ["codeHost({ host: 'gitlab', host: selected })", ["github", "gitlab", "forgejo"]],
-    ["codeHost({ host: 'forgejo' })", ["forgejo"]],
-    ["codeHost({ host: selected })", ["github", "gitlab", "forgejo"]],
-    ["codeHost(options)", ["github", "gitlab", "forgejo"]],
-    ["codeHost({ host: 'gitlab' + suffix })", ["github", "gitlab", "forgejo"]],
-    ["codeHost({ host: 'gitlab', ...options })", ["github", "gitlab", "forgejo"]],
-    ["codeHost(({ host: 'gitlab' }))", ["gitlab"]],
-  ])("declares optional host fields for %s", async (expression, hosts) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-code-host-env-"))
+    ["forge()", ["github"]],
+    ["forge({ forge: 'gitlab' })", ["gitlab"]],
+    ["forge({ forge: `gitlab` })", ["gitlab"]],
+    ["forge({ forge: `${selected}` })", ["github", "gitlab", "forgejo"]],
+    ["forge({ forge: 'gitlab', forge: selected })", ["github", "gitlab", "forgejo"]],
+    ["forge({ forge: 'forgejo' })", ["forgejo"]],
+    ["forge({ forge: selected })", ["github", "gitlab", "forgejo"]],
+    ["forge(options)", ["github", "gitlab", "forgejo"]],
+    ["forge({ forge: 'gitlab' + suffix })", ["github", "gitlab", "forgejo"]],
+    ["forge({ forge: 'gitlab', ...options })", ["github", "gitlab", "forgejo"]],
+    ["forge(({ forge: 'gitlab' }))", ["gitlab"]],
+  ])("declares optional Forge fields for %s", async (expression, hosts) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-forge-env-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "reviewer.ts"), `
         import { defineAgent } from "vite-hub/agent"
-        import { codeHost } from "vite-hub/agent/capabilities"
+        import { forge } from "vite-hub/agent/capabilities"
         export default defineAgent({ capabilities: [${expression}] })
       `)
       const env = discoverAgentChannelEnv({ rootDir: root })
@@ -1276,9 +1276,9 @@ describe("Code Host Server Env discovery", () => {
   })
 
   it.each(["vite-hub/agent/capabilities", "@vite-hub/agent/capabilities"])("reads static strings from aliases and namespaces in %s", (module) => {
-    const source = `import { codeHost as host } from '${module}'; import * as caps from '${module}'; host({ host: 'gitlab' }); caps.codeHost({ host: 'forgejo' })`
-    const uses = discoverBuiltInChannelUses(source, ["codeHost"], { modules: new Set([module]), shorthands: false })
-    expect(uses.map(use => use.stringOptions?.get("host"))).toEqual(["gitlab", "forgejo"])
+    const source = `import { forge as host } from '${module}'; import * as caps from '${module}'; host({ forge: 'gitlab' }); caps.forge({ forge: 'forgejo' })`
+    const uses = discoverBuiltInChannelUses(source, ["forge"], { modules: new Set([module]), shorthands: false })
+    expect(uses.map(use => use.stringOptions?.get("forge"))).toEqual(["gitlab", "forgejo"])
   })
 })
 
