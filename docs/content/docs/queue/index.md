@@ -26,7 +26,9 @@ Prove enqueue, consumer execution, retry, and a poison or invalid payload. Inspe
 
   export default defineEventHandler(async (event) => {
     const { email } = await readBody<{ email: string }>(event)
-    return await runQueue('welcome-email', { email })
+    const [error, result] = await runQueue('welcome-email', { email })
+    if (error) throw error
+    return result
   })
   ```
 
@@ -62,11 +64,11 @@ Prove enqueue, consumer execution, retry, and a poison or invalid payload. Inspe
   :::
 
   :::product-feature-item{title="Enqueue confirms acceptance, not the handler result" icon="i-lucide-list-ordered" to="/docs/queue/server-api"}
-  `runQueue()` resolves with `status: 'queued'` when the provider accepts.
+  `runQueue()` returns `[error, result]`, and `result.status` is `'queued'` when the provider accepts.
   :::
 
   :::product-feature-item{title="Typed names, payloads, and options" icon="i-lucide-shield-check" to="/docs/queue/server-api#queue-enqueue-options"}
-  Typed from Definitions; an unsupported option throws `ViteHubError`.
+  Typed from Definitions; an unsupported option returns `QUEUE_UNSUPPORTED_OPTION`.
   :::
 
   :::product-feature-item{title="A handler must tolerate a second delivery" icon="i-lucide-circle-alert" to="/docs/queue/limits-and-errors"}

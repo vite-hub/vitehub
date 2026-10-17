@@ -57,7 +57,7 @@ function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefini
     const physicalName = getCloudflareQueueName(definition.name, namePrefix)
     const existing = names.get(physicalName)
     if (existing) {
-      throw queueErrorDiagnostics.QUEUE_R0009({ message: `Queue names ${JSON.stringify(existing.name)} and ${JSON.stringify(definition.name)} collide after Cloudflare resource name derivation:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved Queue name: ${physicalName}` })
+      throw queueErrorDiagnostics.QUEUE_NAME_COLLISION({ first: existing.name, resolved: physicalName, second: definition.name })
     }
     names.set(physicalName, definition)
   }
@@ -193,7 +193,7 @@ export function createVercelQueueConsumerRoutes(definitions: DiscoveredQueueDefi
     const route = `${vercelQueueConsumerRoutePrefix}/${segments.join("/")}`
     const existing = routes.get(route)
     if (existing) {
-      throw queueErrorDiagnostics.QUEUE_R0010({ message: `Queue names "${existing.name}" and "${definition.name}" collide after Vercel output sanitization:\n  - ${existing.handler}\n  - ${definition.handler}\nResolved route: ${route}` })
+      throw queueErrorDiagnostics.QUEUE_NAME_COLLISION({ first: existing.name, resolved: route, second: definition.name })
     }
     routes.set(route, definition)
     // Nitro emits one function directory for the route, so the consumer group
@@ -219,7 +219,7 @@ function renderVercelQueueConsumerHandler(file: string, name: string) {
     "",
     "export default defineHandler(async (event) => {",
     "  const definition = await loadQueueDefinition(name)",
-    "  if (!definition) throw missingQueueDefinitionError()",
+    "  if (!definition) throw missingQueueDefinitionError(name)",
     "  return await handleHostedVercelQueueCallback(event, name, definition)",
     "})",
     "",

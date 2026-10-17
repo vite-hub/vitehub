@@ -50,7 +50,7 @@ const mergeNoExternal = createNoExternalAddition(queuePackageName)
 export async function createQueueNitroConfig(plugin: QueueVitePlugin, options: QueueNitroConfigOptions): Promise<Record<string, unknown>> {
   const createNitroConfig = plugin.vitehub?.queue?.createNitroConfig
   if (!createNitroConfig) {
-    throw queueErrorDiagnostics.QUEUE_B0001({ message: "The existing @vite-hub/queue/vite plugin does not expose Queue Nitro configuration." })
+    throw queueErrorDiagnostics.QUEUE_PLUGIN_INCOMPATIBLE()
   }
   return createNitroConfig(options)
 }
@@ -58,7 +58,7 @@ export async function createQueueNitroConfig(plugin: QueueVitePlugin, options: Q
 function resolveStableQueueDefinitions(resolveDefinitions: () => DiscoveredQueueDefinition[], snapshot: DiscoveredQueueDefinition[], context: string) {
   const definitions = resolveDefinitions()
   if (JSON.stringify(definitions) !== JSON.stringify(snapshot)) {
-    throw queueErrorDiagnostics.QUEUE_B0002({ message: `[vitehub] ${context} Queue Definitions changed after config resolution. Generate Queue Definition source files before Vite config resolves.` })
+    throw queueErrorDiagnostics.QUEUE_DEFINITIONS_CHANGED({ context })
   }
   return definitions
 }
@@ -172,7 +172,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   }
   const binding = resolvedQueue?.provider === "cloudflare" && typeof resolvedQueue.binding === "string" ? resolvedQueue.binding : undefined
   if (binding && generated.producers.length > 1) {
-    throw queueErrorDiagnostics.QUEUE_B0003({ message: "A custom Cloudflare queue binding can only be used with one Queue Definition." })
+    throw queueErrorDiagnostics.QUEUE_BINDING_CONFLICT()
   }
   const generatedProducers = binding ? generated.producers.map(producer => ({ ...producer, binding })) : generated.producers
   contributeCloudflareProviderOutput(providerOutput, {

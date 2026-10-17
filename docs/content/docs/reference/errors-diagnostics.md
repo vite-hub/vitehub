@@ -10,7 +10,7 @@ Each package owns the errors from its public API, configuration, build integrati
 
 ## The error contract
 
-All ViteHub primitives move to one contract. KV and Email follow it today.
+All ViteHub primitives move to one contract. A package that follows it lists its codes on its `limits-and-errors` page.
 
 - A runtime operation returns `[error, data]`. It does not throw for a failure that the caller can handle.
 - `error` has `code`, `why`, `fix`, `docs`, and `cause`. The type of `error.code` is the union of the codes that the operation can return.
@@ -30,11 +30,11 @@ if (error) {
 }
 ```
 
-`Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `@vite-hub/runtime`. Each code has a `why` and a `fix`, and a heading on the `limits-and-errors` page of the package, so `error.docs` opens the right section. See [KV errors](/docs/kv/limits-and-errors) and [Email errors](/docs/email/limits-and-errors).
+`Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `@vite-hub/runtime`. Each code has a `why` and a `fix`, and a heading on the `limits-and-errors` page of the package, so `error.docs` opens the right section. See [KV errors](/docs/kv/limits-and-errors), [Email errors](/docs/email/limits-and-errors), and [Queue errors](/docs/queue/limits-and-errors).
 
 ## Diagnostic codes
 
-Named codes use the format `<PACKAGE>_<NAME>`, for example `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. KV and Email use named codes. The other packages still use numbered codes in this format:
+Named codes use the format `<PACKAGE>_<NAME>`, for example `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. Packages that follow the error contract use named codes. The other packages still use numbered codes in this format:
 
 | Format | Catalog group |
 | --- | --- |
@@ -64,7 +64,7 @@ Some code runs where the Nostics package cannot load. Browser page evaluation, u
 
 ## Operational errors
 
-Packages that do not follow the error contract yet keep the `ViteHubError` contract from `@vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, missing Blob values, Queue delivery failures, and policy rejections. These semantic codes describe an application result instead of a developer defect.
+Packages that do not follow the error contract yet keep the `ViteHubError` contract from `@vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, missing Blob values, application failures in a Queue handler, and policy rejections. These semantic codes describe an application result instead of a developer defect.
 
 `ViteHubError` snapshots its public `name`, `code`, `message`, `details`, and `requestId` fields at construction. The snapshot and its details are frozen. Its `cause` stays on the in-memory error and `toJSON()` omits it. Public details must be bounded JSON data.
 
