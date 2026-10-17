@@ -372,6 +372,15 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
   }
 }
 
+function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
+  if (body === null) return true
+  if (Object(body) !== body) return false
+  const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+  if (!locked || Reflect.apply(locked, body, [])) return false
+  const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+  return !ownReader || ownReader.value === ReadableStream.prototype.getReader
+}
+
 function getNativeAuthorizationReaderMethods(reader: object) {
   const prototype = ReadableStreamDefaultReader.prototype
   const closed = Object.getOwnPropertyDescriptor(prototype, "closed")?.get
@@ -539,7 +548,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Preserve the standard error response before constructing a local response.
     if (status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0) return Response.error()
     if (body === null) return new Response(null, { status, statusText, headers: normalizedHeaders })
-    const bridgedBody = bridgeAuthorizationBody(body)
+    const bridgedBody = bridgeAuthorizationBody(body, ReadableStream.prototype.getReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
