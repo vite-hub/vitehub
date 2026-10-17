@@ -63,7 +63,7 @@ async function previousConsoleInvocation(invocations: ConsoleInvocationsDatabase
   }
   const [previous] = await db
     .select({
-      agentName: sql<string>`coalesce(${table.agentName}, json_extract(${table.summary}, '$.agentName'))`,
+      agentName: sql<string>`coalesce(nullif(${table.agentName}, ''), json_extract(${table.summary}, '$.agentName'))`,
       id: table.id,
     })
     .from(table)
