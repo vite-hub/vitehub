@@ -53,7 +53,11 @@ async function viaMiddlewares(middlewares: Connect.Server, input: string | URL |
 }
 
 describe("vitehub schedule run against a Vite + Nitro Development Server", () => {
-  it("runs a Static Schedule inside the Nitro runtime and records the run", async () => {
+  // Nuxt serves Vite from the app directory while Schedules live under the project root.
+  it.each([
+    { layout: "vite", viteDir: "" },
+    { layout: "nuxt", viteDir: "app" },
+  ])("runs a Static Schedule inside the Nitro runtime and records the run ($layout layout)", async ({ viteDir }) => {
     // SAFETY: Nitro publishes this Vite plugin at the runtime-resolved `nitro/vite` entry.
     const { nitro }: { nitro: () => unknown } = await import("nitro/vite" as string)
     // Nitro writes its dev worker with relative imports, so the app root stays inside the workspace and resolves packages normally.
@@ -75,14 +79,16 @@ describe("vitehub schedule run against a Vite + Nitro Development Server", () =>
       "",
     ].join("\n"))
     await writeFile(join(root, "server", "schedules", "locked.ts"), "import { defineSchedule } from '@vite-hub/schedule'\n\nexport default defineSchedule('0 9 * * *', () => {})\n")
+    const viteRoot = join(root, viteDir)
+    await mkdir(viteRoot, { recursive: true })
     const server = await createServer({
       appType: "custom",
       configFile: false,
       logLevel: "silent",
       // SAFETY: `nitro` is the user Nitro config that `nitro/vite` reads from the Vite config.
       ...({ nitro: { plugins: [join(root, "server", "marker.ts")] } } as object),
-      plugins: [hubSchedule(), nitro() as never],
-      root,
+      plugins: [hubSchedule(viteDir ? { projectRoot: root } : undefined), nitro() as never],
+      root: viteRoot,
       server: { middlewareMode: true, ws: false },
     })
     try {
@@ -90,7 +96,7 @@ describe("vitehub schedule run against a Vite + Nitro Development Server", () =>
       const run = async (args: string[]) => {
         const stdout = stream()
         const stderr = stream()
-        const code = await runScheduleCli(args, { cwd: root, env: {}, rootDir: root, stderr, stdout }, { fetch })
+        const code = await runScheduleCli(args, { cwd: root, env: {}, rootDir: viteRoot, stderr, stdout }, { fetch })
         return { code, stderr: stderr.output(), stdout: stdout.output() }
       }
 

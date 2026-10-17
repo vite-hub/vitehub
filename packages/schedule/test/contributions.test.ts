@@ -328,7 +328,7 @@ describe("contributed Schedules on every host", () => {
     await resolvePlugin(plugin, root, plugins)
 
     const load = plugin.load as (id: string) => string
-    expect(load("\0#vitehub/schedule/registry")).toContain("[\"content/publish\"]: async () => import(\"../content/publish-schedule.ts\")")
+    expect(load("\0#vitehub/schedule/registry")).toContain(`["content/publish"]: async () => import(${JSON.stringify(definition)})`)
     expect(load("\0#vitehub/schedule/targets")).toContain("\"content/publish\"")
     await expect(readFile(join(root, ".vitehub", "schedule.d.ts"), "utf8")).resolves.toContain("\"content/publish\": typeof import(\"./content/publish-schedule.ts\").default")
   })
