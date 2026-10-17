@@ -107,19 +107,43 @@ function resolveCache(install: BabysitterInstall, env: Record<string, string | u
   return {
     directory: configured.directory ?? (env.BABYSITTER_INSTALL_CACHE || join(tmpdir(), "vitehub-install-cache")),
     entries: configured.entries ?? Math.max(1, Math.floor(Number(env.BABYSITTER_INSTALL_CACHE_ENTRIES)) || 8),
+    configured: configured.directory !== undefined,
   };
+}
+
+/**
+ * Without reflinks, a restore and a save each write the full node_modules trees again. On ext4 that
+ * cost more than a frozen install from the pnpm store, so the default cache needs reflinks.
+ */
+async function supportsReflinks(directory: string): Promise<boolean> {
+  const probe = join(directory, `.reflink-probe-${process.pid}-${Date.now()}`);
+  try {
+    await mkdir(directory, { recursive: true });
+    await writeFile(probe, "probe");
+    await execFileAsync("cp", ["--reflink=always", probe, `${probe}.copy`]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(probe, { force: true }).catch(() => {});
+    await rm(`${probe}.copy`, { force: true }).catch(() => {});
+  }
 }
 
 /**
  * Installs dependencies in a pass workspace before the provider starts. The install gets a
  * scrubbed environment without host credentials. A detected pnpm install on Linux reuses the
- * node_modules trees of an earlier pass with the same install key: the host copies them with independent writable inodes into
+ * node_modules trees of an earlier pass with the same install key, when the cache directory supports
+ * reflinks or is configured explicitly: the host copies them with independent writable inodes into
  * the workspace, as pnpm links its own store, and verifies them with a frozen offline install.
  * Passes that need the same key wait for the first install, then restore its trees.
  */
 export function createBabysitterInstaller(install: BabysitterInstall, env: Record<string, string | undefined> = process.env, repository?: string) {
   const cache = resolveCache(install, env);
   const inFlight = new Map<string, Promise<void>>();
+  // A configured directory opts in on any filesystem. The default cache probes once.
+  let cacheUsable: Promise<boolean> | undefined;
+  const useCache = () => cache ? (cacheUsable ??= cache.configured ? Promise.resolve(true) : supportsReflinks(cache.directory)) : Promise.resolve(false);
 
   async function restore(key: string, cwd: string, signal: AbortSignal): Promise<boolean> {
     if (!cache) return false;
@@ -177,7 +201,7 @@ export function createBabysitterInstaller(install: BabysitterInstall, env: Recor
       ["CI", "1"],
       ...custom ? [] : [["npm_config_ignore_scripts", "true"], ["YARN_ENABLE_SCRIPTS", "false"]],
     ]);
-    const key = cache && (program === "pnpm" || program === "corepack" && command[1]?.startsWith("pnpm@")) ? await pnpmInstallKey(cwd, prepared ? `${repositoryIdentity}:${prepared.fingerprint}` : repositoryIdentity).catch(() => undefined) : undefined;
+    const key = cache && (program === "pnpm" || program === "corepack" && command[1]?.startsWith("pnpm@")) && await useCache() ? await pnpmInstallKey(cwd, prepared ? `${repositoryIdentity}:${prepared.fingerprint}` : repositoryIdentity).catch(() => undefined) : undefined;
     let finishFlight: (() => void) | undefined;
     const releaseFlight = () => {
       if (!finishFlight || !key) return;
