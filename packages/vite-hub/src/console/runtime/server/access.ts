@@ -94,6 +94,18 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
         })
       if (isResponseConstructor) {
         if (!(value instanceof constructor)) return
+        // A native Response constructor must create a value with the same
+        // prototype. This rejects ordinary constructors that merely expose
+        // Response-shaped methods before any attacker-controlled accessors
+        // are used below.
+        let probe: unknown
+        try {
+          probe = constructor.error()
+          if (Object.getPrototypeOf(probe) !== prototype || !(probe instanceof constructor)) return
+        }
+        catch {
+          return
+        }
         const find = (name: string): PropertyDescriptor | undefined => {
           let current: object | null = prototype
           while (current !== null) {
