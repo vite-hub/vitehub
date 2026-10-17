@@ -57,7 +57,10 @@ function isRequest(value: unknown): value is Request {
       let valid = true
       let reachedObjectPrototype = false
       let prototype: object | null = value
+      const visited = new Set<object>()
       while (prototype !== null) {
+        if (visited.has(prototype)) return false
+        visited.add(prototype)
         const objectConstructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         if (typeof objectConstructor === "function" && objectConstructor.name === "Object" && objectConstructor.prototype === prototype) {
           reachedObjectPrototype = true
@@ -155,7 +158,11 @@ function isRequest(value: unknown): value is Request {
             valid = false
           }
         }
-        prototype = Object.getPrototypeOf(prototype)
+        try {
+          prototype = Object.getPrototypeOf(prototype)
+        } catch {
+          return false
+        }
       }
       return branded && valid && reachedObjectPrototype
     }
