@@ -467,9 +467,9 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       providerOutput = useProviderOutputCatalog(config)
       runtimeConfig = blobConfig
-      if (config.command === "build") assertDriverSdksInstalled(blobConfig.blob, cloudflareOwnedByNitro)
       const hosting = getNitroHostingProvider(configuredNitro)
         ?? (resolveNitroVercelFunctionName(config, "blob") ? "vercel" : undefined)
+      if (config.command === "build") assertDriverSdksInstalled(blobConfig.blob, hosting === "cloudflare")
       await refreshBlobGeneratedFiles(
         rootDir,
         runtimeConfig.blob,
