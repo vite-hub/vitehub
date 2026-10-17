@@ -1,4 +1,3 @@
-import { types } from "node:util"
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
@@ -113,7 +112,6 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
       return Object.is(left, right)
     }
-    if (types.isProxy(left) || types.isProxy(right)) return false
     const prototype = Object.getPrototypeOf(left)
     if (Array.isArray(left) !== Array.isArray(right)
       || prototype !== Object.getPrototypeOf(right)
