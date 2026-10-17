@@ -84,7 +84,7 @@
     "better-auth": "catalog:auth",
     "bun-types": "^1.4.3",
     "nostics": "catalog:runtime",
-    "undici": "7.30.0"
+    "undici": "8.12.2"
   },
   "devDependencies": {
     "@types/json-schema": "catalog:ai",

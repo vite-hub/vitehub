@@ -23,6 +23,7 @@ import { getAccessCapabilityOptions } from "../capabilities/access.ts"
 import { assertChatDeliveryOptions, CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions, resolveChatErrorFallbackText } from "../chat-trigger.ts"
 import {
   chatMessageHookArgs,
+  chatTriggerHistoryImages,
   chatTriggerHistoryLimit,
   createChatMessageTriggerInput,
   derivedChatTriggerInvoker,
@@ -43,7 +44,7 @@ import { isAgentInvocationCancellationError } from "../internal/invocation-cance
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
-import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentData, isBlobValue, isUint8ArrayValue } from "../messages.ts"
+import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentData, isAttachmentPart, isBlobValue, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import {
@@ -4234,6 +4235,7 @@ const imageAttachmentMimeTypes: Record<string, string> = {
 
 interface ChatMessagePartOptions {
   includeReplyAttachmentInput?: boolean
+  rehydrateAttachment?: (attachment: Attachment) => Attachment
   rejectOversizedTextAttachments?: boolean
 }
 
@@ -4389,7 +4391,8 @@ async function chatMessageParts(message: ChatSdkMessage, options: ChatMessagePar
   if (message.text) {
     parts.push({ id: "text-0", text: message.text, type: "text" })
   }
-  for (const [index, attachment] of message.attachments.entries()) {
+  for (const [index, source] of message.attachments.entries()) {
+    const attachment = options.rehydrateAttachment ? options.rehydrateAttachment(source) : source
     const textPart = await textPartFromAttachment(attachment, index, options)
     if (textPart) {
       parts.push(textPart)
@@ -4491,13 +4494,196 @@ async function chatSdkMessageToUiMessage(
   metadata?: Record<string, unknown>,
   options?: ChatMessagePartOptions,
 ): Promise<UIMessageLike> {
-  return {
+  const uiMessage: UIMessageLike = {
     createdAt: isoDate(message.metadata.dateSent),
     id: message.id,
     ...(metadata ? { metadata } : {}),
     parts: await chatMessagePartsWithReply(message, options),
     role: message.author.isMe ? "assistant" : "user",
   }
+  chatUiMessageSources.set(uiMessage, message)
+  return uiMessage
+}
+
+// Message headers need the Chat SDK author, attachments, and reply that the UI message does not keep.
+const chatUiMessageSources = new WeakMap<UIMessageLike, ChatSdkMessage>()
+const chatMessageHeaderPartType = "data-chat-message-header"
+const chatReplyQuoteMaxLength = 280
+
+/**
+ * Thread history returns serialized messages without attachment callbacks.
+ * Rebuild image callbacks only when `triggerHistory.maxImages` can send history images again.
+ */
+function chatHistoryPartOptions(thread: Thread, options: AgentChatOptions | undefined): ChatMessagePartOptions {
+  if (!chatTriggerHistoryImages(resolveChatTriggerHistory(options)).maxImages) return {}
+  // SAFETY: Chat SDK adapters may implement this optional method. The Adapter type does not declare it.
+  const adapter = thread.adapter as Adapter & { rehydrateAttachment?: (attachment: Attachment) => Attachment }
+  const rehydrate = adapter.rehydrateAttachment
+  if (!isRuntimeFunction(rehydrate)) return {}
+  return {
+    rehydrateAttachment(attachment) {
+      const image = attachment.type === "image" || (isRuntimeString(attachment.mimeType) && attachment.mimeType.startsWith("image/"))
+      if (!image || attachment.fetchData || attachment.data) return attachment
+      try {
+        return rehydrate.call(adapter, attachment)
+      } catch {
+        return attachment
+      }
+    },
+  }
+}
+
+function chatMessageTime(value: unknown): number | undefined {
+  const time = value instanceof Date ? value.getTime() : isRuntimeString(value) ? Date.parse(value) : Number.NaN
+  return Number.isFinite(time) ? time : undefined
+}
+
+function chatHeaderTimeZone(options: AgentChatOptions | undefined): string {
+  const timeZone = isRuntimeString(options?.timeZone) && options.timeZone ? options.timeZone : "UTC"
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone })
+    return timeZone
+  } catch {
+    return "UTC"
+  }
+}
+
+function formatChatHeaderTime(time: number, timeZone: string, short = false): string {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone,
+    timeZoneName: "longOffset",
+    weekday: "short",
+    year: "numeric",
+  }).formatToParts(new Date(time)).map(part => [part.type, part.value]))
+  if (short) return `${parts.weekday} ${parts.hour}:${parts.minute}`
+  const offset = parts.timeZoneName === "GMT" ? "+00:00" : parts.timeZoneName?.replace("GMT", "")
+  return `${parts.weekday} ${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ${offset}`
+}
+
+function chatHeaderMessageId(id: unknown): string | undefined {
+  return isRuntimeString(id) && id ? id.split(":").pop() : undefined
+}
+
+function chatHeaderName(value: unknown): string {
+  return String(value ?? "").replace(/[[\]]/g, "").replace(/\s+/g, " ").trim()
+}
+
+function chatHeaderAttachmentLabel(attachment: Attachment): string {
+  const mediaType = isRuntimeString(attachment.mimeType) ? attachment.mimeType : ""
+  const label = attachment.type === "image" || mediaType.startsWith("image/")
+    ? "photo"
+    : attachment.type === "audio" || mediaType.startsWith("audio/")
+      ? "voice"
+      : attachment.type === "video" || mediaType.startsWith("video/") ? "video" : "file"
+  const uniqueId = attachment.fetchMetadata?.fileUniqueId
+  return isRuntimeString(uniqueId) && uniqueId ? `${label} ${uniqueId}` : label
+}
+
+function chatHeaderQuote(text: string): string {
+  const quote = text.replace(/\s+/g, " ").trim()
+  return quote.length > chatReplyQuoteMaxLength ? `${quote.slice(0, chatReplyQuoteMaxLength - 1)}…` : quote
+}
+
+type UIMessageLikePart = NonNullable<UIMessageLike["parts"]>[number]
+
+function chatPartType(part: UIMessageLikePart): string | undefined {
+  return isRuntimeString(part.type) ? part.type : undefined
+}
+
+function chatPartId(part: UIMessageLikePart): string | undefined {
+  return "id" in part && isRuntimeString(part.id) ? part.id : undefined
+}
+
+function isChatReplyModelPart(part: UIMessageLikePart): boolean {
+  const type = chatPartType(part)
+  return !!type && (type.startsWith("data-chat-reply-") || type === "data-chat-user-message-context")
+}
+
+function chatReplyLine(replyTo: ChatSdkMessage, timeZone: string, keptIds: Set<string>, shownIds: Set<string>): string {
+  const author = replyTo.author.isMe
+    ? "your"
+    : replyTo.author.isBot === true ? "bot" : `${chatHeaderName(replyTo.author.fullName || replyTo.author.userName || "user")}'s`
+  const time = chatMessageTime(replyTo.metadata.dateSent)
+  const quote = shownIds.has(replyTo.id) ? "(shown above)" : replyTo.text ? `"${chatHeaderQuote(replyTo.text)}"` : ""
+  const media = replyTo.attachments.map((attachment, index) =>
+    `${chatHeaderAttachmentLabel(attachment)}${keptIds.has(`reply-input-attachment-${index + 1}`) ? " attached below" : " (not shown)"}`)
+  const line = `↪ replying to ${author} msg ${chatHeaderMessageId(replyTo.id) ?? "unknown"}${time === undefined ? "" : ` (${formatChatHeaderTime(time, timeZone, true)})`}${quote ? `: ${quote}` : ""}`
+  return [line, ...media].join(" · ")
+}
+
+/**
+ * Give the model one readable header per user message and limit history attachments.
+ * Current and queued messages keep every attachment. History keeps only the newest
+ * `triggerHistory.maxImages` images sent within `triggerHistory.maxAgeMs`.
+ */
+function decorateChatTriggerMessages(
+  thread: Thread,
+  message: ChatSdkMessage,
+  options: AgentChatOptions | undefined,
+  messageContext: MessageContext | undefined,
+  messages: UIMessageLike[],
+): UIMessageLike[] {
+  const timeZone = chatHeaderTimeZone(options)
+  const { maxAgeMs, maxImages } = chatTriggerHistoryImages(resolveChatTriggerHistory(options))
+  const currentTime = chatMessageTime(message.metadata.dateSent) ?? Date.now()
+  const isRecent = (time: number | undefined) => time !== undefined && currentTime - time <= maxAgeMs
+  const retainedIds = new Set([message.id, ...(messageContext?.skipped ?? []).map(item => item.id)].filter(Boolean))
+  const retainedMessages = new Set([message, ...(messageContext?.skipped ?? [])])
+  const shownIds = new Set(messages.filter(item => isRecent(chatMessageTime(item.createdAt))).map(item => item.id).filter(isRuntimeString))
+  let remainingImages = maxImages
+  const decorated = messages.slice().reverse().map((uiMessage): UIMessageLike => {
+    if (!Array.isArray(uiMessage.parts)) return uiMessage
+    if (uiMessage.role !== "user") return { ...uiMessage, parts: uiMessage.parts.filter(part => !isChatReplyModelPart(part)) }
+    const source = chatUiMessageSources.get(uiMessage)
+    const retained = (!!uiMessage.id && retainedIds.has(uiMessage.id)) || (!!source && retainedMessages.has(source))
+    if (!source) {
+      // A message from an earlier selection already has its header and attachment limit.
+      if (!retained) remainingImages -= uiMessage.parts.filter(part => isAttachmentPart(part) && part.type === "image").length
+      return uiMessage
+    }
+    const parts = uiMessage.parts.filter(part => chatPartType(part) !== chatMessageHeaderPartType)
+    if (!parts.length) return uiMessage
+    const time = chatMessageTime(uiMessage.createdAt)
+    const kept = parts.filter((part) => {
+      if (retained || !isAttachmentPart(part) || chatPartId(part)?.startsWith("reply-input-")) return true
+      if (part.type !== "image" || !isRecent(time) || remainingImages <= 0) return false
+      remainingImages--
+      return true
+    })
+    const keptIds = new Set(kept.map(chatPartId).filter(isRuntimeString))
+    const media = source.attachments.map((attachment, index) => {
+      const label = chatHeaderAttachmentLabel(attachment)
+      return keptIds.has(`attachment-${index + 1}`) ? label : `${label} (not shown)`
+    })
+    const messageId = chatHeaderMessageId(uiMessage.id)
+    const sender = thread.isDM
+      ? undefined
+      : `from ${chatHeaderName(source.author.fullName || source.author.userName || "unknown")} (id ${chatHeaderName(source.author.userId)})`
+    const header = [
+      time === undefined ? undefined : formatChatHeaderTime(time, timeZone),
+      messageId ? `msg ${messageId}` : undefined,
+      sender,
+      ...media,
+      source.metadata.edited ? "edited" : undefined,
+    ].filter(Boolean).join(" · ")
+    const replyLine = source.replyTo ? chatReplyLine(source.replyTo, timeZone, keptIds, shownIds) : undefined
+    return {
+      ...uiMessage,
+      parts: [
+        { data: { modelText: header ? `[${header}]` : "" }, id: "message-header", type: chatMessageHeaderPartType },
+        ...kept.map(part => isChatReplyModelPart(part)
+          ? { ...part, data: { ...("data" in part && isRecord(part.data) ? part.data : {}), modelText: part.type === "data-chat-reply-context" && replyLine ? replyLine : "" } }
+          : part),
+      ],
+    }
+  })
+  return decorated.reverse()
 }
 
 function chatAuthorizationUiMessage(thread: Thread, message: ChatSdkMessage, messageContext?: MessageContext): UIMessageLike {
@@ -4543,6 +4729,18 @@ async function chatTriggerMessages(
   historyThroughCurrent = false,
   previousMessages?: UIMessageLike[],
 ): Promise<UIMessageLike[]> {
+  const messages = await selectChatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent, previousMessages)
+  return decorateChatTriggerMessages(thread, message, options, messageContext, messages)
+}
+
+async function selectChatTriggerMessages(
+  thread: Thread,
+  message: ChatSdkMessage,
+  options: AgentChatOptions | undefined,
+  messageContext?: MessageContext,
+  historyThroughCurrent = false,
+  previousMessages?: UIMessageLike[],
+): Promise<UIMessageLike[]> {
   const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
     includeReplyAttachmentInput: true,
     rejectOversizedTextAttachments: true,
@@ -4556,6 +4754,7 @@ async function chatTriggerMessages(
   const retained = [...queued, current]
   const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
   if (!limit) return retained
+  const history = chatHistoryPartOptions(thread, options)
 
   const fetchedNewestFirst: UIMessageLike[] = []
   const boundHistory = historyThroughCurrent || options?.concurrency === "steer"
@@ -4566,13 +4765,13 @@ async function chatTriggerMessages(
       if (!reachedCurrent) {
         if (item.id !== message.id) {
           if (!historyThroughCurrent && unindexedNewestFirst.length < limit) {
-            unindexedNewestFirst.push(await chatSdkMessageToUiMessage(item))
+            unindexedNewestFirst.push(await chatSdkMessageToUiMessage(item, undefined, history))
           }
           continue
         }
         reachedCurrent = true
       }
-      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
+      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item, undefined, history))
       if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
@@ -4585,7 +4784,7 @@ async function chatTriggerMessages(
     durable = currentIndex >= 0 ? durable.slice(0, currentIndex + 1) : []
   }
   let messages = [
-    ...(await Promise.all(durable.map((item) => (item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item))))),
+    ...(await Promise.all(durable.map((item) => (item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, history))))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
@@ -5407,7 +5606,8 @@ async function admitChatSdkMessage(
   }
   const filter = options?.filter
   if (filter) {
-    const [current] = uiMessagesToAgentMessages([currentMessage])
+    // The message header is model input. Filters receive the message as the platform sent it.
+    const [current] = uiMessagesToAgentMessages([{ ...currentMessage, parts: currentMessage.parts.filter(part => chatPartType(part) !== chatMessageHeaderPartType) }])
     if (
       !current ||
       !(await filter({

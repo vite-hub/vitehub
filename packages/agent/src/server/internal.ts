@@ -48,7 +48,7 @@ export type {
 
 export { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions, inheritAgentLayerOptions } from "../agent-layers.ts"
 export { resolveAgentCapabilityDefinitions } from "../capability-runtime.ts"
-export { activeProviderBox } from "../internal/provider-box.ts"
+export { activeProviderSandbox } from "../internal/provider-box.ts"
 export { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"

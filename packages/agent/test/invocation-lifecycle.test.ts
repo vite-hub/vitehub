@@ -5,6 +5,8 @@ const modelStream = vi.hoisted(() => vi.fn())
 
 vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
   loadAiSdk: async () => ({
+    // This SDK double executes fixture responses without invoking a language model.
+    wrapLanguageModel: ({ model }: { model: unknown }) => model,
     ToolLoopAgent: class {
       async generate(...args: unknown[]) {
         return await modelGenerate(...args)

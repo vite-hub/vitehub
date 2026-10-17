@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-database
 ---
 
+::agent-only{skill="database"}
+Use Database for relational data with Drizzle. Define tables in a Database Definition and query through the generated `useDatabase()` handle.
+
+Read [Get started](/docs/database/get-started), [Configure](/docs/database/configure), [Server API](/docs/database/server-api), or [Hosts](/docs/database/hosts).
+
+Import `useDatabase` from `vite-hub/database/drizzle` and select the discovered database by name. Do not import generated database definitions or provider bindings into application code. Keep migrations and transaction boundaries with the Database owner.
+
+Prove a migration, a typed read, a write, and a restart or remote-host read. Inspect generated schema and provisioning output before deployment.
+::
+
 ::product-hero{tagline="Relational tables defined with Drizzle and queried through one typed client on local SQLite, hosted libSQL, Cloudflare D1, and Postgres." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-group
   ```ts [Route]

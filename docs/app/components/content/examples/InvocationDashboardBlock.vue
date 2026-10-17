@@ -5,16 +5,19 @@ import {
   type AgentInvocationListItem,
   type AgentInvocationView,
 } from "@vite-hub/ui";
-import { computed, onMounted, ref, shallowRef } from "vue";
+import { computed, onMounted, ref } from "vue";
 
-// Keep the server clock through hydration, then refresh prerendered timestamps.
+// Keep running timestamps relative to the page load, including server rendering.
 const now = useState("ui-dashboard-clock", () => Date.now());
-onMounted(() => { now.value = Date.now(); });
+
+onMounted(() => {
+  now.value = Date.now();
+});
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 
 // Synthetic, already-authorized records. In an application, load them from your Invocation store.
-const invocations = shallowRef<AgentInvocationView[]>([
+const invocations = computed<AgentInvocationView[]>(() => [
   {
     agentName: "reviewer",
     annotations: { "github.pullRequest": 1011, "github.repository": "vite-hub/vitehub" },
@@ -130,28 +133,6 @@ const invocations = shallowRef<AgentInvocationView[]>([
     updatedAt: time(2280),
   },
 ]);
-
-function refreshDates(value: unknown, offset: number): void {
-  if (Array.isArray(value)) {
-    value.forEach((item) => refreshDates(item, offset));
-  } else if (value && typeof value === "object") {
-    for (const [key, item] of Object.entries(value)) {
-      if (typeof item === "string" && /T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(item)) {
-        (value as Record<string, unknown>)[key] = new Date(Date.parse(item) + offset).toISOString();
-      } else {
-        refreshDates(item, offset);
-      }
-    }
-  }
-}
-
-onMounted(() => {
-  const refreshedAt = Date.now();
-  const refreshedInvocations = structuredClone(invocations.value);
-  refreshDates(refreshedInvocations, refreshedAt - now.value);
-  now.value = refreshedAt;
-  invocations.value = refreshedInvocations;
-});
 
 // Map full records to list summaries with the display helpers the Console uses.
 const items = computed<AgentInvocationListItem[]>(() =>

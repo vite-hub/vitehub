@@ -77,7 +77,7 @@ function hasGeneratedOutputUnderExampleSurface(path: string) {
 
 describe("package manifest contracts", () => {
   it("tracks every publishable workspace package in the contract surface", () => {
-    expect(packageNames).toEqual(expect.arrayContaining(["blob", "database", "kv", "queue", "sandbox", "vite-hub", "workflow"]))
+    expect(packageNames).toEqual(expect.arrayContaining(["blob", "database", "kv", "queue", "sandbox-task", "vite-hub", "workflow"]))
   })
 
   it("keeps landed package manifests publishable by convention", () => {

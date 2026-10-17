@@ -70,8 +70,8 @@
     "test": "vp run -t @vite-hub/presets#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/box": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "valibot": "catalog:runtime"
   },

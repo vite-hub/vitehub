@@ -27,8 +27,8 @@ type RuntimeDatabaseRegistry = {
   [Name in keyof DatabaseRegistry]: RuntimeDatabaseEntry<RegisteredDatabaseSchema<Name>, RegisteredDatabaseDialect<Name>>
 }
 
-type DefaultDatabaseEntry = "default" extends keyof RuntimeDatabaseRegistry
-  ? RuntimeDatabaseRegistry["default" & keyof RuntimeDatabaseRegistry]
+type DefaultDatabaseEntry = RuntimeDatabaseRegistry extends { default: infer TEntry }
+  ? TEntry
   : RuntimeDatabaseEntry<typeof schema>
 
 type RuntimeDatabaseLookup = RuntimeDatabaseRegistry & {

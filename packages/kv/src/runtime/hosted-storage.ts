@@ -52,7 +52,7 @@ function deserializeValue(value: unknown) {
 export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name = "default"): RuntimeStorage {
   const resolved = assertHostedConfig(config)
   const stores = resolved.stores || { default: resolved.store }
-  const store = stores[name]
+  const store = Object.hasOwn(stores, name) ? stores[name] : undefined
   if (!store) {
     throw new KVStoreConfigurationError(`[vitehub] Unknown KV store "${name}".`)
   }

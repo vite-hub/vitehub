@@ -163,7 +163,7 @@ The Database module reads the contributions after every module has run setup, so
 Contributed tables join the target Database everywhere the Definition schema goes:
 
 - The generated Drizzle schema exports each contributed table, so `vitehub db generate` writes their migrations.
-- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, Nitro, and provider output.
+- `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, and Nitro.
 - `vitehub inspect definitions` and the Console Database section list them in a `Contributed tables` field with the contributing plugin.
 
 The Definition object that you import from its file keeps only its own `schema`. Read contributed tables from `useDatabase(name).schema` or import them from their package.
@@ -202,7 +202,7 @@ A contribution without `database` targets the Database named `default`, or the o
 
 A Definition inherits the integration resource when it omits both `cloudflare.databaseId` and `cloudflare.databaseName`. Setting either selects its own resource, so it inherits no integration database ID, name, or preview ID. Other D1 settings still inherit their defaults. HTTP proxy URLs and tokens inherit by field. Both must be available after inheritance for HTTP access to work.
 
-Owned native resources need a nonblank database ID and name at build time. For native D1 provider output, use a Cloudflare block that ViteHub can read as a literal. An identifier, top-level spread, or other opaque resource expression fails the provider build when no D1 HTTP or remote libSQL connection is known, even if the evaluated block would inherit the integration resource. A known HTTP or libSQL connection keeps opaque Definitions supported.
+Owned native resources need a nonblank database ID and name at build time. For a native D1 binding, use a Cloudflare block that ViteHub can read as a literal. An identifier, top-level spread, or other opaque resource expression fails the Cloudflare build when no D1 HTTP or remote libSQL connection is known, even if the evaluated block would inherit the integration resource. A known HTTP or libSQL connection keeps opaque Definitions supported.
 
 Keep an explicit `cloudflare` property when its value is opaque. For a wholly hidden Definition, declare D1 intent with `hubDb({ driver: 'd1' })` in Vite or set `database.driver` to `'d1'` in Nuxt. Without that intent, ViteHub does not project native D1 output. Opaque local SQLite Definitions remain supported.
 

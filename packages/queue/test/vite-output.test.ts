@@ -455,22 +455,22 @@ describe("Vite provider outputs", () => {
     await mkdir(join(rootDir, "server", "queues"), { recursive: true })
     await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`, "utf8")
     await writeFile(runtimeFacade, [
-      "export async function runSandbox(name, payload) {",
+      "export async function runSandboxTask(name, payload) {",
       "  return { name, payload, registry: 'contributed' }",
       "}",
       "",
     ].join("\n"), "utf8")
     await writeFile(join(rootDir, "server", "queues", "sandbox.ts"), [
-      "import { runSandbox } from 'vite-hub/sandbox'",
+      "import { runSandboxTask } from 'vite-hub/sandbox-task'",
       "export default { handler: async () => {",
-      "  globalThis.__vitehubQueueSandboxResult = await runSandbox('image-optimizer', { queued: true })",
+      "  globalThis.__vitehubQueueSandboxTaskResult = await runSandboxTask('image-optimizer', { queued: true })",
       "} }",
       "",
     ].join("\n"), "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist",
-      providerImportAliases: { "vite-hub/sandbox": runtimeFacade },
+      providerImportAliases: { "vite-hub/sandbox-task": runtimeFacade },
       queue: { provider: "vercel" },
       rootDir,
     })
@@ -494,7 +494,7 @@ describe("Vite provider outputs", () => {
       if (!address || typeof address === "string") throw new Error("Missing Queue callback address.")
       const response = await fetch(`http://127.0.0.1:${address.port}`, { method: "POST" })
       expect(await response.text()).toBe("handled")
-      expect((globalThis as Record<string, unknown>).__vitehubQueueSandboxResult).toEqual({
+      expect((globalThis as Record<string, unknown>).__vitehubQueueSandboxTaskResult).toEqual({
         name: "image-optimizer",
         payload: { queued: true },
         registry: "contributed",
@@ -504,7 +504,7 @@ describe("Vite provider outputs", () => {
     finally {
       server.close()
       await once(server, "close")
-      delete (globalThis as Record<string, unknown>).__vitehubQueueSandboxResult
+      delete (globalThis as Record<string, unknown>).__vitehubQueueSandboxTaskResult
       delete (globalThis as Record<string, unknown>).__vitehubVercelQueue
     }
   })
@@ -516,20 +516,20 @@ describe("Vite provider outputs", () => {
     await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`, "utf8")
     await writeFile(runtimeFacade, [
       "import { env } from 'cloudflare:workers'",
-      "export function runSandbox(name) {",
+      "export function runSandboxTask(name) {",
       "  return { hasEnvironment: Boolean(env), name }",
       "}",
       "",
     ].join("\n"), "utf8")
     await writeFile(join(rootDir, "server", "queues", "sandbox.ts"), [
-      "import { runSandbox } from 'vite-hub/sandbox'",
-      "export default { handler: async () => runSandbox('image-optimizer') }",
+      "import { runSandboxTask } from 'vite-hub/sandbox-task'",
+      "export default { handler: async () => runSandboxTask('image-optimizer') }",
       "",
     ].join("\n"), "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist",
-      providerImportAliases: { "vite-hub/sandbox": runtimeFacade },
+      providerImportAliases: { "vite-hub/sandbox-task": runtimeFacade },
       queue: { provider: "cloudflare" },
       rootDir,
     })

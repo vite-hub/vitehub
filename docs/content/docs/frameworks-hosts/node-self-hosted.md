@@ -70,7 +70,7 @@ native binaries.
 | KV | `fs-lite` | Local files on one host. Upstash Redis when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set during the build. |
 | Rate Limit | `memory` | One process. Counters reset on restart. |
 | Queue | None | `queue: true` fails the build. |
-| Sandbox | None | `sandbox: true` fails the build. |
+| Sandbox | None | `sandboxTask: true` fails the build. |
 
 Set `dataDir` in `vitehub()` to put local state in one persistent directory, for
 example `dataDir: '/var/lib/app'`. ViteHub then stores KV `fs-lite` data, Blob
