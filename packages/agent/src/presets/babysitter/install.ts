@@ -145,9 +145,20 @@ async function supportsReflinks(directory: string, destination: string): Promise
 export function createBabysitterInstaller(install: BabysitterInstall, env: Record<string, string | undefined> = process.env, repository?: string) {
   const cache = resolveCache(install, env);
   const inFlight = new Map<string, Promise<void>>();
-  // A configured directory opts in on any filesystem. The default cache probes once.
-  let cacheUsable: Promise<boolean> | undefined;
-  const useCache = (cwd: string) => cache ? (cacheUsable ??= cache.configured ? Promise.resolve(true) : supportsReflinks(cache.directory, cwd)) : Promise.resolve(false);
+  // A configured directory opts in on any filesystem. Probe the default cache once per
+  // destination filesystem because one installer can serve workspaces on different mounts.
+  const cacheUsable = new Map<number, Promise<boolean>>();
+  const useCache = async (cwd: string) => {
+    if (!cache) return false;
+    if (cache.configured) return true;
+    const device = (await stat(cwd)).dev;
+    let usable = cacheUsable.get(device);
+    if (!usable) {
+      usable = supportsReflinks(cache.directory, cwd);
+      cacheUsable.set(device, usable);
+    }
+    return usable;
+  };
 
   async function restore(key: string, cwd: string, signal: AbortSignal): Promise<boolean> {
     if (!cache) return false;
