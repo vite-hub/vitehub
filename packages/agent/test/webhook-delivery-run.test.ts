@@ -50,4 +50,12 @@ describe("webhook delivery run defaults", () => {
     const resolved = await resolveAgentTriggerInvocation(agentWith({ input: { prompt: "triage" } }), runtime, "tickets.opened", {})
     expect(resolved).not.toHaveProperty("run.runId")
   })
+
+  it("keeps inherited run fields when applying delivery defaults", async () => {
+    const resolved = await resolveAgentTriggerInvocation(agentWith({
+      input: { prompt: "triage" },
+      webhook: { deliveryId: "ticket-42" },
+    }), { ...runtime, run: { runId: "inherited", origin: "console" } }, "tickets.opened", {})
+    expect(resolved).toMatchObject({ run: { channelId: "tickets", runId: "inherited", origin: "console" } })
+  })
 })
