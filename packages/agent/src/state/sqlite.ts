@@ -224,10 +224,10 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       if (options?.maxLength != null && options.maxLength > 0) {
         await execute(
           tx,
-          `DELETE FROM ${this.tables.lists} WHERE key = ? AND id <= (
+          `DELETE FROM ${this.tables.lists} WHERE key = ? AND id < (
             SELECT id FROM ${this.tables.lists} WHERE key = ? ORDER BY id DESC LIMIT 1 OFFSET ?
           )`,
-          [key, key, options.maxLength],
+          [key, key, options.maxLength - 1],
         )
       }
     })
