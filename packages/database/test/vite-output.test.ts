@@ -1195,8 +1195,8 @@ describe("Vite db provider outputs", () => {
     expect(existsSync(join(rootDir, ".vercel", "output"))).toBe(false)
   }, 30_000)
 
-  it("skips Cloudflare output when a Vercel D1 HTTP database has no Cloudflare database name", async () => {
-    const rootDir = await createDbBuildProject("vitehub-db-vite-cloudflare-invalid-")
+  it("keeps Cloudflare output when a D1 HTTP database has no Cloudflare database name", async () => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-cloudflare-http-")
     const staleCloudflareOutput = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")
     await mkdir(dirname(staleCloudflareOutput), { recursive: true })
     await writeFile(staleCloudflareOutput, "export default 'stale'\n")
@@ -1221,7 +1221,7 @@ describe("Vite db provider outputs", () => {
       VITEHUB_D1_DATABASE_ID: "primary-d1-id",
     })
 
-    expect(existsSync(staleCloudflareOutput)).toBe(false)
+    expect(existsSync(staleCloudflareOutput)).toBe(true)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"))).toBe(true)
   }, 30_000)
 })

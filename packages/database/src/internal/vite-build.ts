@@ -218,9 +218,12 @@ function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig, 
 
 function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return runtimeConfig.databaseNames.filter((name) => {
+    const database = runtimeConfig.databases[name]
     const cloudflare = runtimeConfig.databases[name]?.cloudflare
     return hasConfigValue(resolveDatabaseId(runtimeConfig, name, provisionState))
       && !hasConfigValue(resolveConfigValue(cloudflare?.databaseName))
+      && !cloudflare?.http
+      && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
 
@@ -255,7 +258,20 @@ function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: Pr
     throw databaseErrorDiagnostics.DATABASE_R0002({ message: `[vitehub] Cloudflare output requires \`db.cloudflare.databaseId\` or a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.` })
   }
 
-  const d1Databases = resolveCloudflareD1Bindings(runtimeConfig, { provisionState }).d1Databases
+  const d1Projection = resolveCloudflareD1Bindings(runtimeConfig, { provisionState })
+  const unresolvedNativeBindings = d1Projection.unresolved.filter((binding) => {
+    const database = runtimeConfig.databases[binding.database]
+    return !database?.cloudflare?.http && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
+  })
+  if (unresolvedNativeBindings.length) {
+    const missingNames = unresolvedNativeBindings.filter(binding => binding.reason === "missing-database-name").map(binding => binding.database)
+    if (missingNames.length) {
+      throw databaseErrorDiagnostics.DATABASE_R0001({ message: `[vitehub] Cloudflare output requires non-empty \`db.cloudflare.databaseName\` values for databases: ${missingNames.join(", ")}.` })
+    }
+    const missingIds = unresolvedNativeBindings.filter(binding => binding.reason === "missing-database-id").map(binding => binding.database)
+    throw databaseErrorDiagnostics.DATABASE_R0002({ message: `[vitehub] Cloudflare output requires non-empty \`db.cloudflare.databaseId\` or a provisioned D1 ID for databases: ${missingIds.join(", ")}.` })
+  }
+  const d1Databases = d1Projection.d1Databases
   const blobRuntime = artifacts.blobRuntimeModules.cloudflare
 
   const wranglerConfig: CloudflareDBConfig = {
