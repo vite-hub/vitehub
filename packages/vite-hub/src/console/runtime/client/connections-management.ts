@@ -43,14 +43,46 @@ export function connectionStatusLabel(status: ConnectionInspection["status"]): s
   return { connected: "Connected", disconnected: "Not connected", reauth_required: "Reconnect required", revoked: "Revoked" }[status]
 }
 
+const statusColors = { connected: "success", disconnected: "neutral", reauth_required: "error", revoked: "neutral" } as const
+
+/** The badge color of a Connection status. Only a Connection that stopped working is red. */
+export function connectionStatusColor(status: ConnectionInspection["status"]): (typeof statusColors)[ConnectionInspection["status"]] {
+  return statusColors[status]
+}
+
+/** How the Console connects a Connection: OAuth redirects to the provider, an API key is pasted. */
+export function connectionCredentialLabel(credential: ConnectionInspection["credential"]): string {
+  return { "api-key": "API key", oauth2: "OAuth" }[credential]
+}
+
+/** The one action that a Connection needs next. */
+export interface ConnectionNextStep {
+  /** `connect` opens the provider authorization. `key` opens the API key form. */
+  readonly kind: "connect" | "key"
+  readonly label: "Connect" | "Reconnect" | "Replace key" | "Set key"
+}
+
+/** The next step of a Connection, or `undefined` when it is connected with every declared scope. */
+export function connectionNextStep(connection: Pick<ConnectionInspection, "credential" | "scopes" | "status">): ConnectionNextStep | undefined {
+  if (connection.status === "connected" && !connection.scopes.missing.length) return undefined
+  const fresh = connection.status === "disconnected" || connection.status === "revoked"
+  return connection.credential === "api-key"
+    ? { kind: "key", label: fresh ? "Set key" : "Replace key" }
+    : { kind: "connect", label: fresh ? "Connect" : "Reconnect" }
+}
+
 /** A short label for a Connection activity action. Connection tokens are stored as Env credentials. */
 export function connectionActivityLabel(action: EnvActivity["action"]): string {
   return { grant: "Grant", inspect: "Inspect", preview: "Preview", replace: "Store token", resolve: "Retrieve token", revoke: "Revoke", use: "Call" }[action]
 }
 
-/** The page that starts the provider authorization flow for one Connection. */
-export function connectionConnectURL(endpoint: string, name: string): string {
-  return `${endpoint.replace(/\/+$/, "")}/connect/${encodeURIComponent(name)}`
+/**
+ * The page that starts the provider authorization flow for one Connection. With `returnTo`, a same-origin
+ * path such as the Console page, the result page of the flow returns there.
+ */
+export function connectionConnectURL(endpoint: string, name: string, returnTo?: string): string {
+  const url = `${endpoint.replace(/\/+$/, "")}/connect/${encodeURIComponent(name)}`
+  return returnTo ? `${url}?return=${encodeURIComponent(returnTo)}` : url
 }
 
 /** The Console sends an API key only over HTTPS or to a loopback development server. */

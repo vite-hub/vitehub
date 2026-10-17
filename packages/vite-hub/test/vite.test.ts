@@ -214,9 +214,10 @@ async function providerOutputAliases(plugin: ProviderImportPlugin): Promise<Reco
 async function applyDeploymentConfig(
   options: Parameters<typeof vitehub>[0],
   config: Record<string, unknown> = {},
+  command: "build" | "serve" = "build",
 ): Promise<Record<string, unknown>> {
   const plugin = dependencyPluginByName(vitehub(options), "vite-hub/deployment-preset")
-  await callHook(plugin.config, [config, { command: "build", mode: "production" }])
+  await callHook(plugin.config, [config, { command, mode: command === "build" ? "production" : "development" }])
   return config
 }
 
@@ -1554,6 +1555,16 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "cloudflare" }))
     vitehub({ preset: "vercel", sandbox: true })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
+  })
+
+  it("keeps Rate Limit in memory on the dev server", async () => {
+    const options = { name: "acme", preset: "cloudflare", rateLimit: true } as const
+    await expect(applyDeploymentConfig(options, {}, "build")).resolves.toMatchObject({
+      rateLimit: { namespace: "acme", provider: "cloudflare" },
+    })
+    await expect(applyDeploymentConfig(options, {}, "serve")).resolves.toMatchObject({
+      rateLimit: { namespace: "acme", provider: "memory" },
+    })
   })
 
   it("uses the nearest package name for the deployment identity", async () => {

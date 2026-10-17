@@ -303,7 +303,7 @@ describe("built-in deployment preset integration", () => {
       const token = execFileSync(process.execPath, ["--input-type=module", "-e", `
         const { useServerEnv } = await import(${JSON.stringify(moduleUrl)})
         const serverEnv = useServerEnv({
-          env: { VITEHUB_GITHUB_TOKEN: "", GH_TOKEN: "fallback-token", GITHUB_TOKEN: "last-token", TELEGRAM_BOT_TOKEN: "telegram-token" },
+          env: { VITEHUB_GITHUB_TOKEN: "", FORGES_GITHUB_TOKEN: "fallback-token", GH_TOKEN: "ignored-token", GITHUB_TOKEN: "ignored-token", TELEGRAM_BOT_TOKEN: "telegram-token" },
         })
         console.log(serverEnv.github.token.unseal())
       `], { encoding: "utf8" })
@@ -312,7 +312,7 @@ describe("built-in deployment preset integration", () => {
       expect(types).toContain("\"telegram\": {")
       expect(types).toContain("\"botToken\": import(\"vite-hub/env/secret\").SecretEnv<string>")
       expect(types).toContain("\"webhookSecret\"?: import(\"vite-hub/env/secret\").SecretEnv<string>")
-      expect(types).toContain("\"appPrivateKey\"?: import(\"vite-hub/env/secret\").SecretEnv<string>")
+      expect(types).toContain("\"privateKey\"?: import(\"vite-hub/env/secret\").SecretEnv<string>")
       const description = await readFile(join(root, ".vitehub", "env", "description.mjs"), "utf8")
       expect(description).toContain("env.server.telegram.botToken")
 

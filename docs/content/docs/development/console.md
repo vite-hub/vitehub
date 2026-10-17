@@ -98,7 +98,9 @@ This view does not read secret values, call external providers, or check credent
 
 ## Manage Connections
 
-Open Connections to see each [Connection](/docs/connections) from `server/connections/`, with its provider, account, status, and token expiry. Select a Connection to open its details:
+Open Connections to see each [Connection](/docs/connections) from `server/connections/`. Each row shows the status, the type (**OAuth** or **API key**), and the account. A row that needs an action shows one button: **Connect** or **Set key** when it is not connected, and **Reconnect** or **Replace key** when it stopped working or misses declared scopes. Missing scopes and pending approvals show only when there are some. The Console does not create Connections: add a Connection Definition to `server/connections/`, then connect it here.
+
+**Connect** opens the provider consent page in the same tab. The result page shows the outcome and returns to Connections. A failure shows its error code, the fix, and a link back. Select a row to open its details:
 
 - **Connection** shows the account, scopes, and last error. **Connect** or **Reconnect** starts the provider consent flow and returns to the Console. For an API key Connection, **Set key** or **Replace key** stores a new key. The Console sends it only over HTTPS or to a loopback host. **Refresh token** refreshes the access token. **Disconnect** deletes the grant. It also revokes the grant at the provider when the provider supports revocation.
 - **Access** shows the rules from the Connection Definition for server code, routes, and Agents.
@@ -106,7 +108,7 @@ Open Connections to see each [Connection](/docs/connections) from `server/connec
 
 The Console registers `POST /_vitehub/connections`, `GET /_vitehub/connections/connect/:name`, and `GET /_vitehub/connections/callback` only when Connections is enabled. Each route runs the Console access policy itself, in development and in production, the same as the Console data routes. With Console Auth or app Auth, actions record the signed-in user as `user:<id>`. With `auth: false`, actions record `user:open`. With Cloudflare Access, they record `user:cloudflare-access`. When `console.authorize` returns `{ sections }`, the routes also need the `connections` section. The Connections section is not available in Nuxt apps.
 
-Starting Connect creates a single-use OAuth `state` in the Connections store. The browser opens the GET connect route, receives a `state` cookie, and follows a redirect to the provider. The provider redirects back to the GET callback route. The callback consumes the stored `state` and checks the browser cookie and the manager before it saves the grant. A `state` from another manager returns `403`. Proxies must forward both GET routes, their query strings, and cookies, as well as the management POST route. When Vite `base` is set, these routes use that mount prefix.
+Starting Connect creates a single-use OAuth `state` in the Connections store. The browser opens the GET connect route, receives a `state` cookie and a cookie with the Console page to return to, and follows a redirect to the provider. The provider redirects back to the GET callback route. The callback consumes the stored `state` and checks the browser cookie and the manager before it saves the grant. A `state` from another manager returns `403`. Proxies must forward both GET routes, their query strings, and cookies, as well as the management POST route. When Vite `base` is set, these routes use that mount prefix.
 
 ## Develop against a fixture
 

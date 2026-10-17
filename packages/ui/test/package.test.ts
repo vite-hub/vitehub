@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
-import { componentEntryName, componentNames } from "../src/component-entries.ts";
+import { componentNames } from "../src/component-names.ts";
 
 interface PackageManifest {
   dependencies: Record<string, string>;
@@ -59,12 +59,10 @@ const packageJson = parsePackageManifest(
 );
 const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
 
-const componentEntries = [...new Set(componentNames.map((name) => `./${componentEntryName(name)}`))];
-
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", ...componentEntries, "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
+      [".", "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
     );
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
@@ -91,7 +89,6 @@ describe("@vite-hub/ui package contract", () => {
   // Each fresh Node process gets its own timeout and reports the failing entrypoint.
   it.each([
     ".",
-    ...componentEntries,
     "./headless",
     "./nuxt",
     "./primitive-rail",
@@ -100,13 +97,9 @@ describe("@vite-hub/ui package contract", () => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
   });
 
-  it("keeps component entry exports identical to the root barrel", async () => {
-    const root = await import("../dist/index.js");
-    for (const component of componentNames) {
-      const entry = componentEntryName(component);
-      const subpath = await import(`../dist/${entry}.js`);
-      expect(subpath[component], entry).toBe(root[component]);
-    }
+  it("exports every component from the root entry", async () => {
+    const root: Record<string, unknown> = await import("../dist/index.js");
+    for (const component of componentNames) expect(root[component], component).toBeDefined();
   });
 
   it("ships flat console surfaces that fill their containers", () => {
