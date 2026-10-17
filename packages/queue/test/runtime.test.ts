@@ -1,9 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createServer } from "node:http"
+import { runInNewContext } from "node:vm"
 
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { Request as ForeignRequest } from "undici"
 
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
@@ -15,6 +17,7 @@ import { createCloudflareQueueRuntimeClient } from "../src/internal/runtime/clou
 import { createQueueClient } from "../src/runtime/create-client.ts"
 import { createQueueVercelServer } from "../src/internal/runtime/vercel-vite.ts"
 import { createVercelQueueRuntimeClient } from "../src/internal/runtime/vercel-client.ts"
+import { resolveVercelQueueRegion } from "../src/internal/vercel-region.ts"
 import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, loadQueueDefinition, missingQueueDefinitionError, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 
 import type { VercelQueueCallbackOptions } from "../src/types.ts"
@@ -730,6 +733,66 @@ describe("cloudflare queue runtime", () => {
 })
 
 describe("vercel provider", () => {
+  it.each(["unused", "consumed", "locked"])("preserves hosted callback Requests from an independent Fetch implementation with a %s body", async (state) => {
+    const request = runInNewContext(`
+      new Request("https://queue.example.test/callback", { method: "POST", body: "payload" })
+    `, { Request: ForeignRequest }) as Request
+    expect(request.constructor).not.toBe(Request)
+    expect(Object.getPrototypeOf(request) === Request.prototype).toBe(false)
+    expect(request).not.toBeInstanceOf(Request)
+    if (state === "consumed") await request.text()
+    const reader = state === "locked" ? request.body?.getReader() : undefined
+    let captured: unknown
+    vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
+      captured = values[0]
+      return "handled"
+    })
+    const definition = { handler: async () => undefined }
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    await expect(handleHostedVercelQueueCallback({ request }, "welcome", definition)).resolves.toBe("handled")
+    expect(captured).toBe(request)
+    expect(request.bodyUsed).toBe(state === "consumed")
+    reader?.releaseLock()
+    if (state !== "consumed") expect(await request.text()).toBe("payload")
+  })
+
+  it("converts spoofed Request-shaped objects through H3", async () => {
+    const request = runInNewContext(`
+      const headers = { get() { return null } }
+      const request = { headers, method: "POST", url: "https://queue.example.test/callback" }
+      Object.defineProperty(request, Symbol.toStringTag, { value: "Request" })
+      request
+    `, { Symbol })
+    let captured: unknown
+    vercelQueueMock.handleCallback.mockImplementationOnce(() => async (...values: unknown[]) => {
+      captured = values[0]
+      return "handled"
+    })
+    const definition = { handler: async () => undefined }
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    const h3Request = new Request("https://queue.example.test/callback", {
+      headers: { "content-type": "text/plain" },
+      method: "POST",
+      body: "payload",
+    })
+    await expect(handleHostedVercelQueueCallback({
+      method: "POST",
+      req: h3Request,
+      request,
+    } as never, "welcome", definition)).resolves.toBe("handled")
+    expect(captured).not.toBe(request)
+    expect(captured).toBeInstanceOf(Request)
+    const normalized = captured as Request
+    expect(normalized.url).toBe(h3Request.url)
+    expect(normalized.method).toBe("POST")
+    expect(normalized.headers.get("content-type")).toBe("text/plain")
+    expect(await normalized.text()).toBe("payload")
+  })
+
   it("requires a selected client factory for default manual servers", () => {
     expect(() => createQueueVercelServer({} as never)).toThrow("requires its generated client factory")
     expect(() => createQueueVercelServer({ queue: false })).not.toThrow()
@@ -1029,7 +1092,7 @@ describe("vercel provider", () => {
     expect(vercelQueueMock.options).toEqual({ region: "fra1" })
   })
 
-  it("does not cache regions inferred from Vercel requests", async () => {
+it("does not cache regions inferred from Vercel requests", async () => {
     setQueueRuntimeConfig({ provider: "vercel" }, createVercelQueueRuntimeClient)
     setQueueRuntimeRegistry({
       welcome: async () => ({ handler: async () => {} }),
@@ -1099,4 +1162,102 @@ describe("vercel provider", () => {
 
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   })
+})
+
+it("reads regions from a request created in another realm", () => {
+  const request = runInNewContext(`(() => {
+    class Headers {}
+    Headers.prototype.get = BaseHeaders.prototype.get
+    class Request {
+      constructor(input, init) {
+        const request = new BaseRequest(input, init)
+        Object.setPrototypeOf(request.headers, Headers.prototype)
+        Object.setPrototypeOf(request, Request.prototype)
+        return request
+      }
+    }
+    Object.defineProperty(Request.prototype, "headers", {
+      get: BaseRequest.prototype.__lookupGetter__("headers"),
+    })
+    return new Request("https://example.com", {
+      headers: { "ce-vqsregion": "ams1" },
+    })
+  })()`, { BaseRequest: Request, BaseHeaders: Headers })
+  expect(request).not.toBeInstanceOf(Request)
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
+})
+
+it("falls back to Vercel ID when a request has no queue-region header", () => {
+  const request = new Request("https://example.com", {
+    headers: { "x-vercel-id": "iad1::request" },
+  })
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "iad1" })
+})
+
+it("reads regions when the branding probe header is present", () => {
+  const request = new Request("https://example.com", {
+    headers: {
+      "x-vitehub-brand-probe": "present",
+      "ce-vqsregion": "ams1",
+    },
+  })
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
+})
+
+it("reads headers through a deep Fetch prototype chain", () => {
+  const request = new Request("https://example.com", {
+    headers: { "ce-vqsregion": "ams1" },
+  })
+  let prototype = Object.getPrototypeOf(request)
+  for (let index = 0; index < 300; index++) {
+    const layer = Object.create(prototype)
+    prototype = layer
+  }
+  Object.setPrototypeOf(request, prototype)
+
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
+})
+
+it("ignores proxies around ordinary header methods", () => {
+  const get = new Proxy(() => "evil", {})
+  const request = { headers: { get } }
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
+})
+
+it("rejects receiver-dependent header method proxies", () => {
+  const headers = Object.create(Headers.prototype) as Headers
+  const get = new Proxy(() => "evil", {
+    apply(_target, thisArg) {
+      if (thisArg === headers) return "evil"
+      throw new TypeError("invalid receiver")
+    },
+  })
+  Object.defineProperty(headers, "get", { value: get })
+  const request = { headers }
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
+})
+it("rejects header proxies that only impersonate real receivers", () => {
+  const headers = Object.create(Headers.prototype) as Headers
+  const get = new Proxy(() => null, {
+    apply(_target, thisArg) {
+      if (thisArg === headers) return "evil"
+      if (thisArg && Object.getPrototypeOf(thisArg) === Headers.prototype) return null
+      throw new TypeError("invalid receiver")
+    },
+  })
+  Object.defineProperty(headers, "get", { value: get })
+  const request = { headers }
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
+})
+
+
+it("ignores request objects that only spoof Web API brands", () => {
+  const request = runInNewContext(`({
+    headers: {
+      get: () => "evil",
+      get [Symbol.toStringTag]() { return "Headers" },
+    },
+    get [Symbol.toStringTag]() { return "Request" },
+  })`)
+  expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined)).region).toBeUndefined()
 })

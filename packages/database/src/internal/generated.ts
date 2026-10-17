@@ -134,18 +134,29 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
 
 function renderSchemaType(variables: string[]) {
   const [first, ...rest] = variables.map(variable => `typeof ${variable}.schema`)
-  return rest.reduce((merged, next) => `Omit<${merged}, keyof ${next}> & ${next}`, first!)
+  if (!first) return "{}"
+  return rest.reduce((merged, next) => `Omit<${merged}, keyof ${next}> & ${next}`, first)
 }
 
-function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatabaseDefinition[]) {
+function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig, loadedContributions: ReadonlyMap<string, readonly ResolvedDatabaseContribution[]>, activeDefinitions: readonly DiscoveredDatabaseDefinition[] = config.definitions) {
+  const { definitions } = { definitions: activeDefinitions }
   const variables = definitions.map((definition, index) => schemaSourceVariables(definition, `database_${index}`, `database_${index}_`))
-  const imports = definitions.flatMap((definition, index) => definition.schemaSources.map((source, sourceIndex) =>
-    `import type ${variables[index]![sourceIndex]} from ${JSON.stringify(createImportPath(file, source.handler))}`))
-  const schemaTypes = variables.map(renderSchemaType)
+  const imports = definitions.flatMap((definition, index) => [
+    ...definition.schemaSources.map((source, sourceIndex) =>
+      `import type ${variables[index]![sourceIndex]} from ${JSON.stringify(createImportPath(file, source.handler))}`),
+    ...(loadedContributions.get(definition.name) ?? []).map((contribution, contributionIndex) =>
+      renderContributionImport(file, contribution, `contribution_${index}_${contributionIndex}`, true)),
+  ])
+  // A later layer source replaces a key. Contributed tables never share a key with the Definition, so the
+  // intersection equals the merged schema.
+  const schemaType = (definition: DiscoveredDatabaseDefinition, index: number) => [
+    renderSchemaType(variables[index]!),
+    ...(loadedContributions.get(definition.name) ?? []).map((_, contributionIndex) => `typeof contribution_${index}_${contributionIndex}`),
+  ].join(" & ")
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
   const registryEntries = definitions.flatMap((definition, index) => [
     `    ${JSON.stringify(definition.name)}: {`,
-    `      schema: ${schemaTypes[index]}`,
+    `      schema: ${schemaType(definition, index)}`,
     "    },",
   ])
   const registryDeclarations = ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(moduleName => [
@@ -160,7 +171,7 @@ function renderGeneratedDatabaseTypes(file: string, definitions: DiscoveredDatab
   return [
     ...imports,
     "",
-    `type DefaultDatabaseSchema = ${schemaTypes[schemaDefinitionIndex]}`,
+    `type DefaultDatabaseSchema = ${definitions.length ? schemaType(definitions[schemaDefinitionIndex]!, schemaDefinitionIndex) : "{}"}`,
     "",
     'declare module "#vitehub/database/schema" {',
     "  interface DatabaseSchema extends DefaultDatabaseSchema {}",
@@ -189,7 +200,7 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
   await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config), "utf8")
   await mkdir(dirname(generatedTypesFile), { recursive: true })
-  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config.definitions), "utf8")
+  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config, loadedContributions, activeDefinitions), "utf8")
   await Promise.all(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })

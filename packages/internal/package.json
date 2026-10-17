@@ -55,7 +55,11 @@
     "./nitro-kit": "./dist/nitro-kit.js",
     "./workspace-inventory": "./dist/workspace-inventory.js",
     "./test/e2e-live": "./src/test/e2e-live.mjs",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./package-exports": {
+      "types": "./src/package-exports.ts",
+      "default": "./src/package-exports.ts"
+    }
   },
   "scripts": {
     "build": "vp pack",

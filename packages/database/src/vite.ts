@@ -22,11 +22,14 @@ import { dbPackageName, generateProviderOutputs, prepareProviderOutputs, shouldC
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions } from "./inspect.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
+import { resolveSourceImport } from "./internal/source-dependencies.ts"
 
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
+import type { CollectedDatabaseContribution, DatabaseContributingPlugin } from "./contributions.ts"
+import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
@@ -142,6 +145,53 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
     "export default databases",
     "",
   ].join("\n")
+}
+
+
+function normalizeModulePath(id: string) {
+  return normalize(id.split("?", 1)[0]!)
+}
+
+function moduleGraphContainsFile(server: Pick<ViteDevServer, "moduleGraph">, entry: string, changedFile: string, affected: readonly ModuleNode[] = []) {
+  const root = server.moduleGraph.getModuleById(entry)
+  const pending: ModuleNode[] = root ? [root] : []
+  const visited = new Set<ModuleNode>()
+  while (pending.length) {
+    const module = pending.pop()!
+    if (visited.has(module)) continue
+    visited.add(module)
+    if (module.id && normalizeModulePath(module.id) === changedFile) return true
+    pending.push(...module.importedModules)
+  }
+  // For an unloaded changed file, Vite may provide an affected importer node but
+  // no module node for the file. Walk those nodes' importers to find the entry.
+  const importerSearch: ModuleNode[] = [...affected]
+  const importerVisited = new Set<ModuleNode>()
+  while (importerSearch.length) {
+    const module = importerSearch.pop()!
+    if (importerVisited.has(module)) continue
+    importerVisited.add(module)
+    if (module.id && normalizeModulePath(module.id) === normalizeModulePath(entry)) return true
+    importerSearch.push(...module.importers)
+  }
+  return false
+}
+
+async function collectSourceDependencies(file: string, require: NodeRequire, files: Set<string>, seen = new Set<string>()) {
+  file = normalize(file)
+  if (seen.has(file)) return
+  seen.add(file)
+  files.add(file)
+  let source: string
+  try { source = await readFile(file, "utf8") } catch { return }
+  const imports = source.matchAll(/(?:from\s*["']|import\s*\(\s*["']|import\s*["']|export\s+[^;]*?from\s*["'])([^"']+)["']/g)
+  for (const match of imports) {
+    try {
+      const resolved = resolveSourceImport(match[1]!, file, require)
+      if (resolved) await collectSourceDependencies(normalize(resolved), require, files, seen)
+    }
+    catch { /* unresolved aliases are handled by the host module graph */ }
+  }
 }
 
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
@@ -270,6 +320,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
               rootDir: databaseRoot(),
               serverDirs: databaseServerDirs(),
+              viteRoot: resolved?.root,
             }),
           }],
           providerOutput: runtime ? [
@@ -316,18 +367,27 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     async handleHotUpdate(context) {
       if (!runtimeConfig) return
 
-      const changedFile = normalize(context.file)
-      const isDatabaseUpdate = runtimeConfig.definitions.some(definition => definition.schemaSources.some(source => normalize(source.handler) === changedFile))
+      const changedFile = normalizeModulePath(context.file)
+      // Definitions and contributed table modules can import the changed file.
+      const isDatabaseUpdate = [...runtimeConfig.definitions.map(definition => definition.handler), ...contributionDependencyFiles].some(file =>
+        normalizeModulePath(file) === changedFile
+        || moduleGraphContainsFile(context.server, file, changedFile, context.modules),
+      ) || [...contributionDirectories].some(directory => changedFile === directory || changedFile.startsWith(`${normalizeModulePath(directory)}/`))
       if (!isDatabaseUpdate) return
 
       await refreshRuntimeConfig()
 
-      const schemaModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_SCHEMA_ID)
-      const databasesModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DATABASES_ID)
-      const definitionDefaultsModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID)
-      if (schemaModule) context.server.moduleGraph.invalidateModule(schemaModule)
-      if (databasesModule) context.server.moduleGraph.invalidateModule(databasesModule)
-      if (definitionDefaultsModule) context.server.moduleGraph.invalidateModule(definitionDefaultsModule)
+      // Vite only soft-invalidates the importers of a changed file and keeps their old code.
+      // The refresh rewrites the generated schemas, so they must load again from disk.
+      for (const id of [
+        RESOLVED_DB_VIRTUAL_SCHEMA_ID,
+        RESOLVED_DB_VIRTUAL_DATABASES_ID,
+        RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID,
+        ...Object.values(runtimeConfig?.generatedSchemaFilesByDatabase ?? {}),
+      ]) {
+        const module = context.server.moduleGraph.getModuleById(id)
+        if (module) context.server.moduleGraph.invalidateModule(module)
+      }
     },
     async buildEnd(error) {
       if (error) {

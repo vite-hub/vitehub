@@ -1,5 +1,7 @@
-import { copyFile, mkdir, readdir, rm } from "node:fs/promises"
-import { dirname, resolve, sep } from "node:path"
+import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { watch as watchFs, type FSWatcher } from "node:fs"
+import { createRequire } from "node:module"
+import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -22,6 +24,7 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
+import type { CollectedDatabaseContribution } from "./contributions.ts"
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions, NuxtDatabaseViteOptions } from "./types.ts"
 import type { Plugin } from "vite"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -59,6 +62,7 @@ type NuxtLike = {
     (name: "builder:watch", callback: (event: string, path: string) => Promise<void> | void): void
   }
   options: Record<string, unknown> & {
+    alias?: Record<string, string>
     _layers?: NuxtServerDirOptions["_layers"]
     buildDir?: string
     dev?: boolean
@@ -239,6 +243,25 @@ function resolveDatabaseNuxtProvisionState(provisionState: ReturnType<typeof rea
   if (!resolvedDatabaseName) return
   const databaseId = provisionState.cloudflare?.d1Nuxt?.[getDatabaseNuxtProvisionStateKey(resolvedDatabaseName)]
   return databaseId ? { cloudflare: { d1: { default: databaseId } } } : undefined
+}
+
+async function collectWatchedModuleFiles(file: string, require: NodeRequire, files: Set<string>, seen = new Set<string>()) {
+  file = resolve(file)
+  if (seen.has(file)) return
+  seen.add(file)
+  files.add(file)
+  const loaded = require.cache?.[file]
+  for (const child of loaded?.children ?? []) await collectWatchedModuleFiles(child.filename, require, files, seen)
+  let source: string
+  try { source = await readFile(file, "utf8") } catch { return }
+  const imports = source.matchAll(/(?:from\s*["']|import\s*\(\s*["']|import\s*["']|export\s+[^;]*?from\s*["'])([^"']+)["']/g)
+  for (const match of imports) {
+    try {
+      const resolved = resolveSourceImport(match[1]!, file, require)
+      if (resolved) await collectWatchedModuleFiles(resolved, require, files, seen)
+    }
+    catch { /* unresolved aliases are handled by Nuxt */ }
+  }
 }
 
 const nuxtModule: DatabaseNuxtModule = hubDb()

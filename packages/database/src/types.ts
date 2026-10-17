@@ -94,7 +94,7 @@ export interface DatabaseSchemaSource {
   /** Database Definition file. ViteHub reads tables from its default export's `schema`. */
   handler: string
   /** Table keys that ViteHub can read without running the module. */
-  tableNames: string[]
+  tableNames?: string[]
 }
 
 export interface DiscoveredDatabaseDefinition {
@@ -112,7 +112,7 @@ export interface DiscoveredDatabaseDefinition {
   schemaSources: DatabaseSchemaSource[]
   source: string
   /** Table keys of all schema sources. */
-  tableNames: string[]
+  tableNames?: string[]
 }
 
 export interface ResolvedCloudflareD1BindingConfig {

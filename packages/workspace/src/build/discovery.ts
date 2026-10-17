@@ -28,6 +28,8 @@ export interface DiscoveredWorkspaceDefinition {
   name: string
   /** Absolute file path, or the package specifier of a contributed definition. */
   path: string
+  /** Why the plugin contributed the definition. Only set for contributed definitions. */
+  reason?: string
   source?: string
   sourceRootDir?: string
 }

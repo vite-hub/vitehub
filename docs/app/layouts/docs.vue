@@ -45,6 +45,7 @@ const hasPanel = computed(
    The site footer sits in this column, so the sidebars run the full height beside it. On short pages it rests at the bottom of the viewport. */
 .vh-docs-content {
   display: flex;
+  flex: 1;
   min-width: 0;
   max-width: none;
   min-height: calc(100dvh - var(--ui-header-height));
@@ -59,7 +60,9 @@ const hasPanel = computed(
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;
+    overflow-x: clip;
   }
+
 
   .vh-docs-shell > .vh-docs-desktop-nav {
     display: flex;
@@ -69,6 +72,9 @@ const hasPanel = computed(
     max-height: calc(100dvh - var(--ui-header-height));
     min-height: calc(100dvh - var(--ui-header-height));
     flex: 0 0 auto;
+    flex-direction: column;
+    overflow: visible;
+    border-right: 1px solid var(--ui-border);
   }
 
   .vh-docs-shell > .vh-docs-desktop-nav :deep(.vh-docs-sidebars) {
@@ -91,5 +97,22 @@ const hasPanel = computed(
   .vh-docs-content {
     flex: 1;
   }
+
+  :deep(.vh-docs-sidebars) {
+    height: 100%;
+    min-height: 0;
+  }
+
+  :deep(.vh-docs-panel) {
+    max-height: calc(100dvh - var(--ui-header-height));
+  }
+
+  /* Keep the actual sidebar element's columns and border constrained to the viewport. */
+  :deep(.vh-docs-sidebars) {
+    flex-direction: row;
+    overflow: visible;
+    border-right: 1px solid var(--ui-border);
+  }
 }
+
 </style>

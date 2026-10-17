@@ -45,10 +45,36 @@ function inheritColocatedSkills(parent: Record<string, unknown>, child: Record<s
   })
 }
 
+function nativePrototype(value: unknown, constructor: { readonly prototype: object }): boolean {
+  if (value === null || !hasRuntimeType(value, "object")) return false
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype === constructor.prototype) return true
+  if (prototype === null || !hasRuntimeType(prototype, "object")) return false
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
+  if (!descriptor || !("value" in descriptor) || !hasRuntimeType(descriptor.value, "function")) return false
+  return Function.prototype.toString.call(descriptor.value) === Function.prototype.toString.call(constructor)
+    && Object.getOwnPropertyDescriptor(descriptor.value, "prototype")?.value === prototype
+}
+
+function nativeBuffer(value: unknown): boolean {
+  if (globalThis.Buffer === undefined || value === null || !hasRuntimeType(value, "object")) return false
+  const prototype = Object.getPrototypeOf(value)
+  if (!prototype || !hasRuntimeType(prototype, "object")) return false
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
+  if (!descriptor || !("value" in descriptor) || !hasRuntimeType(descriptor.value, "function")) return false
+  // A subclass inherits Buffer's static helpers, while each native Buffer
+  // constructor owns them. This also works when the constructor is foreign.
+  return Function.prototype.toString.call(descriptor.value) === Function.prototype.toString.call(Buffer)
+    && Object.getOwnPropertyDescriptor(descriptor.value, "from") !== undefined
+    && Object.getOwnPropertyDescriptor(descriptor.value, "alloc") !== undefined
+    && Object.getOwnPropertyDescriptor(descriptor.value, "isBuffer") !== undefined
+    && Object.getOwnPropertyDescriptor(descriptor.value, "prototype")?.value === prototype
+}
+
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && hasRuntimeType(value, "object")
     && !Array.isArray(value)
-    && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+    && (Object.getPrototypeOf(value) === null || nativePrototype(value, Object))
 }
 
 // These maps contain definitions and callbacks, not configuration to merge recursively.
@@ -284,14 +310,14 @@ function clonePresetDescriptors(source: object, target: object, memo: WeakMap<ob
   }
 }
 
-function variablePresetBacking(value: ArrayBufferLike): boolean {
-  const prototype = value instanceof ArrayBuffer ? ArrayBuffer.prototype : SharedArrayBuffer.prototype
-  const property = value instanceof ArrayBuffer ? "resizable" : "growable"
+function variablePresetBacking(value: ArrayBufferLike, shared: boolean): boolean {
+  const prototype = shared ? SharedArrayBuffer.prototype : ArrayBuffer.prototype
+  const property = shared ? "growable" : "resizable"
   return Object.getOwnPropertyDescriptor(prototype, property)?.get?.call(value) === true
 }
 
-function detachedPresetBacking(value: ArrayBufferLike): boolean {
-  if (!(value instanceof ArrayBuffer)) return false
+function detachedPresetBacking(value: ArrayBufferLike, shared: boolean): boolean {
+  if (shared) return false
   try {
     new Uint8Array(value)
     return false
@@ -301,13 +327,31 @@ function detachedPresetBacking(value: ArrayBufferLike): boolean {
   }
 }
 
-function clonePresetBacking(value: ArrayBufferLike): ArrayBufferLike {
-  const prototype = value instanceof ArrayBuffer ? ArrayBuffer.prototype : SharedArrayBuffer.prototype
+function clonePresetBacking(value: ArrayBufferLike, shared: boolean): ArrayBufferLike {
+  const prototype = shared ? SharedArrayBuffer.prototype : ArrayBuffer.prototype
   // SAFETY: The intrinsic accessor returns the backing store size without invoking application properties.
   const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")!.get!.call(value) as number
-  const clone = value instanceof ArrayBuffer ? new ArrayBuffer(byteLength) : new SharedArrayBuffer(byteLength)
+  const clone = shared ? new SharedArrayBuffer(byteLength) : new ArrayBuffer(byteLength)
   new Uint8Array(clone).set(new Uint8Array(value))
   return clone
+}
+
+function presetBackingKind(value: unknown): "array" | "shared" | undefined {
+  if (value === null || !hasRuntimeType(value, "object")) return
+  try {
+    Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+    return "array"
+  }
+  catch {
+    if (globalThis.SharedArrayBuffer === undefined) return
+    try {
+      Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!.call(value)
+      return "shared"
+    }
+    catch {
+      return
+    }
+  }
 }
 
 function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>(), active = new WeakMap<object, unknown>()): unknown {
@@ -321,31 +365,27 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     return clone
   }
   if (Array.isArray(value)) {
-    if (Object.getPrototypeOf(value) !== Array.prototype) return value
+    if (!nativePrototype(value, Array)) return value
     const clone: unknown[] = []
     clone.length = value.length
     return finish(clone)
   }
-  if (value instanceof Date) {
-    if (Object.getPrototypeOf(value) !== Date.prototype) return value
+  if (nativePrototype(value, Date)) {
     return finish(new Date(Date.prototype.getTime.call(value)))
   }
-  if (value instanceof Map) {
-    if (Object.getPrototypeOf(value) !== Map.prototype) return value
+  if (nativePrototype(value, Map)) {
     const clone = new Map<unknown, unknown>()
     memo.set(value, clone)
     for (const [key, entry] of Map.prototype.entries.call(value)) clone.set(clonePresetOption(key, memo, active), clonePresetOption(entry, memo, active))
     return finish(clone)
   }
-  if (value instanceof Set) {
-    if (Object.getPrototypeOf(value) !== Set.prototype) return value
+  if (nativePrototype(value, Set)) {
     const clone = new Set<unknown>()
     memo.set(value, clone)
     for (const entry of Set.prototype.values.call(value)) clone.add(clonePresetOption(entry, memo, active))
     return finish(clone)
   }
-  if (value instanceof RegExp) {
-    if (Object.getPrototypeOf(value) !== RegExp.prototype) return value
+  if (nativePrototype(value, RegExp)) {
     // SAFETY: Intrinsic accessors read RegExp slots without invoking own properties.
     const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value) as string
     const flags = [
@@ -354,25 +394,24 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     ].filter(([property]) => Object.getOwnPropertyDescriptor(RegExp.prototype, property)?.get?.call(value)).map(([, flag]) => flag).join("")
     return finish(new RegExp(source, flags))
   }
-  if (value instanceof URL) {
-    if (Object.getPrototypeOf(value) !== URL.prototype) return value
+  if (nativePrototype(value, URL)) {
     // SAFETY: The intrinsic accessor reads URL state without invoking an own href property.
     const href = Object.getOwnPropertyDescriptor(URL.prototype, "href")!.get!.call(value) as string
     return finish(new URL(href))
   }
-  if (value instanceof URLSearchParams) {
-    if (Object.getPrototypeOf(value) !== URLSearchParams.prototype) return value
+  if (nativePrototype(value, URLSearchParams)) {
     return finish(new URLSearchParams(URLSearchParams.prototype.toString.call(value)))
   }
-  if (value instanceof ArrayBuffer) {
-    if (Object.getPrototypeOf(value) !== ArrayBuffer.prototype) return value
-    if (variablePresetBacking(value) || detachedPresetBacking(value)) return value
-    return finish(clonePresetBacking(value))
+  if (nativePrototype(value, ArrayBuffer)) {
+    // SAFETY: ArrayBuffer's intrinsic accessors accept only genuine ArrayBuffers;
+    // the nativePrototype check excludes application-defined subclasses.
+    if (variablePresetBacking(value as ArrayBuffer, false) || detachedPresetBacking(value as ArrayBuffer, false)) return value
+    // SAFETY: nativePrototype and the guarded backing checks establish an ArrayBuffer internal slot.
+    return finish(clonePresetBacking(value as ArrayBuffer, false))
   }
-  if (globalThis.SharedArrayBuffer && value instanceof SharedArrayBuffer) {
-    if (Object.getPrototypeOf(value) !== SharedArrayBuffer.prototype) return value
-    if (variablePresetBacking(value) || detachedPresetBacking(value)) return value
-    return finish(clonePresetBacking(value))
+  if (globalThis.SharedArrayBuffer && nativePrototype(value, SharedArrayBuffer)) {
+    if (variablePresetBacking(value as SharedArrayBuffer, true) || detachedPresetBacking(value as SharedArrayBuffer, true)) return value
+    return finish(clonePresetBacking(value as SharedArrayBuffer, true))
   }
   if (ArrayBuffer.isView(value)) {
     const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype)
@@ -381,26 +420,30 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       readonly prototype: object
       readonly BYTES_PER_ELEMENT: number
     }[] = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, BigInt64Array, BigUint64Array]
-    const TypedArray = constructors.find(ctor => Object.getPrototypeOf(value) === ctor.prototype)
-    const isBuffer = globalThis.Buffer !== undefined && Object.getPrototypeOf(value) === Buffer.prototype
-    const isDataView = Object.getPrototypeOf(value) === DataView.prototype
+    const TypedArray = constructors.find(ctor => nativePrototype(value, ctor))
+    const isBuffer = nativeBuffer(value)
+    const isDataView = nativePrototype(value, DataView)
     if (!TypedArray && !isBuffer && !isDataView) return value
     const prototype = isDataView ? DataView.prototype : typedArrayPrototype
     // SAFETY: Intrinsic view accessors return the backing buffer and numeric range without invoking application properties.
     const buffer = Object.getOwnPropertyDescriptor(prototype, "buffer")!.get!.call(value) as ArrayBufferLike
     // The platform cannot report whether a view tracks buffer length. Preserve these
     // views atomically, including out-of-bounds views whose range accessors throw.
-    if (variablePresetBacking(buffer) || detachedPresetBacking(buffer)) return value
+    const backingKind = presetBackingKind(buffer)
+    if (!backingKind) return value
+    const sharedBuffer = backingKind === "shared"
+    if (variablePresetBacking(buffer, sharedBuffer) || detachedPresetBacking(buffer, sharedBuffer)) return value
     // SAFETY: The intrinsic byteOffset accessor returns a number.
     const byteOffset = Object.getOwnPropertyDescriptor(prototype, "byteOffset")!.get!.call(value) as number
     // SAFETY: The intrinsic byteLength accessor returns a number.
     const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")!.get!.call(value) as number
-    const bufferPrototype = Object.getPrototypeOf(buffer)
-    const standardBuffer = bufferPrototype === ArrayBuffer.prototype || (globalThis.SharedArrayBuffer && bufferPrototype === SharedArrayBuffer.prototype)
+    // Every recognized view has an ArrayBuffer or SharedArrayBuffer backing
+    // store. Clone it even when its realm's intrinsic prototype is foreign.
+    const standardBuffer = true
     const populateBacking = standardBuffer && !memo.has(buffer) && !active.has(buffer)
     // Allocate the backing store before traversing its properties. It may point back to this view.
     // SAFETY: Buffer clones and existing memo entries retain the backing store type.
-    const clonedBuffer = (populateBacking ? clonePresetBacking(buffer) : active.get(buffer) ?? memo.get(buffer) ?? buffer) as ArrayBufferLike
+    const clonedBuffer = (populateBacking ? clonePresetBacking(buffer, sharedBuffer) : active.get(buffer) ?? memo.get(buffer) ?? buffer) as ArrayBufferLike
     if (populateBacking) memo.set(buffer, clonedBuffer)
     const clone = isBuffer ? Buffer.from(clonedBuffer, byteOffset, byteLength)
       : isDataView ? new DataView(clonedBuffer, byteOffset, byteLength)

@@ -3,7 +3,7 @@ import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
-import { CollectionCursorError, defineCollection } from "../src/index.ts"
+import { array, CollectionCursorError, defineCollection } from "../src/index.ts"
 
 interface Row {
   createdAt: number
@@ -136,6 +136,13 @@ describe("Collections", () => {
     await expect(collection.page({ query: {} })).resolves.toMatchObject({
       nextCursor: expect.any(String),
     })
+  })
+
+  it("accepts source loaders created in another realm", async () => {
+    const load = runInNewContext("() => [{ id: 'one' }]") as () => readonly { id: string }[]
+    const collection = defineCollection({ source: array(load) })
+
+    await expect(collection.page({ query: {} })).resolves.toMatchObject({ items: [{ id: "one" }] })
   })
 
   it("derives the continuation cursor before a transform mutates its source item", async () => {

@@ -99,6 +99,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     serverDirs: context.serverDirs,
   })),
   registerConsoleSection(scheduleConsoleSection, context => ({
+    plugins: context.plugins,
     projectRoot: context.projectRoot,
     rootDir: context.discoveryRoot,
     serverDirs: context.serverDirs,

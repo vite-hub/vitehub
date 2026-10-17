@@ -437,7 +437,7 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
   const appTables = new Set(app?.tableNames)
   const tableOwners = new Map<string, FoundDatabaseDefinition>()
   for (const definition of layers) {
-    for (const tableName of definition.tableNames) {
+    for (const tableName of definition.tableNames ?? []) {
       const owner = tableOwners.get(tableName)
       if (owner && !appTables.has(tableName)) {
         throw databaseErrorDiagnostics.DATABASE_C0009({ message: [
@@ -452,11 +452,11 @@ function mergeLayerDefinitions(name: string, entries: Array<{ definition: FoundD
 
   const owner = (appConfigures ? app : configuringLayers[0]) ?? app ?? layers[0]!
   // Later sources take precedence, so the application comes last.
-  const schemaSources = [...ordered].reverse().map(({ definition }) => ({ handler: definition.handler, tableNames: definition.tableNames }))
+  const schemaSources = [...ordered].reverse().map(({ definition }) => ({ handler: definition.handler, tableNames: (definition.tableNames ?? []) }))
   return {
     ...owner,
     schemaSources,
-    tableNames: [...new Set(ordered.flatMap(({ definition }) => definition.tableNames))],
+    tableNames: [...new Set(ordered.flatMap(({ definition }) => (definition.tableNames ?? [])))],
   }
 }
 
@@ -635,6 +635,11 @@ export function resolveDBViteConfig(
     }
   }
 
+  const tableContributionsByDatabase = resolveDatabaseContributionTargets(
+    definitions.map(definition => definition.name),
+    context.contributions ?? [],
+    Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect])),
+  )
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
   if (options && options.driver === "d1") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
   if (options && options.connection) definitionDefaults.connection = options.connection
