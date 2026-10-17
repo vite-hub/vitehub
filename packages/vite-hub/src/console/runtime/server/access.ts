@@ -94,25 +94,20 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       // small caller-created prototype can imitate the transferable fields,
       // but it must not be mistaken for a Response implementation without
       // the rest of its standard accessors.
-      const accessors = ["body", "bodyUsed", "headers", "status", "statusText", "type", "url", "redirected", "ok"]
+      const accessors = ["body", "bodyUsed", "headers", "status", "statusText", "type", "url", "redirected", "ok", Symbol.toStringTag]
       const hasResponseAccessors = accessors.every(method => {
         const descriptor = Object.getOwnPropertyDescriptor(responsePrototype, method)
         // Fetch implementations may expose these properties as own fields on
         // each instance (happy-dom does this) instead of prototype getters.
         return typeof descriptor?.get === "function" || Object.prototype.hasOwnProperty.call(value, method)
       })
-      // At least one standard accessor must be implementation-owned on the
-      // prototype. A caller-created prototype can copy the method and tag
-      // descriptors, but cannot provide a genuine accessor-backed Response
-      // surface while keeping all fields as arbitrary own values.
-      // One accessor is easy for a forged prototype to provide while placing
-      // the remaining fields on the instance. Require multiple accessors so
-      // the prototype itself carries a meaningful part of the implementation
-      // contract; this still accepts Fetch implementations that mix prototype
-      // accessors with own instance fields.
+      // Require multiple implementation accessors on the prototype. A caller-created
+      // prototype can provide one getter while placing the remaining fields on
+      // the instance; genuine implementations such as happy-dom expose both
+      // body and Symbol.toStringTag accessors while keeping other fields own.
       const prototypeAccessorCount = accessors.filter(method =>
         typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function").length
-      const hasPrototypeAccessor = prototypeAccessorCount >= 1
+      const hasPrototypeAccessor = prototypeAccessorCount >= 2
       if (typeof cloneDescriptor?.value === "function"
         && hasResponseMethods
         && hasResponseAccessors

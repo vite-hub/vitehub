@@ -150,6 +150,7 @@ describe("Console access policies", () => {
     "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: null })",
     "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: null, clone() { return { [Symbol.toStringTag]: 'Response' } } })",
     "Object.assign(Object.create({ clone() { return { [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: null } } }), { [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: null })",
+    "(() => { const proto = { get [Symbol.toStringTag]() { return 'Response' }, clone() { return Object.create(proto, { status: { value: 401 }, statusText: { value: '' }, headers: { value: [] }, body: { value: null } }) } }; Object.defineProperty(proto, 'constructor', { value: { prototype: proto } }); return Object.create(proto, { status: { value: 401 }, statusText: { value: '' }, headers: { value: [] }, body: { value: null } }) })()",
     "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [], body: {} })",
     "({ [Symbol.toStringTag]: 'Response', status: 401, statusText: '', headers: [['invalid header', 'value']], body: null })",
   ])("rejects malformed Response fields: %s", async source => {
