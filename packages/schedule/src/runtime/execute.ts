@@ -74,6 +74,7 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
 function getDateTime(value: unknown): number | undefined {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return
   try {
+    if (Object.prototype.toString.call(value) !== "[object Date]") return
     const time = Reflect.apply(Date.prototype.getTime, value, [])
     return typeof time === "number" && !Number.isNaN(time) ? time : undefined
   }
