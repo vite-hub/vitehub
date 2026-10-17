@@ -119,11 +119,14 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === "/docs");
 }
 
 .vh-docs-context-category {
+  overflow: hidden;
   color: var(--ui-text-dimmed);
   font-size: 0.625rem;
   font-weight: 600;
+  letter-spacing: 0.07em;
   line-height: 1.25;
   text-overflow: ellipsis;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
