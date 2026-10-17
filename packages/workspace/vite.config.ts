@@ -36,6 +36,7 @@ export default defineConfig({
       "src/publish.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
+      "src/internal/path.ts",
       "src/runtime/history-dev.ts",
       "src/source-metadata.ts",
       "src/runtime/empty-assets-registry.ts",
