@@ -751,6 +751,31 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
 
+    // Reader validation yields to the event loop. Re-read the source
+    // response's intrinsic disturbed state immediately before acquiring the
+    // bridge reader so a body consumed during validation cannot be admitted
+    // after its reader is released and `locked` becomes false again.
+    try {
+      let prototype: object | null = Object.getPrototypeOf(candidate)
+      const seen = new Set<object>()
+      let currentBodyUsed: unknown
+      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+        if (seen.has(prototype)) return
+        seen.add(prototype)
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
+        if (descriptor) {
+          if (typeof descriptor.get !== "function") return
+          currentBodyUsed = Reflect.apply(descriptor.get, candidate, [])
+          break
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      if (currentBodyUsed !== false) return
+    }
+    catch {
+      return
+    }
+
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
