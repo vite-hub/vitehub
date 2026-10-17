@@ -6,7 +6,7 @@ packages:
   - "playground/console"
 catalog:
   "@cloudflare/vitest-plugin": ^1.4.4
-  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
+  "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@4a1a0087b30b479aa78871bc789ac9a766afffca
   "@types/proper-lockfile": 4.1.4
   forges: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
   proper-lockfile: 4.1.2
