@@ -249,6 +249,7 @@ function transientGitHubFailure(error: unknown): boolean {
 function isRestRead(args: string[]): boolean {
   if (args[0] !== "api" || isGraphQLCommand(args)) return false
   let method: string | undefined
+  let hasWriteArguments = false
   for (let index = 1; index < args.length; index += 1) {
     const argument = args[index]!
     if (argument === "-X" || argument === "--method") {
@@ -262,10 +263,10 @@ function isRestRead(args: string[]): boolean {
       continue
     }
     if (/^(?:-f|-F|--field|--raw-field|--input)(?:=|$)/.test(argument) || /^-[fF]./.test(argument)) {
-      if (method !== "GET") return false
+      hasWriteArguments = true
     }
   }
-  return true
+  return method === "GET" ? true : !hasWriteArguments
 }
 
 const TRANSIENT_RETRY_DELAYS_MS = [1_000, 3_000]

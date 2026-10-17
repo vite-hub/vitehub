@@ -58,6 +58,15 @@ it("retries an explicit GET with query fields", async () => {
   expect(calls).toHaveLength(2);
 });
 
+it("retries an explicit GET when query fields precede the method", async () => {
+  vi.useFakeTimers();
+  replies.push(gatewayPage(), '{"ok":true}');
+  const result = host().command(["api", "-f", "state=open", "--method", "GET", "repos/acme/app/issues"], { repository: "acme/app" });
+  await vi.advanceTimersByTimeAsync(1_000);
+  await expect(result).resolves.toMatchObject({ stdout: '{"ok":true}' });
+  expect(calls).toHaveLength(2);
+});
+
 it("retries an installation token that fails on a dropped connection", async () => {
   vi.useFakeTimers();
   let attempts = 0;
