@@ -106,6 +106,7 @@ it("types the Runtime Schedule Wake Driver boundary", () => {
     scheduledAt: Date
   }>()
   expectTypeOf<RuntimeScheduleWakeDriverContext>().toEqualTypeOf<{
+    latestScheduledAt?: (scheduleId: string) => Promise<Date | undefined>
     reportError: (error: unknown) => void
     wake: (input: RuntimeScheduleWake) => Promise<void>
   }>()
@@ -128,6 +129,7 @@ it("types the Runtime Schedule Wake Driver boundary", () => {
 
 it("types the built-in Process Schedule Wake Driver", () => {
   expectTypeOf<ProcessScheduleWakeDriverOptions>().toEqualTypeOf<{
+    catchUpMs?: number
     concurrency?: number
     intervalMs?: number
     now?: () => Date
