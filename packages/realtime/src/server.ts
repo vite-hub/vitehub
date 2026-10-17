@@ -171,7 +171,6 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
       throw new RealtimeWriteRejected("Realtime update depends on state this room does not have.")
     }
     if (options.readOnly && !Y.equalSnapshots(before, Y.snapshot(candidate))) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- `readOnly` is a flag or a rejection message.
       throw new RealtimeWriteRejected(typeof options.readOnly === "string" ? options.readOnly : "This realtime connection is read-only.")
     }
     if (options.protectStatus !== false && realtimeStatusFingerprint(candidate) !== realtimeStatusFingerprint(document)) {
@@ -218,7 +217,6 @@ function isDocumentAdapter(document: RealtimeDefinition["document"]): document i
 
 function duration(value: unknown, fallback: number, name: string): number {
   if (value === undefined) return fallback
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persistence timing comes from an untyped definition module.
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     throw realtimeErrorDiagnostics.REALTIME_R0015({ message: `Realtime persistence.${name} must be a non-negative number of milliseconds.` })
   }
@@ -431,7 +429,6 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
 }
 
 function text(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Identities and stored rows cross untyped boundaries.
   return typeof value === "string" && value ? value : undefined
 }
 

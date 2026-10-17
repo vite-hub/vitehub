@@ -78,7 +78,7 @@ describe("@vite-hub/ui package contract", () => {
       "@comark/vue": "0.7.0",
       katex: "^0.17.0",
       "@iconify-json/ph": "catalog:ui",
-      "@nuxt/kit": "4.5.2",
+      "@nuxt/kit": "4.6.2",
       "@types/node": "catalog:tooling",
       "nostics": "catalog:runtime",
       "reka-ui": "catalog:ui",

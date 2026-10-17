@@ -22,7 +22,7 @@ export interface FilesystemPathReference {
   relativeTo: 'module' | 'working-directory'
 }
 
-export function resolveImportLocalName(entry: Import) {
+function resolveImportLocalName(entry: Import) {
   return entry.as || entry.name
 }
 
@@ -53,28 +53,6 @@ function getScriptKind(id: string) {
 function createSourceFile(id: string, source: string) {
   const typescript = loadTypeScript()
   return typescript.createSourceFile(id, source, typescript.ScriptTarget.Latest, true, getScriptKind(id))
-}
-
-function hasModifier(node: ts.Node, kind: ts.SyntaxKind) {
-  const typescript = loadTypeScript()
-  return typescript.canHaveModifiers(node)
-    && (typescript.getModifiers(node)?.some(modifier => modifier.kind === kind) ?? false)
-}
-
-export function hasExportedType(source: string, id: string, name: string) {
-  const typescript = loadTypeScript()
-  const sourceFile = createSourceFile(id, source)
-  return sourceFile.statements.some((statement) => {
-    if (
-      (typescript.isInterfaceDeclaration(statement) || typescript.isTypeAliasDeclaration(statement))
-      && statement.name.text === name
-    ) {
-      return hasModifier(statement, typescript.SyntaxKind.ExportKeyword)
-    }
-    if (!typescript.isExportDeclaration(statement) || !statement.exportClause || !typescript.isNamedExports(statement.exportClause))
-      return false
-    return statement.exportClause.elements.some(element => element.name.text === name && (statement.isTypeOnly || element.isTypeOnly))
-  })
 }
 
 function collectRuntimeModuleSpecifiers(source: string, id: string) {
@@ -131,10 +109,6 @@ function collectRuntimeModuleSpecifiers(source: string, id: string) {
 
 export function findRuntimeModuleSpecifiers(source: string, id: string) {
   return collectRuntimeModuleSpecifiers(source, id).specifiers.map(entry => entry.specifier)
-}
-
-export function findRuntimeRelativeModuleSpecifiers(source: string, id: string) {
-  return findRuntimeModuleSpecifiers(source, id).filter(specifier => /^\.\.?\//.test(specifier))
 }
 
 export function hasNonLiteralDynamicImport(source: string, id: string) {
@@ -859,7 +833,7 @@ function stringifyTypeImport(entry: Import) {
   return `${entry.name} as ${localName}`
 }
 
-export function injectTypeImports(source: string, imports: Import[], id: string) {
+function injectTypeImports(source: string, imports: Import[], id: string) {
   const typescript = loadTypeScript()
   if (!imports.length)
     return source

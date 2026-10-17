@@ -8,8 +8,8 @@
             The server layer for Vite apps.
           </h1>
           <p class="mt-5 max-w-[42ch] text-lg/7 text-muted text-pretty">
-            Storage, queues, workflows, and more. Use one API in your app and deploy it to your
-            choice of cloud.
+            Databases, storage, queues, workflows, and more. Use one API in your app and deploy it
+            to your choice of cloud.
           </p>
         </div>
         <div class="w-full min-w-0 max-w-[38rem] xl:col-span-3 xl:max-w-none">

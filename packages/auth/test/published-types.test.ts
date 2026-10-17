@@ -20,6 +20,7 @@ const packedPackages = [
   "auth",
   "box",
   "env",
+  "forge",
   "markdown-template",
   "rate-limit",
   "runtime",

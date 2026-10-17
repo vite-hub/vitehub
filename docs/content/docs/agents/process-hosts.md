@@ -130,10 +130,53 @@ The host reports `accepting` after startup; `failed` means the reconciler
 encountered a failure while draining or closing.
 `SIGUSR2` starts a drain. `SIGTERM` and `SIGINT` stop admission, wait for the
 host close, then let the HTTP server finish its shutdown. A second signal does
-not start another drain.
+not start another drain. The process exits after this drain and the
+[Agent drain](#drain-agent-work-on-stop-signals) settle.
 
 Do not expose the drain route as an authorization mechanism. Protect it with the
 same host policy as other operational routes.
+
+## Drain Agent work on stop signals
+
+A persistent Node server with libSQL or SQLite Agent State drains Agent work
+on `SIGTERM` and `SIGINT`, then exits. The generated webhook queue plugin does
+this; no application code is needed. On the first signal it:
+
+1. Stops the webhook queues. Active deliveries get the drain budget, and the
+   persisted queue replays the deliveries that it aborts after the restart.
+2. Waits for inline Chat Invocations with `drainInlineChatInvocations()`.
+   Invocations that outlast the budget post a restart notice with the
+   `HOST_RESTARTED` error, and the next process retries each message once.
+3. Waits up to 10 seconds for Nitro's `close` hooks when the server closes HTTP.
+4. Waits for other registered drains, such as the `processAgentHost()` stop
+   handler, logs a short summary, and exits once.
+
+The budget comes from `VITEHUB_SHUTDOWN_DRAIN_MS`. The `shutdown.drainMs` option
+sets its default, and the variable wins when it is set:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      agent: { shutdown: { drainMs: 45_000 } },
+    }),
+  ],
+})
+```
+
+The default is 0, which interrupts the work at once. Give the host a
+termination grace period longer than the budget plus 25 seconds: 15 seconds
+for interrupted Chat Invocations to post their notice and 10 seconds for the
+close hooks. For example, use 90 seconds with a 45-second budget.
+
+The drain does not run in development, during prerender, or outside Node.
+Ephemeral hosts do not install it. Set `agent: { shutdown: false }` when the
+application installs its own stop handler. Every stop handler registers its
+drain in `process.__vitehubShutdown`, so you can inspect the drains that run.
 
 ## Inspect health and work
 

@@ -29,9 +29,15 @@ export interface ConsoleAccess {
   readonly user?: ConsoleUser
 }
 
+/**
+ * The Console section that a guarded route belongs to.
+ * - `section`: a section id, or a function that reads it from the request. A request outside the allowed sections gets `403`.
+ * - `anySection: true`: the route serves every Console user, such as the section list and the RPC transport.
+ * - `user: true`: read the signed-in user before the handler runs, so `access.user` is set.
+ */
 export type ConsoleRouteScope =
-  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined) }
-  | { anySection: true }
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean }
+  | { anySection: true, user?: boolean }
 
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
 export type ConsoleGuardedHandler<TEvent, TResult> = (event: TEvent, access: ConsoleAccess) => TResult | Promise<TResult>
@@ -280,7 +286,7 @@ export async function consoleConnectionsActor(
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | Response> {
   const access = await checkConsoleAccess(event, { user: true })
-  if (access instanceof Response) return access
+  if (isResponseLike(access)) return access
   if (!consoleAccessAllows(access, "connections")) return rejection(403, "CONSOLE_ACCESS_DENIED")
   if (access.mode === "auth") {
     const actor = sessionActor ? await sessionActor() : (await readConsoleAccessUser(access))?.id
@@ -303,8 +309,9 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   const route = async (event: TEvent) => {
     let access = checkedEvents.get(event)
     if (!access || !consoleAccessGrant.isValid(access)) {
-      const checked = await checkConsoleAccess(event)
-      if (checked instanceof Response) return checked
+      const checked = await checkConsoleAccess(event, { user: declared.user === true })
+      // A Response from another realm fails `instanceof`. It is a denial, not an access grant.
+      if (isResponseLike(checked)) return checked
       access = checked
       checkedEvents.set(event, access)
     }

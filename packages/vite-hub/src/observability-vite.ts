@@ -134,7 +134,6 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
       const agent = resolved.agent ?? target.agent
       const hosting = [resolved.vitehub?.preset, resolved.preset, resolved.nitro?.preset, target.hosting, process.env.VITEHUB_HOSTING]
         .map(preset => getHostingProvider(preset)).find(Boolean)
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite config may contain a Boolean shorthand or an Agent options object.
       if (agent && ((typeof agent === "object" && agent.runtime === "deno") || hosting === "netlify")) {
         throw viteHubErrorDiagnostics.VITE_HUB_R0129({ message: "[vitehub] observability currently requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported." })
       }
@@ -159,7 +158,6 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
         server.observability = { posthog: { apiKey: options.posthog.apiKey } }
       }
       // SAFETY: ViteHub's project-root config value is an externally supplied Vite extension key.
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the optional extension value before resolving its path.
       const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"
         ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
         : resolveViteHubProjectRoot(config.root || process.cwd())

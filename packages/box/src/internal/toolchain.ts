@@ -199,7 +199,7 @@ export function parsePackageManager(value: string, source: string): BoxToolchain
 }
 
 /** Detect the target OS, architecture, and C library with POSIX tools. */
-export async function detectToolchainPlatform(target: Pick<ToolchainTarget, "run">): Promise<ToolchainPlatform> {
+async function detectToolchainPlatform(target: Pick<ToolchainTarget, "run">): Promise<ToolchainPlatform> {
   const result = await target.run([
     "uname -s",
     "uname -m",
@@ -476,7 +476,7 @@ async function installEntry(
  * Extract into a private staging directory, then publish with an atomic
  * symbolic link. A concurrent installer that loses the race keeps the winner.
  */
-export function installScript(options: {
+function installScript(options: {
   archive: string;
   cacheRoot: string;
   key: string;

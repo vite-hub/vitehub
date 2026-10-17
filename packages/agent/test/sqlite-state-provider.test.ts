@@ -985,6 +985,37 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("keeps a list until its newest entry expires and writes one row per append", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"))
+    const { state, url } = await createState()
+    await state.connect()
+
+    await state.appendToList("history", "one", { ttlMs: 100 })
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.080Z"))
+    await state.appendToList("history", "two", { ttlMs: 100 })
+    const inspection = createClient({ url })
+    const expiry = (await inspection.execute("SELECT expires_at FROM test_agent_state_lists ORDER BY id")).rows.map(row => Number(row.expires_at))
+    inspection.close()
+    // The first row keeps the expiry of its own append. The newest row carries the list expiry.
+    expect(expiry).toEqual([Date.parse("2026-06-02T10:00:00.100Z"), Date.parse("2026-06-02T10:00:00.180Z")])
+
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.150Z"))
+    await state.cleanupExpiredState()
+    await expect(state.getList("history")).resolves.toEqual(["one", "two"])
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.180Z"))
+    await expect(state.getList("history")).resolves.toEqual([])
+    await state.disconnect()
+  })
+
+  it("trims a list to its newest entries", async () => {
+    const { state } = await createState()
+    await state.connect()
+    for (const value of ["one", "two", "three", "four"]) await state.appendToList("history", value, { maxLength: 2 })
+    await expect(state.getList("history")).resolves.toEqual(["three", "four"])
+    await state.disconnect()
+  })
+
   it("does not restore expired list entries when appending", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"))

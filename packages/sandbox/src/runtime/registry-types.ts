@@ -7,6 +7,3 @@ export type SandboxRegistryDefinition<TName extends keyof SandboxDefinitionModul
 
 export type SandboxPayload<TDefinition>
   = TDefinition extends { payload: infer TPayload } ? TPayload : unknown
-
-export type SandboxResult<TDefinition>
-  = TDefinition extends { result: infer TResult } ? TResult : unknown

@@ -148,7 +148,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const statusRecovery = createBabysitterStatusRecovery({
     inbox: pullRequestInbox,
     // Built packages carry this fingerprint; direct source hosts compute the same inputs.
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Guard a compile-time global that is absent when running package sources.
     revision: baseAgent.version ?? (typeof __VITEHUB_AGENT_BUILD_REVISION__ === "undefined" ? agentBuildRevision(fileURLToPath(new URL("../../../", import.meta.url))) : __VITEHUB_AGENT_BUILD_REVISION__),
     publish: statusChannel ? (pending, abortSignal) => publishAgentActivity({ name: `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`, channels: { github: statusChannel } }, {
       channelId: "github", target: { repository: pending.repository, issue: pending.number }, activity: pending.activity, abortSignal,
@@ -178,7 +177,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const args = ["api", "graphql", "-f", `query=${query}`];
       for (const [key, value] of Object.entries(variables)) {
         if (value === null) continue;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
         args.push(typeof value === "number" ? "-F" : "-f", `${key}=${value}`);
       }
       try {
@@ -1100,10 +1098,20 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 }
                 return ref.object.sha;
               };
+              // A base branch that only moved forward keeps the prepared merge valid. The repair resolves
+              // conflicts up to the prepared commit, and GitHub checks the newer commits after the push.
+              const baseAdvanced = async (from: string, to: string) => {
+                // One page: the status and counts do not need the list of commits between the bases.
+                const { stdout } = await github.command(["api", `repos/${repository}/compare/${from}...${to}?per_page=1`, "--jq", "{status, behind_by} | @json"],
+                  { repository, timeout: 60_000, signal: abortSignal });
+                const comparison: unknown = stdout.trim() ? JSON.parse(stdout) : undefined;
+                return isRuntimeRecord(comparison) && comparison.status === "ahead" && comparison.behind_by === 0;
+              };
               const assertRepairBase = async () => {
                 if (!preparedMergeBase) return;
                 const [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", abortSignal);
-                if (!isRuntimeRecord(live) || !isRuntimeRecord(live.base) || live.base.ref !== pullRequest.baseRefName || await readRepairBase() !== preparedMergeBase) {
+                const liveBase = isRuntimeRecord(live) && isRuntimeRecord(live.base) && live.base.ref === pullRequest.baseRefName ? await readRepairBase() : undefined;
+                if (!liveBase || liveBase !== preparedMergeBase && !await baseAdvanced(preparedMergeBase, liveBase)) {
                   await pullRequestInbox.hydrate(inboxClaim, { refresh: true });
                   const changed = new DOMException("Pull request base changed; retry the conflict repair against current GitHub state.", "AbortError");
                   passController.abort(changed);
@@ -1242,7 +1250,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const driver = settings?.driver;
               if (
                 !driver ||
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
                 typeof driver !== "object" ||
                 !("kind" in driver) ||
                 (driver.kind !== "codex" && driver.kind !== "claude-code")
@@ -1251,7 +1258,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   "Babysitter requires a Codex or Claude Code driver for its isolated Git checkout.",
                 );
               }
-  // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The preceding schema guard establishes the asserted operation shape.
               const workerDriver = driver as
                 | (CodexDriverOptions<BabysitterPassResult> & { kind: "codex" })
                 | (ClaudeCodeDriverOptions<BabysitterPassResult> & { kind: "claude-code" });
@@ -1309,7 +1315,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   await assertLease();
                 },
               });
-              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability inputs accept either a static list or resolver function at this runtime boundary.
               const workerCapabilities = typeof baseCapabilities === "function"
                 ? async (context: Parameters<AgentCapabilitiesResolver>[0]) => [
                   ...(await resolveAgentCapabilityDefinitions(baseCapabilities, context)).filter(capability => capability.id !== "babysitter.github"),
@@ -1601,13 +1606,11 @@ function assertBabysitterAgent(agent: AgentInput): asserts agent is BabysitterAg
     !getAgentLayerOptions(agent) ||
     !("options" in agent) ||
     !agent.options ||
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
     !hasRuntimeType(agent.options, "object") ||
     !("autoMerge" in agent.options) ||
     !hasRuntimeType(agent.options.autoMerge, "boolean") ||
     !("filter" in agent.options) ||
     !agent.options.filter ||
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Agent options are validated at runtime.
     !hasRuntimeType(agent.options.filter, "object") ||
     Array.isArray(agent.options.filter)
   ) {

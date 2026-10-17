@@ -1214,7 +1214,6 @@ function renderConfiguration(
   selectTool: (name: string) => void,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
   const channelsCatalogMalformed = configuration.channels !== undefined && !Array.isArray(configuration.channels);
   const recordedChannels = Array.isArray(configuration.channels) ? configuration.channels : [];
@@ -1466,7 +1465,7 @@ export const AgentInvocation = defineComponent({
     const conversation = computed(() => buildInvocationConversation(activities.value));
     const expandedMessages = ref<ReadonlySet<string>>(new Set());
     const mounted = useMounted();
-    const now = useNow({ interval: 60_000 });
+    const now = useNow({ scheduler: (tick) => useIntervalFn(tick, 60_000) });
     const liveNow = ref<Date>();
     let liveClock: ReturnType<typeof setInterval> | undefined;
     const workOpen = ref(false);

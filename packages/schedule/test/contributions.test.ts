@@ -170,7 +170,6 @@ describe("discoverScheduleDefinitions contributions", () => {
       rootDir: root,
     })).toEqual([
       {
-        allowRuntimeSchedules: false,
         contributor: contentPlugin,
         handler: definition,
         manual: true,
@@ -211,7 +210,7 @@ describe("discoverScheduleDefinitions contributions", () => {
     const { definition, root } = await createRoot({ definition: "export const publish = { cron: '* * * * *' }\n" })
 
     expect(() => discoverScheduleDefinitions({ contributions: [collected("content/publish", definition)], rootDir: root }))
-      .toThrow(expect.objectContaining({ code: "SCHEDULE_B0005", message: expect.stringContaining("has no default export of defineSchedule() or defineScheduleTarget()") }))
+      .toThrow(expect.objectContaining({ code: "SCHEDULE_B0005", message: expect.stringContaining("has no default export of defineSchedule().") }))
   })
 })
 
@@ -277,17 +276,15 @@ describe("contributed Schedules on every host", () => {
     expect(vercel.crons).toContainEqual({ path: "/api/vitehub/schedules/vercel/content/publish", schedule: "*/5 * * * *" })
   })
 
-  it("registers contributed Schedules in the Node Process Runtime registries", async () => {
+  it("registers contributed Schedules in the Node Process Runtime registry", async () => {
     const { definition, root } = await createRoot()
     const userConfig: Record<PropertyKey, unknown> = { plugins: [publishContributor(definition)], root }
 
     await (hubSchedule({ providerOutput: false, runtime: { driver: "process" } }).config as ConfigHook)(userConfig, { command: "build", mode: "production" })
 
-    for (const registry of ["runtime-registry.js", "static-registry.js"]) {
-      const contents = await readFile(join(root, ".vitehub", "nitro", "schedule", registry), "utf8")
-      expect(contents).toContain("[\"content/publish\"]: async () => import(\"../../content/publish-schedule.ts\")")
-      expect(contents).toContain("[\"report\"]: async () => import(")
-    }
+    const contents = await readFile(join(root, ".vitehub", "nitro", "schedule", "static-registry.js"), "utf8")
+    expect(contents).toContain("[\"content/publish\"]: async () => import(\"../../content/publish-schedule.ts\")")
+    expect(contents).toContain("[\"report\"]: async () => import(")
   })
 
   it("installs contributed Schedules through the Nuxt module", async () => {
@@ -295,10 +292,7 @@ describe("contributed Schedules on every host", () => {
     const { default: scheduleNuxt } = await import("../src/nuxt.ts")
     let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
     const nuxt = {
-      hook(...[name, handler]:
-        | ["nitro:config", (nitroConfig: Record<string, unknown>) => void | Promise<void>]
-        | ["prepare:types", (context: { references: { path: string }[] }) => void]
-      ) {
+      hook(name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) {
         if (name === "nitro:config") nitroConfigHook = handler
       },
       options: { dev: false, rootDir: root, srcDir: root, vite: { plugins: [publishContributor(definition)] as unknown[] } },
@@ -314,11 +308,11 @@ describe("contributed Schedules on every host", () => {
     })
   })
 
-  it("serves contributed Schedules from the registry that `vitehub schedule run` loads, with targets and types", async () => {
+  it("serves contributed Schedules from the registry that `vitehub schedule run` loads", async () => {
     const { definition, root } = await createRoot({
       definition: [
         "import { defineSchedule } from '@vite-hub/schedule'",
-        "export default defineSchedule({ cron: '*/5 * * * *', allowRuntimeSchedules: true, handler: () => {} })",
+        "export default defineSchedule({ cron: '*/5 * * * *', manual: true, handler: () => {} })",
         "",
       ].join("\n"),
     })
@@ -329,8 +323,7 @@ describe("contributed Schedules on every host", () => {
 
     const load = plugin.load as (id: string) => string
     expect(load("\0#vitehub/schedule/registry")).toContain(`["content/publish"]: async () => import(${JSON.stringify(definition)})`)
-    expect(load("\0#vitehub/schedule/targets")).toContain("\"content/publish\"")
-    await expect(readFile(join(root, ".vitehub", "schedule.d.ts"), "utf8")).resolves.toContain("\"content/publish\": typeof import(\"./content/publish-schedule.ts\").default")
+    expect(load("\0#vitehub/schedule/targets")).toBeUndefined()
   })
 
   it("invalidates the registry when a contributed Definition module changes", async () => {
