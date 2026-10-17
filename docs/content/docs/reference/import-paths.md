@@ -109,7 +109,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | AI interface components, headless message scrolling, and default styles. |
 | `vite-hub/ui/attachment`, `vite-hub/ui/bubble`, `vite-hub/ui/marker`, `vite-hub/ui/message`, and `vite-hub/ui/trace` | Focused imports for shadcn/ui Agent interface parts. |
 | `vite-hub/ui/agent-chat`, `vite-hub/ui/agent-chat-message`, `vite-hub/ui/agent-chat-prompt`, `vite-hub/ui/agent-message-parts` | Focused imports for chat components. |
-| `vite-hub/console`, `vite-hub/ui/agent-tool-list`, `vite-hub/ui/agent-trace` | Console invocation and capability inspection, tool contracts, and trace components. |
+| `vite-hub/console`, `vite-hub/ui/agent-tool-list`, `vite-hub/ui/agent-trace` | Console route metadata and invocation input type, tool contracts, and trace components. |
 | `vite-hub/ui/agent-code-view`, `vite-hub/ui/agent-file`, `vite-hub/ui/agent-file-diff`, `vite-hub/ui/agent-multi-file-diff`, `vite-hub/ui/agent-patch-diff`, `vite-hub/ui/agent-unresolved-file` | Focused imports for code and diff components. |
 | `vite-hub/ui/agent-file-tree`, `vite-hub/ui/agent-markdown`, `vite-hub/ui/agent-session` | Focused imports for file tree, Markdown, and session components. |
 | `vite-hub/ui/nuxt` and `vite-hub/ui/vite` | Register the canonical UI package for Nuxt or Vue with Vite. |
