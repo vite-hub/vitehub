@@ -50,12 +50,18 @@ function isRequest(value: unknown): value is Request {
       while (prototype !== null) {
         if (visited.has(prototype)) return false
         visited.add(prototype)
+        if (prototype === Request.prototype) return false
         const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
         if (typeof constructor === "function" && constructor.name === "Request"
           && constructor.prototype === prototype && typeof bodyGetter === "function") {
+          const descriptors = Object.getOwnPropertyDescriptors(prototype)
+          const accessorNames = ["body", "headers", "method", "url", "signal"] as const
+          if (accessorNames.some(name => typeof descriptors[name]?.get !== "function")) return false
+          const methodNames = ["clone", "arrayBuffer", "blob", "formData", "json", "text"] as const
+          if (methodNames.some(name => typeof descriptors[name]?.value !== "function")) return false
           bodyGetter.call(value)
-          const headers = Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
+          const headers = descriptors.headers.get?.call(value)
           const headersPrototype = headers && Object.getPrototypeOf(headers)
           const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
           if (typeof headersGet !== "function") return false
