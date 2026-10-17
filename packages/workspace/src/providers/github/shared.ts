@@ -362,7 +362,7 @@ export async function readGitHubBranchState(input: {
   root: string;
 }): Promise<GitHubBranchState> {
   const resolve = async (branch: string) => {
-    const sha = await githubRequest(input.repository, async (provider, repo) => await provider.contents.resolveRef(repo, `heads/${branch}`), "commit");
+    const sha = await githubRequest(input.repository, async (provider, repo) => await provider.contents.resolveRef(repo, branch), "commit");
     if (!sha) throw workspaceError("[vitehub] GitHub workspace returned a malformed commit response.");
     return sha;
   };

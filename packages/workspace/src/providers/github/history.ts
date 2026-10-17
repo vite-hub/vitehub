@@ -262,7 +262,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
 
   const readBranchHead = async (ref: string): Promise<string | null> => {
     try {
-      return await githubRequest(client, async (provider, repo) => await provider.contents.resolveRef(repo, `heads/${ref}`), "commit")
+      return await githubRequest(client, async (provider, repo) => await provider.contents.resolveRef(repo, ref), "commit")
     }
     catch (error) {
       if (isNoHistoryError(error) || githubRequestStatus(error) === 422) return null
