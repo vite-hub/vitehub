@@ -89,12 +89,6 @@ import {
   portableResolvedAgentInvokerInput,
   resolveAgentInvoker,
 } from "./invoker.ts"
-import {
-  parseScheduledAgentTurnInput,
-  scheduledAgentChannelIdsContextKey,
-  scheduledAgentNameContextKey,
-  scheduledAgentTurnContextKey,
-} from "./internal/scheduled-turn.ts"
 import { finalChannelOutputContextKey, finalChannelOutputSelectedSymbol, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey, responseTitleFallbackContextKey } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import {
@@ -823,7 +817,6 @@ interface StartedAgentWorkflow<CALL_OPTIONS = unknown, TOutput = unknown> {
 export interface ScheduleRunContextLike {
   attemptId?: string
   id: string
-  input?: unknown
   runId?: string
   scheduleId?: string
   scheduledAt: Date
@@ -4522,8 +4515,6 @@ async function createAgentInvocationContext<
       invocationContext,
       activeChannel,
     )
-    invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
-    invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name ?? definition?.name, { overwrite: true })
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
     invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })
@@ -4533,7 +4524,6 @@ async function createAgentInvocationContext<
       invocationContext,
       input,
       context.run,
-      invocationContext.get(scheduledAgentTurnContextKey) === true,
     )
     if (context.run && invocationContext.get("agent.trigger")?.id === "chat.message") {
       const run = resolveChatMessageRunMetadata(context.run, invoker, input.messages || [])
@@ -8807,16 +8797,6 @@ async function runAgentWithContext<
   if (options.schedule) {
     const schedule = options.schedule
     const runId = schedule.runId || schedule.id
-    // SAFETY: The object check narrows schedule input before reading its optional discriminator.
-    const turn = schedule.input && hasRuntimeType(schedule.input, "object") && (schedule.input as { kind?: unknown }).kind === "agent-turn"
-      ? parseScheduledAgentTurnInput(schedule.input)
-      : undefined
-    const forwardedInput = copyAgentInvocationCallerAbortSignal(input, { ...input })
-    if (turn) {
-      delete forwardedInput.message
-      delete forwardedInput.messages
-      delete forwardedInput.prompt
-    }
     const memoValues = new Map<string, unknown>()
     context = {
       ...context,
@@ -8825,14 +8805,13 @@ async function runAgentWithContext<
         // SAFETY: This value was created for the same memo key by the caller's factory.
         return memoValues.get(key) as never
       },
-      run: { ...context.run, ...turn?.delivery, runId },
+      run: { ...context.run, runId },
       waitUntil: context.waitUntil ?? schedule.waitUntil ?? (() => {}),
     }
     input = copyAgentInvocationCallerAbortSignal(input, {
-      ...forwardedInput,
+      ...input,
       context: {
         ...input.context,
-        ...(turn ? { invoker: turn.invoker, [scheduledAgentTurnContextKey]: true } : {}),
         schedule: {
           id: schedule.id,
           kind: "schedule",
@@ -8842,7 +8821,6 @@ async function runAgentWithContext<
           target: schedule.target,
         },
       },
-      ...(turn ? { prompt: turn.prompt } : {}),
     })
   }
   const invocationContext = withAgentIdentityOwner(agent, context)

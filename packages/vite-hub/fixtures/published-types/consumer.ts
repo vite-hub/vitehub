@@ -22,7 +22,6 @@ import { defineEnvProvider } from "vite-hub/env/provider"
 import type { SecretEnv } from "vite-hub/env/secret"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import viteHubNuxtModule from "vite-hub/nuxt"
-import * as scheduleDriver from "vite-hub/schedule/runtime/driver"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
 import * as cloudflareShell from "vite-hub/shell/providers/cloudflare"
 import * as justBashShell from "vite-hub/shell/providers/just-bash"
@@ -46,7 +45,6 @@ export const appFacingModules = [
   agentSqliteState,
   authAgent,
   markdownTemplate,
-  scheduleDriver,
   scheduleProcess,
   cloudflareShell,
   justBashShell,

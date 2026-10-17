@@ -139,7 +139,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("workspaces", "Workspaces", "i-lucide-folder-kanban", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
   primitive("workflows", "Workflows", "i-ph-git-branch-light", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
   primitive("queues", "Queues", "i-ph-tray-light", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
-  primitive("schedules", "Schedules", "i-lucide-calendar-clock", "schedule", "Declare static cron schedules and manage recurring Runtime Schedules."),
+  primitive("schedules", "Schedules", "i-lucide-calendar-clock", "schedule", "Declare static cron schedules and run them on the host."),
 ]
 
 /** Guides that the Overview links next to the primitives. */

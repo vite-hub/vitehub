@@ -201,23 +201,11 @@
       "require": "./dist/_internal/schedule/runtime.js",
       "default": "./dist/_internal/schedule/runtime.js"
     },
-    "./_internal/schedule/runtime/console": {
-      "types": "./dist/_internal/schedule/runtime/console.d.ts",
-      "import": "./dist/_internal/schedule/runtime/console.js",
-      "require": "./dist/_internal/schedule/runtime/console.js",
-      "default": "./dist/_internal/schedule/runtime/console.js"
-    },
     "./_internal/schedule/runtime/dev": {
       "types": "./dist/_internal/schedule/runtime/dev.d.ts",
       "import": "./dist/_internal/schedule/runtime/dev.js",
       "require": "./dist/_internal/schedule/runtime/dev.js",
       "default": "./dist/_internal/schedule/runtime/dev.js"
-    },
-    "./_internal/schedule/runtime/driver": {
-      "types": "./dist/_internal/schedule/runtime/driver.d.ts",
-      "import": "./dist/_internal/schedule/runtime/driver.js",
-      "require": "./dist/_internal/schedule/runtime/driver.js",
-      "default": "./dist/_internal/schedule/runtime/driver.js"
     },
     "./_internal/schedule/runtime/kv": {
       "types": "./dist/_internal/schedule/runtime/kv.d.ts",
@@ -812,12 +800,6 @@
       "import": "./dist/schedule/runtime.js",
       "require": "./dist/schedule/runtime.js",
       "default": "./dist/schedule/runtime.js"
-    },
-    "./schedule/runtime/driver": {
-      "types": "./dist/schedule/runtime/driver.d.ts",
-      "import": "./dist/schedule/runtime/driver.js",
-      "require": "./dist/schedule/runtime/driver.js",
-      "default": "./dist/schedule/runtime/driver.js"
     },
     "./schedule/runtime/kv": {
       "types": "./dist/schedule/runtime/kv.d.ts",

@@ -143,13 +143,10 @@ export interface AgentAccessInvocationContextValue<TScopeName extends string = s
 
 declare global {
   interface ViteHubAgentInvocationContextValues {
-    "agent.channels": string[]
     "agent.colocatedSkills": Record<string, WorkspaceSourceInput>
     "agent.invocation.traceId": string
-    "agent.name": string
     "agent.output.eventObserver": (event: StreamEvent) => void
     "agent.output.progressSummary": boolean
-    "agent.schedule.turn": boolean
     "agent.trigger": { channelId?: string, id?: string, name?: string, source?: "capability" | "channel" }
     "channel.delivery.titleDelivered": boolean
     "chat.channelState": { keyPrefix: string, state: StateAdapter }
@@ -1115,7 +1112,7 @@ export interface AgentCapabilityCliExecutionResult<TOutput = unknown> {
 }
 
 export interface AgentCapabilityRequirement {
-  primitive?: "workspace-shell" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "schedule" | "skills" | "workspace" | (string & {})
+  primitive?: "workspace-shell" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "skills" | "workspace" | (string & {})
   workspace?: {
     mode?: AgentCapabilityMode
     paths?: string[]
