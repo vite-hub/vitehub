@@ -53,6 +53,7 @@ export default defineConnection({
 | `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. Set `''` to send the bare key. |
 | `apis` | `{}` | Typed API catalogs. Their root URLs also receive the key. |
 | `mcp` | None | The provider's [MCP endpoint](#mcp-endpoint). It also receives the key. |
+| `requests` | None | Pacing, retries, and a timeout for provider requests. See [Request policy](#request-policy). |
 | `verify` | None | Checks a new key before ViteHub stores it. It receives the runtime `fetch` and a 30-second abort signal. |
 | `id` | `'api-key'` | Provider id in the Console and inspection. |
 
@@ -77,6 +78,39 @@ export default defineConnection({
 ```
 
 An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, without a transport URL. Server code calls one tool with `callMcpTool({ connection: 'crm' }, 'search', { query })` from `vite-hub/agent/mcp`. See [MCP](/docs/agents/capabilities/mcp#authenticate-through-a-connection).
+
+## Request policy
+
+`requests` on an OAuth provider or in `apiKey()` sets how ViteHub sends provider requests. It applies to `fetch` and to API method calls, but not to the provider's [MCP endpoint](#mcp-endpoint), whose sessions are long-lived streams. Without it, ViteHub sends each request once, with no pacing and no timeout.
+
+```ts [server/connections/airtable.ts]
+export default defineConnection({
+  provider: apiKey({
+    id: 'airtable',
+    origins: ['https://api.airtable.com'],
+    requests: {
+      bucket: 'airtable-base',
+      rate: { limit: 5, perMs: 1000 },
+      retry: { attempts: 4, methods: ['GET'], on429: { minDelayMs: 30_000 } },
+      timeoutMs: 15_000,
+    },
+  }),
+})
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `bucket` | The Connection name | Connections with the same bucket share one request schedule and one 429 pause. |
+| `rate` | None | `{ intervalMs }` or `{ limit, perMs }`. ViteHub spaces request starts evenly: `{ limit: 5, perMs: 1000 }` starts one request every 200 ms. |
+| `retry.attempts` | `3` | Attempts in total, including the first. Omit `retry` to send each request once. |
+| `retry.methods` | `['GET', 'HEAD', 'OPTIONS']` | Methods that ViteHub retries after a network error or a `5xx` response. Other methods can have reached the provider, so they are sent once. |
+| `retry.delayMs` | `250` | First backoff after a network error or a `5xx` response. It doubles for each attempt. |
+| `retry.on429.minDelayMs` | `0` | Shortest pause after a `429`. |
+| `timeoutMs` | None | Aborts each attempt after this time, also while you read the body. |
+
+A `429` response pauses every request in the bucket until its `Retry-After` time (seconds or an HTTP date), and ViteHub then retries it for every method. The last attempt returns its response as is. When your own `signal` aborts, the request stops at once and ViteHub does not retry it.
+
+The schedule and the pause are in memory. Each server process or isolate has its own. They do not coordinate several replicas.
 
 ## Access rules
 

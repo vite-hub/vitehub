@@ -1,6 +1,6 @@
 import { ConnectionError } from "./errors.ts"
 
-import type { ConnectionApiCatalog, ConnectionApiKeyProvider, ConnectionApiKeyVerification, ConnectionApiKeyVerifyContext, ConnectionDefinition } from "./types.ts"
+import type { ConnectionApiCatalog, ConnectionApiKeyProvider, ConnectionApiKeyVerification, ConnectionApiKeyVerifyContext, ConnectionDefinition, ConnectionRequestPolicy } from "./types.ts"
 
 export interface ApiKeyProviderOptions<TApis extends object = object> {
   /** Provider id shown in inspection and the Console. Default: `"api-key"`. */
@@ -18,6 +18,8 @@ export interface ApiKeyProviderOptions<TApis extends object = object> {
   apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
   /** The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The key is also sent there. */
   mcp?: string
+  /** Pacing, retries, and a timeout for provider requests. */
+  requests?: ConnectionRequestPolicy
   /**
    * Check a new key before ViteHub stores it, for example with `context.fetch`.
    * Return `false` to reject the key, or `{ account }` to label the Connection.
@@ -118,6 +120,7 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
   }
   if (scheme !== undefined) Object.assign(provider, { scheme })
   if (options.mcp !== undefined) Object.assign(provider, { mcp: options.mcp })
+  if (options.requests !== undefined) Object.assign(provider, { requests: options.requests })
   if (options.verify) provider.verify = options.verify
   // SAFETY: The provider API map is constrained by the generic catalog contract.
   const catalogsSafe = (Object.values(provider.apis) as ConnectionApiCatalog[]).every(catalog => {

@@ -70,6 +70,7 @@ export default defineConnection({
 | `header` | `authorization` | Request header that carries the key. |
 | `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. Set `""` to send the bare key. |
 | `apis` | `{}` | Typed API catalogs, as for OAuth providers. |
+| `requests` | none | Pacing, retries, and a timeout for provider requests. See [Pace and retry requests](#pace-and-retry-requests). |
 | `verify` | none | Check a new key before it is stored. It receives the runtime `fetch` and a 30-second abort signal. Return `false` to reject the key, or `{ account }` to label the Connection. |
 | `id` | `"api-key"` | Provider id in inspection and the Console. |
 
@@ -80,6 +81,24 @@ printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 ```
 
 ViteHub seals the key like an OAuth token, and access rules, approvals, dry run, and activity work the same way. An API key has no scopes and no refresh: a `401` response does not change the Connection status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking an API key Connection deletes the stored key. Revoke the key at the provider too.
+
+## Pace and retry requests
+
+Set `requests` on an OAuth provider or in `apiKey()` to pace, retry, and time out provider requests. It applies to `fetch` and API method calls, but not to the provider's `mcp` endpoint, whose sessions are long-lived streams. Without it, each request is sent once.
+
+```ts
+apiKey({
+  origins: ["https://api.airtable.com"],
+  requests: {
+    bucket: "airtable-base", // Connections with the same bucket share one schedule and one 429 pause. Default: the Connection name.
+    rate: { limit: 5, perMs: 1000 }, // or { intervalMs: 200 }: request starts are spaced evenly.
+    retry: { attempts: 4, methods: ["GET"], delayMs: 250, on429: { minDelayMs: 30_000 } },
+    timeoutMs: 15_000, // Aborts each attempt.
+  },
+});
+```
+
+`retry.attempts` defaults to `3`. Network errors and `5xx` responses are retried with exponential backoff from `delayMs` (default `250`), only for `methods` (default `GET`, `HEAD`, `OPTIONS`). A `429` is retried for every method after `Retry-After`, at least `on429.minDelayMs`, and pauses the whole bucket. The last attempt returns its response as is. A caller abort stops at once and is not retried. The schedule is in memory, per server process or isolate.
 
 ## Use a custom store
 
