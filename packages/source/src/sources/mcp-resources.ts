@@ -156,7 +156,6 @@ function isMcpTransport(value: unknown): value is McpResourcesTransport {
 }
 
 function isMcpTransportConfig(value: unknown): value is Exclude<McpResourcesTransportConfig, McpResourcesTransport> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Transport configs cross the MCP configuration boundary and require object validation.
   return typeof value === "object"
     && value !== null
     && Object.hasOwn(value, "url")
@@ -164,14 +163,12 @@ function isMcpTransportConfig(value: unknown): value is Exclude<McpResourcesTran
 }
 
 function hasDeclaredProperty(value: unknown, key: PropertyKey): value is object {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability lookup requires an object before inspecting its own fields and prototypes.
   if (typeof value !== "object" || value === null) return false
   if (Object.hasOwn(value, key)) return true
   let prototype = Object.getPrototypeOf(value)
   while (prototype && prototype !== Object.prototype) {
     if (Object.hasOwn(prototype, key)) {
       const constructor = Object.hasOwn(prototype, "constructor") ? prototype.constructor : undefined
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only class constructors can declare inherited MCP capabilities; plain functions can forge prototype links.
       return typeof constructor === "function"
         && constructor.prototype === prototype
         && /^class\b/.test(Function.prototype.toString.call(constructor))
@@ -182,7 +179,6 @@ function hasDeclaredProperty(value: unknown, key: PropertyKey): value is object 
 }
 
 function hasDeclaredFunction(value: unknown, key: PropertyKey): boolean {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP methods must be callable before they cross the client or transport boundary.
   return hasDeclaredProperty(value, key) && typeof Reflect.get(value, key) === "function"
 }
 
@@ -323,12 +319,10 @@ function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "i
 type McpRecord = Record<PropertyKey, unknown>
 
 function isRecord(value: unknown): value is McpRecord {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP responses cross a runtime protocol boundary.
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function isMcpString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP responses cross a runtime protocol boundary.
   return typeof value === "string"
 }
 
@@ -356,7 +350,6 @@ function hasOptionalMcpField(value: McpRecord, key: PropertyKey, validate: (fiel
 }
 
 function isMcpNumber(value: unknown): value is number {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- MCP numeric metadata crosses a runtime protocol boundary.
   return typeof value === "number" && Number.isFinite(value)
 }
 
@@ -507,9 +500,7 @@ function decodeBase64(value: string) {
 }
 
 function contentToSourceContent(content: McpResourceContent): SourceContent {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Remote MCP text content must be an own string field before decoding.
   if (Object.hasOwn(content, "text") && "text" in content && typeof content.text === "string") return content.text
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Remote MCP binary content must be an own string field before base64 decoding.
   if (Object.hasOwn(content, "blob") && "blob" in content && typeof content.blob === "string") return decodeBase64(content.blob)
   return ""
 }

@@ -51,7 +51,6 @@ function parentPaths(path: string): string[] {
 
 async function readBuildDirectories(store: WorkspaceStore, workspace: string): Promise<string[]> {
   const value = await readBuildMetadata(store, buildDirectoriesMetaKey(workspace))
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Directory ownership is an untyped persistence boundary.
   return Array.isArray(value) ? value.filter((path): path is string => typeof path === "string" && !!path) : []
 }
 
@@ -60,10 +59,8 @@ const buildDirectoryUsersMetaKey = "workspace:build-directory-users"
 async function readBuildDirectoryUsers(store: WorkspaceStore): Promise<Record<string, string[]>> {
   const value = await readBuildMetadata(store, buildDirectoryUsersMetaKey)
   const users: Record<string, string[]> = Object.create(null)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Shared directory claims are an untyped persistence boundary.
   if (!value || typeof value !== "object" || Array.isArray(value)) return users
   const entries = Object.entries(value).filter((entry): entry is [string, string[]] =>
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted Workspace names before using shared claims.
     Array.isArray(entry[1]) && entry[1].every(name => typeof name === "string"))
   const directories = new Map<string, string[]>()
   for (const [path, names] of entries) {
@@ -144,7 +141,6 @@ async function pruneBuildDirectories(store: WorkspaceStore, workspace: string): 
         if (previousUsers) users[path] = previousUsers
         await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), [...pending])
         await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Store implementations may throw untyped filesystem errors.
         const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : undefined
         // The memory Store uses this specific Workspace error for non-empty removal.
         const nonEmptyRace = code === "ENOTEMPTY"
@@ -171,7 +167,6 @@ interface BuildFileRecord {
 async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, sources: ResolvedWorkspaceSource[], mutationStore = store, abortSignal?: AbortSignal, trackOperation?: TrackLifecycleOperation): Promise<WorkspaceStore> {
   const records = await readBuildFiles(store, workspace)
   const record = async (path: string, source: unknown, digest: string) => {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Loader source values are an untyped extension boundary.
     if (typeof source !== "string") return
     const normalized = normalizeWorkspacePath(path)
     records[normalized] = { source, digest }
@@ -611,13 +606,10 @@ async function readSyncedBuildSources(store: WorkspaceStore, workspace: string):
 
 async function readBuildFiles(store: WorkspaceStore, workspace: string): Promise<Record<string, BuildFileRecord>> {
   const value = await readBuildMetadata(store, buildFilesMetaKey(workspace))
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Metadata is an untyped persistence boundary.
   if (!value || typeof value !== "object" || Array.isArray(value)) return {}
   return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, BuildFileRecord] => {
     const record: unknown = entry[1]
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted entries must validate both ownership fields before authorizing cleanup.
     return !!record && typeof record === "object" && "source" in record && typeof record.source === "string"
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted digests must be strings before authorizing cleanup.
       && "digest" in record && typeof record.digest === "string"
   }))
 }

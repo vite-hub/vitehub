@@ -242,7 +242,6 @@ export function workspaceCommandTools(
       name: toolName,
       async execute(input: unknown, execution?: AgentToolExecutionContext) {
         const value = input as WorkspaceCommandInput
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input must contain a string command before command policy validation.
         if (!value || typeof value.command !== "string") throw agentDiagnostics.AGENT_R0295({ message: `[vitehub] ${toolName} requires a command.` })
         if (unrestricted) normalizeWorkspaceCommandEntries([value.command], `${toolName} command`)
         else if (!commandNames.includes(value.command)) throw agentDiagnostics.AGENT_R0296({ message: `[vitehub] Workspace command "${value.command}" is not allowed.` })

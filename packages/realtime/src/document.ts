@@ -20,7 +20,6 @@ export function realtimeEditorSchema(editor: RealtimeEditor): Schema {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Field values are JSON; only plain objects need key sorting.
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 

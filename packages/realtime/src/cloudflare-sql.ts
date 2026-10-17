@@ -8,7 +8,6 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
   try {
     const ownExec = Object.getOwnPropertyDescriptor(sql, "exec")
     if (ownExec) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SQL adapters must provide a callable own data property without invoking accessors.
       return "value" in ownExec && typeof ownExec.value === "function"
     }
 

@@ -89,7 +89,6 @@ const scope = globalThis as ConsoleInvocationScope
 const fakeInvocations = (name: string) => ({ name }) as unknown as AgentInvocations
 
 function isPluginHookObject(value: unknown): value is { handler: unknown } {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin hooks are functions or hook objects at this test boundary.
   return value !== null && typeof value === "object" && "handler" in value
 }
 
@@ -99,13 +98,11 @@ function withViteLogger<T extends object>(config: T): T & { logger: { warn: () =
 }
 
 function callPluginHook(hook: unknown, context: unknown, args: readonly unknown[] = []): unknown {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin hooks are functions or hook objects at this test boundary.
   const candidate = typeof hook === "function"
     ? hook
     : isPluginHookObject(hook)
       ? hook.handler
       : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The structural Vite hook boundary is validated before invocation.
   if (typeof candidate !== "function") throw new TypeError("Expected a callable Vite plugin hook.")
   return Reflect.apply(candidate, context, args)
 }
@@ -1256,7 +1253,6 @@ describe("Agent invocation console", () => {
       })
       // SAFETY: Vite plugin options form a recursive array, and this test narrows each flattened candidate structurally before using it as a plugin.
       const pluginCandidates = (plugins as unknown[]).flat(Infinity)
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite plugin options can be nested and mixed at this test boundary, so narrow the flattened value by its plugin name.
       const plugin = pluginCandidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
 
@@ -4334,7 +4330,6 @@ describe("Agent invocation console", () => {
     const secondAgentRealm = { process }
     const unboundAgentRealm = { process }
 
-    // doctor-disable-next-line typescript/evidence/no-object-parameters -- VM contexts accept object realms and the test only checks injected symbol state.
     const bind = async (projectRoot: string, realm: object, identity?: string) => {
       const plugin = consoleInvocationRootPlugin(projectRoot, identity)
       // SAFETY: The console plugin declares this environment predicate on its Vite Plugin contract.
@@ -4343,7 +4338,6 @@ describe("Agent invocation console", () => {
       const buildStart = plugin.buildStart as unknown as (this: typeof context) => Promise<void>
       // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This test invokes a Vite object hook with a focused fake context.
       const resolveId = plugin.resolveId as unknown as (
-        // doctor-disable-next-line typescript/evidence/no-object-parameters -- The fake Vite hook context is intentionally structural.
         this: object,
         source: string,
         importer: string | undefined,

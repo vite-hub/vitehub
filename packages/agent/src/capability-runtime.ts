@@ -539,7 +539,6 @@ function isBuiltinObject(value: unknown, tag: string): boolean {
       case "[object URLSearchParams]": URLSearchParams.prototype.toString.call(value); return true
       case "[object ArrayBuffer]": Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value); return true
       case "[object SharedArrayBuffer]":
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SharedArrayBuffer may not exist in this runtime; typeof safely checks the global.
         if (typeof SharedArrayBuffer === "undefined") return false
         Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!.call(value)
         return true
@@ -578,7 +577,6 @@ function isPlainObjectPrototype(prototype: unknown): boolean {
   }
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Descriptor copying accepts arbitrary built-ins and records without requiring named properties.
 function copySnapshotProperties(source: object, target: object, seen: WeakMap<object, unknown>, skip?: PropertyKey): void {
   for (const key of Reflect.ownKeys(source)) {
     if (key === skip) continue
@@ -589,7 +587,6 @@ function copySnapshotProperties(source: object, target: object, seen: WeakMap<ob
   }
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Intrinsic valueOf methods validate the boxed receiver; its own properties may have any shape.
 function snapshotBoxedValue(value: object, tag: string, seen: WeakMap<object, unknown>): object | undefined {
   let snapshot: object
   try {
@@ -655,7 +652,6 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
     }
     catch { /* spoofed tag; continue with ordinary object handling */ }
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SharedArrayBuffer may not exist in this runtime; typeof safely checks the global.
   if (tag === "[object SharedArrayBuffer]" && typeof SharedArrayBuffer !== "undefined") {
     try {
       // SAFETY: The intrinsic SharedArrayBuffer byteLength getter validates the receiver and returns a number.
@@ -705,7 +701,6 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
   return snapshot
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Descriptor comparison accepts any already-validated object shape.
 function compareCapabilityProperties(left: object, right: object, seen: WeakMap<object, object>): boolean {
   const leftKeys = Reflect.ownKeys(left)
   const rightKeys = Reflect.ownKeys(right)

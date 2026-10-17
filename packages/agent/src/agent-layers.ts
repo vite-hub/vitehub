@@ -297,7 +297,6 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
   return result
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Descriptor copying accepts arbitrary built-in and plain option objects.
 function clonePresetDescriptors(source: object, target: object, memo: WeakMap<object, unknown>, active: WeakMap<object, unknown>): void {
   for (const key of Reflect.ownKeys(source)) {
     const descriptor = Object.getOwnPropertyDescriptor(source, key)
@@ -358,7 +357,6 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value === null || !hasRuntimeType(value, "object")) return value
   if (active.has(value)) return active.get(value)
   if (memo.has(value)) return memo.get(value)
-  // doctor-disable-next-line typescript/evidence/no-object-parameters -- Each clone has its own built-in shape; this step only copies descriptors.
   const finish = (clone: object) => {
     memo.set(value, clone)
     clonePresetDescriptors(value, clone, memo, active)

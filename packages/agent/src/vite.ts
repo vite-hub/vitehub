@@ -728,14 +728,12 @@ function cloneCloudflareAgentStateMigrations(value: unknown): CloudflareAgentSta
 
 function mergeRollupExternals(external: RollupExternalOption | undefined, additions: readonly string[]): RollupExternalOption | undefined {
   if (external === undefined) return [...additions]
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- RollupExternalOption is an untagged runtime union, so this boundary must distinguish its string member.
   if (typeof external === "string") return additions.includes(external) ? [...additions] : [external, ...additions]
   if (external instanceof RegExp) return [external, ...additions]
   if (Array.isArray(external)) {
     const missing = additions.filter(source => !external.includes(source))
     return missing.length ? [...external, ...missing] : external
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- RollupExternalOption is an untagged runtime union, so callability identifies its function member.
   if (typeof external === "function") {
     // SAFETY: The preceding runtime check proves this Rollup external is the function member of the union.
     const externalFunction = external as RollupExternalFunction
@@ -752,10 +750,8 @@ function mergeCloudflareWorkersExternal(external: RollupExternalOption | undefin
 function mergeBuildExternal(config: BuildWithRolldownOptions, additions: readonly string[]): BuildWithRolldownOptions["build"] {
   const build = config.build ?? {}
   const configuredExternal = build.rolldownOptions?.external
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite can merge scalar and array externals; normalize both before returning additions.
   const external = typeof configuredExternal === "string" || configuredExternal instanceof RegExp ? [configuredExternal] : configuredExternal
   if (Array.isArray(external)) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rolldown external arrays accept only strings and RegExp values.
     const supportedExternal = external.filter((entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp)
     if (build.rolldownOptions) build.rolldownOptions.external = supportedExternal
     return {
@@ -817,7 +813,6 @@ function mergeCloudflareAgentStateNitroConfig(value: unknown, stateImport: strin
 function mergeAgentNitroExternals(value: unknown): NitroConfig {
   const nitro = cloneNitroConfig(value)
   if (isRecord(nitro.rollupConfig) && Array.isArray(nitro.rollupConfig.external)) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rollup's external array is an untagged union, and this adapter retains only string and RegExp members.
     nitro.rollupConfig.external = nitro.rollupConfig.external.filter(
       (entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp,
     )
@@ -3616,7 +3611,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           })
         }
         const retainedProviderImportAliases = {
-          // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Merge retained aliases when available.
           ...(retainedSources ? retainProviderOutputAliases(providerImportAliases, retainedSources) : providerImportAliases),
           ...(normalized ? { [agentRegistryId]: retainedSources
             ? join(retainedSources.resolve(config.root), ".vitehub", generatedAgentRegistry)

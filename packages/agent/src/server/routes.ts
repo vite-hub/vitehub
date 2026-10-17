@@ -744,7 +744,6 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored custom verifier objects require verification independently of shared secrets.
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
   if (registration.secretToken !== undefined) return (await resolveWebhookSecret(registration.secretToken, context)) !== false
   return requireConfiguredSecret && registration.secretHeader !== undefined

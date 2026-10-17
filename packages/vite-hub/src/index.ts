@@ -831,7 +831,6 @@ function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin {
     config(config, { command }) {
       if (publicUrl === undefined || command !== "build") return
       let resolved: PublicUrlConfig
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The option is a string or a callback; typeof also accepts callbacks from another realm.
       if (typeof publicUrl === "function") {
         const root = resolveViteHubProjectRoot(config.root ?? process.cwd())
         // SAFETY: ViteHub hosts add this private server-directory symbol before plugins read the config.

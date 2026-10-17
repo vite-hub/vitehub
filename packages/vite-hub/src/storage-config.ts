@@ -28,18 +28,14 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   const state = agent && agent.providers?.state
   return {
     ...options,
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional storage defaults.
     ...(cache ? { cache } : {}),
     dataDir: root,
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional storage defaults.
     ...(kv ? { kv: "stores" in kv
       ? { ...kv, stores: Object.fromEntries(Object.entries(kv.stores).map(([name, store]) => [name, kvStore(store, name)])) }
       : kvStore(kv) } : {}),
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional storage defaults.
     ...(blob ? { blob: "stores" in blob
       ? { ...blob, stores: Object.fromEntries(Object.entries(blob.stores).map(([name, store]) => [name, blobStore(store, name)])) }
       : !blob.driver || blob.driver === "fs" ? { ...blob, driver: "fs" as const, base: "base" in blob ? blob.base ?? join(root, "blob") : join(root, "blob") } : blob } : {}),
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Preserve optional agent defaults.
     ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
       agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
     } : {}),

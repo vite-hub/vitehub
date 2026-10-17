@@ -438,7 +438,6 @@ function isBoxRuntime(value: unknown): value is BoxRuntime {
   return hasDeclaredBoxRuntimeMember(runtime, "name")
     && hasDeclaredBoxRuntimeMember(runtime, "open")
     && hasDeclaredBoxRuntimeMember(runtime, "prepare")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Runtime detection validates the name and callable operations after checking their declaring prototypes.
     && typeof runtime.name === "string"
     && typeof runtime.open === "function"
     && typeof runtime.prepare === "function";

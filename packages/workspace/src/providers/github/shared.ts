@@ -65,12 +65,10 @@ interface GitHubBlobResponse {
 const githubReadAttempts = 3
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
 function isNonEmptyString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON crosses the untrusted HTTP boundary as an unknown value.
   return typeof value === "string" && value.length > 0
 }
 
@@ -92,14 +90,10 @@ function isGitHubCommitResponse(value: unknown): value is GitHubCommitResponse {
 
 function isGitHubTreeEntry(value: unknown): value is GitHubTreeEntry {
   return isRecord(value)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && typeof value.path === "string"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && typeof value.type === "string"
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && (value.mode === undefined || typeof value.mode === "string")
     && isNonEmptyString(value.sha)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && (value.size === undefined || (typeof value.size === "number" && Number.isInteger(value.size) && value.size >= 0))
 }
 
@@ -107,7 +101,6 @@ function isGitHubTreeResponse(value: unknown): value is GitHubTreeResponse {
   return isRecord(value)
     && Array.isArray(value.tree)
     && value.tree.every(isGitHubTreeEntry)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- GitHub JSON fields must be validated before the typed response is used.
     && (value.truncated === undefined || typeof value.truncated === "boolean")
 }
 

@@ -473,7 +473,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const resolvedConfiguredAuth = configuredAuth === undefined
         ? configuredState?.configuredAuth
         : configuredAuth
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Auth option is an untagged boolean-or-callback union; callability selects the callback.
       const auth = typeof options.auth === "function"
         ? options.auth({ configuredAuth: resolvedConfiguredAuth, projectRoot: root, serverDirs: input.serverDirs })
         : options.auth && resolvedConfiguredAuth !== false && Boolean(refreshAuthByRoot.get(root)?.())

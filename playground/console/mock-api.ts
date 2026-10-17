@@ -366,15 +366,12 @@ function storeName(value: string | null): keyof typeof kvStores | undefined {
 
 function formattedKVValue(key: string, name: keyof typeof kvStores, value: unknown): Record<string, unknown> {
   if (!kvStores[name].has(key)) return { found: false, key, store: name }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground formats arbitrary fixture values for display.
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2)
   return {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground reports whether arbitrary fixture values are text or JSON.
     format: typeof value === "string" ? "text" : "json",
     found: true,
     key,
     store: name,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground reports the runtime type of arbitrary fixture values.
     type: Array.isArray(value) ? "array" : value === null ? "null" : typeof value,
     value: text,
   }
@@ -382,11 +379,8 @@ function formattedKVValue(key: string, name: keyof typeof kvStores, value: unkno
 
 function databaseCell(value: unknown): { kind: string, value: string } {
   if (value === null || value === undefined) return { kind: "null", value: "NULL" }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground formats arbitrary fixture values for display.
   if (typeof value === "boolean") return { kind: "boolean", value: value ? "true" : "false" }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground formats arbitrary fixture values for display.
   if (typeof value === "number") return { kind: "number", value: String(value) }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground formats arbitrary fixture values for display.
   if (typeof value === "string") return { kind: "text", value }
   return { kind: "json", value: JSON.stringify(value) }
 }
@@ -737,7 +731,6 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     // SAFETY: The playground validates the name immediately after decoding this local JSON request.
     const input: unknown = await body(request)
     const requestedName = input instanceof Object && "name" in input ? input.name : undefined
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground validates the untrusted request name before answering.
     const name = typeof requestedName === "string" && requestedName ? requestedName : undefined
     if (!name) {
       json(response, { message: "Schedule run requires a Schedule Definition name." }, 400)
@@ -784,9 +777,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     if (request.method === "POST") {
       // SAFETY: The playground handler validates both fields immediately after decoding this local JSON request.
       const input = await body(request) as { key?: unknown, store?: unknown }
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground validates the untrusted request store before lookup.
       const name = storeName(typeof input.store === "string" ? input.store : null)
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The playground validates the untrusted request key before lookup.
       if (!name || typeof input.key !== "string") {
         json(response, { error: "KV store or key not found" }, 404)
         return true

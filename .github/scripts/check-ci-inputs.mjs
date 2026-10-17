@@ -1093,7 +1093,6 @@ export function inspectGitHubCIInputs(path, source) {
     for (const pair of value.items) {
       const key = isAlias(pair.key) ? pair.key.resolve(document) : pair.key
       const entry = isAlias(pair.value) ? pair.value.resolve(document) : pair.value
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
       if (isScalar(key) && isScalar(entry) && typeof entry.value === "string") {
         environment.set(key.value, entry.value)
       }
@@ -1124,7 +1123,6 @@ export function inspectGitHubCIInputs(path, source) {
       const shellPair = findPair(step, "shell") ?? inheritedShell
       if (shellPair) {
         const shell = isAlias(shellPair.value) ? shellPair.value.resolve(document) : shellPair.value
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
         if (isScalar(shell) && typeof shell.value === "string") {
           const line = lineCounter.linePos(shellPair.key.range?.[0] ?? 0).line
           for (const spec of findExecutablePackageSpecs(shell.value, environment)) {
@@ -1136,7 +1134,6 @@ export function inspectGitHubCIInputs(path, source) {
       }
       const line = lineCounter.linePos(runPair.key.range?.[0] ?? 0).line
       const run = isAlias(runPair.value) ? runPair.value.resolve(document) : runPair.value
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
       if (!isScalar(run) || typeof run.value !== "string") {
         failures.push({ line, message: "run must be a string", path })
         continue
@@ -1177,7 +1174,6 @@ export function inspectGitHubCIInputs(path, source) {
         if (isAlias(container)) container = container.resolve(document)
         if (isScalar(container)) {
           const line = lineCounter.linePos(container.range?.[0] ?? 0).line
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
           if (typeof container.value !== "string") {
             failures.push({ line, message: "image must be a string", path })
           }
@@ -1191,7 +1187,6 @@ export function inspectGitHubCIInputs(path, source) {
         if (!imagePair) continue
         const line = lineCounter.linePos(imagePair.key.range?.[0] ?? 0).line
         const image = isAlias(imagePair.value) ? imagePair.value.resolve(document) : imagePair.value
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workflow YAML is untrusted input at this policy boundary.
         if (!isScalar(image) || typeof image.value !== "string") {
           failures.push({ line, message: "image must be a string", path })
         }
