@@ -45,7 +45,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
   const databaseEntries = runtimeConfig.databaseNames.map((name, index) => [
     `  [${JSON.stringify(name)}]: {`,
     runtimeConfig.databases[name]?.dialect === "postgresql"
-      ? `    db: ${renderPostgresDatabaseExpression(name, runtimeConfig, `definition_${index}`)},`
+      ? `    db: ${renderPostgresDatabaseExpression(name, runtimeConfig, `definition_${index}`, `schema_${index}`)},`
       : `    db: createHostedDrizzleDb(${renderDatabaseConfigExpression(name, runtimeConfig, `definition_${index}`)}, schema_${index}),`,
     `    schema: schema_${index},`,
     "  },",
