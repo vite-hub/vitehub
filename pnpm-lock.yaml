@@ -738,9 +738,6 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
-      '@t3tools/provider-runtime':
-        specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
@@ -792,9 +789,6 @@ importers:
       esbuild:
         specifier: catalog:esbuild-v27
         version: 0.27.7
-      forges:
-        specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -820,6 +814,9 @@ importers:
       '@github-tools/eve-extension':
         specifier: 0.8.0
         version: 0.8.0(d59a6d41e88488bec58aa9b531a9bc75)
+      '@t3tools/provider-runtime':
+        specifier: 'catalog:'
+        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
@@ -859,6 +856,9 @@ importers:
       evlog:
         specifier: ^2.29.0
         version: 2.29.0(86ad22ff81414d2c47fcc56685938d71)
+      forges:
+        specifier: 'catalog:'
+        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
