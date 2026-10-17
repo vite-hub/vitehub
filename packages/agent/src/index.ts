@@ -6232,11 +6232,18 @@ async function resolveFinishDeliveryEffectIntents<
 ): Promise<AgentChannelDeliveryEffectIntent[]> {
   const intents: AgentChannelDeliveryEffectIntent[] = []
   const finishContext = createFinishDeliveryEffectContext(event, context)
+  let firstError: unknown
   for (const provider of providers) {
-    const intent = hasRuntimeType(provider, "function") ? await provider(finishContext, event) : provider
-    if (!intent) continue
-    appendDeliveryEffectIntent(intents, intent)
+    try {
+      const intent = hasRuntimeType(provider, "function") ? await provider(finishContext, event) : provider
+      if (!intent) continue
+      appendDeliveryEffectIntent(intents, intent)
+    }
+    catch (error) {
+      firstError ??= error
+    }
   }
+  if (firstError !== undefined) throw firstError
   return intents
 }
 
