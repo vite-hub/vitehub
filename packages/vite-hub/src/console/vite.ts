@@ -14,7 +14,7 @@ import type { Environment, Plugin } from "vite"
 import { isConsoleConnectionsEnabled, type ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
-import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers } from "./auth-build.ts"
+import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers, type ResolvedConsoleAuthConfig } from "./auth-build.ts"
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
@@ -408,6 +408,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let resolvedConsoleConfiguration: ConsoleOptions | undefined
   let resolvedAppAuth: ResolvedAuthViteConfig | undefined
   let refreshConsoleAuthClient: (() => Promise<void>) | undefined
+  let inlineConsoleAuthConfig: ResolvedConsoleAuthConfig | undefined
   let openAccessBuildWarning: string | undefined
   let baseURL = "/"
 
@@ -521,11 +522,26 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       openAccessBuildWarning = environment.command === "build" && !cliDiscovery ? consoleOpenAccessBuildWarning(configured, options.preset) : undefined
       const configuredConsoleAuth = consoleAuthConfig(configured)
       const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
-      const registeredConsoleAuth = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build") ? resolvedConsoleAuth : undefined
       consoleAuthMode = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build")
-      consoleAuthHandlers = registeredConsoleAuth ? await writeConsoleAuthHandlers(root, registeredConsoleAuth, baseURL) : undefined
-      refreshConsoleAuthClient = registeredConsoleAuth
-        ? serializeConsoleRefresh(async () => { consoleAuthHandlers = await writeConsoleAuthHandlers(root!, registeredConsoleAuth, baseURL) })
+      // SAFETY: The Env plugin adds this optional string to Vite configuration.
+      const developmentSecretEnvKey = (config as typeof config & { __vitehubEnvDevelopmentSecretEnvKey?: string }).__vitehubEnvDevelopmentSecretEnvKey
+      inlineConsoleAuthConfig = resolvedConsoleAuth && "provider" in resolvedConsoleAuth && resolvedConsoleAuth.provider === "github"
+        ? { ...resolvedConsoleAuth, developmentSecretEnvKey }
+        : resolvedConsoleAuth
+      // Env may be ordered after this plugin. In that case wait for its
+      // resolved project secret before writing the generated auth definition.
+      // Production builds must emit the handlers during the config hook. In
+      // development, Env may run later and supply the project-scoped key.
+      const canWriteInlineAuth = environment.command === "build"
+        || !inlineConsoleAuthConfig
+        || inlineConsoleAuthConfig.provider !== "github"
+        || Boolean(developmentSecretEnvKey)
+      consoleAuthHandlers = inlineConsoleAuthConfig && canWriteInlineAuth ? await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL) : undefined
+      refreshConsoleAuthClient = consoleAuthConfig
+        ? serializeConsoleRefresh(async () => {
+            const refreshConfig = inlineConsoleAuthConfig
+            consoleAuthHandlers = await writeConsoleAuthHandlers(root!, refreshConfig!, baseURL)
+          })
         : undefined
       projectRoot = resolveViteHubProjectRoot(root)
       const configuredFixture = viteConfig.vitehubCliDiscovery
@@ -602,6 +618,22 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       resolvedPlugins = config.plugins
       const previousConsoleAuthHandlers = consoleAuthHandlers
       baseURL = config.base
+      if (inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig && inlineConsoleAuthConfig.provider === "github") {
+        inlineConsoleAuthConfig = {
+          ...inlineConsoleAuthConfig,
+          // SAFETY: Vite preserves the Env plugin’s optional selected root in resolved config.
+          developmentSecretEnvKey: (config as typeof config & { __vitehubEnvDevelopmentSecretEnvKey?: string }).__vitehubEnvDevelopmentSecretEnvKey,
+        }
+        const envConfig = config as typeof config & { __vitehubEnvOnResolved?: Array<(envKey: string | undefined) => Promise<void> | void> }
+        if (!inlineConsoleAuthConfig.developmentSecretEnvKey) {
+          ;(envConfig.__vitehubEnvOnResolved ??= []).push(async envKey => {
+            if (!envKey || !inlineConsoleAuthConfig || !root) return
+            inlineConsoleAuthConfig = { ...inlineConsoleAuthConfig, developmentSecretEnvKey: envKey }
+            consoleAuthHandlers = await writeConsoleAuthHandlers(root, inlineConsoleAuthConfig, baseURL)
+            if (sections.includes("connections")) await writeConsoleConnectionsActor(root, consoleAuthHandlers.middleware)
+          })
+        }
+      }
       if (resolvedConsoleConfiguration) {
         assertConsoleAccess(resolvedConsoleConfiguration, { auth: resolvedAppAuth, base: baseURL, sections })
       }
@@ -647,7 +679,15 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       }
       const nitro = viteConfig.nitro ??= {}
       const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, baseURL, sections, consoleAuthHandlers, previousConsoleAuthHandlers)
-      viteConfig.nitro = { ...kit.config, publicAssets }
+      const connectionsActor = sections.includes("connections")
+        ? await writeConsoleConnectionsActor(root, consoleAuthHandlers?.auth === true ? "console-auth" : resolvedAppAuth ? "app-auth" : "none")
+        : undefined
+      const alias = kit.config.alias ?? {}
+      viteConfig.nitro = {
+        ...kit.config,
+        ...(connectionsActor ? { alias: { ...alias, [consoleConnectionsActorId]: connectionsActor } } : {}),
+        publicAssets,
+      }
       generatedPlugin = fixture && generatedPlugin
         ? generatedPlugin
         : resolveGeneratedConsolePlugin(projectRoot, fixture, options.invocationRootState)
