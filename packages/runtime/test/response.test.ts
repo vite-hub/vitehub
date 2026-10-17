@@ -2,6 +2,63 @@ import { describe, expect, it } from "vitest"
 import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
 
 describe("durable Response representation", () => {
+  it("preserves native Blob bodies", async () => {
+    const blob = new Blob(["test"], { type: "text/plain" })
+
+    const response = toResponse(blob)
+    expect(response.headers.get("content-type")).toBe("text/plain")
+    expect(await response.text()).toBe("test")
+  })
+
+  it("keeps spoofed and hostile Blob-shaped values on the JSON path", async () => {
+    const spoof = { size: 4, type: "text/plain", arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)) }
+    Object.defineProperty(spoof, Symbol.toStringTag, { value: "Blob" })
+    const hostile = Object.defineProperty({}, Symbol.toStringTag, { get() { throw new Error("boom") } })
+
+    expect(await toResponse(spoof).json()).toEqual({ size: 4, type: "text/plain" })
+    expect(await toResponse(hostile).json()).toEqual({})
+    expect(await toResponse([1, 2]).json()).toEqual([1, 2])
+  })
+
+  it("does not execute spoofed or overridden stream methods", async () => {
+    const spoof = { slice: () => spoof, stream: () => { throw new Error("spoof") }, type: "text/plain" }
+    expect(await toResponse(spoof).json()).toEqual({ type: "text/plain" })
+
+    const spoofPrototype = {
+      slice(this: object) {
+        return Object.create(Object.getPrototypeOf(this), { type: { value: "text/plain" } })
+      },
+      stream() { throw new Error("distinct spoof") },
+      get size() { return 0 },
+    }
+    const spoofConstructor = function Blob() {}
+    spoofConstructor.prototype = spoofPrototype
+    Object.defineProperty(spoofPrototype, "constructor", { value: spoofConstructor })
+    const distinctSpoof = Object.create(spoofPrototype, { type: { value: "text/plain", enumerable: true } })
+    expect(await toResponse(distinctSpoof).json()).toEqual({ type: "text/plain" })
+
+    class BlobSpoof {
+      get size() { return 0 }
+      type = "text/plain"
+      slice() { return Object.create(BlobSpoof.prototype) }
+      stream() { throw new Error("class spoof") }
+    }
+    const classSpoof = new BlobSpoof()
+    expect(await toResponse(classSpoof).json()).toEqual({ type: "text/plain" })
+
+    const blob = new Blob(["test"], { type: "text/plain" })
+    expect(await toResponse(blob).text()).toBe("test")
+
+  })
+
+  it("does not add a content type for an untyped Blob", async () => {
+    const blob = new Blob(["test"])
+    const response = toResponse(blob)
+
+    expect(response.headers.has("content-type")).toBe(false)
+    expect(await response.text()).toBe("test")
+  })
+
   it("normalizes a Response-shaped impostor instead of returning it", () => {
     const foreignPrototype = {
       [Symbol.toStringTag]: "Response",
@@ -9,12 +66,8 @@ describe("durable Response representation", () => {
       clone() { return this },
     }
     const foreign = Object.assign(Object.create(foreignPrototype), {
-      body: null,
-      headers: { get: () => null, [Symbol.toStringTag]: "Headers" },
-      status: 200,
-      statusText: "",
+      body: null, headers: { get: () => null, [Symbol.toStringTag]: "Headers" }, status: 200, statusText: "",
     }) as Response
-
     const normalized = toResponse(foreign)
     expect(normalized).not.toBe(foreign)
     expect(normalized.headers).toBeInstanceOf(Headers)
