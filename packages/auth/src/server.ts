@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-import { Response as UndiciResponse } from "undici"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -320,16 +319,27 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
 }
 
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
-  const targets = new Set<object>([Response.prototype])
   const UndiciResponse = await getUndiciResponse()
-  if (UndiciResponse) targets.add(UndiciResponse.prototype)
   try {
     let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (targets.has(current)) return true
       if (seen.has(current)) return false
       seen.add(current)
+      const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
+      const accessors = authorizationResponseProperties.map(key => Object.getOwnPropertyDescriptor(current, key)?.get)
+      if (accessors.every(getter => typeof getter === "function")) {
+        // Applying the intrinsic accessors proves the candidate carries the
+        // response implementation's internal brand. Prototype metadata and
+        // native-looking source text alone are forgeable.
+        try {
+          for (const getter of accessors) Reflect.apply(getter!, value, [])
+          if (constructor === Response || constructor === UndiciResponse) return true
+        }
+        catch {
+          // Continue searching for a supported response prototype.
+        }
+      }
       current = Object.getPrototypeOf(current)
     }
     return false
@@ -342,17 +352,14 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
 function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => ReadableStreamDefaultReader<Uint8Array>) | false | undefined {
   if (body === null || typeof body !== "object") return
   try {
-    // Acquire the reader first so malformed body candidates are rejected by the
-    // intrinsic stream brand check before Fetch can coerce them during Response
-    // construction. This also validates the reader methods without dispatching
-    // any shadowed properties from the candidate stream.
+    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    if (!locked || Reflect.apply(locked, body, [])) return false
+    const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+    if (ownReader && ownReader.value !== ReadableStream.prototype.getReader) return false
     const reader = Reflect.apply(ReadableStream.prototype.getReader, body, [])
     const methods = getNativeAuthorizationReaderMethods(reader)
     if (!methods) return false
     Reflect.apply(methods.releaseLock, reader, [])
-    // A disturbed stream can be unlocked after its reader is released. The
-    // intrinsic Response bodyUsed state rejects that stream before acquiring a
-    // new reader, which would otherwise silently bridge an empty body.
     const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
     if (typeof bodyUsed !== "function" || bodyUsed.call(new Response(body as ReadableStream<Uint8Array>))) return false
     return ReadableStream.prototype.getReader
@@ -422,6 +429,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   try {
     const candidate = Object(value)
     if (!await hasResponsePrototype(candidate)) return
+    // Own data properties can shadow native response fields on a spoof.
+    if (authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")

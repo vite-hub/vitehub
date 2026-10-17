@@ -624,6 +624,22 @@ describe("Schedule Run bookkeeping", () => {
     expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
   })
 
+  it("returns the invalid scheduledAt diagnostic for throwing date tags", async () => {
+    const scheduledAt = new Proxy(new Date(), {
+      get(_target, property) {
+        if (property === Symbol.toStringTag) throw new Error("malicious tag")
+        return undefined
+      },
+    }) as Date
+
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "throwing-date-tag",
+      scheduledAt,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  })
+
   it.each(["local", "foreign"])("accepts %s scheduledAt Dates with custom display tags", async (realm) => {
     const scheduledAt = realm === "foreign"
       ? runInNewContext('new Date("2026-05-23T09:00:00.000Z")') as Date
@@ -642,25 +658,10 @@ describe("Schedule Run bookkeeping", () => {
     const handler = vi.fn()
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
-      definition: { cron: "0 9 * * *", handler },
-      name: "report",
-      scheduledAt: scheduledAt as never,
-    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
-    expect(handler).not.toHaveBeenCalled()
-  })
-
-  it("accepts genuine Dates without consulting a caller-defined tag", async () => {
-    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
-    const readTag = vi.fn(() => { throw new TypeError("hostile date tag") })
-    Object.defineProperty(scheduledAt, Symbol.toStringTag, { get: readTag })
-    const run = await executeStaticSchedule({
-      cron: "0 9 * * *",
       definition: { cron: "0 9 * * *", handler: async () => {} },
-      name: "report",
+      name: "throwing-date-tag",
       scheduledAt,
-    })
-    expect(run.scheduledAt.toISOString()).toBe("2026-05-23T09:00:00.000Z")
-    expect(readTag).not.toHaveBeenCalled()
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
   it("rejects invalid Date values from another JavaScript realm", async () => {

@@ -764,7 +764,15 @@ function renderEventPayload(label: string, value: unknown) {
 
 function renderCommandError(value: unknown) {
   if (value === undefined) return null;
-  const text = Object.prototype.toString.call(value) === "[object String]" ? String(value) : JSON.stringify(value, null, 2);
+  let text: string;
+  if (typeof value === "string") text = value;
+  else {
+    try {
+      text = Object.prototype.toString.call(value) === "[object String]" ? String(value) : payloadText(value);
+    } catch {
+      text = payloadText(value);
+    }
+  }
   return h("section", { class: "vh-invocation-event__payload" }, [
     h("strong", "Error"),
     h("pre", text),
