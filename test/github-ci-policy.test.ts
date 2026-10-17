@@ -37,6 +37,13 @@ describe("GitHub CI input policy", () => {
   })
 
   it.each([
+    "sh -c 'npx cowsay hello'",
+    'bash -c "pnpm dlx cowsay hello"',
+  ])("rejects an unpinned executor inside quoted shell text: %s", (command) => {
+    expect(findUnpinnedExecutors(command)).not.toEqual([])
+  })
+
+  it.each([
     "npx eslint@9.1.0 .",
     "pnpm dlx @vercel/cli@54.5.1 deploy",
     "vp dlx \"vercel@54.5.1\" link --yes",

@@ -19,7 +19,7 @@ import { parse } from "yaml"
 const policyFiles = [".github/workflows/*.{yml,yaml}", ".github/actions/**/action.{yml,yaml}"]
 const exactPackage = /^(?:@[^/@\s]+\/)?[^/@\s]+@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 const dockerDigest = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/
-const executorCall = /(?:^|[\s;&|(`])(?:npx|pnpx|bunx|bun\s+x|npm\s+(?:exec|x)|(?:pnpm|yarn|vp)\s+dlx)\s+([^\n;&|)`]*)/g
+const executorCall = /(?:^|[\s;&|(`'\"])(?:npx|pnpx|bunx|bun\s+x|npm\s+(?:exec|x)|(?:pnpm|yarn|vp)\s+dlx)\s+([^\n;&|)`'\"]*)/g
 const variableReference = /\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)/g
 
 function words(text) {
