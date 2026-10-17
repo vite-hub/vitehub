@@ -50,11 +50,17 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // and accessor naming details while still requiring a native body.
     const nativeGetterSource = /^function(?:\s+get)?(?:\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
-    // Native accessors retain their declared property name even when their
-    // source is rendered anonymously. This excludes unrelated branded
-    // accessors such as Map.prototype.size while accepting workerd's
-    // version-dependent `databaseSize` naming.
-    if (databaseSize.name === "size" || databaseSize.name === "get size") return false
+    // Reject unrelated native accessors that accept their own built-in brand.
+    // Workerd's getter must reject a Map receiver, while Map.prototype.size
+    // (including a proxy around it) succeeds. This keeps the check independent
+    // of workerd's version-dependent getter name.
+    try {
+      const mapSize = Reflect.apply(databaseSize, new Map(), [])
+      if (Number.isFinite(mapSize)) return false
+    }
+    catch {
+      // A genuine SqlStorage getter rejects unrelated receivers.
+    }
 
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)
