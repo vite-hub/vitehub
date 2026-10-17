@@ -74,6 +74,11 @@ class RuntimeShellSession implements ShellSession {
     if (this.#disposed) {
       return createPolicyObservation(command, options.cwd, shellSessionDisposedMessage)
     }
+    // Count every attempted shell invocation against the shared Invocation budget,
+    // including calls rejected by the per-session shell cap below.
+    if (options.recordInputBytes !== false) {
+      options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
+    }
     if (typeof this.policy.maxShellCalls === "number" && this.#shellCalls >= this.policy.maxShellCalls) {
       return createPolicyObservation(
         command,
@@ -84,6 +89,9 @@ class RuntimeShellSession implements ShellSession {
 
     this.#shellCalls += 1
     const started = Date.now()
+    const signal = options.budget && options.signal && options.signal !== options.budget.signal
+      ? AbortSignal.any([options.signal, options.budget.signal])
+      : options.budget?.signal ?? options.signal
     const requestedOutputLength = normalizeOutputLength(options.maxOutputLength)
     const policyOutputLength = normalizeOutputLength(this.policy.maxOutputLength)
     const maxOutputLength = requestedOutputLength === undefined
@@ -91,12 +99,27 @@ class RuntimeShellSession implements ShellSession {
       : policyOutputLength === undefined
         ? requestedOutputLength
         : Math.min(requestedOutputLength, policyOutputLength)
+    let stdoutRemaining = maxOutputLength
+    let stderrRemaining = maxOutputLength
+    const limitedCallback = (callback: ((data: string) => void) | undefined, remaining: () => number | undefined, consume: (value: number) => void) =>
+      callback && ((data: string) => {
+        const limit = remaining()
+        if (limit === undefined) return callback(data)
+        if (limit <= 0) return
+        const chunk = data.slice(0, limit)
+        consume(chunk.length)
+        if (chunk) callback(chunk)
+      })
     const result = await this.provider.exec(command, {
       ...options,
       env: { ...this.env, ...options.env },
       maxOutputLength,
+      signal,
       timeout: options.timeout ?? this.policy.timeout,
+      onStdout: limitedCallback(options.onStdout, () => stdoutRemaining, value => { stdoutRemaining = Math.max(0, (stdoutRemaining ?? 0) - value) }),
+      onStderr: limitedCallback(options.onStderr, () => stderrRemaining, value => { stderrRemaining = Math.max(0, (stderrRemaining ?? 0) - value) }),
     })
+    options.budget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
 
     const timedOut = result.timedOut
     return applyOutputLimit({

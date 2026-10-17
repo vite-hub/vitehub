@@ -2,7 +2,7 @@
 title: Run a daily report once with Schedule
 description: Declare a UTC schedule and execute one occurrence with the direct runtime API.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
@@ -85,6 +85,5 @@ The handler ran for the exact timestamp you supplied. To run it every day, add t
 
 ## Choose the next path
 
-- Keep this Static Schedule when the cron and target are part of the release.
-- Use a [Runtime Schedule](/docs/schedule/server-api#create-recurring-runtime-schedules) when users or Agents manage persisted records.
-- Read [Hosts](/docs/schedule/hosts) for provider wake output, long-running Node processes, and time zones.
+- Read [Configure](/docs/schedule/configure) to add the Schedule integration to an app.
+- Read [Hosts](/docs/schedule/hosts) for provider wake output and long-running Node processes.

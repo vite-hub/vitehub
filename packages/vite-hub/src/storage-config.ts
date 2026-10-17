@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
-import { resolveDBViteConfig } from "@vite-hub/database/config"
+import { isImplicitDefaultDatabase, resolveDBViteConfig, resolveDefaultDatabase } from "@vite-hub/database/config"
 import type { BlobStoreConfig } from "@vite-hub/blob"
 import type { KVStoreConfig } from "@vite-hub/kv"
 import type { ViteHubOptions } from "./index.ts"
@@ -9,8 +9,8 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 /** An explicit Node data directory selects local storage; the host owns durability. */
 export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   if (options.dataDir === undefined) return options
+  if (typeof options.dataDir !== "string" || !options.dataDir.trim()) throw viteHubErrorDiagnostics.VITE_HUB_R0121({ message: "[vitehub] dataDir must be a non-empty directory path." })
   if (options.preset !== "node") throw viteHubErrorDiagnostics.VITE_HUB_R0120({ message: "[vitehub] dataDir requires the node preset and a persistent filesystem. Configure remote stores for other hosts." })
-  if (!options.dataDir.trim()) throw viteHubErrorDiagnostics.VITE_HUB_R0121({ message: "[vitehub] dataDir must be a non-empty directory path." })
   const root = resolve(options.dataDir)
   const file = (name: string) => pathToFileURL(join(root, name)).href
   const kvStore = (store: KVStoreConfig, name?: string): KVStoreConfig => store.driver === "fs-lite"
@@ -39,14 +39,14 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
       agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
     } : {}),
-    ...(options.console && options.console !== true ? { console: {
+    ...(options.console ? { console: {
       ...options.console,
       databaseUrl: options.console.databaseUrl ?? file("console.sqlite"),
-      ...(options.console.access === "auth" && options.console.auth && "provider" in options.console.auth && options.console.auth.provider === "github" ? { auth: {
+      ...(options.console.auth instanceof Object && "provider" in options.console.auth && options.console.auth.provider === "github" ? { auth: {
         ...options.console.auth,
         databasePath: options.console.auth.databasePath ?? join(root, "console-auth.sqlite"),
-      } } : {}),
-    } } : {}),
+      } } : undefined),
+    } } : undefined),
     ...(options.workspace ? { workspace: {
       ...(options.workspace === true ? {} : options.workspace),
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
@@ -64,17 +64,25 @@ export type ConsoleJournal = { databaseUrl: string } | { d1Binding: string }
 export function consoleD1Binding(
   preset: string,
   database: ViteHubOptions["database"],
-  definitions?: { root: string, serverDirs?: string[] },
+  definitions?: {
+    /** Use the implicit default Database when the app has no Database Definition, as the Vite Database plugin does. */
+    implicitDefault?: boolean
+    root: string
+    serverDirs?: string[]
+  },
 ): string | undefined {
   if (preset !== "cloudflare" || !database) return
   if (!definitions) return
   const options = database === true ? undefined : database
   const root = resolve(definitions.root, options?.projectRoot ?? ".")
   const serverDirs = options?.projectRoot !== undefined ? [resolve(root, "server")] : definitions.serverDirs
-  const config = resolveDBViteConfig(options, root, { serverDirs })
-  const name = config?.databases.default ? "default" : config?.databaseNames.length === 1 ? config.databaseNames[0] : undefined
-  if (!name) return
-  return config?.databases[name]?.cloudflare?.binding
+  const config = resolveDBViteConfig(options, root, { implicitDefault: definitions.implicitDefault, serverDirs })
+  const target = resolveDefaultDatabase(config?.databaseNames ?? [])
+  if (target.status !== "resolved") return
+  // The implicit default Database has no Definition binding, so use it only when its D1 database resolves.
+  const definition = config?.definitions.find(item => item.name === target.name)
+  if (definition && isImplicitDefaultDatabase(definition)) return config?.definitionDefaults.cloudflareProjections[target.name]?.binding
+  return config?.databases[target.name]?.cloudflare?.binding
     ?? (options?.driver === "d1" ? options.binding?.trim() || "DB" : undefined)
 }
 
@@ -84,9 +92,21 @@ export function resolveConsoleJournal(databaseUrl: string | undefined, d1Binding
   if (build && d1Binding) return { d1Binding }
 }
 
+/**
+ * Connections store grants and activity in the default Database, so they enable `database` when it is unset.
+ * `database: false` with `connections` fails.
+ */
+export function withConnectionsDatabase(options: ViteHubOptions): ViteHubOptions {
+  if (!options.connections) return options
+  if (options.database === false) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections requires database because grants and activity are stored in the app database. Remove `database: false`." })
+  }
+  return options.database ? options : { ...options, database: true }
+}
+
 /** Resolve the journal path without changing the development-only Console shorthand. */
 export function consoleDatabaseUrl(options: ViteHubOptions): string | undefined {
   if (!options.console) return undefined
-  return (options.console === true ? undefined : options.console.databaseUrl)
+  return options.console.databaseUrl
     ?? (options.dataDir ? pathToFileURL(resolve(options.dataDir, "console.sqlite")).href : undefined)
 }

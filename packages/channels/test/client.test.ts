@@ -4,6 +4,14 @@ import { createChannel, defineOutboundChannel, useChannel } from "../src/index.t
 import { setChannelRuntimeRegistry } from "../src/runtime/state.ts"
 
 describe("createChannel", () => {
+  it("dispatches non-array options with length through a union-shaped connector", async () => {
+    const send = vi.fn((_text: string, _options: { destination: string, length: number } | readonly string[]) => ({ id: "accepted" }))
+    const channel = createChannel("union", { connectors: { configured: { send } }, defaultConnector: "configured" })
+    const options = { destination: "room", length: 1 }
+    await expect(channel.send("message", options)).resolves.toMatchObject([null, { id: "accepted" }])
+    expect(send).toHaveBeenCalledWith("message", options)
+  })
+
   it("preserves connector option instances and their private state", async () => {
     class Destination {
       #id = "room-1"
@@ -17,15 +25,6 @@ describe("createChannel", () => {
     const channel = createChannel("instances", { connectors: { configured: { send } } })
 
     await expect(channel.send("message", options)).resolves.toMatchObject([null, { id: "room-1" }])
-    expect(send.mock.calls[0]?.[1]).toBe(options)
-  })
-
-  it("preserves array connector options", async () => {
-    const options = Object.assign(["room-1", "room-2"], { connector: "configured" as const })
-    const send = vi.fn((_text: string, options: string[]) => ({ id: options.join(",") }))
-    const channel = createChannel("arrays", { connectors: { configured: { send } } })
-
-    await expect(channel.send("message", options)).resolves.toMatchObject([null, { id: "room-1,room-2" }])
     expect(send.mock.calls[0]?.[1]).toBe(options)
   })
 
@@ -210,6 +209,20 @@ describe("createChannel", () => {
     const [error, receipt] = await channel.send(text, {} as never)
     expect(error?.message).toContain(message)
     expect(receipt).toBeNull()
+  })
+
+  it("rejects array send options even when a default connector is configured", async () => {
+    const send = vi.fn(() => ({ id: "delivery-1" }))
+    const channel = createChannel("alerts", {
+      connectors: { telegram: { send } },
+      defaultConnector: "telegram",
+    })
+
+    const [error, receipt] = await channel.send("Build finished.", [] as never)
+
+    expect(error?.message).toContain("send options must select a connector")
+    expect(receipt).toBeNull()
+    expect(send).not.toHaveBeenCalled()
   })
 
   it("records failed deliveries without logging message content or connector options", async () => {

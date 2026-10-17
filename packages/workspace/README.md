@@ -139,17 +139,35 @@ await workspace.history.usage()
 Commits publish the complete desired file set with an atomic head comparison.
 Catch `isWorkspaceConflict(error)` for a stale `ifHead`. Omitted paths disappear
 from the new revision; earlier versions retain their bytes. Read mode exposes
-`head`, `list`, `open`, and `usage`. Stores without retained history throw
-`WORKSPACE_R0069`. Existing checkpoint and rebase behavior is unchanged.
+`head`, `list`, `refs`, `open`, and `usage`. Stores without retained history
+throw `WORKSPACE_R0069`. Existing checkpoint and rebase behavior is unchanged.
+
+History has named refs. Calls without `ref` use `main`. Each ref has its own head
+and timeline, and revisions and bytes are shared across refs. A `changes` commit
+patches the ref head, so saving one draft file does not resend the folder:
+
+```ts
+const draft = await workspace.history.head({ ref: "draft" })
+await workspace.history.commit({
+  ref: "draft",
+  ifHead: draft?.id ?? null,
+  changes: { put: { "posts/hello.md": markdown }, delete: ["posts/old.md"] },
+})
+await workspace.history.refs() // [{ name: "draft", head }, { name: "main", head }]
+```
+
+Rules, validators, hooks, and Source ownership run on every changed path in both
+forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
+Workspace your package does not define.
 
 File objects use `<prefix>/<sha256(workspace)>/sha256/<digest>` Blob keys.
 Identical bytes share one object within a workspace. Database stores immutable
 manifests, refs, an upload catalog, and Workspace metadata. Usage counts unique
-uncompressed file bytes across published revisions. Workspaces have separate
+uncompressed file bytes across committed revisions on every ref. Workspaces have separate
 namespaces, so deletion needs no cross-workspace reference counts.
 
-Normal file writes stage changes in instance memory until checkpoint or snapshot.
-Only published history is durable. `store.delete()` permanently tombstones the
+Normal file writes stage changes in instance memory until checkpoint or snapshot,
+which commit to `main`. Only committed history is durable; keep drafts on a ref. `store.delete()` permanently tombstones the
 identity and removes its history and objects. Retry deletion after storage errors
 or after stopping abandoned uploads. Failed publications can leave reusable
 objects outside retained usage accounting until deletion. Pruning is not supported.
@@ -157,45 +175,42 @@ Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
 
-## JSON collections
+## JSON Collections
 
-Query a generated JSON-object array without sending the complete index to the browser. The handler keeps filter, search, projection, sort, facet, and item lookup fields under server control, and every list response is capped by `maxLimit`.
+Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.
 
 ```ts
-// server/api/articles.get.ts
-import { defineWorkspaceCollectionHandler } from "@vite-hub/workspace/server"
+// server/collections/articles.ts
+import { defineCollection } from "@vite-hub/source"
+import { workspaceFile } from "@vite-hub/workspace"
+import * as v from "valibot"
 
-export default defineWorkspaceCollectionHandler({
-  facets: ["category"],
-  filters: ["category", "authors.name"],
-  item: { key: "slug" },
-  maxLimit: 100,
-  path: "data/articles.json",
-  searchFields: ["title", "summary"],
-  select: ["slug", "title", "category"],
-  sort: { field: "title", direction: "asc" },
-  workspace: "content",
+export const articles = defineCollection({
+  source: workspaceFile({
+    facets: ["category"],
+    filters: ["category", "authors.name"],
+    key: "slug",
+    maxLimit: 100,
+    path: "data/articles.json",
+    schema: v.object({ category: v.string(), slug: v.string(), title: v.string() }),
+    search: ["title", "summary"],
+    sort: { field: "title", direction: "asc" },
+    workspace: "content",
+  }),
+  transform: article => ({ category: article.category, slug: article.slug, title: article.title }),
 })
 ```
 
-Nuxt auto-imports the Vue composables when this module is installed. Plain Vue apps can import them directly from `@vite-hub/workspace/collections/client`.
-Default immediate requests start during browser setup so relative endpoints do not escape Nuxt's server request context. Inject `request` and call `refresh()` when an application needs SSR loading.
+ViteHub generates `GET /api/articles`, and `useCollection("articles")` from `@vite-hub/source/client` reads it with typed filters:
 
 ```ts
-const articles = useWorkspaceCollection("/api/articles", {
+const { items, total, facets, loadMore } = useCollection("articles", {
   limit: 25,
-  query: computed(() => ({
-    "filter.category": selectedCategory.value || undefined,
-    search: search.value || undefined,
-  })),
+  filter: computed(() => ({ category: selectedCategory.value, search: search.value })),
 })
-
-const article = useWorkspaceCollectionItem("/api/articles", selectedSlug)
 ```
 
-Use `empty.<field>=true` to filter for records without scalar values at an allowed field.
-
-Collection queries parse the JSON array in the server runtime. Use this for deliberately small generated indexes; use a database when the server cannot reasonably hold and query the full source array in memory.
+Use `?empty=<field>` to match records without a scalar value at a declared filter. The file's Workspace digest binds every cursor, so a write to the file makes older cursors stale (`409`). Use this for deliberately small generated indexes; use a database when the server cannot reasonably hold and query the full array in memory.
 
 ```ts
 // nitro.config.ts
@@ -309,19 +324,22 @@ Built-in coding Agent Drivers use Workspace Sessions to materialize the selected
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
-## Publishing current state
-
-`workspace.snapshot()` creates a durable Store snapshot, then runs every configured Workspace publisher. Use `workspace.publish()` when the current Store contents should be published without advancing the Store's snapshot history:
+Packages can contribute a Workspace Definition from their own Vite plugin with `vitehub.workspaces`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`. `module` is an absolute path, a `file:` URL, or a package specifier. `export` defaults to `default`:
 
 ```ts
-const workspace = useWorkspace("docs", { mode: "write" })
-
-await workspace.publish({ name: "chore: publish docs" })
+const plugin = {
+  name: "my-package/vite",
+  vitehub: {
+    workspaces: () => [{
+      name: "content",
+      definition: { module: "my-package/workspace", export: "contentWorkspace" },
+      reason: "Stores CMS documents.",
+    }],
+  },
+}
 ```
 
-Publishers receive a transient snapshot-shaped view of the current Store entries. `PublishContext.durable` is `false` for this direct lifecycle and `true` for snapshot-driven publication. Repeated publication remains a no-op when a publisher, such as the GitHub publisher, already has the same content.
-
-A GitHub publisher cannot publish directly to the repository and branch backing the active GitHub Store because that would move the Store branch behind its loaded baseline. Use `workspace.snapshot()` for that branch, or configure the publisher with a different repository or branch.
+Contributed Workspaces appear in the generated registry, `WorkspaceName` types, `vitehub inspect`, and the Console, like discovered files. A name used by both a discovered file and a contribution fails the build with `WORKSPACE_B0003`.
 
 ## Hosted Cloudflare runtime
 
@@ -391,24 +409,15 @@ export default defineWorkspace({
 })
 ```
 
-Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as a GitHub commit. If the target branch moves after the Workspace Store loaded local changes, snapshot fails with a conflict so the caller can retry from a fresh Workspace Store.
+Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
 
-Publish a Workspace snapshot into an existing GitHub repository with the GitHub publisher:
-
-```ts
-import { github } from "@vite-hub/workspace/publish"
-
-export default defineWorkspace({
-  publish: [github({
-    repository: "owner/repo",
-    branch: "main",
-    root: "generated/docs",
-    deleteUntracked: false,
-  })],
-})
-```
-
-By default, the publisher treats `root` as an exact mirror and deletes remote paths that are absent from the Workspace snapshot. Set `deleteUntracked: false` when the publisher owns only part of `root`; Workspace files are still created and updated, while every remote-only path remains on GitHub, including files from earlier snapshots.
+GitHub-backed Stores also expose the retained history reader. Repository branches are
+history refs, and GitHub commits are immutable Workspace revisions. Revision metadata
+includes the commit author and a `url` that opens the commit on GitHub. Revision file
+views read the configured Workspace root from the commit tree and fetch file bytes from
+that commit. The existing `vitehub workspace history`, `refs`, and `show` CLI commands
+inspect this data; the Console Workspace/files view does not yet provide a history
+navigator.
 
 Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://isomorphic-git.org/). Shell-backed Workspace tools load `@vite-hub/shell` only when the shell tool executes.
 

@@ -258,7 +258,6 @@ function resolveProviderOutputOwnershipFile(outputRoot: string, fileName: string
 async function readProviderOutputOwnershipFile(outputRoot: string, fileName: string): Promise<string[]> {
   try {
     const parsed: unknown = JSON.parse(await readFile(resolveProviderOutputOwnershipFile(outputRoot, fileName), "utf8"))
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted ownership files currently store KV binding names, so every entry must be a string.
     if (!Array.isArray(parsed) || !parsed.every(value => typeof value === "string")) {
       throw internalErrorDiagnostics.INTERNAL_B0035({ message: `Invalid Provider Output ownership file schema: ${JSON.stringify(fileName)}` })
     }
@@ -356,7 +355,6 @@ function resolveNetlifyFunctionFile(functionsRoot: string, functionName: string)
   return resolve(functionsRoot, `${functionName}.mjs`)
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Provider config is an opaque serializable object passed to the shared config writer.
 async function appendNetlifyFunctionConfig(outfile: string, config: object | undefined): Promise<void> {
   if (!config) return
   const bundled = await readFile(outfile, "utf8")
@@ -427,7 +425,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
         wranglerConfigOwnership,
       }),
       options.bundleEntry && staticIndex
-        ? copyClientOutput(clientDir, staticOutputDir)
+        ? copyClientOutput(clientDir, staticOutputDir, [outputRoot])
         : Promise.resolve(),
       ...files.map(([fileName, contents]) =>
         writeFile(resolve(outputRoot, fileName), contents, "utf8")),
