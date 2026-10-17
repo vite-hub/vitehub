@@ -3962,6 +3962,11 @@ export function createProviderAgentAdapter<
       }
     },
     name: options.provider,
-    stream: context => streamAgentOutputToEvents(runProvider(options, resumeCursors, sessionLocks, cwdLocks, context)),
+    stream: async function* (context) {
+      for await (const event of streamAgentOutputToEvents(runProvider(options, resumeCursors, sessionLocks, cwdLocks, context))) {
+        yield event
+        if (event.type === "error" && event.recoverable !== true) throw new Error(event.error)
+      }
+    },
   }
 }

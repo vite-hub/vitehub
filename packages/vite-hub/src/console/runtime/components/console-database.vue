@@ -10,6 +10,7 @@ import { rememberConsoleSection } from "../sections";
 import { consoleDatabaseRequestQuery, parseConsoleDatabase } from "./console-database-model";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleState from "./console-state.vue";
 
 interface SchemaLine {
   id: string;
@@ -145,14 +146,6 @@ function endpointPosition(
   };
 }
 
-function errorMessage(value: unknown): string | undefined {
-  return value instanceof Error
-    ? value.message
-    : value
-      ? "The Console could not load this database."
-      : undefined;
-}
-
 function routeParams(databaseName: string, table?: string): Record<string, string | undefined> {
   return { database: databaseName, table };
 }
@@ -236,7 +229,6 @@ async function openTable(name: string, replace = false): Promise<void> {
 }
 
 async function openDatabase(value: unknown): Promise<void> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- USelect emits unknown values and database route names must be strings.
   if (typeof value !== "string" || value === database.value?.database) return;
   sidebarOpen.value = false;
   resetTableState();
@@ -269,7 +261,6 @@ function applyFilter(): void {
 }
 
 function setSort(value: unknown): void {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- USelect emits unknown values and column sort keys must be strings.
   if (typeof value !== "string") return;
   const nextSort = value === defaultSort ? "" : value;
   if (nextSort === sort.value) return;
@@ -445,24 +436,20 @@ onBeforeUnmount(() => {
       </template>
 
       <template #body>
-        <UAlert
-          v-if="errorMessage(error)"
-          class="m-3"
-          color="error"
-          variant="subtle"
-          icon="i-ph-cloud-slash-light"
-          title="Could not load database"
-          :description="errorMessage(error)"
-          :actions="[
-            { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadDatabase },
-          ]"
-        />
+        <ConsoleState v-if="error" :error="error" title="Could not load database" :retry="loadDatabase" />
         <div
           v-else-if="loading && !database"
           class="flex min-h-0 flex-1 items-center justify-center"
         >
           <UIcon name="i-ph-circle-notch-light" class="size-4 animate-spin text-muted opacity-70" />
         </div>
+        <ConsoleState
+          v-else-if="database && !database.tables.length"
+          section="databases"
+          icon="i-lucide-database"
+          title="No tables yet"
+          description="Define a table in the Database schema, then generate and apply a migration."
+        />
 
         <main
           v-else-if="database && view === 'data' && selectedTable"

@@ -1,4 +1,4 @@
-/// <reference path="../virtual-module.d.ts" />
+import "../virtual-module.d.ts"
 
 import * as v from "valibot"
 

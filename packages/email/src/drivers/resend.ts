@@ -232,7 +232,6 @@ function payload(message: EmailMessage): Record<string, unknown> {
 }
 
 export default function resendEmailDriver(options: ResendEmailDriverOptions): EmailDriver {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Guard untrusted provider options before reading own properties; each option is validated below.
   const record = options !== null && typeof options === "object" ? options : undefined;
   const apiKey = record && Object.hasOwn(record, "apiKey") ? record.apiKey : undefined;
   requiredOption("resend", apiKey, "apiKey");
@@ -248,7 +247,6 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
     );
   const configuredFetch = record && Object.hasOwn(record, "fetch") ? record.fetch : undefined;
   const request = configuredFetch ?? globalThis.fetch;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Fetch callbacks cross JavaScript realms, so callability must be validated at this runtime boundary.
   if (typeof request !== "function")
     throw emailProviderError("resend", "INVALID_OPTIONS", "fetch is unavailable.");
   let endpoint: string;

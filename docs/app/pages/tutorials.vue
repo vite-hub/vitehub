@@ -12,7 +12,7 @@ useSeoMeta({
       <UPageHeader
         title="Tutorials"
         description="Build a working feature, one step at a time. Each tutorial includes the files to create and a result you can check."
-        :ui="{ root: 'border-0 pt-0 pb-8', description: 'max-w-2xl', title: 'text-3xl sm:text-4xl' }"
+        :ui="{ root: 'border-0 px-0 pt-0 pb-8 sm:px-0 lg:px-0 xl:px-0', description: 'max-w-2xl', title: 'text-3xl sm:text-4xl' }"
       />
       <TutorialCatalog />
     </UContainer>

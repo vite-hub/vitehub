@@ -22,13 +22,15 @@ jobs:
     environment: Production
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - name: Build vitehub packages
         run: vp run build
 
       - name: Upload package builds
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: vitehub-package-dist
           path: |
@@ -42,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     env:
+      LIVE_SMOKE_PROVIDER: ${{ matrix.provider }}
       LIVE_SMOKE_STAGE: preflight
     strategy:
       fail-fast: false
@@ -49,10 +52,12 @@ jobs:
         provider: [cloudflare, vercel]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
 
       - name: Download package builds
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: vitehub-package-dist
           path: packages
@@ -152,9 +157,11 @@ jobs:
               ;;
           esac
 
-          echo "app_dir=$APP_DIR" >> "$GITHUB_OUTPUT"
-          echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
-          echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
+          {
+            echo "app_dir=$APP_DIR"
+            echo "org_id=$VERCEL_ORG_ID"
+            echo "project_id=$VERCEL_PROJECT_ID"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Enter provision stage
         run: echo "LIVE_SMOKE_STAGE=provision" >> "$GITHUB_ENV"
@@ -235,10 +242,12 @@ jobs:
 
       - name: Relax Vercel cron cadence for live deploy
         if: matrix.provider == 'vercel'
+        env:
+          APP_DIR: ${{ steps.prepare_vercel.outputs.app_dir }}
         run: |
           node <<'NODE'
           const { readFileSync, writeFileSync } = require("node:fs")
-          const appDir = "${{ steps.prepare_vercel.outputs.app_dir }}"
+          const appDir = process.env.APP_DIR
           const configFile = `${appDir}/.vercel/output/config.json`
           const config = JSON.parse(readFileSync(configFile, "utf8"))
           if (Array.isArray(config.crons)) {
@@ -271,11 +280,11 @@ jobs:
         if: matrix.provider == 'vercel'
         timeout-minutes: 15
         env:
+          APP_DIR: ${{ steps.prepare_vercel.outputs.app_dir }}
           VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           set +e
           DEPLOYMENT_OUTPUT=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" vp dlx "vercel@$VERCEL_CLI_VERSION" deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" 2>&1)
           DEPLOYMENT_STATUS=$?
@@ -293,12 +302,14 @@ jobs:
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Resolve deployment URL
-        id: url
+        env:
+          CLOUDFLARE_DEPLOYMENT_URL: ${{ steps.deploy_cloudflare.outputs.url }}
+          VERCEL_DEPLOYMENT_URL: ${{ steps.deploy_vercel.outputs.url }}
         run: |
-          if [ "${{ matrix.provider }}" = "cloudflare" ]; then
-            echo "url=${{ steps.deploy_cloudflare.outputs.url }}" >> "$GITHUB_OUTPUT"
+          if [ "$LIVE_SMOKE_PROVIDER" = "cloudflare" ]; then
+            echo "LIVE_SMOKE_URL=$CLOUDFLARE_DEPLOYMENT_URL" >> "$GITHUB_ENV"
           else
-            echo "url=${{ steps.deploy_vercel.outputs.url }}" >> "$GITHUB_OUTPUT"
+            echo "LIVE_SMOKE_URL=$VERCEL_DEPLOYMENT_URL" >> "$GITHUB_ENV"
           fi
 
       - name: Enter runtime stage
@@ -306,48 +317,47 @@ jobs:
 
       - name: KV Live E2E (${{ matrix.provider }})
         timeout-minutes: 10
-        run: vp run kv:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
+        run: vp run kv:e2e --mode live --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Queue Live E2E (${{ matrix.provider }})
         timeout-minutes: 5
-        run: vp run queue:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
+        run: vp run queue:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Rate Limit Live E2E (cloudflare)
         if: matrix.provider == 'cloudflare'
         timeout-minutes: 10
-        run: vp run rate-limit:e2e --mode live --provider cloudflare --url "${{ steps.url.outputs.url }}"
+        run: vp run rate-limit:e2e --mode live --provider cloudflare --url "$LIVE_SMOKE_URL"
 
       - name: Schedule Live E2E (${{ matrix.provider }})
         timeout-minutes: 7
-        run: vp run schedule:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}" --timeout 270000
+        run: vp run schedule:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL" --timeout 270000
 
       - name: Sandbox Live E2E (${{ matrix.provider }})
         timeout-minutes: 10
-        run: vp run sandbox:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
+        run: vp run sandbox:e2e --mode live --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Workflow Live E2E (${{ matrix.provider }})
         timeout-minutes: 5
-        run: vp run workflow:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
+        run: vp run workflow:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Workspace Live E2E (${{ matrix.provider }})
         timeout-minutes: 10
-        run: vp run workspace:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
+        run: vp run workspace:e2e --mode live --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Blob Live E2E
         timeout-minutes: 10
         env:
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
-        run: vp run blob:e2e --mode live --url "${{ steps.url.outputs.url }}"
+        run: vp run blob:e2e --mode live --url "$LIVE_SMOKE_URL"
 
       - name: DB Live E2E
         timeout-minutes: 10
-        run: vp run database:e2e --url "${{ steps.url.outputs.url }}"
+        run: vp run database:e2e --url "$LIVE_SMOKE_URL"
 
       - name: Create stage evidence
         if: always()
         env:
           LIVE_SMOKE_CONCLUSION: ${{ job.status }}
-          LIVE_SMOKE_PROVIDER: ${{ matrix.provider }}
           LIVE_SMOKE_RUN_ATTEMPT: ${{ github.run_attempt }}
           LIVE_SMOKE_RUN_ID: ${{ github.run_id }}
           LIVE_SMOKE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -364,7 +374,7 @@ jobs:
 
       - name: Upload stage evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: live-smoke-evidence-${{ matrix.provider }}-${{ github.run_attempt }}
           path: live-smoke-evidence/${{ matrix.provider }}.json
@@ -382,12 +392,14 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - run: mkdir -p live-smoke-evidence
 
       - name: Download provider stage evidence
         continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: live-smoke-evidence-*
           path: live-smoke-evidence
@@ -427,7 +439,7 @@ jobs:
             > live-smoke-report.json
 
       - name: Upload aggregate stage evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: live-smoke-report-${{ github.run_attempt }}
           path: live-smoke-report.json

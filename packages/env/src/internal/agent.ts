@@ -1,4 +1,4 @@
-import { readAgentEnvIdentity } from "@vite-hub/agent/env-identity";
+import { readAgentEnvIdentity, readAgentEnvParents } from "@vite-hub/agent/env-identity";
 import { envBridgeError } from "../bridge-error.ts";
 import { grantEnvAccess, type EnvAttribution } from "./access.ts";
 import type { EnvAccessContext } from "../bridge.ts";
@@ -9,6 +9,7 @@ export function agentEnvAccess(agent: unknown, attribution: EnvAttribution = {})
   if (name === undefined) throw envBridgeError("untrusted");
   return grantEnvAccess(
     { actor: { kind: "agent", id: name }, traceId: attribution.traceId, invocationId: attribution.invocationId },
-    { kind: "agent" },
+    // The Agent runtime registered the parents with the identity. They never come from caller values.
+    { kind: "agent", parents: readAgentEnvParents(agent) },
   );
 }

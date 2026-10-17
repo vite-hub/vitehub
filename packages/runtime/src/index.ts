@@ -25,6 +25,17 @@ export {
 
 export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
+export {
+  createExecutionBudget,
+  ExecutionBudgetExceededError,
+  type ExecutionBudget,
+  type ExecutionBudgetCounter,
+  type ExecutionBudgetLimits,
+  type ExecutionBudgetOptions,
+  type ExecutionBudgetSnapshot,
+  type ExecutionBudgetUsage,
+} from "./execution-budget.ts"
+
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
 export { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNames, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
 
@@ -55,6 +66,18 @@ export {
 } from "./errors.ts"
 
 export type MaybePromise<T> = T | Promise<T>
+
+// Capture platform methods before application callbacks run. As with the other
+// platform brand checks, the host must supply intact intrinsics at import time.
+const webAssemblyModuleConstructor = (() => {
+  const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
+  return hasRuntimeType(namespace, "object")
+    ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
+    : undefined
+})()
+const webAssemblyModuleExports = hasRuntimeType(webAssemblyModuleConstructor, "function")
+  ? Object.getOwnPropertyDescriptor(webAssemblyModuleConstructor, "exports")?.value
+  : undefined
 
 export interface AccessAuthorizationContext {
   request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
@@ -427,11 +450,16 @@ function isCryptoKey(value: unknown): boolean {
 
 function isWebAssemblyModule(value: unknown): boolean {
   if (!value || !hasRuntimeType(value, "object")) return false
-  const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
-  const constructor = hasRuntimeType(namespace, "object")
-    ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
-    : undefined
-  return hasRuntimeType(constructor, "function") && value instanceof constructor
+  if (!hasRuntimeType(webAssemblyModuleConstructor, "function")) return false
+  if (value instanceof webAssemblyModuleConstructor) return true
+  try {
+    if (!hasRuntimeType(webAssemblyModuleExports, "function")) return false
+    Reflect.apply(webAssemblyModuleExports, webAssemblyModuleConstructor, [value])
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 // Exact native source signatures reject user functions, bound functions and proxies.

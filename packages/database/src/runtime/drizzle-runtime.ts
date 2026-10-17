@@ -10,7 +10,9 @@ import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../t
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface RuntimeDatabaseModule {
-  config: ResolvedDrizzleDatabaseConfig
+  config?: ResolvedDrizzleDatabaseConfig
+  /** Generated Postgres entries create their database client directly. */
+  db?: RuntimeDrizzleDatabase<Record<string, unknown>>
   schema: Record<string, unknown>
 }
 
@@ -49,11 +51,12 @@ function createRuntimeDatabase<TSchema extends Record<string, unknown>>(
 
 const runtimeEntries = databaseEntries as unknown as Record<string, RuntimeDatabaseModule>
 
+// SAFETY: Each generated entry has a database and schema; the default entry is checked below.
 const resolvedDatabases = Object.fromEntries(
   Object.entries(runtimeEntries).map(([name, entry]) => [
     name,
     {
-      db: createRuntimeDatabase(entry.config, entry.schema, name),
+      db: entry.db ?? createRuntimeDatabase(entry.config, entry.schema, name),
       schema: entry.schema,
     } satisfies RuntimeDatabaseEntry<Record<string, unknown>>,
   ]),

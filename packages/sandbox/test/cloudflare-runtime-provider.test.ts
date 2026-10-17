@@ -61,6 +61,15 @@ describe("Cloudflare Sandbox runtime provider", () => {
     expect(provider.closeAfterRun).toBe(true)
   })
 
+  it("says how to run Sandbox locally when the dev server has no binding", async () => {
+    await expect(resolveCloudflareSandboxBox({
+      local: {},
+      provider: { provider: "cloudflare" },
+    }, {
+      event: { context: { cloudflare: { env: { DB: {} } } } },
+    })).rejects.toThrow("build, then run `npx wrangler --cwd .output/server dev`")
+  })
+
   it.each(["__proto__", "constructor", "toString"])("rejects inherited Cloudflare binding %s", async (binding) => {
     const env = Object.create(Object.prototype) as Record<string, unknown>
     resolveCloudflareBox.mockClear()

@@ -10,7 +10,7 @@ The ViteHub Console inspects the primitives enabled in the same ViteHub configur
 
 ViteHub renders the Console UI and serves its static assets. The Console sends each operation as one same-origin `POST` to `/_vitehub/rpc/__call`, so the same interface works on development servers and production hosts without separate resource routes.
 
-The Console currently exposes Env, Agents, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
+The Console currently exposes Env, Agents, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console** opens a command palette with the active primitive pages plus Agents and retained sessions when Agents is enabled. Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and the table names written in a literal `schema: { ... }`, without loading Definitions or connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table of discovered Schedule Definitions with their cron expression and whether they allow manual runs.
 
 Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
 
@@ -98,7 +98,9 @@ This view does not read secret values, call external providers, or check credent
 
 ## Manage Connections
 
-Open Connections to see each [Connection](/docs/connections) from `server/connections/`, with its provider, account, status, and token expiry. Select a Connection to open its details:
+Open Connections to see each [Connection](/docs/connections) from `server/connections/`. Each row shows the status, the type (**OAuth** or **API key**), and the account. A row that needs an action shows one button: **Connect** or **Set key** when it is not connected, and **Reconnect** or **Replace key** when it stopped working or misses declared scopes. Missing scopes and pending approvals show only when there are some. The Console does not create Connections: add a Connection Definition to `server/connections/`, then connect it here.
+
+**Connect** opens the provider consent page in the same tab. The result page shows the outcome and returns to Connections. A failure shows its error code, the fix, and a link back. Select a row to open its details:
 
 - **Connection** shows the account, scopes, and last error. **Connect** or **Reconnect** starts the provider consent flow and returns to the Console. For an API key Connection, **Set key** or **Replace key** stores a new key. The Console sends it only over HTTPS or to a loopback host. **Refresh token** refreshes the access token. **Disconnect** deletes the grant. It also revokes the grant at the provider when the provider supports revocation.
 - **Access** shows the rules from the Connection Definition for server code, routes, and Agents.
@@ -106,7 +108,7 @@ Open Connections to see each [Connection](/docs/connections) from `server/connec
 
 The Console registers `POST /_vitehub/connections`, `GET /_vitehub/connections/connect/:name`, and `GET /_vitehub/connections/callback` only when Connections is enabled. Each route runs the Console access policy itself, in development and in production, the same as the Console data routes. With Console Auth or app Auth, actions record the signed-in user as `user:<id>`. With `auth: false`, actions record `user:open`. With Cloudflare Access, they record `user:cloudflare-access`. When `console.authorize` returns `{ sections }`, the routes also need the `connections` section. The Connections section is not available in Nuxt apps.
 
-Starting Connect creates a single-use OAuth `state` in the Connections store. The browser opens the GET connect route, receives a `state` cookie, and follows a redirect to the provider. The provider redirects back to the GET callback route. The callback consumes the stored `state` and checks the browser cookie and the manager before it saves the grant. A `state` from another manager returns `403`. Proxies must forward both GET routes, their query strings, and cookies, as well as the management POST route. When Vite `base` is set, these routes use that mount prefix.
+Starting Connect creates a single-use OAuth `state` in the Connections store. The browser opens the GET connect route, receives a `state` cookie and a cookie with the Console page to return to, and follows a redirect to the provider. The provider redirects back to the GET callback route. The callback consumes the stored `state` and checks the browser cookie and the manager before it saves the grant. A `state` from another manager returns `403`. Proxies must forward both GET routes, their query strings, and cookies, as well as the management POST route. When Vite `base` is set, these routes use that mount prefix.
 
 ## Develop against a fixture
 
@@ -450,7 +452,7 @@ VITEHUB_CONSOLE_DATABASE_URL=libsql://my-database.turso.io
 VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN=secret-token
 ```
 
-The journal has no automatic TTL or deletion. In production, the operator must define how long to retain the file and how to remove records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data. The Schedule page reads Runtime Schedules and runs from the Schedule stores of the server runtime on each request. Memory stores lose this data when the runtime restarts. A Runtime Schedule with `console: { enabled: false }` is hidden. The Schedule page is read-only; use [`vitehub schedule`](/docs/development/cli#inspect-and-control-runtime-schedules) to run, enable, or disable a Runtime Schedule during development.
+The journal has no automatic TTL or deletion. In production, the operator must define how long to retain the file and how to remove records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data. The Schedule page lists the discovered Schedule Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled; use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules) to run them or list recorded runs during development.
 
 The fallback applies only when no journal is set. A journal from `defineAgent({ invocations })` or from the app-wide `agent.invocations` option remains authoritative. Its sessions are not copied into `console.sqlite`. The Console reads that journal instead, so development uses one journal. An Agent with `invocations: false` records no sessions.
 
@@ -509,6 +511,30 @@ The Console does not calculate missing provider data. Token counts, model metada
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` | Check the `authorize` callback and the current user's role or permission. |
 | A section is missing or returns `403` | `console.authorize` returned `{ sections }` without that section id. |
+
+### Console error codes
+
+Each failed Console request returns JSON with a stable `code`, a `message` that says why it failed, a `fix`, and a `docs` link. Console RPC failures also keep `ok: false` and `status`. The Console shows these fields with one next step: sign in again, reload, try again, or read the docs. It offers a retry only when a retry can succeed.
+
+| Code | Status | Fix |
+| --- | --- | --- |
+| `CONSOLE_SIGN_IN_REQUIRED` | `401` | Sign in again. |
+| `CONSOLE_ACCESS_DENIED` | `403` | Sign in with an account that the access policy allows. |
+| `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. Make sure the Auth Definition that protects the Console returns a user with an id. |
+| `CONSOLE_DEVELOPMENT_ONLY` | `403` | Use `console: { access: 'auth' }` or `exposure: 'host-managed'` in production. |
+| `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. |
+| `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
+| `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |
+| `CONSOLE_AUTH_NOT_CONFIGURED` | `500` | Add an Auth Definition, or configure Cloudflare Access. |
+| `CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE` | `404` | Set `connections: { management: true }` for production. |
+| `CONSOLE_ENV_MANAGEMENT_UNAVAILABLE` | `404` | Give the Env declaration a management bridge. |
+| `CONSOLE_REQUEST_INVALID` | `400`, `405`, `413` | Reload the Console. Deploy the Console and the server from the same build. |
+| `CONSOLE_NOT_FOUND` | `404` | Reload the Console. |
+| `CONSOLE_CONFLICT` | `409` | Reload, then try again. |
+| `CONSOLE_UNAVAILABLE` | `408`, `429`, `502`–`504` | Wait, then try again. |
+| `CONSOLE_REQUEST_FAILED` | `500` | Try again, then read the server logs. |
+
+A Console route that fails with its own diagnostic keeps that code, for example `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs` to the error body.
 
 Use [Agent Invocations](/docs/agents/invocations) for custom stores and invocation lifecycle behavior. Use [Invocation UI](/docs/ui/invocation) when building an application-owned inspection page instead of mounting the complete Console.
 

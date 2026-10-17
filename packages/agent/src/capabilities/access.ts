@@ -968,6 +968,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   const createTools = (options?: WorkspaceFacadeToolOptions) => workspaceRuntime.createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,
     cwd: options?.cwd,
+    executionBudget: options?.executionBudget,
     maxShellCalls: options?.maxShellCalls,
     maxOutputLength: options?.maxOutputLength,
     operations: {
