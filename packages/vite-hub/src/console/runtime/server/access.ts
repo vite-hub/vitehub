@@ -96,7 +96,7 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
       const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
       const clone = Object.getOwnPropertyDescriptor(prototype, "clone")?.value
       const arrayBuffer = Object.getOwnPropertyDescriptor(prototype, "arrayBuffer")?.value
-      if (typeof constructor === "function" && constructor.prototype === prototype
+      if (isNative(constructor) && constructor.prototype === prototype
         && constructor !== Response
         && constructor.name === "Response"
         && isNative(statusGetter) && isNative(statusTextGetter)
