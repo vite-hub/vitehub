@@ -109,6 +109,23 @@ describe("H3 Runtime Context", () => {
     await context.flushWaitUntil()
   })
 
+  it("rejects accessors that depend on the candidate prototype", async () => {
+    const prototype = Object.create(null, {
+      constructor: { value: Object.assign(function Request() {}, { prototype: undefined }) },
+      bodyUsed: { get() {
+        if (Object.getPrototypeOf(this) === prototype) return false
+        throw new TypeError("invalid receiver")
+      } },
+      headers: { get: () => new Headers() },
+      url: { get: () => "https://example.test" },
+      method: { get: () => "GET" },
+    })
+    prototype.constructor.prototype = prototype
+    const context = getRuntimeContext({ context: {}, req: Object.create(prototype) })
+    expect(context.request).toBeUndefined()
+    await context.flushWaitUntil()
+  })
+
   it("rejects a consumed spoof with a rejected arrayBuffer promise", async () => {
     const requestPrototype = Object.getPrototypeOf(new Request("https://example.test"))
     const prototype = Object.create(requestPrototype, {

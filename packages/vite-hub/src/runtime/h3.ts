@@ -137,7 +137,17 @@ function isRequest(value: unknown): value is Request {
                 }
                 if (valid) {
                   try {
-                    getter.call(value)
+                    // A genuine Fetch accessor validates internal slots, so it
+                    // remains usable when the candidate's user-controlled
+                    // prototype chain is temporarily detached. This prevents
+                    // prototype metadata from being part of the brand proof.
+                    const originalPrototype = Object.getPrototypeOf(value)
+                    Object.setPrototypeOf(value, null)
+                    try {
+                      getter.call(value)
+                    } finally {
+                      Object.setPrototypeOf(value, originalPrototype)
+                    }
                   } catch {
                     valid = false
                   }
