@@ -154,11 +154,35 @@
       "require": "./dist/agent-unresolved-file.js",
       "default": "./dist/agent-unresolved-file.js"
     },
+    "./attachment": {
+      "types": "./dist/attachment.d.ts",
+      "import": "./dist/attachment.js",
+      "require": "./dist/attachment.js",
+      "default": "./dist/attachment.js"
+    },
+    "./bubble": {
+      "types": "./dist/bubble.d.ts",
+      "import": "./dist/bubble.js",
+      "require": "./dist/bubble.js",
+      "default": "./dist/bubble.js"
+    },
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js",
       "require": "./dist/headless.js",
       "default": "./dist/headless.js"
+    },
+    "./marker": {
+      "types": "./dist/marker.d.ts",
+      "import": "./dist/marker.js",
+      "require": "./dist/marker.js",
+      "default": "./dist/marker.js"
+    },
+    "./message": {
+      "types": "./dist/message.d.ts",
+      "import": "./dist/message.js",
+      "require": "./dist/message.js",
+      "default": "./dist/message.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
@@ -171,6 +195,12 @@
       "import": "./dist/primitive-rail.js",
       "require": "./dist/primitive-rail.js",
       "default": "./dist/primitive-rail.js"
+    },
+    "./trace": {
+      "types": "./dist/trace.d.ts",
+      "import": "./dist/trace.js",
+      "require": "./dist/trace.js",
+      "default": "./dist/trace.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
