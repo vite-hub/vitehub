@@ -22,7 +22,7 @@ icon: i-lucide-cloud-cog
 | Deno | `Deno.cron` output loaded by generated Deno Agent server output. | Runtime Schedules still need Provider Wake output or a long-running runner. |
 
 ::warning
-Provider Wake output requires a static five-field UTC cron string compatible with generated provider output. Runtime Schedules still need an existing Provider Wake or a long-running host to execute due schedules.
+Provider Wake output requires a static five-field UTC cron string compatible with generated provider output. A Static Schedule that sets a `timeZone` other than `UTC` fails the build when the build generates provider output. Runtime Schedules still need an existing Provider Wake or a long-running host to execute due schedules.
 ::
 
 ## Inspect Runtime Schedules during development
@@ -83,4 +83,4 @@ Static provider output remains build-time configuration; selecting the Process R
 
 Schedule Runs, Schedule Run Attempts, retry policy, overlap policy, and dedupe policy belong to Schedule. Naming a policy does not imply every policy is configurable in the first version.
 
-Static Schedule Definitions and Provider Wake output remain UTC. Runtime Schedules use UTC by default and can persist an IANA `timeZone` when local clock time must follow daylight-saving changes.
+Provider Wake output is UTC. Static Schedule Definitions can set `timeZone` only with the process driver. Runtime Schedules use UTC by default and can persist an IANA `timeZone` when local clock time must follow daylight-saving changes.

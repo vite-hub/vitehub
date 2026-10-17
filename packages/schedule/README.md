@@ -107,7 +107,7 @@ export default defineSchedule({
 });
 ```
 
-Static Schedule Definitions use five-field UTC cron expressions. They cannot set `timeZone`. The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, and Nitro's Cloudflare schedule hook. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
+Static Schedule Definitions use five-field cron expressions in UTC, or in the IANA `timeZone` that the definition sets. The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, and Nitro's Cloudflare schedule hook. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
 
 Applications that use the framework distribution register Schedule through `vitehub({ preset, schedule: true })` and import the definition helper from `vite-hub/schedule`. The Deno framework preset currently rejects Schedule because standalone Deno cron output sits outside its generated Nitro entrypoint. Use the direct Schedule integration for that output.
 
@@ -169,9 +169,19 @@ Static provider cron output does not automatically wake Runtime Schedules. Provi
 
 ## Understand time zones
 
-Static Schedule Definitions and their Provider Output always use UTC. Runtime Schedules use UTC when `timeZone` is absent and accept IANA time-zone names when the cron must follow local clock time.
+Static Schedule Definitions and Runtime Schedules use UTC when `timeZone` is absent and accept IANA time-zone names when the cron must follow local clock time.
 
-Omitting `timeZone` during an update preserves the stored zone. Set it to `UTC` to return to UTC evaluation. Numeric offsets such as `+01:00` are rejected. During a daylight-saving gap, ViteHub skips a local time that does not exist. During an overlap, both distinct instants that share the repeated local time are due.
+```ts
+export default defineSchedule({
+  cron: "0 8 * * *",
+  timeZone: "Europe/Madrid",
+  handler: sendMorningBrief,
+});
+```
+
+Only the process driver evaluates the `timeZone` of a Static Schedule Definition. Write it as a string literal, because the build and the Console read it from the source file. Provider cron output for Cloudflare, Vercel, Netlify, and Deno supports only UTC, so a build that generates provider output fails when a Static Schedule Definition sets a `timeZone` other than `UTC`.
+
+Omitting `timeZone` during an update preserves the stored zone. Set it to `UTC` to return to UTC evaluation. Numeric offsets such as `+01:00` are rejected. During a daylight-saving gap, ViteHub skips a local time that does not exist. During an overlap, a cron with a fixed minute and hour runs once, at the first instant of the repeated local time. A cron with `*` in the minute or hour field runs on elapsed time, so both instants are due.
 
 ## Choose storage and wake ownership
 

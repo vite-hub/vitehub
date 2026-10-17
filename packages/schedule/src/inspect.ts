@@ -2,7 +2,7 @@ import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions } from "./discovery.ts"
-import { readRuntimeDefinitionCrons } from "./internal/provider-output.ts"
+import { readRuntimeDefinitionCrons, readStaticScheduleTimeZone } from "./internal/provider-output.ts"
 
 import type { ViteHubConsoleRecord, ViteHubConsoleSectionContribution } from "@vite-hub/internal/console"
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
@@ -17,6 +17,11 @@ export interface ScheduleInspectionOptions {
   serverRootDir: string
 }
 
+function inspectTimeZone(file: string): string {
+  const timeZone = readStaticScheduleTimeZone(file)
+  return timeZone === null ? "Not a static string" : timeZone ?? "UTC"
+}
+
 function summarizeScheduleDefinition(
   projectRoot: string,
   definition: DiscoveredScheduleDefinition,
@@ -29,7 +34,7 @@ function summarizeScheduleDefinition(
   if (cron) {
     fields.push(
       { label: "Cron", value: cron },
-      { label: "Time zone", value: "UTC" },
+      { label: "Time zone", value: inspectTimeZone(definition.handler) },
     )
   }
   if (definition.allowRuntimeSchedules) {
@@ -84,6 +89,7 @@ function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleReco
   const field = (label: string) => summary.fields.find(entry => entry.label === label)?.value
   const target = field("Kind") === "Runtime target"
   const cron = field("Cron")
+  const timeZone = field("Time zone")
   return {
     cells: {
       enabled: target ? "-" : "Provider",
@@ -92,7 +98,7 @@ function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleReco
       nextRun: target ? "-" : "Set by the provider",
       schedule: summary.name,
       target: target ? summary.name : "-",
-      timing: cron ?? "-",
+      timing: !cron ? "-" : timeZone === "UTC" ? cron : `${cron} (${timeZone})`,
     },
     fields: [
       ...summary.fields,

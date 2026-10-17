@@ -47,7 +47,7 @@ function timeZoneFormatter(timeZone: string): Intl.DateTimeFormat {
 }
 
 function scheduleDateFields(scheduledAt: Date, timeZone: string | undefined): ScheduleDateFields {
-  if (!timeZone) {
+  if (!timeZone || timeZone === "UTC") {
     return {
       day: scheduledAt.getUTCDate(),
       hour: scheduledAt.getUTCHours(),
@@ -87,13 +87,32 @@ function matchesCronHour(cron: ScheduleCron, fields: ScheduleDateFields): boolea
   return cron.days.includes(fields.day) && cron.weekdays.includes(fields.weekday)
 }
 
+/** Offset changes that tzdb uses when a clock goes back: 30 minutes (Lord Howe), one hour, and two hours. */
+const repeatedLocalTimeOffsetsMs = [30, 60, 120].map(minutes => minutes * minuteMs)
+
+function sameLocalMinute(left: ScheduleDateFields, right: ScheduleDateFields): boolean {
+  return left.minute === right.minute && left.hour === right.hour && left.day === right.day && left.month === right.month
+}
+
+/**
+ * True when the local time of `scheduledAt` already occurred earlier on the same day, because the clock went back.
+ * A cron with a fixed minute and hour runs only at the first occurrence. A cron with `*` in the minute or hour field
+ * runs on elapsed time, so it also runs in the repeated hour. This follows cronie.
+ */
+function isRepeatedFixedLocalTime(cron: ScheduleCron, fields: ScheduleDateFields, scheduledAt: Date, timeZone: string | undefined): boolean {
+  if (!timeZone || timeZone === "UTC" || cron.minutes.length === hourMinutes || cron.hours.length === 24) return false
+  return repeatedLocalTimeOffsetsMs.some(offset => sameLocalMinute(scheduleDateFields(new Date(scheduledAt.getTime() - offset), timeZone), fields))
+}
+
 export function isRuntimeScheduleDue(schedule: RuntimeScheduleRecord, scheduledAt: Date): boolean {
   if (scheduledAt.getUTCSeconds() !== 0 || scheduledAt.getUTCMilliseconds() !== 0) {
     return false
   }
   const cron = parseScheduleCron(schedule)
   const fields = scheduleDateFields(scheduledAt, schedule.timeZone)
-  return cron.minutes.includes(fields.minute) && matchesCronHour(cron, fields)
+  return cron.minutes.includes(fields.minute)
+    && matchesCronHour(cron, fields)
+    && !isRepeatedFixedLocalTime(cron, fields, scheduledAt, schedule.timeZone)
 }
 
 /**

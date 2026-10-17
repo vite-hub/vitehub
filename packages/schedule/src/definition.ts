@@ -1,10 +1,12 @@
+import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
+
 import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleDefinitionOptions, ScheduleHandler, ScheduleTargetDefinition, ScheduleTargetDefinitionInput } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 const cronFieldPattern = /^[^\s]+$/
-const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "manual", "cron", "handler"])
+const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "manual", "cron", "handler", "timeZone"])
 const scheduleTargetDefinitionKeys = new Set(["handler"])
-const scheduleOptionsKeys = new Set(["allowRuntimeSchedules", "manual"])
+const scheduleOptionsKeys = new Set(["allowRuntimeSchedules", "manual", "timeZone"])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -28,7 +30,7 @@ function validateCron(cron: string): void {
 
   const fields = cron.split(/\s+/)
   if (fields.length !== 5 || !fields.every(field => cronFieldPattern.test(field))) {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0002({ message: "`defineSchedule()` cron must be a five-field UTC cron expression." })
+    throw scheduleErrorDiagnostics.SCHEDULE_C0002({ message: "`defineSchedule()` cron must be a five-field cron expression." })
   }
 }
 
@@ -71,9 +73,16 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
     throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` manual must be a boolean." })
   }
 
+  if (input.timeZone !== undefined && !isIanaTimeZone(input.timeZone)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` timeZone must be an IANA time zone, such as \"Europe/Madrid\"." })
+  }
+
   const definition: ScheduleDefinition<TResult> = {
     cron: input.cron,
     handler: input.handler,
+  }
+  if (input.timeZone !== undefined) {
+    definition.timeZone = input.timeZone
   }
   if (typeof input.allowRuntimeSchedules !== "undefined") {
     definition.options = { allowRuntimeSchedules: input.allowRuntimeSchedules }
