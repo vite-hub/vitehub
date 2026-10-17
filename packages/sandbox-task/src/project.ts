@@ -1,0 +1,366 @@
+import { createHash } from 'node:crypto'
+import { glob, readFile, realpath, stat } from 'node:fs/promises'
+import { dirname, matchesGlob, relative, resolve } from 'node:path'
+import { parse as parseYaml } from 'yaml'
+import type { SandboxTaskProjectOptions } from './module-types'
+import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
+
+type SandboxTaskPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
+
+interface SandboxTaskProjectFile {
+  contents: string
+  encoding: 'base64'
+  mode?: number
+}
+
+export interface SandboxTaskProject {
+  digest: string
+  files: Record<string, SandboxTaskProjectFile>
+  install: {
+    args: string[]
+    command: SandboxTaskPackageManager
+    cwd: string
+  }
+  options?: SandboxTaskProjectOptions
+  packagePath: string
+}
+
+const sandboxTaskProjectSourceFiles = new WeakMap<SandboxTaskProject, string[]>()
+
+export function getSandboxTaskProjectSourceFiles(project: SandboxTaskProject): string[] {
+  return sandboxTaskProjectSourceFiles.get(project) || []
+}
+
+type PackageManifest = {
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  name?: string
+  optionalDependencies?: Record<string, string>
+  packageManager?: unknown
+  peerDependencies?: Record<string, string>
+  pnpm?: unknown
+  vitehub?: unknown
+}
+
+const maxTimeout = 2_147_483_647
+
+const lockfiles: Array<{ file: string, manager: SandboxTaskPackageManager }> = [
+  { file: 'pnpm-lock.yaml', manager: 'pnpm' },
+  { file: 'package-lock.json', manager: 'npm' },
+  { file: 'yarn.lock', manager: 'yarn' },
+  { file: 'bun.lock', manager: 'bun' },
+]
+
+const projectFileExcludes = ['node_modules/**', '.git/**', '**/.env', '**/.env.*', '**/.npmrc', 'bun.lockb']
+
+function isInside(root: string, path: string) {
+  const next = relative(root, path)
+  return next === '' || (!next.startsWith('..') && !next.startsWith('/'))
+}
+
+async function isFile(path: string, root: string) {
+  const file = await stat(path).then(value => value.isFile(), () => false)
+  if (!file)
+    return false
+  const target = await realpath(path)
+  if (!isInside(root, target))
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0055({ message: `[vitehub] Sandbox project file escapes its scan root: ${path}` })
+  return true
+}
+
+function ancestors(start: string, root: string) {
+  const paths: string[] = []
+  let current = start
+  while (isInside(root, current)) {
+    paths.push(current)
+    if (current === root)
+      break
+    const parent = dirname(current)
+    if (parent === current)
+      break
+    current = parent
+  }
+  return paths
+}
+
+function packageManagerFromField(value: unknown): SandboxTaskPackageManager | undefined {
+  if (typeof value !== 'string')
+    return undefined
+  const name = value.split('@', 1)[0]
+  return name === 'pnpm' || name === 'npm' || name === 'yarn' || name === 'bun'
+    ? name
+    : undefined
+}
+
+function packageManagerMajor(value: unknown) {
+  if (typeof value !== 'string') return undefined
+  const version = value.slice(value.indexOf('@') + 1)
+  const major = Number.parseInt(version, 10)
+  return Number.isFinite(major) ? major : undefined
+}
+
+function installArgs(manager: SandboxTaskPackageManager, hasLockfile: boolean, declaredMajor?: number) {
+  if (manager === 'npm')
+    return hasLockfile ? ['ci'] : ['install']
+  if (manager === 'yarn')
+    return hasLockfile
+      ? ['install', declaredMajor === 1 ? '--frozen-lockfile' : '--immutable']
+      : ['install']
+  return hasLockfile ? ['install', '--frozen-lockfile'] : ['install']
+}
+
+function parseManifest(source: string, path: string): PackageManifest {
+  try {
+    return JSON.parse(source) as PackageManifest
+  }
+  catch (error) {
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0056({ message: `[vitehub] Sandbox package manifest is invalid JSON: ${path}`, cause: error })
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function parseSandboxTaskProjectOptions(manifest: PackageManifest, path: string): SandboxTaskProjectOptions | undefined {
+  if (typeof manifest.vitehub === 'undefined')
+    return undefined
+  if (!isPlainObject(manifest.vitehub))
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0057({ message: `[vitehub] Sandbox package manifest "vitehub" must be an object: ${path}` })
+
+  const sandbox = manifest.vitehub.sandboxTask
+  if (typeof sandbox === 'undefined')
+    return undefined
+  if (!isPlainObject(sandbox))
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0058({ message: `[vitehub] Sandbox package manifest "vitehub.sandboxTask" must be an object: ${path}` })
+
+  const unsupported = Object.keys(sandbox).filter(key => key !== 'timeout')
+  if (unsupported.length) {
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0059({ message: `[vitehub] Sandbox package manifest "vitehub.sandboxTask" has unsupported keys: ${unsupported.join(', ')}.` })
+  }
+
+  const timeout = sandbox.timeout
+  if (timeout === undefined)
+    return undefined
+  const numericTimeout = Number(timeout)
+  if (numericTimeout !== timeout || !Number.isInteger(numericTimeout) || numericTimeout <= 0 || numericTimeout > maxTimeout) {
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0060({ message: `[vitehub] Sandbox package manifest "vitehub.sandboxTask.timeout" must be a positive integer no greater than ${maxTimeout}.` })
+  }
+
+  return { timeout: numericTimeout }
+}
+
+function pnpmPatchPaths(manifest: PackageManifest) {
+  if (!isPlainObject(manifest.pnpm) || !isPlainObject(manifest.pnpm.patchedDependencies))
+    return []
+  return Object.values(manifest.pnpm.patchedDependencies).filter((value): value is string => typeof value === 'string')
+}
+
+function parsePnpmWorkspacePatchPaths(source: string) {
+  const workspace: unknown = parseYaml(source)
+  const patchedDependencies = isPlainObject(workspace) ? Reflect.get(workspace, 'patchedDependencies') : undefined
+  if (!isPlainObject(patchedDependencies)) return []
+  return Object.values(patchedDependencies)
+    .filter(value => value === String(value))
+    .map(String)
+}
+
+export function parsePnpmWorkspacePackages(source: string) {
+  const patterns: string[] = []
+  let packagesIndent: number | undefined
+  for (const line of source.split(/\r?\n/)) {
+    if (packagesIndent === undefined) {
+      const inline = /^\s*packages\s*:\s*\[(.*)\]\s*(?:#.*)?$/.exec(line)
+      if (inline) {
+        return inline[1].split(',')
+          .map(value => value.trim().replace(/^(['"])(.*)\1$/, '$2'))
+          .filter(Boolean)
+      }
+      const match = /^(\s*)packages\s*:\s*(?:#.*)?$/.exec(line)
+      if (match) packagesIndent = match[1].length
+      continue
+    }
+    if (!line.trim() || /^\s*#/.test(line)) continue
+    const indent = /^\s*/.exec(line)?.[0].length || 0
+    if (indent <= packagesIndent) break
+    const item = /^\s*-\s*(.+?)\s*$/.exec(line)?.[1]
+    if (!item) continue
+    const value = item.replace(/\s+#.*$/, '').trim().replace(/^(['"])(.*)\1$/, '$2')
+    if (value) patterns.push(value.replaceAll('\\', '/').replace(/\/$/, ''))
+  }
+  return patterns
+}
+
+export function isWorkspacePackage(path: string, patterns: readonly string[]) {
+  const included = patterns.filter(pattern => !pattern.startsWith('!')).some(pattern => matchesGlob(path, pattern))
+  return included && !patterns.filter(pattern => pattern.startsWith('!')).some(pattern => matchesGlob(path, pattern.slice(1)))
+}
+
+async function findPnpmWorkspaceRoot(packageRoot: string, root: string) {
+  for (const directory of ancestors(packageRoot, root)) {
+    const file = resolve(directory, 'pnpm-workspace.yaml')
+    if (!await isFile(file, root)) continue
+    const source = await readFile(file, 'utf8')
+    const packagePath = relative(directory, packageRoot).replaceAll('\\', '/') || '.'
+    if (directory === packageRoot || isWorkspacePackage(packagePath, parsePnpmWorkspacePackages(source)))
+      return { directory, file, source }
+  }
+}
+
+async function addProjectFile(files: Record<string, SandboxTaskProjectFile>, installRoot: string, path: string, scanRoot: string) {
+  if (!await isFile(path, scanRoot)) return
+  const mode = (await stat(path)).mode & 0o777
+  files[relative(installRoot, path).replaceAll('\\', '/')] = {
+    contents: (await readFile(path)).toString('base64'),
+    encoding: 'base64',
+    ...(mode & 0o111 ? { mode } : {}),
+  }
+}
+
+function workspaceDependencyNames(manifest: PackageManifest) {
+  const sections = [manifest.dependencies, manifest.devDependencies, manifest.optionalDependencies, manifest.peerDependencies]
+  return [...new Set(sections.flatMap(section => Object.entries(section || {}))
+    .filter(([, specifier]) => specifier.startsWith('workspace:'))
+    .map(([name]) => name))]
+}
+
+async function addPnpmWorkspaceDependencies(
+  files: Record<string, SandboxTaskProjectFile>,
+  workspaceRoot: string,
+  scanRoot: string,
+  patterns: readonly string[],
+  selectedManifest: PackageManifest,
+) {
+  const packages = new Map<string, { manifest: PackageManifest, root: string }>()
+  for (const pattern of patterns.filter(pattern => !pattern.startsWith('!'))) {
+    for await (const match of glob(`${pattern}/package.json`, { cwd: workspaceRoot, exclude: ['**/node_modules/**', '**/.git/**'] })) {
+      const manifestPath = resolve(workspaceRoot, match)
+      if (!await isFile(manifestPath, scanRoot)) continue
+      const packagePath = relative(workspaceRoot, dirname(manifestPath)).replaceAll('\\', '/') || '.'
+      if (!isWorkspacePackage(packagePath, patterns)) continue
+      const manifest = parseManifest(await readFile(manifestPath, 'utf8'), manifestPath)
+      if (manifest.name) packages.set(manifest.name, { manifest, root: dirname(manifestPath) })
+    }
+  }
+
+  const pending = workspaceDependencyNames(selectedManifest)
+  const included = new Set<string>()
+  while (pending.length) {
+    const name = pending.shift()!
+    if (included.has(name)) continue
+    const dependency = packages.get(name)
+    if (!dependency)
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0061({ message: `[vitehub] Sandbox package references missing pnpm workspace dependency "${name}".` })
+    included.add(name)
+    pending.push(...workspaceDependencyNames(dependency.manifest))
+    for await (const match of glob('**/*', { cwd: dependency.root, exclude: projectFileExcludes }))
+      await addProjectFile(files, workspaceRoot, resolve(dependency.root, match), scanRoot)
+  }
+}
+
+export async function resolveSandboxTaskProject(
+  definitionFile: string,
+  scanRoot: string,
+  options: { readSandboxTaskOptions?: boolean } = {},
+): Promise<SandboxTaskProject> {
+  const root = await realpath(resolve(scanRoot))
+  const definition = await realpath(resolve(definitionFile))
+  if (!isInside(root, definition))
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0062({ message: `[vitehub] Sandbox Task Definition is outside its scan root: ${definitionFile}` })
+
+  const packageRoot = await firstDirectoryWithFile(ancestors(dirname(definition), root), 'package.json', root)
+  if (!packageRoot) {
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0063({ message: `[vitehub] Sandbox Task Definition "${definitionFile}" requires a package.json between its directory and "${root}".` })
+  }
+
+  const manifestPath = resolve(packageRoot, 'package.json')
+  const manifestSource = await readFile(manifestPath, 'utf8')
+  const manifest = parseManifest(manifestSource, manifestPath)
+  const sandboxTaskOptions = options.readSandboxTaskOptions
+    ? parseSandboxTaskProjectOptions(manifest, manifestPath)
+    : undefined
+  const declaredManager = packageManagerFromField(manifest.packageManager)
+  const declaredMajor = packageManagerMajor(manifest.packageManager)
+  const workspace = declaredManager && declaredManager !== 'pnpm'
+    ? undefined
+    : await findPnpmWorkspaceRoot(packageRoot, root)
+  const installRoot = workspace?.directory || packageRoot
+  const packageLock = await findLockfile([installRoot], root, workspace ? 'pnpm' : declaredManager)
+  const manager = declaredManager || packageLock?.manager || (workspace ? 'pnpm' : 'npm')
+  const lock = packageLock?.manager === manager ? packageLock : undefined
+  const lockfileMajor = manager === 'yarn' && lock && declaredMajor === undefined
+    ? (await readFile(lock.path, 'utf8')).includes('__metadata:') ? 2 : 1
+    : undefined
+
+  const files: Record<string, SandboxTaskProjectFile> = {}
+  for await (const match of glob('**/*', { cwd: packageRoot, exclude: projectFileExcludes }))
+    await addProjectFile(files, installRoot, resolve(packageRoot, match), root)
+  if (installRoot !== packageRoot)
+    await addProjectFile(files, installRoot, resolve(installRoot, 'package.json'), root)
+  if (workspace) {
+    await addProjectFile(files, installRoot, workspace.file, root)
+    await addPnpmWorkspaceDependencies(files, installRoot, root, parsePnpmWorkspacePackages(workspace.source), manifest)
+  }
+  const installManifestPath = resolve(installRoot, 'package.json')
+  const installManifest = installRoot === packageRoot
+    ? manifest
+    : await isFile(installManifestPath, root)
+      ? parseManifest(await readFile(installManifestPath, 'utf8'), installManifestPath)
+      : undefined
+  for (const patchPath of pnpmPatchPaths(installManifest || {})) {
+    if (!isInside(installRoot, resolve(installRoot, patchPath))) {
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0064({ message: `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}` })
+    }
+    await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
+  }
+  if (workspace) {
+    for (const patchPath of parsePnpmWorkspacePatchPaths(workspace.source)) {
+      if (!isInside(installRoot, resolve(installRoot, patchPath))) {
+        throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0065({ message: `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}` })
+      }
+      await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
+    }
+  }
+  if (lock) await addProjectFile(files, installRoot, lock.path, root)
+
+  const packagePath = relative(installRoot, packageRoot).replaceAll('\\', '/') || '.'
+  const identity = JSON.stringify({ files, manager, packagePath })
+  const project: SandboxTaskProject = {
+    digest: createHash('sha256').update(identity).digest('hex'),
+    files,
+    install: {
+      args: installArgs(manager, Boolean(lock), declaredManager === manager ? declaredMajor : lockfileMajor),
+      command: manager,
+      cwd: '.',
+    },
+    ...(sandboxTaskOptions ? { options: sandboxTaskOptions } : {}),
+    packagePath,
+  }
+  sandboxTaskProjectSourceFiles.set(
+    project,
+    Object.keys(files).map(path => resolve(installRoot, path)),
+  )
+  return project
+}
+
+async function firstDirectoryWithFile(directories: string[], file: string, root: string) {
+  for (const directory of directories) {
+    if (await isFile(resolve(directory, file), root))
+      return directory
+  }
+}
+
+async function findLockfile(
+  directories: string[],
+  root: string,
+  manager?: SandboxTaskPackageManager,
+): Promise<{ directory: string, manager: SandboxTaskPackageManager, path: string } | undefined> {
+  const candidates = manager ? lockfiles.filter(lock => lock.manager === manager) : lockfiles
+  for (const directory of directories) {
+    for (const candidate of candidates) {
+      const path = resolve(directory, candidate.file)
+      if (await isFile(path, root))
+        return { directory, manager: candidate.manager, path }
+    }
+  }
+}

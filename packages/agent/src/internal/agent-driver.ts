@@ -28,7 +28,7 @@ import type {
   CodexReasoningEffort,
   CodexReasoningSummary,
 } from "../types.ts"
-import type { BoxToolchain } from "@vite-hub/box"
+import type { SandboxToolchain } from "@vite-hub/sandbox"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type NormalizedAgentDriver<
@@ -62,7 +62,7 @@ export type NormalizedAgentDriver<
     reasoningSummary?: CodexReasoningSummary
     requirements?: readonly string[]
     sessionStorePath?: string
-    toolchain?: BoxToolchain
+    toolchain?: SandboxToolchain
   }
   | {
     kind: "run"
@@ -345,8 +345,8 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     // SAFETY: requirements is either absent or validated as a list of command names above.
     requirements: value.requirements === undefined ? undefined : [...value.requirements as string[]],
     sessionStorePath: isRuntimeString(value.sessionStorePath) ? value.sessionStorePath.trim() : undefined,
-    // SAFETY: validateProviderToolchain checks the declaration shape; @vite-hub/box validates versions at invocation time.
-    toolchain: value.toolchain as BoxToolchain | undefined,
+    // SAFETY: validateProviderToolchain checks the declaration shape; @vite-hub/sandbox validates versions at invocation time.
+    toolchain: value.toolchain as SandboxToolchain | undefined,
   }
 }
 

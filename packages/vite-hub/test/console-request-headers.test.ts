@@ -49,4 +49,19 @@ describe("Console request header reconstruction", () => {
     expect(request.headers.get("host")).toBe("")
     expect(consoleRequestURL(event).hostname).toBe("localhost")
   })
+
+  it("combines forwarded URL headers across request containers", () => {
+    const event = {
+      method: "GET",
+      req: {
+        headers: { get: (name: string) => name === "authorization" ? "Bearer token" : null },
+        url: "/_vitehub/console",
+      },
+      headers: { get: (name: string) => ({ "x-forwarded-host": "console.example", "x-forwarded-proto": "https" })[name] ?? null },
+      node: { req: { headers: { host: "internal.example" } } },
+    }
+
+    expect(consoleRequestURL(event).toString()).toBe("https://console.example/_vitehub/console")
+    expect(consoleRequest(event).url).toBe("https://console.example/_vitehub/console")
+  })
 })

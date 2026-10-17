@@ -39,6 +39,14 @@ const managementDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONNECTION_EXECUTION_UNKNOWN: code("Check the provider for the result before you send the call again.", "limits-and-errors#errors"),
     CONNECTION_PROVIDER: code("Check the provider status and the account permissions, then try again.", "limits-and-errors#errors"),
     CONNECTION_REAUTH_REQUIRED: code("Reconnect the Connection.", "limits-and-errors#errors"),
+    CONNECTION_AUTHORIZATION_CANCELLED: code(
+      "Connect again and approve the access that the Connection asks for.",
+      "server-api#management-routes",
+    ),
+    CONNECTION_STATE_MISMATCH: code(
+      "Start the connection again in this browser. Each authorization link works one time, for 10 minutes.",
+      "server-api#management-routes",
+    ),
   },
 });
 

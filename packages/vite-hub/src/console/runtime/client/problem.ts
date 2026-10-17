@@ -16,7 +16,6 @@ export interface ConsoleProblem {
 const configurationCodes = new Set(["CONNECTION_AUTH_REQUIRED", "ENV_BRIDGE_UNTRUSTED"])
 
 const text = (value: unknown): string | undefined =>
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Diagnostic fields cross module boundaries as unknown values.
   typeof value === "string" && value.trim() ? value : undefined
 
 function fromCode(code: ConsoleDiagnosticCode, message?: string): ConsoleProblem {

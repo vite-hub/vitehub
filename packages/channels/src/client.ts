@@ -21,7 +21,6 @@ export function toChannelSendError(cause: unknown): Error {
 function channelSendErrorMessage(error: Error): string {
   try {
     const message = error.message
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Connector errors can carry non-string messages from JavaScript.
     if (typeof message === "string") return message.slice(0, 2_000)
   }
   catch {
@@ -39,7 +38,6 @@ function logDelivery(event: string, deliveryId: string, channel: string, connect
   }
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Connector results are arbitrary provider objects; this helper reads only own enumerable metadata and id.
 function normalizeConnectorResult(result: object): ChannelConnectorResult {
   const entries: Array<[PropertyKey, unknown]> = []
   try {
@@ -59,7 +57,6 @@ function normalizeConnectorResult(result: object): ChannelConnectorResult {
   const normalized: ChannelConnectorResult = Object.fromEntries(entries)
   try {
     const id: unknown = Reflect.get(result, "id")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript connectors can return invalid optional IDs after delivery succeeds.
     if (typeof id === "string") normalized.id = id
   }
   catch {
@@ -83,12 +80,10 @@ export function createChannel<
       let deliveryId: string | undefined
       let connectorName: string | undefined
       try {
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Public send can receive invalid JavaScript input.
         if (typeof text !== "string" || text.trim().length === 0) {
           throw channelError("Channel message text must be a non-empty string.")
         }
 
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Public send validates JavaScript options before reading the selector.
         if (!options || typeof options !== "object" || Array.isArray(options)) {
           throw channelError(`Channel "${name}" send options must select a connector.`)
         }
@@ -96,7 +91,6 @@ export function createChannel<
         // SAFETY: The object check above establishes that options can carry a connector selector.
         const requestedConnector = (options as { connector?: unknown }).connector
         const selectedConnector = requestedConnector === undefined ? definition.defaultConnector : requestedConnector
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject malformed JavaScript selectors before resolving a configured connector.
         if (typeof selectedConnector !== "string" || selectedConnector.length === 0) {
           throw channelError(`Channel "${name}" requires a connector in send options.`)
         }

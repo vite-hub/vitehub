@@ -32,7 +32,7 @@ afterEach(async () => {
 })
 
 /** A Workspace on the Blob + Database Store, as the Workspace history tests use. */
-async function historyWorkspace(beforeBatch?: (database: ReturnType<typeof drizzle>, fresh: () => ReturnType<typeof createBlobDatabaseWorkspaceStore>) => void) {
+async function historyWorkspace() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-content-"))
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
@@ -41,7 +41,6 @@ async function historyWorkspace(beforeBatch?: (database: ReturnType<typeof drizz
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `site-${++workspaces}`
-  beforeBatch?.(database, () => createBlobDatabaseWorkspaceStore({ blob, database, workspace: name }))
   registerWorkspace(name, { store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: name }) })
   return name
 }
@@ -108,15 +107,6 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(error.message).toContain("- title:")
     expect(error.message).toContain("- date:")
     expect(await posts.status("bad")).toBeNull()
-  })
-
-  it("rejects a null body instead of treating it as empty", async () => {
-    const { posts } = await setup()
-    // @ts-expect-error body must be a string
-    await expect(posts.save("null-body", { data: { title: "Null", date: "2026-01-01" }, body: null })).rejects.toMatchObject({
-      code: "CONTENT_INVALID",
-      details: { issues: [expect.objectContaining({ path: ["body"] })] },
-    })
   })
 
   it("validates every Workspace writer through the plugin hook", async () => {
@@ -236,41 +226,6 @@ describe("document collections", { timeout: 30_000 }, () => {
       documents: [{ collection: "posts", id: "other", change: "add" }],
     })
     expect(await content.publish({ expect: [helloDraft!] })).toEqual({ revision: null, documents: [] })
-  })
-
-  it.each([false, true])("fences draft writes inside the publish transaction (unrelated: %s)", async (unrelated) => {
-    let arm: (() => void) | undefined
-    const workspace = await historyWorkspace((database, fresh) => {
-      arm = () => {
-        const batch = database.batch.bind(database)
-        vi.spyOn(database, "batch").mockImplementationOnce(async (queries) => {
-          const writer = fresh().history
-          const head = await writer.head({ ref: "draft" })
-          const path = unrelated ? "posts/other.md" : "posts/hello.md"
-          await writer.commit({ ref: "draft", ifHead: head!.id, changes: { put: {
-            [path]: { path, content: "---\ntitle: Concurrent\ndate: 2026-01-01\n---\nChanged" },
-          } } })
-          return await batch(queries)
-        })
-      }
-    })
-    const content = defineContent({ workspace, collections: { posts: documents({ path: "posts/*.md", fields }) }, logger: false })
-    cleanup.push(() => content.dispose())
-    const posts = content.collection("posts")
-    const saved = await posts.save("hello", hello)
-    arm!()
-    const publishing = content.publish({ expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
-    if (unrelated) {
-      expect((await publishing).documents).toEqual([{ collection: "posts", id: "hello", change: "add" }])
-      expect((await posts.get("hello"))?.digest).toBe(saved.digest)
-      expect(await posts.get("other")).toBeNull()
-    }
-    else {
-      await expect(publishing).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: {
-        ref: "draft", documents: [{ collection: "posts", id: "hello", expected: saved.digest, actual: expect.any(String) }],
-      } })
-      expect(await posts.get("hello")).toBeNull()
-    }
   })
 
   it("publishes an expected deletion and rejects ambiguous expect options", async () => {

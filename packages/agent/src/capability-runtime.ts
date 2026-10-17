@@ -2,6 +2,7 @@ import { copyAgentInvocationCallerAbortSignal } from "./internal/invocation-inpu
 import { supportsSkillPersistence } from "./internal/skill-persistence.ts"
 import { markCapabilityInspection } from "./internal/capability-inspection.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { agentStreamErrorSymbol } from "./agent-output.ts"
 import { hostObservability, isHostObservabilityCapability } from "./internal/observability-host.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
@@ -22,7 +23,7 @@ import {
 import { runObservedAgentHook } from "./hooks.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
-import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
+import { AgentCapabilityScope } from "./internal/capability-scope.ts"
 import { agentInvocationTraceIdContextKey } from "./trace.ts"
 import { setAgentCapabilityInspection } from "./internal/agent-telemetry.ts"
 import { inspectMcpToolProvenance } from "./tool-inspection.ts"
@@ -46,6 +47,7 @@ import type {
   AgentDriverContribution,
   AgentDriverContributionKind,
   AgentDriverKind,
+  ExecutionBudget,
   AgentFinishEvent,
   AgentFinishExtensionProvider,
   AgentHookObserverHooks,
@@ -178,6 +180,7 @@ export interface AgentCapabilityInvocationOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  executionBudget?: ExecutionBudget
   context?: AgentInvocationContextStore
   driverKind?: AgentDriverKind
   driver?: unknown
@@ -539,7 +542,6 @@ function isBuiltinObject(value: unknown, tag: string): boolean {
       case "[object URLSearchParams]": URLSearchParams.prototype.toString.call(value); return true
       case "[object ArrayBuffer]": Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value); return true
       case "[object SharedArrayBuffer]":
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SharedArrayBuffer may not exist in this runtime; typeof safely checks the global.
         if (typeof SharedArrayBuffer === "undefined") return false
         Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!.call(value)
         return true
@@ -578,7 +580,6 @@ function isPlainObjectPrototype(prototype: unknown): boolean {
   }
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Descriptor copying accepts arbitrary built-ins and records without requiring named properties.
 function copySnapshotProperties(source: object, target: object, seen: WeakMap<object, unknown>, skip?: PropertyKey): void {
   for (const key of Reflect.ownKeys(source)) {
     if (key === skip) continue
@@ -589,7 +590,6 @@ function copySnapshotProperties(source: object, target: object, seen: WeakMap<ob
   }
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Intrinsic valueOf methods validate the boxed receiver; its own properties may have any shape.
 function snapshotBoxedValue(value: object, tag: string, seen: WeakMap<object, unknown>): object | undefined {
   let snapshot: object
   try {
@@ -655,7 +655,6 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
     }
     catch { /* spoofed tag; continue with ordinary object handling */ }
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- SharedArrayBuffer may not exist in this runtime; typeof safely checks the global.
   if (tag === "[object SharedArrayBuffer]" && typeof SharedArrayBuffer !== "undefined") {
     try {
       // SAFETY: The intrinsic SharedArrayBuffer byteLength getter validates the receiver and returns a number.
@@ -705,7 +704,6 @@ export function snapshotCapabilityData(value: unknown, seen: WeakMap<object, unk
   return snapshot
 }
 
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- Descriptor comparison accepts any already-validated object shape.
 function compareCapabilityProperties(left: object, right: object, seen: WeakMap<object, object>): boolean {
   const leftKeys = Reflect.ownKeys(left)
   const rightKeys = Reflect.ownKeys(right)
@@ -1496,7 +1494,7 @@ export async function resolveAgentCapabilities<
   const inputDataChanged = () => currentInput.data !== initialInputDataReference || !capabilityDataEqual(currentInput.data, initialInputData)
   let tools: AgentToolSet | undefined
   const driverContributions: AgentDriverContribution[] = []
-  let capabilityScope: Awaited<ReturnType<typeof openAgentCapabilityScope>> | undefined
+  let capabilityScope: AgentCapabilityScope | undefined
   const toolTransforms: AgentToolTransform[] = []
   const initialDeliveryEffectIntents = invocationContext.get(channelDeliveryEffectsContextKey) || []
   const initialFinishDeliveryEffectProviders = invocationContext.get(channelDeliveryFinishEffectsContextKey) || []
@@ -1602,6 +1600,7 @@ export async function resolveAgentCapabilities<
       ...agentInvocationCallbackContextValues(invocationContext),
       ...runtimeContext,
       abortSignal: currentInput.abortSignal,
+      executionBudget: invocationOptions.executionBudget,
       actor: invoker,
       context: invocationContext,
       driver: { kind: driverKind },
@@ -1639,6 +1638,7 @@ export async function resolveAgentCapabilities<
           ...agentInvocationCallbackContextValues(invocationContext),
           ...runtimeContext,
           abortSignal: currentInput.abortSignal,
+          executionBudget: invocationOptions.executionBudget,
           actor: invoker,
           context: invocationContext,
           driver: { kind: driverKind },
@@ -1848,7 +1848,7 @@ export async function resolveAgentCapabilities<
         }
 
         if (capability.close || options?.hooks?.["capability:close"] || options?.hooks?.["capability:close:after"]) {
-          capabilityScope ??= await openAgentCapabilityScope()
+          capabilityScope ??= new AgentCapabilityScope()
           await capabilityScope.add(async () => {
             await callHooks("capability:close", capabilityContext, options?.hooks)
             if (capability.close) await runCapabilityCallback(capability.id, "close", () => capability.close!(capabilityContext))
@@ -1997,7 +1997,7 @@ function isToolSet(value: unknown): value is AgentToolSet {
   return hasRuntimeType(value, "object") && value !== null
 }
 
-export async function validateCapabilityRuntimeRequirement<Name extends WorkspaceName>(
+async function validateCapabilityRuntimeRequirement<Name extends WorkspaceName>(
   capability: AgentCapabilityDefinition,
   workspace?: ReadonlyWorkspaceFacade<Name>,
   workspaceMode: AgentCapabilityMode = "read",
@@ -2233,7 +2233,14 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
           completed = true
           break
         }
-        yield result.value
+        const value = result.value
+        if (isRuntimeRecord(value) && value.type === "error" && value.recoverable !== true) {
+          failed = true
+          error = value[agentStreamErrorSymbol] ?? (value.error instanceof Error ? value.error : new Error(String(value.error ?? "Unknown stream error")))
+          yield value
+          break
+        }
+        yield value
       }
     }
     catch (caught) {
