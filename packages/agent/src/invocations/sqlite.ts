@@ -911,7 +911,6 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           WHERE agent_name IS NULL OR agent_name = ''
       ) WHERE typeof(name) = 'text' AND name <> '' ORDER BY name`)
       return result.rows.flatMap((row) => {
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- LibSQL rows are external storage values, so validate the indexed Agent name before exposing it.
         return typeof row.name === "string" ? [row.name] : []
       })
     },

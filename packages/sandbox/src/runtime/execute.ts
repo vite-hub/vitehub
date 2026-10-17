@@ -181,6 +181,14 @@ async function executeSandboxDefinitionOnce<TPayload>(
     if (output.error?.code === 'SANDBOX_TRANSFER_LIMIT')
       throw sandboxError(output.error.message || 'Sandbox result exceeds its transfer limit.', { code: 'SANDBOX_TRANSFER_LIMIT' })
 
+    if (output.error?.code === 'SANDBOX_SERIALIZATION_ERROR') {
+      throw sandboxError(output.error.message || 'Sandbox result must be JSON-serializable.', {
+        code: 'SANDBOX_SERIALIZATION_ERROR',
+        provider: sandbox.provider,
+        cause: output.error.cause,
+      })
+    }
+
     throw createHandlerError(output.error?.message || 'Sandbox definition failed.', sandbox.provider, {
       name: output.error?.name,
       stack: output.error?.stack,

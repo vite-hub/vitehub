@@ -28,63 +28,93 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./auth": {
       "types": "./dist/auth.d.ts",
-      "import": "./dist/auth.js"
+      "import": "./dist/auth.js",
+      "require": "./dist/auth.js",
+      "default": "./dist/auth.js"
     },
     "./bridge": {
       "types": "./dist/bridge.d.ts",
-      "import": "./dist/bridge.js"
+      "import": "./dist/bridge.js",
+      "require": "./dist/bridge.js",
+      "default": "./dist/bridge.js"
     },
     "./database": {
       "types": "./dist/database.d.ts",
-      "import": "./dist/database.js"
+      "import": "./dist/database.js",
+      "require": "./dist/database.js",
+      "default": "./dist/database.js"
     },
     "./http": {
       "types": "./dist/http.d.ts",
-      "import": "./dist/http.js"
+      "import": "./dist/http.js",
+      "require": "./dist/http.js",
+      "default": "./dist/http.js"
     },
     "./internal/agent": {
       "types": "./dist/internal/agent.d.ts",
-      "import": "./dist/internal/agent.js"
+      "import": "./dist/internal/agent.js",
+      "require": "./dist/internal/agent.js",
+      "default": "./dist/internal/agent.js"
     },
     "./internal/connections": {
       "types": "./dist/internal/connections.d.ts",
-      "import": "./dist/internal/connections.js"
+      "import": "./dist/internal/connections.js",
+      "require": "./dist/internal/connections.js",
+      "default": "./dist/internal/connections.js"
     },
     "./presets": {
       "types": "./dist/presets.d.ts",
-      "import": "./dist/presets.js"
+      "import": "./dist/presets.js",
+      "require": "./dist/presets.js",
+      "default": "./dist/presets.js"
     },
     "./provider": {
       "types": "./dist/provider.d.ts",
-      "import": "./dist/provider.js"
+      "import": "./dist/provider.js",
+      "require": "./dist/provider.js",
+      "default": "./dist/provider.js"
     },
     "./schema": {
       "types": "./dist/schema.d.ts",
-      "import": "./dist/schema.js"
+      "import": "./dist/schema.js",
+      "require": "./dist/schema.js",
+      "default": "./dist/schema.js"
     },
     "./seal": {
       "types": "./dist/seal.d.ts",
-      "import": "./dist/seal.js"
+      "import": "./dist/seal.js",
+      "require": "./dist/seal.js",
+      "default": "./dist/seal.js"
     },
     "./secret": {
       "types": "./dist/secret.d.ts",
-      "import": "./dist/secret.js"
+      "import": "./dist/secret.js",
+      "require": "./dist/secret.js",
+      "default": "./dist/secret.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
+      "import": "./dist/server.js",
+      "require": "./dist/server.js",
+      "default": "./dist/server.js"
     },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
-      "import": "./dist/virtual.js"
+      "import": "./dist/virtual.js",
+      "require": "./dist/virtual.js",
+      "default": "./dist/virtual.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
   },

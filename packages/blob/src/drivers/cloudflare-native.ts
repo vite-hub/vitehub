@@ -5,6 +5,7 @@ import { AwsClient } from "aws4fetch"
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import isBlob from "../internal/is-blob.ts"
 
 interface R2ObjectLike {
   arrayBuffer?: () => Promise<ArrayBuffer>
@@ -125,7 +126,6 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
 }
 
 function assertListPageCursor(result: { cursor?: string, truncated?: boolean }) {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cloudflare R2 list responses cross the provider boundary before pagination is normalized.
   if (typeof result.truncated !== "boolean" || (result.truncated && !result.cursor) || (!result.truncated && result.cursor)) {
     throw blobErrorDiagnostics.BLOB_R0033({ message: "Cloudflare R2 returned an invalid list page: `truncated` must be a boolean, and `cursor` is present only when `truncated` is true." })
   }
@@ -181,7 +181,7 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       const object = await getBucket(options).put(pathname, body, {
         customMetadata: putOptions.customMetadata,
         httpMetadata: {
-          contentType: putOptions.contentType || (body instanceof Blob ? body.type : undefined),
+          contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
         },
       })
       return mapObject(object)

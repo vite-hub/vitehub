@@ -9,9 +9,10 @@ import {
 } from "../ai.ts"
 import { useWorkspaceAssets } from "../asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 
-import { workspaceConflict, workspaceError } from "./errors.ts"
-import { requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
+import { workspaceError } from "./errors.ts"
+import { historyConflict, normalizeHistoryRef, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
@@ -19,7 +20,6 @@ import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { forwardWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
 import { assertPublicWorkspaceMetaKey } from "../storage/metadata-keys.ts"
-import { setWorkspaceRawWriteTarget } from "../storage/raw-write-target.ts"
 import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget, workspaceInternalMetadataCapability, attachWorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { createHostedWorkspaceSession } from "../session/host.ts"
 
@@ -49,7 +49,6 @@ import type {
   WorkspaceStat,
   WorkspaceDiff,
   WorkspaceMaterializeSourcesOptions,
-  WorkspacePublishOptions,
   WorkspaceRebaseOptions,
   WorkspaceSnapshot,
   WorkspaceSourceSyncResult,
@@ -117,6 +116,7 @@ export interface UseWorkspaceOptions {
 export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
   broadSearchPaths?: string[]
   cwd?: string
+  executionBudget?: ExecutionBudget
   maxShellCalls?: number
   maxOutputLength?: number
   sourceRequests?: boolean
@@ -199,7 +199,6 @@ export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
   history: WorkspaceHistory
   getMeta?(key: string): Promise<unknown>
   materializeSources(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
-  publish(options?: WorkspacePublishOptions): Promise<void>
   setMeta?(key: string, value: unknown, capability?: symbol): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
@@ -293,25 +292,21 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     }
   }
 
-  async function resolvePublishWorkspace() {
-    const workspace = await resolveWorkspace()
-    const sync = await workspaceDefinitionSyncState(workspace)
-    if (sync.explicitPromise) await waitForWorkspaceSync(sync.explicitPromise)
-    return sync.promise ? await resolveSyncedWorkspace() : workspace
-  }
-
   const workspace = {
     name,
     history: {
-      head: async () => await requireWorkspaceHistory(await resolveWorkspace()).head(),
+      head: async options => await requireWorkspaceHistory(await resolveWorkspace()).head(options),
       list: async options => await requireWorkspaceHistory(await resolveWorkspace()).list(options),
+      refs: async () => await requireWorkspaceHistory(await resolveWorkspace()).refs(),
       open: async id => await requireWorkspaceHistory(await resolveWorkspace()).open(id),
       usage: async () => await requireWorkspaceHistory(await resolveWorkspace()).usage(),
       commit: async options => {
         const history = requireWorkspaceHistory(await resolveWorkspace())
         validateHistoryMessage(options.message)
-        const head = await history.head()
-        if ((head?.id ?? null) !== options.ifHead) throw workspaceConflict("[vitehub] Workspace head changed before the history commit.", { details: { expected: options.ifHead, actual: head?.id ?? null } })
+        const ref = normalizeHistoryRef(options.ref)
+        // Reject a stale head before build Sources synchronize.
+        const head = await history.head({ ref })
+        if ((head?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, head?.id ?? null)
         return await requireWorkspaceHistory(await resolveSyncedWorkspace()).commit(options)
       },
     },
@@ -368,9 +363,6 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     },
     async materializeSources(options) {
       return await materializeWorkspaceSources(await resolveSyncedWorkspace(options?.abortSignal), options)
-    },
-    async publish(options) {
-      await (await resolvePublishWorkspace()).publish(options)
     },
     async snapshot(options) {
       return await (await resolveSyncedWorkspace()).snapshot(options)
@@ -654,7 +646,6 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       },
       getMeta: async key => await workspace.getMeta?.(key),
       materializeSources: async options => await materializeWorkspaceSources(workspace, options),
-      publish: async options => await workspace.publish(options),
       setMeta: async (key, value, capability?: typeof workspaceInternalMetadataCapability) => await workspace.setMeta?.(key, value, capability),
       snapshot: async options => await workspace.snapshot(options),
       startSession: async options => await workspace.startSession(options),
@@ -662,7 +653,6 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       tools,
     }
     forwardWorkspaceMetadataTarget(workspace, facade)
-    setWorkspaceRawWriteTarget(facade, facade.fs)
     return facade
   }
 
@@ -686,8 +676,9 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
   const facade = {
     fs,
     history: {
-      head: () => requireWorkspaceHistory(workspace).head(),
+      head: (options?: import("./types.ts").WorkspaceHistoryRefOptions) => requireWorkspaceHistory(workspace).head(options),
       list: (options?: import("./types.ts").WorkspaceHistoryListOptions) => requireWorkspaceHistory(workspace).list(options),
+      refs: () => requireWorkspaceHistory(workspace).refs(),
       open: (id: string) => requireWorkspaceHistory(workspace).open(id),
       usage: () => requireWorkspaceHistory(workspace).usage(),
     },

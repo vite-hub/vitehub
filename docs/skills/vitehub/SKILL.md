@@ -40,7 +40,7 @@ Read only the references whose conditions match, but read them before writing co
 | Atomic request budgets | [Rate Limit](references/primitives/rate-limit.md) |
 | Realtime collaboration | [Realtime](references/primitives/realtime.md) |
 | Isolated provider-backed runs | [Sandbox](references/primitives/sandbox.md) |
-| Static cron or Runtime Schedules | [Schedule](references/primitives/schedule.md) |
+| Static cron schedules | [Schedule](references/primitives/schedule.md) |
 | Bounded shell commands | [Shell](references/primitives/shell.md) |
 | Read-only external files or resources | [Source](references/primitives/source.md) |
 | Durable long-running orchestration | [Workflow](references/primitives/workflow.md) |

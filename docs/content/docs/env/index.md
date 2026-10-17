@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-key-round
 ---
 
+::agent-only{skill="env"}
+Use Env to declare public, build-time, server runtime, and secret values with typed accessors. Keep secret values out of source and client bundles.
+
+Read [Get started](/docs/env/get-started), [Configure](/docs/env/configure), or [Server API](/docs/env/server-api).
+
+Use `#vitehub/env/public` in browser-safe code and `#vitehub/env/server` in server code. Provider-backed Env values are read through the declared provider and do not become public automatically.
+
+Prove missing, valid, and invalid values in the same host mode you will deploy. Inspect declaration metadata, never secret contents.
+::
+
 ::product-hero{tagline="Declare public, build-time, server, and secret values in the Vite config, and read them through generated typed imports." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-group
   ```ts [vite.config.ts]

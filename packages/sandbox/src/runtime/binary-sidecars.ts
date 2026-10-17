@@ -27,7 +27,7 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object'
 }
 
-const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+const typedArrayTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
 const blobSizeGetter = typeof Blob !== 'undefined'
   ? Object.getOwnPropertyDescriptor(Blob.prototype, 'size')?.get
   : undefined
@@ -36,15 +36,15 @@ const blobArrayBufferMethod = typeof Blob !== 'undefined'
   : undefined
 
 function isUint8Array(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && typedArrayTagGetter?.call(value) === 'Uint8Array'
+  if (!ArrayBuffer.isView(value) || !typedArrayTag) return false
+  try { return typedArrayTag.call(value) === 'Uint8Array' }
+  catch { return false }
 }
 
 function unboxJsonPrimitive(value: unknown): { value: unknown } | undefined {
   for (const unbox of [Boolean.prototype.valueOf, Number.prototype.valueOf, String.prototype.valueOf, BigInt.prototype.valueOf]) {
-    try {
-      return { value: Reflect.apply(unbox, value, []) }
-    }
-    catch {}
+    try { return { value: Reflect.apply(unbox, value, []) } }
+    catch { continue }
   }
   return undefined
 }
@@ -153,9 +153,9 @@ export async function encodeSandboxValueStaged(
       })
     }
 
-    if (isObjectRecord(entry) && applyToJSON && typeof entry.toJSON === 'function') {
+    if (isObjectRecord(entry) && applyToJSON) {
       try {
-        const replacement = Reflect.apply(entry.toJSON, entry, [key])
+        const replacement = Reflect.apply(entry.toJSON as (...args: [string]) => unknown, entry, [key])
         const replacementDepth = replacement !== null && typeof replacement === 'object' ? depth + 1 : depth
         return await encode(replacement, ancestors, key, false, replacementDepth)
       }

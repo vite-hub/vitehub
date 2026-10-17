@@ -35,7 +35,7 @@ The Agent Package contributes `agent` and `channels` when `hubAgent()` is active
 Usage: vitehub <namespace> <feature> [args...]
 
 Available namespaces:
-  workspace   Workspace development workflows.
+  workspace   Workspace development workflows and retained history.
   console     Console development workflows.
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores in a running Vite + Nitro Development Server.
@@ -44,7 +44,7 @@ Available namespaces:
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
   env         Server Env inspection workflows.
   email       Inspect and preview development Email messages.
-  schedule    Run Static Schedule Definitions and inspect or control Runtime Schedules.
+  schedule    Run Static Schedule Definitions and inspect their recorded runs.
   workflow    Start and inspect Workflow runs in development.
   types       Generate ViteHub TypeScript declarations.
   inspect     Inspect discovered Definitions and generated Provider Output.
@@ -81,14 +81,9 @@ Available namespaces:
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
 | `vitehub kv set` | Available | KV Package | Write the value of one key and print what changed. |
 | `vitehub kv del` | Available | KV Package | Delete one key and print what changed. |
-| `vitehub schedule list` | Available | Schedule Package | List Runtime Schedules with enabled state, next due time, and last run. |
-| `vitehub schedule get` | Available | Schedule Package | Show one Runtime Schedule. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally or through the deployed Console. |
-| `vitehub schedule run-runtime` | Available | Schedule Package | Run one Runtime Schedule now in the development runtime. |
-| `vitehub schedule enable` | Available | Schedule Package | Enable one Runtime Schedule. |
-| `vitehub schedule disable` | Available | Schedule Package | Disable one Runtime Schedule. |
 | `vitehub box check` | Available | Box Package | Start the provider Driver through the SSH runner and report readiness. |
 | `vitehub box serve` | Available | Box Package | Serve authenticated SSH commands from this machine. |
 | `vitehub workflow start` | Available | Workflow Package | Start a discovered Workflow in the local development runtime. |
@@ -96,6 +91,9 @@ Available namespaces:
 | `vitehub workflow cancel` | Available | Workflow Package | Cancel a run when the provider supports it. |
 | `vitehub workflow resume` | Available | Workflow Package | Resume a Workflow signal by hook token. |
 | `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
+| `vitehub workspace history` | Available | Workspace Package | List the retained revisions of a Workspace with ref, author, message, and time. |
+| `vitehub workspace refs` | Available | Workspace Package | List the history refs of a Workspace and their head revisions. |
+| `vitehub workspace show` | Available | Workspace Package | Show one revision and its files, or print one file as it was in that revision. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
 | `vitehub inspect provider-output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
@@ -161,7 +159,7 @@ Both commands load the Vite config in the selected stage mode, including `.env.<
 
 ## Inspect Definitions and Provider Output
 
-`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
+`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `collection`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
 
 ```bash [Terminal]
 pnpm vitehub inspect definitions
@@ -195,7 +193,7 @@ Packages contribute inspection through `vitehub.inspect` on their Vite plugin. T
 
 ## Inspect Definitions and Provider Output
 
-`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
+`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `collection`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
 
 ```bash [Terminal]
 pnpm vitehub inspect definitions
@@ -357,7 +355,7 @@ The commands use a guarded dev endpoint that `hubKv()` registers only on the Dev
 pnpm vitehub schedule run sync
 ```
 
-Without `--url`, the command posts to the running Vite Development Server at `VITEHUB_DEV_SERVER_URL` or `http://localhost:5173`. Use `--server <url>` to select another local server.
+Without `--url`, the command posts to the running Vite Development Server at `VITEHUB_DEV_SERVER_URL` or `http://localhost:5173`. Use `--server <url>` to select another local server. The server runs the definition in its Nitro dev environment, so the handler has the Nitro plugins and dev bindings of the app, and the run appears in `vitehub schedule runs <name>`. It uses the same guarded endpoint and private token as the [run inspection commands](#run-and-inspect-schedules), and it needs a host where Nitro runs in the Vite process.
 
 With `--url`, the command posts to `/_vitehub/schedules/run` on the deployment. That route runs only when the deployment enables the [Console](/docs/development/cli#run-a-schedule-on-demand) with `invoke: true`, and the Console access policy protects it like every other `/_vitehub/**` route. Set the credentials for that policy in the environment:
 
@@ -376,34 +374,28 @@ VITEHUB_CONSOLE_AUTHORIZATION="Basic $(printf 'admin:%s' "$ADMIN_TOKEN" | base64
 The command requires HTTPS for remote URLs and does not follow redirects. A `401`, `403`, or redirect response reports a Console authentication failure. The command never sends the credential to the local Development Server.
 
 
-## Inspect and control Runtime Schedules
+## Run and inspect Schedules
 
-Start the app's Vite Development Server, then run `vitehub schedule` from another terminal. The commands read the Schedule stores of that server runtime, so they show Runtime Schedules and runs that the running app created.
+Start the app's Vite Development Server, then run `vitehub schedule` from another terminal. `runs` and `attempts` read the Schedule Run store of that server runtime, so they show the runs that the running app recorded: manual runs and Process Runtime runs.
 
 ```bash [Terminal]
-pnpm vitehub schedule list
-pnpm vitehub schedule list --json
-pnpm vitehub schedule get digest
 pnpm vitehub schedule runs digest --limit 5
-pnpm vitehub schedule attempts srun_runtime_digest_2026-05-22T07:00:00.000Z
-pnpm vitehub schedule run-runtime digest
-pnpm vitehub schedule disable digest
-pnpm vitehub schedule enable digest
+pnpm vitehub schedule runs digest --json
+pnpm vitehub schedule attempts srun_static_digest_2026-05-22T07:00:00.000Z
 ```
 
 ```txt [Output]
-ID      TARGET  CRON                           ENABLED  NEXT RUN                  LAST RUN
-digest  report  0 9 * * * (Europe/Copenhagen)  yes      2026-05-23T07:00:00.000Z  succeeded 2026-05-22T07:00:00.000Z
-Automatic runs: off. No wake driver is installed, so due times do not start runs in this runtime.
+RUN                                          STATUS     SCHEDULED AT              ATTEMPTS  ERROR
+srun_static_digest_2026-05-22T07:00:00.000Z  succeeded  2026-05-22T07:00:00.000Z  1         -
 ```
 
-Every command accepts `--json`, `--url <url>` when Vite does not listen on `http://localhost:5173`, and `--timeout <ms>` (whole milliseconds from 1 to 2147483647). `runs` accepts `--limit <n>`. A failed run makes `schedule run-runtime` exit with status 1 and prints the stored run. Errors go to stderr, or into the JSON body with `--json`.
+Every command accepts `--json`, `--url <url>` when Vite does not listen on `http://localhost:5173`, and `--timeout <ms>` (whole milliseconds from 1 to 2147483647). `runs` accepts `--limit <n>`. Errors go to stderr, or into the JSON body with `--json`.
 
 Schedule operations require a private token scoped to the local project and server instance. The dev server stores it with user-only permissions outside the served project tree, and the CLI reads it locally. Discovery exposes only the server ID. Vite and Nitro both reject operations without the token, including requests to a server exposed with `--host`. Shutdown removes the credential.
 
-The output redacts credentials: values under secret-named keys in Schedule input, URLs with embedded credentials, bearer tokens, and secret assignments in error messages.
+The output redacts credentials: URLs with embedded credentials, bearer tokens, and secret assignments in error messages.
 
-The commands use a guarded dev endpoint that `hubSchedule()` registers only on the Development Server. The endpoint forwards each operation into the Nitro dev environment, which owns the Schedule stores and registry. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 and the CLI prints that the host is not supported. Deployed runtimes do not expose the endpoint.
+The commands use a guarded dev endpoint that `hubSchedule()` registers only on the Development Server. The endpoint forwards each operation into the Nitro dev environment, which owns the Schedule Run store and registry. This works on Vite + Nitro and on Nuxt with Nitro 3. Plain Vite without Nitro has no Nitro dev environment, so the endpoint returns status 501 and the CLI prints that the host is not supported. Nuxt with Nitro 2 runs Nitro outside the Vite process, so the CLI cannot reach the endpoint. Deployed runtimes do not expose the endpoint.
 
 ## Run Agent Evals
 
@@ -487,9 +479,9 @@ Each command posts to `/_vitehub/rpc/__call` under the app URL, and the Console 
 
 | Variable | Value |
 | --- | --- |
-| `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value from a signed-in Console session. With `access: 'auth'`, copy the `vitehub_console.session_token` cookie, which has the `__Secure-` prefix on HTTPS. |
-| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value, for example the Bearer token that a `host-managed` `authorize` function checks. |
-| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | A Cloudflare Access service token for `access: 'cloudflare-access'`. |
+| `VITEHUB_CONSOLE_COOKIE` | A `Cookie` header value from a signed-in Console session. With Console Auth, copy the `vitehub_console.session_token` cookie, which has the `__Secure-` prefix on HTTPS. |
+| `VITEHUB_CONSOLE_AUTHORIZATION` | An `Authorization` header value, for example the Bearer token that a `console.authorize` function checks. |
+| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | A Cloudflare Access service token for `auth: { provider: 'cloudflare-access' }`. |
 
 A URL selects the Console when its host is not `localhost`, or when its path contains `/_vitehub`, such as a Console page URL that you copy from the browser or `http://localhost:3000/_vitehub` for a local production build. Other localhost URLs keep their local meaning. Remote URLs must use HTTPS and must not contain credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a Console authentication failure.
 
@@ -596,6 +588,37 @@ Connected to docs at http://localhost:5173
 > pnpm test
 ```
 
+## Read Workspace history during development
+
+Use `vitehub workspace history`, `refs`, and `show` to read the [retained history](/docs/workspace/server-api#retained-folder-history) of a Workspace: its refs, such as `draft` and `published`, and the revisions on each ref. Start the app's Vite + Nitro Development Server, then run the commands from another terminal. The commands only read. They never commit or move a ref.
+
+```bash [Terminal]
+pnpm vitehub workspace history content
+pnpm vitehub workspace history content --ref draft --limit 10
+pnpm vitehub workspace refs content
+pnpm vitehub workspace show content draft
+pnpm vitehub workspace show content published posts/hello.md
+pnpm vitehub workspace show content 9a97b4caf7ed04dd7d590ab9192ee21211375d0fb7652c586bd506049bd39f3a posts/hello.md
+```
+
+```txt [Output]
+REVISION                                                          REF        CREATED AT                AUTHOR  FILES  MESSAGE
+bc4cf2341f4244c405de80d58ff6b53b5855b27e22dfb9b61567c9cfc44a4f3d  draft      2026-10-15T12:12:47.744Z  maxi    2      Edit hello
+9a97b4caf7ed04dd7d590ab9192ee21211375d0fb7652c586bd506049bd39f3a  published  2026-10-15T12:12:47.733Z  editor  1      Publish hello
+c08f4415a5303b77a6a0e58436b885215950ed298e3e6cebbc85c18f2b97edb9  draft      2026-10-15T12:12:47.727Z  maxi    2      Save hello
+8d104bde6b19e80361256ab8f6f0bfee81c2756210c864c5db1ea95a25e40d0f  main       2026-10-15T12:12:47.716Z  -       1      Start content
+```
+
+- `history <workspace>` lists revisions newest first. Without `--ref`, it merges every ref and shows the newest `--limit` revisions (default `20`, maximum `100`). With `--ref <ref>`, it lists one ref and prints the `--cursor` value of the next page.
+- `refs <workspace>` lists each ref with its head revision.
+- `show <workspace> <ref|revision> [path]` takes a ref name or a full revision id. A ref name wins over a revision id with the same text. Without a path, it prints the revision and its files with size, media type, and SHA-256 digest. With a file path, it prints the file bytes as they were in that revision, so you can redirect them to a file. With a directory path, it lists the files under it.
+
+`AUTHOR` is the `author` string in the revision `metadata`, or `-`. Times are ISO 8601 in UTC. Blob + Database revision ids are SHA-256 digests of the revision manifest. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`. With `--json`, the CLI prints the revision objects with `id`, `ref`, `parentId`, `createdAt`, `message`, `metadata`, `author`, `files`, and `bytes`, and `show` returns file content as `utf8` text or `base64` bytes. Errors go to stderr, or into the JSON body with `--json`, and the exit status is 1.
+
+A Workspace whose Store does not keep revisions fails with `WORKSPACE_R0069` and names the [Blob + Database Store](/docs/workspace/configure#blob-database-store), which retains refs and revisions.
+
+The commands use a guarded dev endpoint that `hubWorkspace()` registers only on the Development Server. The endpoint forwards each read into the Nitro dev environment, which owns the Workspace registry and the Blob and Database bindings of the Store. Reads require a private token scoped to the project and server instance; shutdown removes it. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501. Deployed runtimes do not expose the endpoint.
+
 ## Preview provisioning
 
 Use `--dry-run` before writing Provider resources.
@@ -620,8 +643,8 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | Agent eval times out | The eval case, model call, or provider run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |
 | Vite config fails while loading a ViteHub plugin import | A fresh npm project is loading `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |
 | `No Compatible Vite Development Server found` | The app dev server is not running or `--url` points at the wrong port. | Start Vite separately, then pass the dev server URL. |
-| `vitehub schedule` reports that the host is not supported | The Development Server is Nuxt or plain Vite, so Nitro does not run in the Vite process. | Run the commands against a Vite + Nitro app. |
-| `vitehub schedule run-runtime` exits with status 1 | The Schedule is disabled, has no target in the registry, or its handler failed. | Read the printed error or run record, then enable the Schedule or fix the target handler. |
+| `vitehub schedule` reports that the host is not supported | The Development Server is plain Vite without Nitro, or Nuxt with Nitro 2, so Nitro does not run in the Vite process. | Run the commands against a Vite + Nitro app or Nuxt with Nitro 3. |
+| `vitehub schedule run` exits with status 1 | The Definition does not set `manual: true`, is not in the registry, or its handler failed. | Read the printed error or run record, then set `manual: true` or fix the handler. |
 | `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |
 | `Agent Dev Loop command requires workspace.mode: "write"` | A `!` command targeted an Agent without writable Workspace access. | Configure the selected Agent with `workspace: { mode: 'write' }`, or send a normal Agent message instead. |
 | Agent Dev Loop request times out | A streamed invocation emitted no events before the inactivity timeout, or a Capability CLI/Workspace command exceeded its wall-clock deadline. | Pass `--timeout <ms>` for the dev-loop operation or inspect the stalled work. |

@@ -10,6 +10,7 @@ import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 
+import { filesSdkDriverPeers } from "../../packages/blob/src/internal/files-sdk-peers.ts"
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
 import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 
@@ -30,6 +31,7 @@ const optionalPackages = [
   "openworkflow",
   "vitest",
 ]
+const storageSdkPackages = [...new Set(Object.values(filesSdkDriverPeers).flat())]
 
 interface PackageManifest {
   bin?: Record<string, string>
@@ -351,12 +353,19 @@ async function assertProviderRuntimeLoads(appDir: string) {
   await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
 }
 
-async function assertBlobProviderPackagesOwned(appDir: string) {
+// Blob driver SDKs are optional peers. A vite-hub-only app must not install them.
+async function assertStorageSdksNotInstalled(appDir: string) {
   const script = [
+    "import { createRequire } from \"node:module\"",
+    "import { pathToFileURL } from \"node:url\"",
     "const viteHub = import.meta.resolve(\"vite-hub/package.json\")",
-    "import.meta.resolve(\"@google-cloud/storage\", viteHub)",
+    "const blob = pathToFileURL(createRequire(viteHub).resolve(\"@vite-hub/blob/package.json\")).href",
+    `const packages = ${JSON.stringify(storageSdkPackages)}`,
+    "const installed = (name, parent) => { try { import.meta.resolve(name, parent); return true } catch (error) { return error.code !== \"ERR_MODULE_NOT_FOUND\" } }",
+    "process.stdout.write(JSON.stringify(packages.filter(name => installed(name, viteHub) || installed(name, blob))))",
   ].join("\n")
-  await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
+  const { stdout } = await run("node", ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script], appDir)
+  expect(JSON.parse(stdout), "storage SDKs must not install without the app").toEqual([])
 }
 
 function importSpecifierOccurrences(source: string) {
@@ -1160,7 +1169,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         "let resolved = false; try { import.meta.resolve('@vite-hub/agent'); resolved = true } catch {} if (resolved) throw new Error('owner package resolved from the consumer root')",
       ], appDir)
       await assertOptionalPackagesUnreachable(appDir)
-      await assertBlobProviderPackagesOwned(appDir)
+      await assertStorageSdksNotInstalled(appDir)
       await assertEffectMsgpackFallback(appDir)
       await assertProviderRuntimeLoads(appDir)
 

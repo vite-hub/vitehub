@@ -63,10 +63,6 @@ export function resolveScheduleDefinitionEntry(resolveImport: ImportResolver = s
 const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()
 const scheduleDefinitionEntry = resolveScheduleDefinitionEntry()
 
-function staticScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): DiscoveredScheduleDefinition[] {
-  return definitions.filter(definition => definition.runtimeOnly !== true)
-}
-
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
   denoCronFile: string
@@ -212,7 +208,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   const workflowRuntime = provider === "vercel" ? workflow : undefined
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}missingScheduleDefinitionError, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}missingScheduleDefinitionError, normalizeCron, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     ...(workflowRuntime
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
@@ -251,9 +247,10 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "    return new Response('ViteHub schedule provider wake endpoint')",
           "  },",
           "  async scheduled(event, env, ctx) {",
+          "    if (typeof event.cron !== 'string' || !event.cron.trim()) return",
           "    const tasks = Object.entries(scheduleRegistry).map(async ([name]) => {",
           "      const definition = await loadScheduleDefinition(name)",
-          "      if (!definition || definition.cron !== event.cron) return",
+          "      if (!definition || normalizeCron(definition.cron) !== normalizeCron(event.cron)) return",
           "      await executeStaticSchedule({ cron: event.cron, definition, name, scheduledAt: new Date(event.scheduledTime), waitUntil: (promise) => ctx.waitUntil(promise) })",
           "    })",
           "    await Promise.all(tasks)",
@@ -383,7 +380,6 @@ async function writeProviderEntries(
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = (providedDefinitions ?? discoverScheduleDefinitions({ rootDir }))
     .filter(definition => !source || definition.source === source)
-    .filter(definition => definition.runtimeOnly !== true)
   await writeRuntimeRegistryFile(registryFile, definitions)
 
   const cloudflareWorkerFile = resolve(generatedDir, "cloudflare-worker.mjs")
@@ -403,7 +399,7 @@ export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinit
 
 export async function readRuntimeDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
   const crons = new Map<string, string>()
-  for (const definition of staticScheduleDefinitions(definitions)) {
+  for (const definition of definitions) {
     const cron = readStaticScheduleCron(definition.handler, definition.name)
     crons.set(definition.name, cron)
   }
@@ -423,7 +419,7 @@ export async function writeVercelScheduleFunctions(options: {
   workflow?: ScheduleWorkflowRuntime
 }, crons: Map<string, string>) {
   options.signal?.throwIfAborted()
-  const definitions = staticScheduleDefinitions(options.definitions)
+  const definitions = options.definitions
   const outputRoot = options.outputRoot
   const functionRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
   const stagedFunctionRoot = `${functionRoot}.pending`
@@ -596,7 +592,7 @@ export async function createNetlifyScheduleFunctionOutputs(options: {
   includedSourcesDir?: string
   registryFile: string
 }): Promise<NetlifyScheduleFunctionOutput[]> {
-  const definitions = staticScheduleDefinitions(options.definitions)
+  const definitions = options.definitions
   const crons = await readDefinitionCrons(definitions)
   const emitted = new Map<string, string>()
   return definitions.map((definition) => {

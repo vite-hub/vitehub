@@ -32,7 +32,7 @@ export function isLoopbackHost(hostname: string): boolean {
 }
 
 /** Normalize an API key origin. Returns `undefined` for a URL with a path, query, credentials, or plain `http` to a remote host. */
-export function apiKeyOrigin(value: string): string | undefined {
+function apiKeyOrigin(value: string): string | undefined {
   let url: URL
   try {
     url = new URL(value)
@@ -47,11 +47,38 @@ export function apiKeyOrigin(value: string): string | undefined {
 
 /** Whether the provider header and origins can carry a key safely. */
 export function isValidApiKeyProvider(provider: { header: string, origins: readonly string[], scheme?: string }): boolean {
-  return tokenPattern.test(provider.header)
-    && provider.header === provider.header.toLowerCase()
-    && (provider.scheme === undefined || tokenPattern.test(provider.scheme))
-    && provider.origins.length > 0
-    && provider.origins.every(origin => apiKeyOrigin(origin) === origin)
+  try {
+    if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
+    const header = provider.header
+    const candidateOrigins = provider.origins
+    const scheme = provider.scheme
+    if (typeof header !== "string" || !Array.isArray(candidateOrigins)) return false
+    // structuredClone rejects Proxy values and gives us a stable, ordinary-array snapshot.
+    const origins = structuredClone(candidateOrigins)
+    if (Object.getPrototypeOf(origins) !== Array.prototype) return false
+    const originIndexes = Object.getOwnPropertyNames(origins).filter(key => {
+      const index = Number(key)
+      return String(index) === key && index >= 0 && index < 2 ** 32 - 1
+    })
+    if (originIndexes.length !== origins.length) return false
+    for (const key of originIndexes) {
+      if (typeof origins[Number(key)] !== "string") return false
+    }
+    for (const key of originIndexes) {
+      const origin = origins[Number(key)]
+      if (apiKeyOrigin(origin) !== origin) return false
+    }
+    return tokenPattern.test(header)
+      && header === header.toLowerCase()
+      && (scheme === undefined || (() => {
+        if (typeof scheme !== "string") return false
+        return tokenPattern.test(scheme)
+      })())
+      && origins.length > 0
+  }
+  catch {
+    return false
+  }
 }
 
 export function isApiKeyProvider(provider: ConnectionDefinition["provider"]): provider is ConnectionApiKeyProvider {
