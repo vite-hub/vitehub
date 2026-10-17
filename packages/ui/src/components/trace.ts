@@ -1,5 +1,5 @@
-import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger, injectCollapsibleRootContext } from "reka-ui";
-import { defineComponent, h, useId, type PropType } from "vue";
+import { CollapsibleContent, CollapsibleRoot, CollapsibleTrigger } from "reka-ui";
+import { defineComponent, h, type PropType } from "vue";
 import { slotPart } from "../internal/slot-part.ts";
 
 export type TraceLineStatus = "running" | "error" | "pending";
@@ -11,8 +11,8 @@ export const TraceLine = defineComponent({
   props: {
     status: { type: String as PropType<TraceLineStatus> },
   },
-  setup(props, { attrs, slots }) {
-    return () => h("span", { ...attrs, "data-slot": "trace-line", "data-status": props.status }, slots.default?.());
+  setup(props, { slots }) {
+    return () => h("span", { "data-slot": "trace-line", "data-status": props.status }, slots.default?.());
   },
 });
 
@@ -28,12 +28,11 @@ export const TraceCollapsible = defineComponent({
     open: { default: undefined, type: Boolean },
   },
   emits: { "update:open": (_open: boolean) => true },
-  setup(props, { attrs, emit, slots }) {
+  setup(props, { emit, slots }) {
     return () =>
       h(
         CollapsibleRoot,
         {
-          ...attrs,
           "data-slot": "trace-collapsible",
           defaultOpen: props.defaultOpen,
           open: props.open,
@@ -53,11 +52,9 @@ const chevron = () =>
 
 export const TraceCollapsibleTrigger = defineComponent({
   name: "TraceCollapsibleTrigger",
-  setup(_props, { attrs, slots }) {
-    const rootContext = injectCollapsibleRootContext();
-    rootContext.contentId ||= useId();
+  setup(_props, { slots }) {
     return () =>
-      h(CollapsibleTrigger, { ...attrs, "data-slot": "trace-collapsible-trigger" }, {
+      h(CollapsibleTrigger, { "data-slot": "trace-collapsible-trigger" }, {
         default: () => [slots.default?.(), chevron()],
       });
   },

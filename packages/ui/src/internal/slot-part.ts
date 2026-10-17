@@ -5,8 +5,8 @@ import { type Component, defineComponent, h, type PropType } from "vue";
 export function slotPart(name: string, slot: string, tag: string = "div", attrs: Record<string, string> = {}) {
   return defineComponent({
     name,
-    setup(_props, { attrs: fallthroughAttrs, slots }) {
-      return () => h(tag, { ...fallthroughAttrs, ...attrs, "data-slot": slot }, slots.default?.());
+    setup(_props, { slots }) {
+      return () => h(tag, { "data-slot": slot, ...attrs }, slots.default?.());
     },
   });
 }

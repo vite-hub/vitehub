@@ -34,11 +34,75 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./agent-code-view": {
+      "types": "./dist/agent-code-view.d.ts",
+      "import": "./dist/agent-code-view.js",
+      "require": "./dist/agent-code-view.js",
+      "default": "./dist/agent-code-view.js"
+    },
+    "./agent-file-tree": {
+      "types": "./dist/agent-file-tree.d.ts",
+      "import": "./dist/agent-file-tree.js",
+      "require": "./dist/agent-file-tree.js",
+      "default": "./dist/agent-file-tree.js"
+    },
+    "./agent-tool-list": {
+      "types": "./dist/agent-tool-list.d.ts",
+      "import": "./dist/agent-tool-list.js",
+      "require": "./dist/agent-tool-list.js",
+      "default": "./dist/agent-tool-list.js"
+    },
+    "./agent-trace": {
+      "types": "./dist/agent-trace.d.ts",
+      "import": "./dist/agent-trace.js",
+      "require": "./dist/agent-trace.js",
+      "default": "./dist/agent-trace.js"
+    },
+    "./attachment": {
+      "types": "./dist/attachment.d.ts",
+      "import": "./dist/attachment.js"
+    },
+    "./bubble": {
+      "types": "./dist/bubble.d.ts",
+      "import": "./dist/bubble.js"
+    },
+    "./chat": {
+      "types": "./dist/chat.d.ts",
+      "import": "./dist/chat.js"
+    },
+    "./chat-message": {
+      "types": "./dist/chat-message.d.ts",
+      "import": "./dist/chat-message.js"
+    },
+    "./chat-session": {
+      "types": "./dist/chat-session.d.ts",
+      "import": "./dist/chat-session.js"
+    },
+    "./code-block": {
+      "types": "./dist/code-block.d.ts",
+      "import": "./dist/code-block.js"
+    },
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js",
       "require": "./dist/headless.js",
       "default": "./dist/headless.js"
+    },
+    "./marker": {
+      "types": "./dist/marker.d.ts",
+      "import": "./dist/marker.js"
+    },
+    "./message": {
+      "types": "./dist/message.d.ts",
+      "import": "./dist/message.js"
+    },
+    "./markdown": {
+      "types": "./dist/markdown.d.ts",
+      "import": "./dist/markdown.js"
+    },
+    "./message-parts": {
+      "types": "./dist/message-parts.d.ts",
+      "import": "./dist/message-parts.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
@@ -51,6 +115,14 @@
       "import": "./dist/primitive-rail.js",
       "require": "./dist/primitive-rail.js",
       "default": "./dist/primitive-rail.js"
+    },
+    "./trace": {
+      "types": "./dist/trace.d.ts",
+      "import": "./dist/trace.js"
+    },
+    "./prompt-input": {
+      "types": "./dist/prompt-input.d.ts",
+      "import": "./dist/prompt-input.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -73,11 +145,9 @@
     "@nuxt/kit": "4.6.2",
     "@types/node": "catalog:tooling",
     "nostics": "catalog:runtime",
-    "@vueuse/core": "catalog:ui",
-    "katex": "^0.19.0",
-    "@json-render/vue": "0.21.1",
-    "@json-render/core": "0.21.1",
-    "reka-ui": "catalog:ui"
+    "katex": "^0.17.0",
+    "reka-ui": "catalog:ui",
+    "shiki": "^4.5.0"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",

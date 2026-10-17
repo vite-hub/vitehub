@@ -940,60 +940,15 @@
       "default": "./dist/workspace/server.js"
     },
     "./package.json": "./package.json",
-    "./console/auth/client": {
-      "types": "./dist/console/auth-client.d.ts",
-      "import": "./dist/console/auth-client.js",
-      "require": "./dist/console/auth-client.js",
-      "default": "./dist/console/auth-client.js"
-    },
-    "./console/auth/cloudflare-access": {
-      "types": "./dist/console/auth-cloudflare-access.d.ts",
-      "import": "./dist/console/auth-cloudflare-access.js",
-      "require": "./dist/console/auth-cloudflare-access.js",
-      "default": "./dist/console/auth-cloudflare-access.js"
-    },
-    "./console/auth/inline": {
-      "types": "./dist/console/auth-inline.d.ts",
-      "import": "./dist/console/auth-inline.js",
-      "require": "./dist/console/auth-inline.js",
-      "default": "./dist/console/auth-inline.js"
-    },
-    "./console/blob": {
-      "types": "./dist/console/runtime/server/blob.d.ts",
-      "import": "./dist/console/runtime/server/blob.js",
-      "require": "./dist/console/runtime/server/blob.js",
-      "default": "./dist/console/runtime/server/blob.js"
-    },
-    "./console/database": {
-      "types": "./dist/console/runtime/server/database.d.ts",
-      "import": "./dist/console/runtime/server/database.js",
-      "require": "./dist/console/runtime/server/database.js",
-      "default": "./dist/console/runtime/server/database.js"
-    },
-    "./console/definitions": {
-      "types": "./dist/console/runtime/server/definitions.d.ts",
-      "import": "./dist/console/runtime/server/definitions.js",
-      "require": "./dist/console/runtime/server/definitions.js",
-      "default": "./dist/console/runtime/server/definitions.js"
-    },
-    "./console/env": {
-      "types": "./dist/console/runtime/server/env.d.ts",
-      "import": "./dist/console/runtime/server/env.js",
-      "require": "./dist/console/runtime/server/env.js",
-      "default": "./dist/console/runtime/server/env.js"
-    },
-    "./console/kv": {
-      "types": "./dist/console/runtime/server/kv.d.ts",
-      "import": "./dist/console/runtime/server/kv.js",
-      "require": "./dist/console/runtime/server/kv.js",
-      "default": "./dist/console/runtime/server/kv.js"
-    },
-    "./console/sections": {
-      "types": "./dist/console/runtime/server/sections.d.ts",
-      "import": "./dist/console/runtime/server/sections.js",
-      "require": "./dist/console/runtime/server/sections.js",
-      "default": "./dist/console/runtime/server/sections.js"
-    },
+    "./console/auth/client": "./dist/console/auth-client.js",
+    "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
+    "./console/auth/inline": "./dist/console/auth-inline.js",
+    "./console/blob": "./dist/console/runtime/server/blob.js",
+    "./console/database": "./dist/console/runtime/server/database.js",
+    "./console/definitions": "./dist/console/runtime/server/definitions.js",
+    "./console/env": "./dist/console/runtime/server/env.js",
+    "./console/kv": "./dist/console/runtime/server/kv.js",
+    "./console/sections": "./dist/console/runtime/server/sections.js",
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json"
   },
@@ -1012,12 +967,16 @@
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.dev.json",
+    "typecheck": "tsc --noEmit -p ./tsconfig.dev.json && tsc --noEmit -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
-    "@cloudflare/workers-types": "^5.20261016.1",
+    "@cloudflare/workers-types": "^5.20261003.1",
+    "@google-cloud/storage": "catalog:storage",
+    "@googleapis/drive": "catalog:storage",
+    "@json-render/core": "0.21.0",
+    "@json-render/vue": "0.21.0",
     "@libsql/client": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
@@ -1025,6 +984,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/box": "workspace:*",
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cli": "workspace:*",
@@ -1041,13 +1001,13 @@
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
-    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "@vueuse/core": "catalog:ui",
     "@workflow/builders": "catalog:workflow",
     "ai": "catalog:ai-v6",
     "drizzle-kit": "catalog:database",
@@ -1085,7 +1045,8 @@
     "google-auth-library": "catalog:storage",
     "nuxt": "catalog:nuxt",
     "@vite-hub/internal": "workspace:*",
-    "@vitejs/plugin-vue": "^6.0.10",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "@vue/test-utils": "2.5.1",
     "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "21.0.3",
     "miniflare": "4.20260730.0",

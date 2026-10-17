@@ -16,7 +16,7 @@ const submitted = ref("");
 
 <template>
   <div class="space-y-3">
-    <AgentChatPrompt
+    <PromptInput
       v-model="input"
       v-model:files="files"
       accept="text/plain"

@@ -9,8 +9,8 @@ export const Marker = defineComponent({
     as: asProp("div"),
     variant: { default: "default", type: String as PropType<MarkerVariant> },
   },
-  setup(props, { attrs, slots }) {
-    return () => h(props.as, { ...attrs, "data-slot": "marker", "data-variant": props.variant }, slots.default?.());
+  setup(props, { slots }) {
+    return () => h(props.as, { "data-slot": "marker", "data-variant": props.variant }, slots.default?.());
   },
 });
 

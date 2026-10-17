@@ -10,8 +10,8 @@ export const Message = defineComponent({
   props: {
     align: { default: "start", type: String as PropType<MessageAlign> },
   },
-  setup(props, { attrs, slots }) {
-    return () => h("div", { ...attrs, "data-align": props.align, "data-slot": "message" }, slots.default?.());
+  setup(props, { slots }) {
+    return () => h("div", { "data-align": props.align, "data-slot": "message" }, slots.default?.());
   },
 });
 

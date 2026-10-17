@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
-import { hasCloudflareSqlExec } from "../src/cloudflare-sql.ts"
+import { hasCloudflareSqlExec, hasNativeCloudflareSql } from "../src/cloudflare-sql.ts"
 
 describe("Cloudflare SQL carrier discovery", () => {
   it("accepts an explicit own data executor", () => {
-    expect(hasCloudflareSqlExec({ exec: () => ({ toArray: () => [] }) })).toBe(true)
+    const adapter = { exec: () => ({ toArray: () => [] }) }
+    expect(hasCloudflareSqlExec(adapter)).toBe(true)
+    expect(hasNativeCloudflareSql(adapter)).toBe(false)
   })
 
   it("does not invoke an own executor getter", () => {
@@ -111,6 +113,51 @@ describe("Cloudflare SQL carrier discovery", () => {
       constructor: { value: SqlStorage },
       exec: { value: function exec() { return { toArray: () => [] } } },
       databaseSize: { get: Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get },
+    })
+
+    expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
+  })
+
+  it("rejects an unrelated native accessor on a polluted built-in prototype", () => {
+    const exec = Object.getOwnPropertyDescriptor(Map.prototype, "get")!.value
+    const databaseSize = Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get
+    const previousExec = Object.getOwnPropertyDescriptor(Map.prototype, "exec")
+    const previousDatabaseSize = Object.getOwnPropertyDescriptor(Map.prototype, "databaseSize")
+    try {
+      Object.defineProperties(Map.prototype, {
+        exec: { configurable: true, value: exec },
+        databaseSize: { configurable: true, get: databaseSize },
+      })
+      expect(hasCloudflareSqlExec(new Map())).toBe(false)
+    }
+    finally {
+      if (previousExec) Object.defineProperty(Map.prototype, "exec", previousExec)
+      else delete (Map.prototype as Map<unknown, unknown> & { exec?: unknown }).exec
+      if (previousDatabaseSize) Object.defineProperty(Map.prototype, "databaseSize", previousDatabaseSize)
+      else delete (Map.prototype as Map<unknown, unknown> & { databaseSize?: unknown }).databaseSize
+    }
+  })
+
+  it("rejects a proxy-wrapped unrelated native accessor", () => {
+    const prototype = Object.create(Map.prototype)
+    const constructor = Object.getOwnPropertyDescriptor(Map.prototype, "constructor")!.value
+    const exec = function exec() { return { toArray: () => [] } }
+    Object.defineProperties(prototype, {
+      constructor: { value: constructor },
+      exec: { value: exec },
+      databaseSize: { get: new Proxy(Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get!, {}) },
+    })
+
+    expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
+  })
+
+  it("rejects the Set size accessor as a counterfeit databaseSize", () => {
+    function SqlStorage() {}
+    const prototype = Object.create(Set.prototype)
+    Object.defineProperties(prototype, {
+      constructor: { value: SqlStorage },
+      exec: { value: function exec() { return { toArray: () => [] } } },
+      databaseSize: { get: Object.getOwnPropertyDescriptor(Set.prototype, "size")!.get },
     })
 
     expect(hasCloudflareSqlExec(Object.create(prototype))).toBe(false)
