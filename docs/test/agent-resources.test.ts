@@ -31,14 +31,12 @@ describe("public ViteHub skill", () => {
       "SKILL.md",
       "agents/openai.yaml",
       "references/agent-definitions.md",
-      "references/boxes-hosts.md",
       "references/capabilities-authority.md",
       "references/channels-triggers.md",
       "references/framework-composition.md",
       "references/preview-contract.md",
       "references/primitives/auth.md",
       "references/primitives/blob.md",
-      "references/primitives/box.md",
       "references/primitives/browser.md",
       "references/primitives/cache.md",
       "references/primitives/channels.md",
@@ -52,6 +50,7 @@ describe("public ViteHub skill", () => {
       "references/primitives/queue.md",
       "references/primitives/rate-limit.md",
       "references/primitives/realtime.md",
+      "references/primitives/sandbox-task.md",
       "references/primitives/sandbox.md",
       "references/primitives/schedule.md",
       "references/primitives/shell.md",
@@ -61,6 +60,7 @@ describe("public ViteHub skill", () => {
       "references/project-patterns.md",
       "references/project-shapes.md",
       "references/proof-recovery.md",
+      "references/sandboxes-hosts.md",
       "references/schedules-workflows-invocations.md",
       "references/server-primitives.md",
       "references/workspaces-sources-access.md",
@@ -95,7 +95,7 @@ describe("public ViteHub skill", () => {
     const primitivesRoot = resolve(skillRoot, "references/primitives");
     const references = createSkillReferences(docsRoot);
 
-    expect(references.map(reference => `${reference.name}.md`)).toEqual(readdirSync(primitivesRoot).sort());
+    expect(references.map(reference => `${reference.name}.md`).sort()).toEqual(readdirSync(primitivesRoot).sort());
     for (const reference of references) {
       await expect(reference.markdown, reference.source).toMatchFileSnapshot(resolve(primitivesRoot, `${reference.name}.md`));
     }

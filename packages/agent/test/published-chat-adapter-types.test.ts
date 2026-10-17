@@ -17,7 +17,7 @@ const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
 const childProcessTimeout = 20_000
 const packedPackages = [
   "agent",
-  "box",
+  "sandbox",
   "connections",
   "env",
   "forge",

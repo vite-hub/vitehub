@@ -7,7 +7,7 @@ import type {
   AgentInvocationContextValues,
 } from "../index.ts";
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterRules } from "../channels.ts";
-import type { AgentBoxDefinition, BuiltInAgentDriverName } from "../types.ts";
+import type { AgentSandboxDefinition, BuiltInAgentDriverName } from "../types.ts";
 import { createBabysitterPassResultSchema } from "./babysitter/result.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
@@ -31,10 +31,10 @@ export interface BabysitterLifecycleOptions {
   labels?: BabysitterLifecycleLabels;
 }
 
-/** Where one pass runs. A pass without a Box uses the host checkout and the configured `box`. */
+/** Where one pass runs. A pass without a Sandbox uses the host checkout and the configured `sandbox`. */
 export interface BabysitterPlacementLease {
-  /** Box for this pass, for example a custom runtime on another host. */
-  box?: AgentBoxDefinition;
+  /** Sandbox for this pass, for example a custom runtime on another host. */
+  sandbox?: AgentSandboxDefinition;
   /** Called once when the pass finishes, fails or is cancelled. */
   release(): void;
 }
@@ -50,8 +50,8 @@ export interface BabysitterOptions {
   /** Process admission policy. Concurrency remains the preset hard maximum. */
   capacity?: Pick<import("../runtime/process.ts").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
   /**
-   * Places each pass on this host or in a Box before host dependency installation. Box passes
-   * skip the host install; the Box installs through `refreshDependencies` when it provides one.
+   * Places each pass on this host or in a Sandbox before host dependency installation. Sandbox passes
+   * skip the host install; the Sandbox installs through `refreshDependencies` when it provides one.
    */
   placement?: BabysitterPlacement;
   /** Select PRs with the same rules as the GitHub Channel. */
