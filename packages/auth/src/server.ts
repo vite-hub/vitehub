@@ -298,6 +298,18 @@ async function runAccessAuthorize(
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
+// Capture the platform accessors before user authorization code can mutate the
+// global prototype.  Later provenance checks must compare against these stable
+// references rather than whatever descriptors happen to be installed now.
+const trustedResponseGetters = Object.fromEntries(
+  authorizationResponseProperties.map(key => [key, Object.getOwnPropertyDescriptor(Response.prototype, key)?.get]),
+) as Record<typeof authorizationResponseProperties[number], (() => unknown) | undefined>
+
+function hasTrustedResponseDescriptors(prototype: object): boolean {
+  return authorizationResponseProperties.every(key =>
+    Object.getOwnPropertyDescriptor(prototype, key)?.get === trustedResponseGetters[key])
+}
+
 const authorizationResponsePrototypeLimit = 32
 
 function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
@@ -339,7 +351,10 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
     let shadowedResponseProperties = false
     for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
       const prototype = current
-      if (targets.has(prototype)) return !shadowedResponseProperties
+      if (targets.has(prototype)) {
+        if (prototype === Response.prototype && !hasTrustedResponseDescriptors(prototype)) return false
+        return !shadowedResponseProperties
+      }
       if (seen.has(prototype)) return false
       seen.add(prototype)
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
@@ -437,11 +452,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // private-brand checks and must fail closed instead of being normalized.
     if (value instanceof Response) {
       const nativeDescriptors = authorizationResponseProperties.every(key =>
-        responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+        responsePropertyDescriptor(candidate, key)?.get === trustedResponseGetters[key])
       if (!nativeDescriptors) return
       try {
         for (const key of authorizationResponseProperties) {
-          const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+          const getter = trustedResponseGetters[key]
           if (typeof getter !== "function") return
           Reflect.apply(getter, candidate, [])
         }
@@ -464,12 +479,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
-      responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+      responsePropertyDescriptor(candidate, key)?.get === trustedResponseGetters[key])
     let nativeProperties = false
     let nativeBodyUnused = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
-        const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+        const getter = trustedResponseGetters[key]
         return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
       const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
