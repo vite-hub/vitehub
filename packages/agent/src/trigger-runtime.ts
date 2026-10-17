@@ -609,8 +609,9 @@ export async function resolveAgentTriggerInvocation<
       validatedInput = await parseStandardSchema(trigger.input, input, `Agent trigger "${trigger.id}" input`)
     }
   }
-  const invoked = await trigger.invoke(validatedInput)
-  if (isResponse(invoked)) return resolveAgentTriggerInvocationResult(invoked, trigger)
+  const result = await trigger.invoke(validatedInput)
+  if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
+  const invoked = withWebhookDeliveryRun(result, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
   const run = annotations
     ? { ...(invoked.run || context.run || { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...(invoked.run || context.run)?.annotations, ...annotations } }
@@ -619,6 +620,19 @@ export async function resolveAgentTriggerInvocation<
     ...invoked,
     ...(run ? { run } : {}),
   }, trigger)
+}
+
+/**
+ * A Channel trigger result with `webhook.deliveryId` runs under that ID. Unset `run.runId` and
+ * `run.channelId` default to the delivery ID and the Channel, so a retried delivery keeps one Invocation.
+ */
+function withWebhookDeliveryRun<CALL_OPTIONS>(
+  invoked: AgentTriggerRunInvokeResult<CALL_OPTIONS>,
+  trigger: Pick<ResolvedAgentTriggerDefinition, "channelId">,
+): AgentTriggerRunInvokeResult<CALL_OPTIONS> {
+  const deliveryId = invoked.webhook?.deliveryId
+  if (!trigger.channelId || !isRuntimeString(deliveryId) || !deliveryId.trim()) return invoked
+  return { ...invoked, run: { channelId: trigger.channelId, ...invoked.run, runId: invoked.run?.runId || deliveryId } }
 }
 
 export function resolveAgentTriggerInvocationResult<

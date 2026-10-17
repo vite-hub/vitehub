@@ -622,6 +622,7 @@ export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
 interface AgentWebhookInvocationOwnershipBase {
   concurrencyGroup?: string
   concurrencyTtlMs?: number
+  /** Provider delivery ID. On a Channel trigger, an unset `run.runId` defaults to it and an unset `run.channelId` to the Channel. */
   deliveryId: string
 }
 
