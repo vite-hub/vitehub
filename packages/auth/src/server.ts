@@ -27,6 +27,14 @@ import type {
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+// Capture the intrinsic typed-array brand getter before mutable prototype state
+// can be changed by application code. The getter itself performs the internal
+// brand check and remains valid for values from other JavaScript realms.
+const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  Symbol.toStringTag,
+)?.get
+
 export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
@@ -464,13 +472,9 @@ async function isSerializableAuthorizationBody(body: unknown): Promise<boolean> 
     // cross-realm internal-brand check without consulting the value's mutable
     // prototype, so it distinguishes Uint8Array from clamped/other views.
     const probeValue = probeResult.value
-    const typedArrayTagGetter = Object.getOwnPropertyDescriptor(
-      Object.getPrototypeOf(Uint8Array.prototype),
-      Symbol.toStringTag,
-    )?.get
     let probeValueTag: unknown
     try {
-      probeValueTag = typedArrayTagGetter ? Reflect.apply(typedArrayTagGetter, probeValue, []) : undefined
+      probeValueTag = intrinsicTypedArrayTagGetter ? Reflect.apply(intrinsicTypedArrayTagGetter, probeValue, []) : undefined
     }
     catch {
       probeValueTag = undefined

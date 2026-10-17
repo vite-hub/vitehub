@@ -414,6 +414,31 @@ describe("Auth access handlers", () => {
     expect(cancel).toHaveBeenCalledWith("client disconnected")
   })
 
+  it("keeps the byte probe valid when the Uint8Array prototype chain is tampered with", async () => {
+    const originalPrototype = Object.getPrototypeOf(Uint8Array.prototype)
+    Object.setPrototypeOf(Uint8Array.prototype, {
+      [Symbol.toStringTag]: "Uint8Array",
+    })
+    try {
+      const foreign = new ForeignResponse(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array([65]))
+          controller.close()
+        },
+      }), { status: 409 })
+      const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+        access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+      }))
+
+      const response = await handler(new Request("https://app.example/"))
+      expect(response?.status).toBe(409)
+      await expect(response?.text()).resolves.toBe("A")
+    }
+    finally {
+      Object.setPrototypeOf(Uint8Array.prototype, originalPrototype)
+    }
+  })
+
   it("bridges native stream state across distinct inherited reader methods", async () => {
     const source = new ReadableStream<Uint8Array>({
       start(controller) {
