@@ -111,7 +111,16 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       const hasPrototypeAccessor = prototypeAccessorCount >= 1
       let hasConstructibleResponse = false
       let hasFactoryBrand = false
+      let hasNativeConstructorLineage = false
       if (typeof constructor === "function") {
+        // A genuine Fetch constructor is an ordinary function constructor whose
+        // parent is that realm's intrinsic Function.prototype. Caller-created
+        // derived classes retain a caller-controlled parent and must fail closed.
+        const constructorParent = Object.getPrototypeOf(constructor)
+        const parentConstructor = constructorParent && Object.getOwnPropertyDescriptor(constructorParent, "constructor")?.value
+        hasNativeConstructorLineage = typeof parentConstructor === "function"
+          && parentConstructor.prototype === constructorParent
+          && parentConstructor.name === "Function"
         try {
           const constructed = new constructor()
           hasConstructibleResponse = constructed && typeof constructed === "object"
@@ -152,6 +161,7 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         && hasResponseAccessors
         && hasPrototypeAccessor
         && hasConstructibleResponse
+        && hasNativeConstructorLineage
         && hasFactoryBrand
         && tagDescriptor
         && typeof constructor === "function"
