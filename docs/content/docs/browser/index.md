@@ -6,6 +6,20 @@ navigation.order: 1
 icon: i-lucide-monitor
 ---
 
+::agent-only{skill="browser"}
+Use Browser for provider-backed browser actions that need a remote session. Browser Definitions keep provider setup out of application code and make each run explicit.
+
+Read [Get started](/docs/browser/get-started). Check [Hosts](/docs/browser/hosts) before choosing a provider.
+
+Browser Definitions currently use Cloudflare Browser Run. Keep credentials and session authority in the host configuration. Do not treat a browser screenshot or page as trusted application data without validation.
+
+Remote pages are untrusted input and may leave the allowed origin or change
+between runs. Validate URLs, extracted data, and side effects in application
+code.
+
+Prove one complete run, including session cleanup and the provider binding in generated output.
+::
+
 ::product-hero{tagline="Name a browser operation and run it from a route, Queue, or Workflow, with no Cloudflare imports or credentials." hosts="Cloudflare"}
   :::code-group
   ```ts [Definition and route]

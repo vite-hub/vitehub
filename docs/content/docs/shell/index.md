@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-terminal
 ---
 
+::agent-only{skill="shell"}
+Use Shell to run bounded Unix-like commands with explicit filesystem, process, network, timeout, and policy access.
+
+Read [Get started](/docs/shell/get-started), [Configure](/docs/shell/configure), [Server API](/docs/shell/server-api), or [Limits and errors](/docs/shell/limits-and-errors).
+
+Treat command text, working directory, environment, and network access as authority. Prefer an allowlist and a small working directory. Resource bounds and cancellation are part of the run contract.
+
+Prove a permitted command, a rejected command, timeout, cancellation, output limit, and cleanup.
+::
+
 ::product-hero{tagline="Run Unix-like commands from server code through Just Bash or a custom Execution Provider." hosts="Node, Docker, Cloudflare"}
   :::code-group
   ```ts [Runtime]

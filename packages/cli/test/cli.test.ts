@@ -366,15 +366,15 @@ describe("ViteHub CLI", () => {
     const stderr = stream()
     const run = vi.fn(() => 0)
     const loadConfig = vi.fn(async () => ({ plugins: [], root: "/repo" }))
-    const runtimeNamespaces = [{ description: "Runtime commands.", features: [{ name: "serve", run }], name: "box" }]
+    const runtimeNamespaces = [{ description: "Runtime commands.", features: [{ name: "serve", run }], name: "sandbox" }]
 
-    expect(await runViteHubCli({ args: ["box", "serve", "--port", "1"], cwd: "/app", loadConfig, runtimeNamespaces, stderr, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["sandbox", "serve", "--port", "1"], cwd: "/app", loadConfig, runtimeNamespaces, stderr, stdout })).toBe(0)
     expect(run).toHaveBeenCalledWith(["--port", "1"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
     expect(loadConfig).not.toHaveBeenCalled()
 
-    expect(await runViteHubCli({ args: ["box", "--help"], cwd: "/app", loadConfig, runtimeNamespaces, stderr, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["sandbox", "--help"], cwd: "/app", loadConfig, runtimeNamespaces, stderr, stdout })).toBe(0)
     expect(loadConfig).not.toHaveBeenCalled()
-    expect(stdout.output()).toContain("Usage: vitehub box")
+    expect(stdout.output()).toContain("Usage: vitehub sandbox")
     expect(stderr.output()).toBe("")
   })
 
@@ -406,11 +406,11 @@ describe("ViteHub CLI", () => {
       plugins: [{ vitehub: { cli: { namespaces: [{ description: "Blob commands.", features: [], name: "blob" }] } } }],
       root: "/repo",
     }))
-    const runtimeNamespaces = [{ description: "Runtime commands.", features: [], name: "box" }]
+    const runtimeNamespaces = [{ description: "Runtime commands.", features: [], name: "sandbox" }]
 
     expect(await runViteHubCli({ args, cwd: "/app", loadConfig, runtimeNamespaces, stdout })).toBe(0)
     expect(loadConfig).toHaveBeenCalledWith("/app", "serve")
-    expect(stdout.output()).toContain("  box          Runtime commands.")
+    expect(stdout.output()).toContain("  sandbox          Runtime commands.")
     expect(stdout.output()).toContain("  blob         Blob commands.")
     expect(stdout.output()).toContain("  inspect")
     expect(stdout.output()).toContain("  provision")

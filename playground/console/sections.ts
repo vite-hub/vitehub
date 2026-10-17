@@ -31,13 +31,13 @@ export const playgroundConsoleContributions = [
     },
   },
   {
-    description: "Inspect discovered Sandbox Definitions without starting runtime resources.",
+    description: "Inspect discovered Sandbox Task Definitions without starting runtime resources.",
     icon: "i-lucide-container",
-    id: "sandboxes",
-    label: "Sandboxes",
+    id: "sandbox-tasks",
+    label: "Sandbox Tasks",
     view: {
       kind: "definition-catalog",
-      notice: "Running Sandboxes, files, processes, logs, ports, and lifecycle state are not included in this build-time catalog.",
+      notice: "Running Sandbox Tasks, files, processes, logs, ports, and lifecycle state are not included in this build-time catalog.",
     },
   },
   {

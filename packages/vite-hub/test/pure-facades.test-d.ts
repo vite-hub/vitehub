@@ -1,4 +1,4 @@
-import { expectTypeOf } from "vitest"
+import { describe, expectTypeOf, it } from "vitest"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { useDatabase as useOwnerDatabase } from "@vite-hub/database/drizzle"
@@ -21,9 +21,13 @@ declare module "vite-hub/database/drizzle" {
   }
 }
 
-expectTypeOf(useDatabase).toEqualTypeOf(useOwnerDatabase)
-expectTypeOf(useOwnerDatabase("facadeRegistry").schema).toEqualTypeOf<typeof facadeSchema>()
-expectTypeOf(useDatabase("facadeRegistry").schema).toEqualTypeOf<typeof facadeSchema>()
-expectTypeOf(getRuntimeContext).toEqualTypeOf(getOwnerRuntimeContext)
-expectTypeOf(table).toEqualTypeOf(ownerTable)
-expectTypeOf(cachedSource).toEqualTypeOf(ownerCachedSource)
+describe("vite-hub facades", () => {
+  it("type checks", () => {
+    expectTypeOf(useDatabase).toEqualTypeOf(useOwnerDatabase)
+    expectTypeOf(useOwnerDatabase("facadeRegistry").schema).toEqualTypeOf<typeof facadeSchema>()
+    expectTypeOf(useDatabase("facadeRegistry").schema).toEqualTypeOf<typeof facadeSchema>()
+    expectTypeOf(getRuntimeContext).toEqualTypeOf(getOwnerRuntimeContext)
+    expectTypeOf(table).toEqualTypeOf(ownerTable)
+    expectTypeOf(cachedSource).toEqualTypeOf(ownerCachedSource)
+  })
+})
