@@ -362,6 +362,29 @@ const authorizationTypedArrayTag = Object.getOwnPropertyDescriptor(
   Symbol.toStringTag,
 )?.get
 
+// A host can replace the prototype before this module is evaluated. Validate
+// the captured operation against a stream it owns so a replacement that merely
+// returns an unrelated reader is rejected before it can be trusted.
+const validatedAuthorizationStreamGetReader = (() => {
+  if (typeof authorizationStreamGetReader !== "function"
+    || typeof authorizationStreamLocked !== "function"
+    || typeof authorizationReaderRead !== "function"
+    || typeof authorizationReaderCancel !== "function"
+    || typeof authorizationReaderReleaseLock !== "function") return
+  try {
+    const source = new ReadableStream()
+    const reader = Reflect.apply(authorizationStreamGetReader, source, [])
+    if (!Reflect.apply(authorizationStreamLocked, source, [])) return
+    Reflect.apply(authorizationReaderRead, reader, [])
+    Reflect.apply(authorizationReaderCancel, reader, [])
+    Reflect.apply(authorizationReaderReleaseLock, reader, [])
+    return authorizationStreamGetReader
+  }
+  catch {
+    return
+  }
+})()
+
 function isAuthorizationByteChunk(value: unknown): value is Uint8Array {
   if (!ArrayBuffer.isView(value)
     || typeof authorizationUint8ArraySubarray !== "function"
@@ -386,7 +409,7 @@ function getAuthorizationStreamOperations(body: unknown): AuthorizationStreamOpe
   // genuine streams from other realms while ignoring shadowed prototype
   // methods supplied by the response's realm.
   const locked = authorizationStreamLocked
-  const getReader = authorizationStreamGetReader
+  const getReader = validatedAuthorizationStreamGetReader
   if (typeof locked !== "function" || typeof getReader !== "function") return
   try {
     if (Reflect.apply(locked, body, [])) return
@@ -488,7 +511,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null
-      || responsePropertyDescriptor(Object(body), "getReader")?.value === authorizationStreamGetReader
+      || responsePropertyDescriptor(Object(body), "getReader")?.value === validatedAuthorizationStreamGetReader
     if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!(value instanceof Response && nativeProperties) && bodyUsed === true) return
     const streamOperations = body === null ? undefined : getAuthorizationStreamOperations(body)

@@ -286,7 +286,7 @@ function trackStream(stream: ViteHubCliStream) {
   return {
     stream: {
       write(chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) {
-        const result = stream.write(chunk, encoding, callback)
+        const result = Reflect.apply(stream.write, stream, [chunk, encoding, callback])
         writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>, PromiseSettledResult<unknown>>(
           value => ({ status: "fulfilled", value }),
           reason => ({ reason, status: "rejected" }),
