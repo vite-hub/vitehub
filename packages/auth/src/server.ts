@@ -27,6 +27,7 @@ import type {
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 const intrinsicPromiseThen = Promise.prototype.then
+const intrinsicPromiseConstructor = Promise
 
 export { resetAuth } from "./runtime-state.ts"
 
@@ -331,10 +332,11 @@ async function runAccessAuthorize(
           }
         }
         catch {
-          // Promise.resolve performs native adoption and observes the source;
-          // keep this branded value out of the reflective thenable path.
+          // A native promise resolver performs adoption and observes the source;
+          // keep this branded value out of the reflective thenable path without
+          // dispatching through the mutable Promise.resolve static method.
           branded = true
-          const nativeAdopted = Promise.resolve(result)
+          const nativeAdopted = new intrinsicPromiseConstructor(resolve => resolve(result))
           void Reflect.apply(intrinsicPromiseThen, nativeAdopted, [
             (value: unknown) => { void settle(value).then(resolve, reject) }, reject,
           ])

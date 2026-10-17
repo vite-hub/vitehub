@@ -189,7 +189,14 @@ describe("Auth access handlers", () => {
     // Replace the instance method to ensure the branded path never falls back
     // to mutable thenable assimilation.
     Object.defineProperty(result, "then", { value: () => { throw new Error("must not call mutable then") } })
-    await expect(handler(new Request("https://app.example/"))).rejects.toBe(reason)
+    const originalResolve = Promise.resolve
+    Promise.resolve = (() => { throw new Error("must not call mutable Promise.resolve") }) as typeof Promise.resolve
+    try {
+      await expect(handler(new Request("https://app.example/"))).rejects.toBe(reason)
+    }
+    finally {
+      Promise.resolve = originalResolve
+    }
   })
 
   it.each([
