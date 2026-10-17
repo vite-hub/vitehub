@@ -44,7 +44,7 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // source merely contains "[native code]".
     // Keep the native marker check independent of optional engine whitespace
     // and accessor naming details while still requiring a native body.
-    const nativeGetterSource = /^function(?:\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
+    const nativeGetterSource = /^function(?:\s+[\w$]+)*\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
     // Test doubles and ordinary proxied callbacks expose the native proxy
     // source but retain a mock-specific name; workerd accessors do not.
