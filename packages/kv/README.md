@@ -90,3 +90,4 @@ export default defineNitroPlugin((nitroApp) => {
 The commands call a guarded endpoint that exists only on the Vite Development Server. The endpoint forwards each operation into the Nitro dev environment, so it uses the same KV storage as the running app. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there. `handleKVDevRequest()` from `@vite-hub/kv/runtime/dev` is the Nitro handler; it is not a public runtime API.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
+
