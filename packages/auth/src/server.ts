@@ -179,7 +179,25 @@ function isRequestLike(value: AuthRequest): value is Request {
     }
     if (!value.signal || Object.prototype.toString.call(value.signal) !== "[object AbortSignal]" || !hasPrototypeTag(value.signal, "AbortSignal") || typeof value.signal.aborted !== "boolean") return false
     if (Object.prototype.hasOwnProperty.call(value.signal, "aborted")) return false
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check request state without calling clone(), which would tee a streaming body.
+    // A Request must provide a real clone operation. Checking the result also
+    // rejects request-shaped wrappers whose methods merely imitate the API.
+    const cloned = Reflect.get(value, "clone")
+    if (typeof cloned !== "function") return false
+    let clone: unknown
+    try {
+      clone = Reflect.apply(cloned, value, [])
+    }
+    catch {
+      return false
+    }
+    if (clone === value || (typeof clone !== "object" && typeof clone !== "function") || clone === null) return false
+    try {
+      if (Object.prototype.toString.call(clone) !== "[object Request]") return false
+    }
+    catch {
+      return false
+    }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Check request state after validating the clone capability.
     if (typeof Reflect.get(value, "bodyUsed") !== "boolean") return false
     return true
   }
