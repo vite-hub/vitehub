@@ -626,12 +626,12 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, [])
+        const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
         if (result.done) {
           release()
           controller.close()
         }
-        else controller.enqueue(result.value)
+        else controller.enqueue(result.value as Uint8Array)
       }
       catch (error) {
         release()
@@ -665,20 +665,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
-
-    // Normalize a genuine foreign Web Stream through the host Response
-    // boundary before inspecting or invoking reader methods. The platform
-    // performs the cross-runtime brand check and supplies a host-native body,
-    // so caller-controlled foreign reader methods never enter the bridge.
-    if (body !== null && typeof body === "object") {
-      const bodyPrototype = Object.getPrototypeOf(body)
-      const bodyConstructor = bodyPrototype && Object.getOwnPropertyDescriptor(bodyPrototype, "constructor")?.value
-      if (bodyConstructor !== ReadableStream) {
-        const hostBody = new Response(body as BodyInit).body
-        if (hostBody === null) return
-        body = hostBody
-      }
-    }
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
@@ -743,7 +729,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
+      : new Response(body as ReadableStream<Uint8Array> | null, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
     const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
     try {
