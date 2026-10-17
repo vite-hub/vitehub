@@ -17,6 +17,7 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
     const origin = new URL(url).origin
     const origins = Object.values(providerApis(definition)).map(catalog => new URL(catalog.rootUrl).origin)
     if (isApiKeyProvider(provider)) origins.push(...provider.origins)
+    if (provider.mcp) origins.push(new URL(provider.mcp).origin)
     if (!origins.includes(origin)) {
       throw new ConnectionError("invalid", `Connection "${name}" does not send its token to ${origin}.`, { details: { connection: name } })
     }

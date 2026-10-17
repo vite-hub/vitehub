@@ -16,6 +16,8 @@ export interface ApiKeyProviderOptions<TApis extends object = object> {
   origins: readonly string[]
   /** Typed API catalogs. Their root URLs also receive the key. */
   apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /** The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The key is also sent there. */
+  mcp?: string
   /**
    * Check a new key before ViteHub stores it, for example with `context.fetch`.
    * Return `false` to reject the key, or `{ account }` to label the Connection.
@@ -43,6 +45,17 @@ export function apiKeyOrigin(value: string): string | undefined {
   if (url.username || url.password || url.search || url.hash || url.pathname !== "/") return undefined
   if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopbackHost(url.hostname))) return undefined
   return url.origin
+}
+
+/** Whether a credential may go to this endpoint URL: HTTPS or loopback, without credentials, query, or fragment. */
+export function isSafeEndpoint(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return !url.username && !url.password && !url.search && !url.hash && apiKeyOrigin(url.origin) !== undefined
+  }
+  catch {
+    return false
+  }
 }
 
 /** Whether the provider header and origins can carry a key safely. */
@@ -104,6 +117,7 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
     apis: options.apis ?? ({} as ConnectionApiKeyProvider<TApis>["apis"]),
   }
   if (scheme !== undefined) Object.assign(provider, { scheme })
+  if (options.mcp !== undefined) Object.assign(provider, { mcp: options.mcp })
   if (options.verify) provider.verify = options.verify
   // SAFETY: The provider API map is constrained by the generic catalog contract.
   const catalogsSafe = (Object.values(provider.apis) as ConnectionApiCatalog[]).every(catalog => {
@@ -117,6 +131,9 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
   })
   if (!/^\S+$/.test(id) || origins.includes(undefined) || !catalogsSafe || !isValidApiKeyProvider(provider)) {
     throw new ConnectionError("invalid", "The API key provider needs a token header name, a token scheme, and HTTPS or loopback origins without a path.")
+  }
+  if (options.mcp !== undefined && !isSafeEndpoint(options.mcp)) {
+    throw new ConnectionError("invalid", "The API key provider mcp endpoint must be an HTTPS or loopback URL without credentials, query, or fragment.")
   }
   return provider
 }

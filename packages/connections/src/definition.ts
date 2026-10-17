@@ -1,6 +1,6 @@
 import * as v from "valibot"
 
-import { isValidApiKeyProvider } from "./api-key.ts"
+import { isSafeEndpoint, isValidApiKeyProvider } from "./api-key.ts"
 import { ConnectionError } from "./errors.ts"
 import type { ConnectionApiSelection, ConnectionDefinition } from "./types.ts"
 
@@ -15,6 +15,7 @@ const apiCatalogsSchema = v.record(v.string(), v.object({
   methods: v.record(v.string(), v.tuple([v.string(), v.string(), v.boolean()])),
   highRisk: v.optional(v.array(v.string())),
 }))
+const mcpSchema = v.optional(v.pipe(v.string(), v.check(isSafeEndpoint)))
 const rulesSchema = {
   api: v.optional(v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.record(v.string(), v.optional(v.array(v.string()))))),
   access: v.optional(v.pipe(v.unknown(), v.check(value => !Array.isArray(value)), v.record(v.string(), accessRuleSchema))),
@@ -28,6 +29,7 @@ const oauthDefinitionSchema = v.looseObject({
     clientSecret: v.optional(connectionValue),
     account: v.function(),
     apis: apiCatalogsSchema,
+    mcp: mcpSchema,
   }),
   scopes: v.array(v.string()),
   ...rulesSchema,
@@ -43,6 +45,7 @@ const apiKeyDefinitionSchema = v.looseObject({
       scheme: v.optional(v.string()),
       origins: v.array(v.string()),
       apis: apiCatalogsSchema,
+      mcp: mcpSchema,
       verify: v.optional(v.function()),
     }),
     v.check(provider => isValidApiKeyProvider(provider)),

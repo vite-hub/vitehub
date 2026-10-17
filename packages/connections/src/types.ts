@@ -59,6 +59,11 @@ export interface ConnectionProvider<TApis extends object = object> {
   readonly identityScopes?: readonly string[]
   readonly authorizationParams?: Readonly<Record<string, string>>
   readonly apis: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /**
+   * The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The token is also sent there,
+   * and `mcp({ servers: { name: { connection } } })` connects to it.
+   */
+  readonly mcp?: string
   /** Read the account identity from the token response of an authorization code exchange. */
   account: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
   /** Type-only method map. It has no runtime value. */
@@ -114,9 +119,11 @@ export interface ConnectionApiKeyProvider<TApis extends object = object> {
   readonly header: string
   /** Text before the key in the header value, for example `Bearer`. Omit to send the bare key. */
   readonly scheme?: string
-  /** Origins that `fetch` may send the key to. API catalog root URLs are also allowed. */
+  /** Origins that `fetch` may send the key to. API catalog root URLs and the `mcp` endpoint are also allowed. */
   readonly origins: readonly string[]
   readonly apis: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /** The provider's MCP endpoint. The key is also sent there. */
+  readonly mcp?: string
   /** Check a new key before ViteHub stores it. */
   verify?: (key: string, context: ConnectionApiKeyVerifyContext) => Promise<ConnectionApiKeyVerification>
   /** Type-only method map. It has no runtime value. */
@@ -263,6 +270,8 @@ export interface ConnectionInspection {
   connectedAt?: string
   /** `oauth2` Connections connect through the provider. `api-key` Connections store a key that an admin sets. */
   credential: "api-key" | "oauth2"
+  /** The provider's MCP endpoint, when it declares one. */
+  mcp?: string
   name: string
   provider: string
   refreshedAt?: string

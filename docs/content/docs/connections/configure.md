@@ -52,6 +52,7 @@ export default defineConnection({
 | `header` | `authorization` | Request header that carries the key. |
 | `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. Set `''` to send the bare key. |
 | `apis` | `{}` | Typed API catalogs. Their root URLs also receive the key. |
+| `mcp` | None | The provider's [MCP endpoint](#mcp-endpoint). It also receives the key. |
 | `verify` | None | Checks a new key before ViteHub stores it. It receives the runtime `fetch` and a 30-second abort signal. |
 | `id` | `'api-key'` | Provider id in the Console and inspection. |
 
@@ -64,6 +65,18 @@ printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 The CLI reads the key only from stdin, so it does not stay in the shell history. The CLI and the Console send the key only over HTTPS or to a loopback host.
 
 ViteHub seals the key like an OAuth grant. Access rules, approvals, dry run, and activity work as for OAuth Connections. An API key has no scopes and no refresh: a `401` response does not change the status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking the Connection deletes the stored key; revoke the key at the provider too.
+
+## MCP endpoint
+
+A provider can declare its MCP endpoint with `mcp`. `apiKey({ mcp })` and OAuth providers accept it. The endpoint origin also receives the credential, and `inspect()` reports it. The URL must use `https`, or `http` for a loopback host, and must not have credentials, a query, or a fragment.
+
+```ts [server/connections/crm.ts]
+export default defineConnection({
+  provider: apiKey({ id: 'crm', origins: ['https://api.crm.example.com'], mcp: 'https://mcp.crm.example.com/mcp' }),
+})
+```
+
+An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, without a transport URL. Server code calls one tool with `callMcpTool({ connection: 'crm' }, 'search', { query })` from `vite-hub/agent/mcp`. See [MCP](/docs/agents/capabilities/mcp#authenticate-through-a-connection).
 
 ## Access rules
 

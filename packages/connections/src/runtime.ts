@@ -659,6 +659,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       actions: connectionActions(loaded),
       connectedAt: state?.connectedAt,
       credential: isApiKeyProvider(loaded.provider) ? "api-key" : "oauth2",
+      ...(loaded.provider.mcp ? { mcp: loaded.provider.mcp } : {}),
       name,
       provider: loaded.provider.id,
       refreshedAt: state?.refreshedAt,

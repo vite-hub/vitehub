@@ -23,6 +23,7 @@ export default defineConfig({
         "@vercel/nft",
         "@t3tools/provider-runtime",
         "@vite-hub/rate-limit",
+        "@vite-hub/connections/server",
         "@vite-hub/workflow",
         /^@vite-hub\/workflow\//,
         "cloudflare:workers",
