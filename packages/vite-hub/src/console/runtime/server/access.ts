@@ -146,7 +146,9 @@ function isResponseLike(value: unknown): value is Response {
     const tag = Object.prototype.toString.call(value)
     const headersTag = headers && Object.prototype.toString.call(headers)
     const headersConstructor = headers && (headers as { constructor?: unknown }).constructor
-    return tag === "[object Response]"
+    const response = value as Record<string, unknown>
+    const responseConstructor = response.constructor
+    return (tag === "[object Response]" || (typeof responseConstructor === "function" && responseConstructor.name === "Response"))
       && typeof response.status === "number"
       && typeof response.statusText === "string"
       && typeof response.bodyUsed === "boolean"
