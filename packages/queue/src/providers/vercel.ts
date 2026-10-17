@@ -84,6 +84,8 @@ function parseVercelMessageId(value: unknown): Result<string | undefined, "QUEUE
   catch (cause) {
     return invalidVercelSendResponse(cause)
   }
+  // `@vercel/queue` returns `messageId: null` when it accepts a message for deferred processing (HTTP 202).
+  if (messageId === undefined || messageId === null) return [undefined, undefined]
   if (typeof messageId !== "string" || !messageId || messageId.length > 128 || messageId.trim() !== messageId) {
     return invalidVercelSendResponse(value)
   }
