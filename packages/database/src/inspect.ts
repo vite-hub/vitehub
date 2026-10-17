@@ -3,9 +3,7 @@ import { join } from "pathe"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
-<<<<<<< HEAD
 import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readStaticDatabaseSchema } from "./config.ts"
->>>>>>> 79292e560 (feat(connections): enable the default database without a Definition)
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
