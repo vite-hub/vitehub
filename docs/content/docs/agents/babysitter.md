@@ -12,11 +12,10 @@ Use the [Agent setup](/docs/agents/get-started) to install ViteHub and configure
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true }), nitro() as never],
+  plugins: [vitehub({ preset: 'node', agent: true })],
 })
 ```
 

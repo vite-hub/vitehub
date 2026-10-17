@@ -46,7 +46,6 @@ export default defineConfig({
 A standalone Nitro 3 app adds Nitro after ViteHub. The Console app and its UI dependencies ship inside `vite-hub`, so an existing Nitro app does not need another Console or UI package.
 
 ```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
@@ -57,7 +56,6 @@ export default defineConfig({
       console: { auth: false },
       preset: 'node',
     }),
-    nitro(),
   ],
 })
 ```
