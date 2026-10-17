@@ -730,6 +730,17 @@ describe("Schedule Run bookkeeping", () => {
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
+  it("fails clearly for revoked scheduledAt values", async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {})
+    revoke()
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "revoked-date",
+      scheduledAt: proxy as Date,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  })
+
   it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
     setScheduleRuntimeRegistry({
       report: async () => ({

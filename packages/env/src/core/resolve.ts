@@ -539,11 +539,16 @@ function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclarati
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return false
+    }
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === null || prototype === Object.prototype
+  }
+  catch {
     return false
   }
-  const prototype = Object.getPrototypeOf(value)
-  return prototype === null || prototype === Object.prototype
 }
 
 function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
@@ -551,36 +556,39 @@ function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
 }
 
 function isBuildStaticValue(value: unknown, ancestors: Set<object> = new Set()): value is EnvBuildStaticValue {
-  if (value === null) {
-    return true
-  }
-  switch (typeof value) {
-    case "boolean":
-    case "string":
+  try {
+    if (value === null) {
       return true
-    case "number":
-      return Number.isFinite(value)
-    case "object":
-      if (!Array.isArray(value)) {
-        return false
-      }
-      if (ancestors.has(value)) {
-        return false
-      }
-      ancestors.add(value)
-      try {
-        for (let index = 0; index < value.length; index += 1) {
-          if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index], ancestors)) {
-            return false
-          }
-        }
+    }
+    switch (typeof value) {
+      case "boolean":
+      case "string":
         return true
-      }
-      finally {
-        ancestors.delete(value)
-      }
-    default:
-      return false
+      case "number":
+        return Number.isFinite(value)
+      case "object":
+        if (!Array.isArray(value)) {
+          return false
+        }
+        if (ancestors.has(value)) return false
+        ancestors.add(value)
+        try {
+          for (let index = 0; index < value.length; index += 1) {
+            if (!Object.hasOwn(value, index) || !isBuildStaticValue(value[index], ancestors)) {
+              return false
+            }
+          }
+          return true
+        }
+        finally {
+          ancestors.delete(value)
+        }
+      default:
+        return false
+    }
+  }
+  catch {
+    return false
   }
 }
 
