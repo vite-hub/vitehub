@@ -3,7 +3,7 @@
 title: Query your first Database
 description: Create a SQLite notes table with Drizzle and query it from a server route.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---

@@ -89,6 +89,7 @@ describe("Eve extension capabilities", () => {
     [1, 5, 8],
     [2, 20, 20],
     [2, 54, 52],
+    [2, 76, 72],
   ])("accepts format %i tool@%i and dynamicTool@%i manifests", async (formatVersion, tool, dynamicTool) => {
     await expect(transformExtensionManifest(formatVersion, { config: 1, dynamicTool, extension: 1, tool }))
       .resolves.toContain(`await __vitehubEveExtensionCapability("@test/eve-extension", "pkg-_atest_seve-extension"`)
@@ -99,8 +100,8 @@ describe("Eve extension capabilities", () => {
     [1, "dynamicTool", 20],
     [2, "tool", 21],
     [2, "dynamicTool", 21],
-    [2, "tool", 76],
-    [2, "dynamicTool", 72],
+    [2, "tool", 92],
+    [2, "dynamicTool", 86],
     [2, "unknown", 1],
     [2, "toString", 1],
     [2, "__proto__", 1],
@@ -118,8 +119,8 @@ describe("Eve extension capabilities", () => {
       peerDependencies?: Record<string, string>
       peerDependenciesMeta?: Record<string, { optional?: boolean }>
     }
-    expect(packageJson.devDependencies?.eve).toBe("0.72.1")
-    expect(packageJson.peerDependencies?.eve).toBe("0.46.1 || 0.72.1")
+    expect(packageJson.devDependencies?.eve).toBe("0.80.1")
+    expect(packageJson.peerDependencies?.eve).toBe("0.80.1")
     expect(packageJson.peerDependenciesMeta?.eve).toEqual({ optional: true })
 
     const extensionEntry = fileURLToPath(import.meta.resolve("@github-tools/eve-extension"))
@@ -137,7 +138,7 @@ describe("Eve extension capabilities", () => {
     expect(manifest).toMatchObject({
       formatVersion: 2,
       kind: "eve-extension",
-      requires: { config: 1, dynamicTool: 52, extension: 1, tool: 54 },
+      requires: { config: 1, dynamicTool: 72, extension: 1, tool: 76 },
     })
   })
 

@@ -16,7 +16,6 @@ function option(
   ...fallbacks: string[]
 ): string | undefined {
   const value = values[name];
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- parseArgs returns strings for string options.
   if (typeof value === "string" && value) return value;
   for (const key of fallbacks) {
     if (env[key]) return env[key];

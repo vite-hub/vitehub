@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
-import { collectViteHubCliContribution } from "@vite-hub/internal/cli"
+import { collectViteHubCliContribution, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
@@ -192,7 +192,11 @@ function readPackageVersion(): string {
 
 export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise<number> {
   const args = options.args || process.argv.slice(2)
-  const stdout = options.stdout || process.stdout
+  const output = options.stdout || process.stdout
+  // Keep command writes on the stream writer captured before config loading.
+  // Config loading temporarily patches process.stdout.write, and another CLI
+  // invocation may own that patch when this command emits its payload.
+  const stdout: ViteHubCliStream = { write: options.stdout ? output.write.bind(output) : getStableStdoutWrite() }
   if (args[0] === "-v" || args[0] === "--version") {
     stdout.write(`${readPackageVersion()}\n`)
     return 0
@@ -200,7 +204,11 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
 
   const cwd = options.cwd || process.cwd()
   const env = options.env || process.env
-  const stderr = options.stderr || process.stderr
+  const stderr = options.stderr || ({
+    write: (chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => typeof encoding === "function"
+      ? process.stderr.write(chunk, encoding)
+      : process.stderr.write(chunk, encoding, callback),
+  } as ViteHubCliStreams["stderr"])
   const spawn = options.spawn || defaultSpawn
   const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && namespace.name !== "inspect")
   if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
@@ -210,13 +218,18 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   }
 
   const command = args[0] === "inspect" && args[1] === "provider-output" ? "build" : "serve"
-  const config = await (options.loadConfig || loadViteConfig)(cwd, command)
-  const nuxtConfig = config.vitehubConfigResolved
-    ? undefined
-    : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd, command)
-  const plugins = nuxtConfig?.plugins ?? config.plugins
-  const rootDir = resolve(nuxtConfig?.root || config.root || cwd)
-  const contribution = await collectViteHubCliContribution(plugins)
+  const { contribution, plugins, rootDir } = await withStdoutOnStderr(async () => {
+    const config = await (options.loadConfig || loadViteConfig)(cwd, command)
+    const nuxtConfig = config.vitehubConfigResolved
+      ? undefined
+      : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd, command)
+    const plugins = nuxtConfig?.plugins ?? config.plugins
+    return {
+      contribution: await collectViteHubCliContribution(plugins),
+      plugins,
+      rootDir: resolve(nuxtConfig?.root || config.root || cwd),
+    }
+  }, stderr)
   const namespaces = [
     ...contribution.namespaces.filter(namespace => namespace.name !== "inspect"),
     createInspectNamespace(plugins),
@@ -272,8 +285,8 @@ function trackStream(stream: ViteHubCliStream) {
   const writes: Array<Promise<PromiseSettledResult<unknown>>> = []
   return {
     stream: {
-      write(chunk: string | Uint8Array) {
-        const result = stream.write(chunk)
+      write(chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) {
+        const result = Reflect.apply(stream.write, stream, [chunk, encoding, callback])
         writes.push(Promise.resolve(result).then<PromiseSettledResult<unknown>, PromiseSettledResult<unknown>>(
           value => ({ status: "fulfilled", value }),
           reason => ({ reason, status: "rejected" }),
@@ -313,7 +326,10 @@ function processEntrypointStream(stream: NodeJS.WriteStream): ViteHubCliEntrypoi
         resolveFlush()
       }
     })),
-    write: chunk => stream.write(chunk),
+    write: ((chunk: string | Uint8Array, encoding?: BufferEncoding | ((error?: Error | null) => void), callback?: (error?: Error | null) => void) => {
+      if (typeof encoding === "function") return stream.write(chunk, encoding)
+      return stream.write(chunk, encoding, callback)
+    }) as ViteHubCliEntrypointStream["write"],
   }
 }
 

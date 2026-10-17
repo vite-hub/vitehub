@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { readDocsArtifactsManifest, recoverAbandonedLock, writeDocsArtifacts } from "../modules/vitehub-docs/artifacts";
 import { toRawMarkdown } from "../modules/vitehub-docs/artifacts/raw-markdown";
 import { isDocsArtifactSource } from "../modules/vitehub-docs/index";
+import { unwrapAgentOnlyDocument, unwrapAgentOnlyNodes } from "../modules/vitehub-docs/runtime/utils/agent-only";
 
 function writeText(filePath: string, contents: string) {
   mkdirSync(dirname(filePath), { recursive: true });
@@ -46,6 +47,72 @@ describe("writeDocsArtifacts", () => {
     expect(raw).toContain("Run one read-only query.");
     expect(raw).toContain('"statement"');
     expect(raw).not.toContain("agent-capability-tools");
+  });
+
+  it("unwraps agent-only blocks for agents and omits them for the eval baseline", () => {
+    const source = [
+      "Shared intro.",
+      "",
+      "::agent-only{skill=\"kv\"}",
+      "Agents read [Get started](/docs/kv/get-started).",
+      "",
+      "::note",
+      "Nested note.",
+      "::",
+      "",
+      "```md",
+      "::",
+      "```",
+      "::",
+      "",
+      "Shared outro.",
+    ].join("\n");
+
+    const agents = toRawMarkdown(source);
+    expect(agents).toContain("Agents read [Get started](https://vitehub.dev/docs/kv/get-started).");
+    expect(agents).toContain("> **Note**\n\nNested note.");
+    expect(agents).toContain("```md\n::\n```");
+    expect(agents).toContain("Shared outro.");
+    expect(agents).not.toContain("agent-only");
+
+    const baseline = toRawMarkdown(source, { includeAgentOnly: false });
+    expect(baseline).toContain("Shared intro.");
+    expect(baseline).toContain("Shared outro.");
+    expect(baseline).not.toContain("Agents read");
+    expect(baseline).not.toContain("Nested note.");
+  });
+
+  it("inlines collapsible content for agents", () => {
+    const raw = toRawMarkdown([
+      "::collapsible{name=\"every option\"}",
+      "| Option | Default |",
+      "| --- | --- |",
+      "| `driver` | `memory` |",
+      "::",
+    ].join("\n"));
+
+    expect(raw).toBe("| Option | Default |\n| --- | --- |\n| `driver` | `memory` |\n");
+  });
+
+  it("unwraps agent-only nodes in the content tree used by llms-full.txt and MCP", () => {
+    const nodes: unknown[] = [
+      ["p", {}, "Shared."],
+      ["agent-only", { skill: "kv" }, ["p", {}, "Agents only."], ["note", {}, ["agent-only", {}, ["p", {}, "Nested."]]]],
+    ];
+    unwrapAgentOnlyNodes(nodes);
+    expect(nodes).toEqual([
+      ["p", {}, "Shared."],
+      ["p", {}, "Agents only."],
+      ["note", {}, ["p", {}, "Nested."]],
+    ]);
+  });
+
+  it("unwraps the Comark page.nodes document shape", () => {
+    const page = {
+      nodes: [["agent-only", {}, ["p", {}, "Agents only."]]],
+    };
+    unwrapAgentOnlyDocument(page);
+    expect(page.nodes).toEqual([["p", {}, "Agents only."]]);
   });
 
   it("parses YAML block scalar titles", () => {

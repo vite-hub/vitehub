@@ -58,7 +58,6 @@ export function diagnosticExcerpt(log: string, limit = 16_000, failedSteps: stri
 export function actionLocation(repository: string, check: GitHubEvidence): { runId: number; jobId?: number } | undefined {
   if (check.app?.slug && check.app.slug !== 'github-actions') return undefined
   for (const value of [check.html_url, check.details_url]) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- URL fields are untrusted GitHub evidence and must be checked before parsing.
     if (typeof value !== 'string') continue
     let url: URL
     try { url = new URL(value) } catch { continue }
@@ -66,7 +65,6 @@ export function actionLocation(repository: string, check: GitHubEvidence): { run
     const match = url.pathname.match(/^\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)(?:\/job\/(\d+))?\/?$/)
     if (match && match[1]?.toLowerCase() === repository.toLowerCase()) {
       const location: { runId: number; jobId?: number } = { runId: Number(match[2]) }
-      // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Keep optional jobId absent when the URL points at a workflow run.
       if (match[3]) location.jobId = Number(match[3])
       return location
     }
@@ -98,7 +96,6 @@ export async function hydrateFailedCiEvidence(inbox: PullRequestInbox, claim: Cl
           : await readers.readJson(`repos/${repository}/actions/runs/${location.runId}/jobs?filter=latest&per_page=100`, '.jobs[]')
         const parsedJobs = jobs.map(job => v.parse(jobSchema, job))
         metadata = { value: { jobs: parsedJobs }, fetchedAt: now }
-        // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Retry metadata is omitted after all jobs complete.
         if (!parsedJobs.length || parsedJobs.some(job => job.status !== 'completed')) metadata.retryAt = now + 120_000
       } catch {
         metadata = { value: { error: 'GitHub Actions job metadata unavailable; this is an API read failure, not a CI result.' }, retryAt: now + 120_000, fetchedAt: now }

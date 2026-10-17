@@ -5,7 +5,7 @@ description: Server primitives for Vite. Write server code once and deploy it ac
 
 # The server layer for Vite apps
 
-ViteHub gives Vite apps one API for storage, queues, workflows, schedules, and more. Use each Server Primitive on its own or combine them in your application.
+ViteHub gives Vite apps one API for databases, storage, queues, workflows, schedules, and more. Use each Server Primitive on its own or combine them in your application.
 
 ## Write once. Deploy anywhere.
 

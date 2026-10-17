@@ -1,4 +1,5 @@
 import { defineConfig } from "vite-plus";
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
@@ -37,7 +38,7 @@ export default defineConfig({
           "./_internal/runtime/providers/cloudflare": "./dist/runtime/providers/cloudflare.js",
           "./_internal/runtime/providers/vercel": "./dist/runtime/providers/vercel.js",
         };
-        return Object.fromEntries(
+        return normalizePackageExports(Object.fromEntries(
           Object.entries(packageExports).map(([key, value]) => {
             const exportKey = key;
             if (typeof value !== "string" || !value.endsWith(".js")) {
@@ -51,7 +52,7 @@ export default defineConfig({
               },
             ];
           }),
-        );
+        ));
       },
       inlinedDependencies: false,
     },

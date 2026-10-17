@@ -1,0 +1,6 @@
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      # GitHub added concurrency.queue on 2026-05-07. actionlint 1.7.12 does
+      # not know the key yet. Remove this entry when actionlint supports it.
+      - 'unexpected key "queue" for "concurrency" section'

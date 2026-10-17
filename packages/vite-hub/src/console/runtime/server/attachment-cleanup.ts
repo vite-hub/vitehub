@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import type { BlobStorage } from "@vite-hub/blob"
 
-export const consoleAttachmentCleanupPrefix = "vitehub-console-attachment-cleanup/"
+const consoleAttachmentCleanupPrefix = "vitehub-console-attachment-cleanup/"
 const quarantinePrefix = "vitehub-console-attachment-quarantine/"
 const cleanupPrefix = consoleAttachmentCleanupPrefix
 export const consoleAttachmentPrefix = "vitehub-console-attachments/"

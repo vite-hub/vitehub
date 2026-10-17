@@ -3,6 +3,7 @@ import { createStorage } from "unstorage"
 import createDriver from "unstorage/drivers/cloudflare-kv-binding"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { createCursorHistory, recordCursor } from "./cursor-history.ts"
 
 import type { KVListOptions, KVListPage } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
@@ -18,51 +19,97 @@ interface CloudflareKVListPage {
 }
 
 function isCloudflareKVString(value: unknown): value is string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cloudflare list fields cross an untyped provider boundary.
   return typeof value === "string"
 }
 
 function isCloudflareKVListPage(value: unknown): value is CloudflareKVListPage {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cloudflare bindings return unknown JavaScript values at this provider boundary.
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   // SAFETY: The guard reads only unknown properties and validates every field before returning true.
   const page = value as { cursor?: unknown; keys?: unknown; list_complete?: unknown }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The provider page must expose a boolean completion marker before use.
   if (typeof page.list_complete !== "boolean" || !Array.isArray(page.keys)) return false
   if (!page.keys.every(key => {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Each provider key is untyped JavaScript data at the Cloudflare binding boundary.
     if (!key || typeof key !== "object" || Array.isArray(key)) return false
     return isCloudflareKVString(Reflect.get(key, "name"))
   })) return false
   return page.list_complete || (isCloudflareKVString(page.cursor) && page.cursor.length > 0)
 }
 
+const cloudflareBindingIdentities = new WeakMap<object, number>()
+let nextCloudflareBindingIdentity = 0
+
+function cloudflareBindingNamespace(bindingName: unknown, namespaceId: unknown, binding?: unknown): string {
+  if (typeof namespaceId === "string" && namespaceId.length > 0) return `cloudflare-kv:id:${namespaceId}`
+  if (binding && typeof binding === "object") {
+    let identity = cloudflareBindingIdentities.get(binding)
+    if (identity === undefined) {
+      identity = ++nextCloudflareBindingIdentity
+      cloudflareBindingIdentities.set(binding, identity)
+    }
+    return `cloudflare-kv:object:${identity}`
+  }
+  return typeof bindingName === "string" ? `cloudflare-kv:binding:${bindingName}` : "cloudflare-kv:default"
+}
+
 function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriver {
   const bindingName = options.binding
+  const namespaceId = options.namespaceId
   // unstorage reads `binding` on every operation and finds a binding name only on globals.
   // Resolve it from the active Cloudflare env first, because ViteHub workers scope env per request without the global `__env__`.
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The resolved store config crosses an untyped driver boundary.
   const driverOptions = typeof bindingName === "string"
     ? { ...options, get binding() { return getActiveCloudflareBinding<CloudflareKVNamespace>(bindingName) ?? bindingName } }
     : options
   // SAFETY: The unstorage Cloudflare driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
+  // Continuation state is keyed by the cursor that carries it. Consuming the
+  // state before awaiting the provider keeps concurrent traversals independent.
+  const cursorNamespace = cloudflareBindingNamespace(bindingName, namespaceId)
+  const cursorHistories = createCursorHistory(cursorNamespace)
+  let disposed = false
+  const dispose = driver.dispose
+  driver.dispose = async () => {
+    disposed = true
+    cursorHistories.clear()
+    try {
+      await dispose?.call(driver)
+    }
+    finally {
+      // A listing already in flight may finish after the provider teardown.
+      // Clear again so it cannot publish a continuation for a closed driver.
+      cursorHistories.clear()
+    }
+  }
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
+    if (disposed) throw new Error("KV storage has been disposed.")
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
-    const page = await driver.getInstance().list(listOptions)
-    if (!isCloudflareKVListPage(page)) {
-      throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
-    }
-    const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
-    if (!page.list_complete) {
-      if (cursor && page.cursor === cursor) {
-        throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a non-progressing pagination cursor." })
+    const activeBinding = typeof bindingName === "string" ? getActiveCloudflareBinding<CloudflareKVNamespace>(bindingName) : undefined
+    const requestNamespace = cloudflareBindingNamespace(bindingName, namespaceId, activeBinding)
+    const continuation = cursor ? cursorHistories.take(cursor, requestNamespace) : { providerCursor: undefined, history: new Set<string>(), namespace: requestNamespace }
+    try {
+      if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor
+      const cursors = continuation.history
+      const page = await driver.getInstance().list(listOptions)
+      if (!isCloudflareKVListPage(page)) {
+        throw kvErrorDiagnostics.KV_R0022({ message: "[vitehub] Cloudflare KV list returned an invalid page." })
       }
-      result.cursor = page.cursor
+      const result: KVListPage = { keys: page.keys.map((key: { name: string }) => key.name) }
+      if (!page.list_complete) {
+        if (disposed) throw new Error("KV storage has been disposed.")
+        if (cursors.has(page.cursor!)) {
+          throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected a repeated pagination cursor." })
+        }
+        if (!recordCursor(cursors, page.cursor!)) {
+          throw kvErrorDiagnostics.KV_R0025({ message: "ViteHub rejected pagination after the cursor history limit was reached." })
+        }
+        result.cursor = cursorHistories.store(page.cursor!, cursors, requestNamespace)
+      }
+      cursorHistories.complete(cursor)
+      return result
+    } catch (error) {
+      if (cursor && !disposed) cursorHistories.restore(cursor, continuation)
+      throw error
     }
-    return result
   }
   return driver
 }

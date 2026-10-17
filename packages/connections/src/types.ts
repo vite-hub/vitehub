@@ -128,7 +128,9 @@ interface ConnectionDefinitionRules<TApis extends object, TSelection extends Con
   api?: TSelection
   /**
    * Access rules by actor, for example `schedule:gmail` or `agent:labeller`.
-   * When set, actors not listed are denied. When omitted, server actors may read and
+   * When set, actors not listed are denied. A discovered Agent without its own rule uses the rule of the
+   * nearest Agent it extends; an inline Agent that `runAgent()` runs gets only the rules that name it.
+   * When omitted, server actors may read and
    * call non-high-risk writes, and Agent writes require approval.
    */
   access?: Readonly<Record<string, ConnectionAccessRule<ConnectionActionPattern<TApis>>>>
