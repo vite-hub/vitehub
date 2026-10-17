@@ -659,12 +659,26 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
-    const body: unknown = Reflect.get(candidate, "body")
+    let body: unknown = Reflect.get(candidate, "body")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
+
+    // Normalize a genuine foreign Web Stream through the host Response
+    // boundary before inspecting or invoking reader methods. The platform
+    // performs the cross-runtime brand check and supplies a host-native body,
+    // so caller-controlled foreign reader methods never enter the bridge.
+    if (body !== null && typeof body === "object") {
+      const bodyPrototype = Object.getPrototypeOf(body)
+      const bodyConstructor = bodyPrototype && Object.getOwnPropertyDescriptor(bodyPrototype, "constructor")?.value
+      if (bodyConstructor !== ReadableStream) {
+        const hostBody = new Response(body as BodyInit).body
+        if (hostBody === null) return
+        body = hostBody
+      }
+    }
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
