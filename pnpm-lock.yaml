@@ -963,6 +963,10 @@ importers:
       vue:
         specifier: 3.5.44
         version: 3.5.44(typescript@6.0.3)
+    peerDependencies:
+      undici:
+        specifier: ^8.12.2
+        version: 8.12.2
 
   packages/blob:
     dependencies:

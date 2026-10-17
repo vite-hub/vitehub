@@ -104,7 +104,8 @@
     "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "undici": "^8.12.2"
   },
   "peerDependenciesMeta": {
     "@vite-hub/agent": {
@@ -114,6 +115,9 @@
       "optional": true
     },
     "vue": {
+      "optional": true
+    },
+    "undici": {
       "optional": true
     }
   },
