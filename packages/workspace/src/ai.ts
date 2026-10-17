@@ -334,7 +334,7 @@ async function resolveExecutionProvider(
 function isUnavailableWorkspaceSession(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   return message.includes("Workspace exec requires an executable runtime")
-    || message.includes("Workspace exec requires a Box session host")
+    || message.includes("Workspace exec requires a Sandbox session host")
     || (message.includes("Workspace") && message.includes("is not registered"))
 }
 

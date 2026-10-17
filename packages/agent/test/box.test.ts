@@ -30,20 +30,20 @@ const createSqliteProviderRuntimeSessionStore = vi.hoisted(() => vi.fn(async (pa
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
 
-const openedBoxSession = vi.hoisted(() => ({ current: undefined as import("@vite-hub/box").BoxSession | undefined }))
+const openedSandboxSession = vi.hoisted(() => ({ current: undefined as import("@vite-hub/sandbox").SandboxSession | undefined }))
 
-/** Error that Box session close reports after the real close. It simulates a failed cwd synchronization. */
-const boxCloseFailure = vi.hoisted(() => ({ error: undefined as Error | undefined }))
-vi.mock("@vite-hub/box", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@vite-hub/box")>()
-  const resolveBox: typeof actual.resolveBox = async (definition, context, options) => {
-    const box = await actual.resolveBox(definition, context, options)
+/** Error that Sandbox session close reports after the real close. It simulates a failed cwd synchronization. */
+const sandboxCloseFailure = vi.hoisted(() => ({ error: undefined as Error | undefined }))
+vi.mock("@vite-hub/sandbox", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/sandbox")>()
+  const resolveSandbox: typeof actual.resolveSandbox = async (definition, context, options) => {
+    const sandbox = await actual.resolveSandbox(definition, context, options)
     return {
-      plan: box.plan,
+      plan: sandbox.plan,
       async open(openOptions) {
-        const session = await box.open(openOptions)
-        openedBoxSession.current = session
-        const error = boxCloseFailure.error
+        const session = await sandbox.open(openOptions)
+        openedSandboxSession.current = session
+        const error = sandboxCloseFailure.error
         if (!error) return session
         return {
           ...session,
@@ -55,12 +55,12 @@ vi.mock("@vite-hub/box", async (importOriginal) => {
       },
     }
   }
-  return { ...actual, resolveBox }
+  return { ...actual, resolveSandbox }
 })
 
-import { defineAgent, type AgentBoxDefinition, type AgentRuntimeConfig } from "../src/index.ts"
+import { defineAgent, type AgentSandboxDefinition, type AgentRuntimeConfig } from "../src/index.ts"
 import { resolveAgentHealth } from "../src/health.ts"
-import { boxSharesHostNetwork, providerBoxEnvironment, startProviderBoxRelay, type ProviderBoxSession } from "../src/internal/provider-box.ts"
+import { sandboxSharesHostNetwork, providerSandboxEnvironment, startProviderSandboxRelay, type ProviderSandboxSession } from "../src/internal/provider-box.ts"
 import { createProviderAgentAdapter } from "../src/provider-agent.ts"
 
 const execFileAsync = promisify(execFile)
@@ -71,8 +71,8 @@ afterEach(async () => {
   providerRuntimes.splice(0)
   createProviderRuntime.mockClear()
   vi.unstubAllEnvs()
-  boxCloseFailure.error = undefined
-  openedBoxSession.current = undefined
+  sandboxCloseFailure.error = undefined
+  openedSandboxSession.current = undefined
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -82,7 +82,7 @@ interface PullRequestOptions {
   token: string
 }
 
-interface BoxTestInput {
+interface SandboxTestInput {
   options: PullRequestOptions
   prompt: string
 }
@@ -93,7 +93,7 @@ interface LauncherResult {
   stdout: string
 }
 
-/** Script that the provider command runs inside the Box. It reports what the provider can see. */
+/** Script that the provider command runs inside the Sandbox. It reports what the provider can see. */
 const probeScript = `
 const { readFileSync } = require("node:fs")
 let input = ""
@@ -107,9 +107,9 @@ process.stdin.on("end", () => {
     config: readFileSync(home + "/.config/tool.json", "utf8"),
     cwd: process.cwd(),
     env: {
-      BOX_TOKEN: process.env.BOX_TOKEN,
+      SANDBOX_TOKEN: process.env.SANDBOX_TOKEN,
       DRIVER_VALUE: process.env.DRIVER_VALUE,
-      HOST_ONLY: process.env.VITEHUB_BOX_TEST_HOST_ONLY,
+      HOST_ONLY: process.env.VITEHUB_SANDBOX_TEST_HOST_ONLY,
       RUNTIME_TOKEN: process.env.T3_MCP_BEARER_TOKEN,
     },
     home,
@@ -147,7 +147,7 @@ function providerRuntime(threadId: string, onStartSession: (input: { cwd: string
   return value
 }
 
-function invocationContext(threadId: string, input: BoxTestInput) {
+function invocationContext(threadId: string, input: SandboxTestInput) {
   const values = new Map<string, unknown>()
   return {
     actor: { id: "actor" },
@@ -190,7 +190,7 @@ async function runLauncher(path: string, args: string[], options: { cwd: string,
 }
 
 async function temporaryRoot() {
-  const root = await mkdtemp(join(tmpdir(), "vitehub-agent-box-"))
+  const root = await mkdtemp(join(tmpdir(), "vitehub-agent-sandbox-"))
   roots.push(root)
   return root
 }
@@ -211,16 +211,16 @@ async function gitRepository(root: string) {
   return { first, repository, second }
 }
 
-type TestBox = AgentBoxDefinition<AgentRuntimeConfig, PullRequestOptions>
+type TestSandbox = AgentSandboxDefinition<AgentRuntimeConfig, PullRequestOptions>
 
-function testBox(repository: string, requires: TestBox["requires"] = []): TestBox {
+function testSandbox(repository: string, requires: TestSandbox["requires"] = []): TestSandbox {
   return {
     checkout: {
       ref: ({ input }) => input.options?.ref,
       remote: async () => repository,
       sha: ({ input }) => input.options?.sha,
     },
-    env: { BOX_TOKEN: ({ input }) => input.options?.token },
+    env: { SANDBOX_TOKEN: ({ input }) => input.options?.token },
     home: {
       files: {
         ".config/tool.json": { contents: ({ input }) => JSON.stringify({ sha: input.options?.sha }) },
@@ -231,41 +231,41 @@ function testBox(repository: string, requires: TestBox["requires"] = []): TestBo
   }
 }
 
-describe("Agent Box definitions", () => {
-  it("accepts a built-in provider Driver and exposes the Box definition", () => {
-    const box = { runtime: "trusted-host" } as const
-    const agent = defineAgent({ box, driver: { kind: "codex" } })
-    expect(agent.box).toBe(box)
+describe("Agent Sandbox definitions", () => {
+  it("accepts a built-in provider Driver and exposes the Sandbox definition", () => {
+    const sandbox = { runtime: "trusted-host" } as const
+    const agent = defineAgent({ sandbox, driver: { kind: "codex" } })
+    expect(agent.sandbox).toBe(sandbox)
   })
 
   it.each([
-    ["a Box without runtime", { box: {}, driver: { kind: "codex" } }, "AGENT_R0954"],
-    ["a custom Driver", { box: { runtime: "trusted-host" }, driver: { run: () => "ok" } }, "AGENT_R0955"],
-    ["driver.launch", { box: { runtime: "trusted-host" }, driver: { kind: "codex", launch: { command: "ssh" } } }, "AGENT_R0956"],
-    ["driver.credentials", { box: { runtime: "trusted-host" }, driver: { credentials: () => "{}", kind: "codex" } }, "AGENT_R0957"],
-    ["an Agent Workspace", { box: { runtime: "trusted-host" }, driver: { kind: "codex" }, workspace: {} }, "AGENT_R0958"],
+    ["a Sandbox without runtime", { sandbox: {}, driver: { kind: "codex" } }, "AGENT_R0954"],
+    ["a custom Driver", { sandbox: { runtime: "trusted-host" }, driver: { run: () => "ok" } }, "AGENT_R0955"],
+    ["driver.launch", { sandbox: { runtime: "trusted-host" }, driver: { kind: "codex", launch: { command: "ssh" } } }, "AGENT_R0956"],
+    ["driver.credentials", { sandbox: { runtime: "trusted-host" }, driver: { credentials: () => "{}", kind: "codex" } }, "AGENT_R0957"],
+    ["an Agent Workspace", { sandbox: { runtime: "trusted-host" }, driver: { kind: "codex" }, workspace: {} }, "AGENT_R0958"],
   ])("rejects %s at definition time", (_name, options, code) => {
     // SAFETY: The invalid definitions exercise runtime validation for JavaScript callers.
     expect(() => defineAgent(options as never)).toThrow(expect.objectContaining({ code }))
   })
 
-  it("keeps Agents without box unchanged", () => {
+  it("keeps Agents without sandbox unchanged", () => {
     const agent = defineAgent({ driver: { kind: "codex" } })
-    expect(agent.box).toBeUndefined()
+    expect(agent.sandbox).toBeUndefined()
   })
 
-  it("reports a configured Box in health checks", async () => {
-    const withBox = await resolveAgentHealth({ box: { runtime: "trusted-host" }, name: "boxed" })
-    const withoutBox = await resolveAgentHealth({ name: "plain" })
-    expect(withBox.checks.box).toEqual({ status: "ready" })
-    expect(withBox.integrations).toEqual({})
-    expect(withoutBox.checks.box).toBeUndefined()
+  it("reports a configured Sandbox in health checks", async () => {
+    const withSandbox = await resolveAgentHealth({ sandbox: { runtime: "trusted-host" }, name: "boxed" })
+    const withoutSandbox = await resolveAgentHealth({ name: "plain" })
+    expect(withSandbox.checks.sandbox).toEqual({ status: "ready" })
+    expect(withSandbox.integrations).toEqual({})
+    expect(withoutSandbox.checks.sandbox).toBeUndefined()
   })
 })
 
-describe("Agent Box environment", () => {
+describe("Agent Sandbox environment", () => {
   it("forwards Driver and provider runtime values but keeps host values on the host", () => {
-    expect(providerBoxEnvironment({
+    expect(providerSandboxEnvironment({
       explicit: ["DRIVER_VALUE", "PATH_OVERRIDE"],
       host: { HOST_SECRET: "host", PATH: "/host/bin", T3_MCP_BEARER_TOKEN: "stale-host-token" },
       prepared: { DRIVER_VALUE: "driver", PATH: "/host/bin", PATH_OVERRIDE: "/driver/bin" },
@@ -283,50 +283,50 @@ describe("Agent Box environment", () => {
   })
 
   it("reports boxed provider inspection as unsupported", async () => {
-    const agent = defineAgent({ box: { runtime: "trusted-host" }, driver: { kind: "codex" } })
+    const agent = defineAgent({ sandbox: { runtime: "trusted-host" }, driver: { kind: "codex" } })
     expect(await agent.status?.({ runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() })).toMatchObject({
       readiness: "unsupported",
-      reason: "Provider inspection inside an Agent Box is not supported.",
+      reason: "Provider inspection inside an Agent Sandbox is not supported.",
     })
   })
 
   it("identifies runtimes that share the ViteHub network", () => {
-    expect(boxSharesHostNetwork("trusted-host")).toBe(true)
-    expect(boxSharesHostNetwork({ kind: "trusted-host" })).toBe(true)
-    expect(boxSharesHostNetwork({ kind: "crabbox", network: "direct" })).toBe(true)
-    expect(boxSharesHostNetwork({ kind: "crabbox", profile: "remote" })).toBe(false)
-    expect(boxSharesHostNetwork("crabbox")).toBe(false)
+    expect(sandboxSharesHostNetwork("trusted-host")).toBe(true)
+    expect(sandboxSharesHostNetwork({ kind: "trusted-host" })).toBe(true)
+    expect(sandboxSharesHostNetwork({ kind: "crabbox", network: "direct" })).toBe(true)
+    expect(sandboxSharesHostNetwork({ kind: "crabbox", profile: "remote" })).toBe(false)
+    expect(sandboxSharesHostNetwork("crabbox")).toBe(false)
     const custom = { name: "ssh", open: vi.fn(), prepare: vi.fn() }
-    expect(boxSharesHostNetwork({ ...custom, network: "direct" })).toBe(true)
-    expect(boxSharesHostNetwork(custom)).toBe(false)
+    expect(sandboxSharesHostNetwork({ ...custom, network: "direct" })).toBe(true)
+    expect(sandboxSharesHostNetwork(custom)).toBe(false)
   })
 })
 
-describe("Agent Box relay", () => {
-  it("rejects host Capability tools in a Box without a shared network before provider startup", async () => {
+describe("Agent Sandbox relay", () => {
+  it("rejects host Capability tools in a Sandbox without a shared network before provider startup", async () => {
     const root = await temporaryRoot()
     const { first, repository } = await gitRepository(root)
-    const runtime = providerRuntime("box-isolated-tools", async () => undefined)
+    const runtime = providerRuntime("sandbox-isolated-tools", async () => undefined)
     const context = {
-      ...invocationContext("box-isolated-tools", { prompt: "repair", options: { ref: "refs/heads/first", sha: first, token: "token" } }),
+      ...invocationContext("sandbox-isolated-tools", { prompt: "repair", options: { ref: "refs/heads/first", sha: first, token: "token" } }),
       tools: { repair: { name: "repair", description: "Host repair", inputSchema: { type: "object" }, execute: vi.fn() } },
     }
     await expect(createProviderAgentAdapter<PullRequestOptions>({
-      box: { ...testBox(repository), runtime: { kind: "crabbox", profile: "remote" } },
+      sandbox: { ...testSandbox(repository), runtime: { kind: "crabbox", profile: "remote" } },
       provider: "codex",
       permissions: "allow-edits-unattended",
       providerSettings: { binaryPath: process.execPath },
       // SAFETY: The fixture provides the provider invocation fields read by the adapter.
     }).generate(context as never)).rejects.toMatchObject({ code: "AGENT_R0961" })
     expect(runtime.startSession).not.toHaveBeenCalled()
-    expect(openedBoxSession.current).toBeUndefined()
+    expect(openedSandboxSession.current).toBeUndefined()
   })
-  it("materializes nested pull request Skills in Box Home", async () => {
+  it("materializes nested pull request Skills in Sandbox Home", async () => {
     const threadId = "thread-nested-pull-request-provider-root"
     let root = ""
     providerRuntime(threadId, async ({ cwd }) => {
       expect(cwd).toBe(join(root, "portal"))
-      const result = await openedBoxSession.current!.exec("sh", ["-c", 'cat "$HOME/.codex/skills/review/SKILL.md"'])
+      const result = await openedSandboxSession.current!.exec("sh", ["-c", 'cat "$HOME/.codex/skills/review/SKILL.md"'])
       expect(result.stdout).toBe("review skill")
       expect(result.ok).toBe(true)
       const options = createProviderRuntime.mock.lastCall?.[0]
@@ -336,7 +336,7 @@ describe("Agent Box relay", () => {
         stdin: "",
       })
       expect(launched).toMatchObject({ code: 0 })
-      expect(launched.stdout).toBe(await realpath(join(openedBoxSession.current!.cwd, "portal")))
+      expect(launched.stdout).toBe(await realpath(join(openedSandboxSession.current!.cwd, "portal")))
     })
     const session = {
       close: vi.fn(async () => undefined),
@@ -394,7 +394,7 @@ describe("Agent Box relay", () => {
       repository: { fullName: "acme/portal", name: "portal" },
     })
 
-    await expect(createProviderAgentAdapter({ box: { cwd: () => root, runtime: "trusted-host" }, provider: "codex", providerSettings: { binaryPath: process.execPath } }).generate(runContext as never)).resolves.toMatchObject({ text: "" })
+    await expect(createProviderAgentAdapter({ sandbox: { cwd: () => root, runtime: "trusted-host" }, provider: "codex", providerSettings: { binaryPath: process.execPath } }).generate(runContext as never)).resolves.toMatchObject({ text: "" })
     expect(session.exec.mock.calls.some(([command, args = []]) => command === "git" && args.join(" ") === "init -q")).toBe(true)
   })
 
@@ -402,9 +402,9 @@ describe("Agent Box relay", () => {
   it.each(["relay.mjs", "provider"])("closes the listening server when writing %s fails", async (blockedFile) => {
     const root = await temporaryRoot()
     await mkdir(join(root, blockedFile))
-    await expect(startProviderBoxRelay({
-      // SAFETY: Setup fails before this fixture needs a Box process.
-      box: { session: { cwd: "/box/work" } } as unknown as ProviderBoxSession,
+    await expect(startProviderSandboxRelay({
+      // SAFETY: Setup fails before this fixture needs a Sandbox process.
+      sandbox: { session: { cwd: "/sandbox/work" } } as unknown as ProviderSandboxSession,
       command: "provider",
       diagnosticPath: join(root, "diagnostic.json"),
       environment: () => ({}),
@@ -414,11 +414,11 @@ describe("Agent Box relay", () => {
     await vi.waitFor(() => expect(relayServers.at(-1)?.listening).toBe(false))
   })
 
-  it("lets Agent cleanup kill a SIGTERM-resistant provider and sync its Box cwd", async () => {
+  it("lets Agent cleanup kill a SIGTERM-resistant provider and sync its Sandbox cwd", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
     await mkdir(workspace)
-    const threadId = "box-resistant-provider"
+    const threadId = "sandbox-resistant-provider"
     let launcher: ReturnType<typeof spawn> | undefined
     let launcherClosed: Promise<unknown> | undefined
     providerRuntime(threadId, async ({ cwd }) => {
@@ -429,7 +429,7 @@ describe("Agent Box relay", () => {
       await once(launcher.stdout!, "data")
     })
     const invocation = createProviderAgentAdapter<PullRequestOptions>({
-      box: { cwd: workspace, runtime: "trusted-host" },
+      sandbox: { cwd: workspace, runtime: "trusted-host" },
       provider: "codex",
       providerSettings: { binaryPath: process.execPath },
       // SAFETY: The fixture provides the provider invocation fields read by the adapter.
@@ -444,14 +444,14 @@ describe("Agent Box relay", () => {
       await launcherClosed
     }
     finally {
-      await openedBoxSession.current?.close()
+      await openedSandboxSession.current?.close()
       await settled
       launcher?.kill("SIGKILL")
       await launcherClosed
     }
   })
 
-  it("stops pulling Box output while the runtime consumer is paused", async () => {
+  it("stops pulling Sandbox output while the runtime consumer is paused", async () => {
     const root = await temporaryRoot()
     const totalChunks = 256
     let pulled = 0
@@ -478,9 +478,9 @@ describe("Agent Box relay", () => {
       }),
       wait: () => exited,
     }
-    const relay = await startProviderBoxRelay({
-      // SAFETY: The fixture supplies the Box cwd and process streams used by the relay.
-      box: { session: { cwd: "/box/work" }, spawn: async () => child } as unknown as ProviderBoxSession,
+    const relay = await startProviderSandboxRelay({
+      // SAFETY: The fixture supplies the Sandbox cwd and process streams used by the relay.
+      sandbox: { session: { cwd: "/sandbox/work" }, spawn: async () => child } as unknown as ProviderSandboxSession,
       command: "provider",
       diagnosticPath: join(root, "diagnostic.json"),
       environment: () => ({}),
@@ -508,7 +508,7 @@ describe("Agent Box relay", () => {
     }
   })
 
-  it("stops a Box process that starts after its relay connection closed", async () => {
+  it("stops a Sandbox process that starts after its relay connection closed", async () => {
     const root = await temporaryRoot()
     let started: (() => void) | undefined
     const spawnCalled = new Promise<void>(resolve => started = resolve)
@@ -522,18 +522,18 @@ describe("Agent Box relay", () => {
       stdout: new ReadableStream<Uint8Array>(),
       wait: () => new Promise<{ code: number }>(() => undefined),
     }
-    const box = {
-      home: "/box/home",
-      session: { cwd: "/box/work" },
+    const sandbox = {
+      home: "/sandbox/home",
+      session: { cwd: "/sandbox/work" },
       spawn: async () => {
         started?.()
         await spawnReleased
         return child
       },
     }
-    const relay = await startProviderBoxRelay({
-      // SAFETY: The relay reads only the Box cwd and spawn in this fixture.
-      box: box as unknown as ProviderBoxSession,
+    const relay = await startProviderSandboxRelay({
+      // SAFETY: The relay reads only the Sandbox cwd and spawn in this fixture.
+      sandbox: sandbox as unknown as ProviderSandboxSession,
       command: "provider",
       diagnosticPath: join(root, "diagnostic.json"),
       environment: () => ({}),
@@ -543,7 +543,7 @@ describe("Agent Box relay", () => {
     const launcher = spawn(relay.launcher, [], { stdio: ["pipe", "ignore", "ignore"] })
     const launcherClosed = new Promise(resolve => launcher.once("close", resolve))
     await spawnCalled
-    // Closing the relay closes the connection before the Box process exists.
+    // Closing the relay closes the connection before the Sandbox process exists.
     let closed = false
     const closing = relay.close().then(() => { closed = true })
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -556,13 +556,13 @@ describe("Agent Box relay", () => {
   })
 })
 
-describe("Agent Box provider execution", () => {
-  it("runs the provider from an independent authoritative Box cwd", async () => {
+describe("Agent Sandbox provider execution", () => {
+  it("runs the provider from an independent authoritative Sandbox cwd", async () => {
     const root = await temporaryRoot()
     const workspace = join(root, "workspace")
     await mkdir(workspace)
     await writeFile(join(workspace, "README.md"), "independent checkout\n")
-    const threadId = "box-independent-cwd"
+    const threadId = "sandbox-independent-cwd"
     let sibling = ""
     let embedded = ""
     let embeddedPrefix = ""
@@ -592,46 +592,46 @@ describe("Agent Box provider execution", () => {
         stdin: `${cwd}/notes.txt\n${sibling}\n${unicodeSibling}\n${plusSibling}\n${embeddedPrefix}\n${url}\n${command}\n${atReference}\n${quotedPath}\n`,
       })
       expect(launched).toMatchObject({ code: 0 })
-      const boxCwd = openedBoxSession.current!.cwd
+      const sandboxCwd = openedSandboxSession.current!.cwd
       expect(JSON.parse(launched.stdout)).toMatchObject({
-        argv: [`${boxCwd}/notes.txt`, sibling],
-        cwd: await realpath(boxCwd),
-        input: `${boxCwd}/notes.txt\n${sibling}\n${unicodeSibling}\n${plusSibling}\n${embeddedPrefix}\nURL=file://${boxCwd}#section\nCMD=${boxCwd}&pwd\n@${boxCwd}/notes.txt\n\`${boxCwd}/notes.txt\`\n`,
-        mapped: `${boxCwd}/notes.txt`,
+        argv: [`${sandboxCwd}/notes.txt`, sibling],
+        cwd: await realpath(sandboxCwd),
+        input: `${sandboxCwd}/notes.txt\n${sibling}\n${unicodeSibling}\n${plusSibling}\n${embeddedPrefix}\nURL=file://${sandboxCwd}#section\nCMD=${sandboxCwd}&pwd\n@${sandboxCwd}/notes.txt\n\`${sandboxCwd}/notes.txt\`\n`,
+        mapped: `${sandboxCwd}/notes.txt`,
         readme: "independent checkout\n",
         sibling,
         text: embedded,
         embeddedPrefix,
-        url: `URL=file://${boxCwd}#section`,
-        command: `CMD=${boxCwd}&pwd`,
-        atReference: `@${boxCwd}/notes.txt`,
-        quotedPath: `\`${boxCwd}/notes.txt\``,
+        url: `URL=file://${sandboxCwd}#section`,
+        command: `CMD=${sandboxCwd}&pwd`,
+        atReference: `@${sandboxCwd}/notes.txt`,
+        quotedPath: `\`${sandboxCwd}/notes.txt\``,
         unicodeSibling,
         plusSibling,
       })
     })
     await expect(createProviderAgentAdapter<PullRequestOptions>({
-      box: { cwd: workspace, runtime: "trusted-host" },
+      sandbox: { cwd: workspace, runtime: "trusted-host" },
       provider: "codex",
       providerSettings: { binaryPath: process.execPath },
     }).generate(invocationContext(threadId, { prompt: "review", options: { ref: "", sha: "", token: "" } }) as never)).resolves.toMatchObject({ text: "" })
     expect(launched).toMatchObject({ code: 0 })
   })
 
-  it("runs the provider in a Box resolved for each invocation", async () => {
+  it("runs the provider in a Sandbox resolved for each invocation", async () => {
     const root = await temporaryRoot()
     const { first, repository, second } = await gitRepository(root)
-    vi.stubEnv("VITEHUB_BOX_TEST_HOST_ONLY", "host")
+    vi.stubEnv("VITEHUB_SANDBOX_TEST_HOST_ONLY", "host")
     const results: Array<{ launched: LauncherResult, localRoot: string }> = []
     const adapter = createProviderAgentAdapter<PullRequestOptions>({
-      box: testBox(repository),
+      sandbox: testSandbox(repository),
       env: { DRIVER_VALUE: "driver" },
-      instructions: "Follow the Box rules.",
+      instructions: "Follow the Sandbox rules.",
       provider: "codex",
       providerSettings: { binaryPath: process.execPath },
     })
 
-    for (const [threadId, ref, sha, token] of [["box-first", "refs/heads/first", first, "token-a"], ["box-second", "refs/heads/main", second, "token-b"]] as const) {
+    for (const [threadId, ref, sha, token] of [["sandbox-first", "refs/heads/first", first, "token-a"], ["sandbox-second", "refs/heads/main", second, "token-b"]] as const) {
       providerRuntime(threadId, async ({ cwd }) => {
         const options = createProviderRuntime.mock.lastCall?.[0]
         const launcher = String(options?.settings?.binaryPath)
@@ -662,11 +662,11 @@ describe("Agent Box provider execution", () => {
       }
     })
     expect(reports.map(report => report.readme)).toEqual(["first\n", "second\n"])
-    expect(reports.map(report => report.env.BOX_TOKEN)).toEqual(["token-a", "token-b"])
+    expect(reports.map(report => report.env.SANDBOX_TOKEN)).toEqual(["token-a", "token-b"])
     expect(reports.map(report => JSON.parse(report.config).sha)).toEqual([first, second])
     for (const [index, report] of reports.entries()) {
       const localRoot = results[index]!.localRoot
-      expect(report.agents).toContain("Follow the Box rules.")
+      expect(report.agents).toContain("Follow the Sandbox rules.")
       expect(report.env).toMatchObject({ DRIVER_VALUE: "driver", RUNTIME_TOKEN: "runtime-token" })
       expect(report.env.HOST_ONLY).toBeUndefined()
       expect(report.home).not.toBe(process.env.HOME)
@@ -678,14 +678,14 @@ describe("Agent Box provider execution", () => {
     await expect(readFile(join(reports[0]!.cwd, "README.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("reports the Box provider exit code and stderr as a launch failure", async () => {
+  it("reports the Sandbox provider exit code and stderr as a launch failure", async () => {
     const root = await temporaryRoot()
     const { first, repository } = await gitRepository(root)
-    const threadId = "box-failure"
+    const threadId = "sandbox-failure"
     let launched: LauncherResult | undefined
     providerRuntime(threadId, async ({ cwd }) => {
       const options = createProviderRuntime.mock.lastCall?.[0]
-      launched = await runLauncher(String(options?.settings?.binaryPath), ["-e", "process.stderr.write(process.env.BOX_TOKEN + '\\n'); process.exit(7)"], {
+      launched = await runLauncher(String(options?.settings?.binaryPath), ["-e", "process.stderr.write(process.env.SANDBOX_TOKEN + '\\n'); process.exit(7)"], {
         cwd,
         env: { ...options?.environment },
         stdin: "",
@@ -694,7 +694,7 @@ describe("Agent Box provider execution", () => {
     })
 
     await expect(createProviderAgentAdapter<PullRequestOptions>({
-      box: { ...testBox(repository), home: undefined },
+      sandbox: { ...testSandbox(repository), home: undefined },
       provider: "codex",
       providerSettings: { binaryPath: process.execPath },
       // SAFETY: The fixture provides the provider invocation fields read by the adapter.
@@ -705,19 +705,19 @@ describe("Agent Box provider execution", () => {
     expect(launched).toMatchObject({ code: 7, stderr: "token\n" })
   })
 
-  it.each(["contents", "from", "seed"] as const)("omits launch diagnostics containing Box Home %s credentials", async (source) => {
+  it.each(["contents", "from", "seed"] as const)("omits launch diagnostics containing Sandbox Home %s credentials", async (source) => {
     const root = await temporaryRoot()
     const { first, repository } = await gitRepository(root)
     const secret = "private-home-credential"
-    const sourceRoot = await mkdtemp(join(process.cwd(), ".box-home-test-"))
+    const sourceRoot = await mkdtemp(join(process.cwd(), ".sandbox-home-test-"))
     roots.push(sourceRoot)
     const sourcePath = join(sourceRoot, "credentials")
     await writeFile(sourcePath, secret)
     const file = source === "from" ? { from: relative(process.cwd(), sourcePath) } : { contents: async () => secret }
-    const home: NonNullable<TestBox["home"]> = source === "seed"
+    const home: NonNullable<TestSandbox["home"]> = source === "seed"
       ? { state: { ".config": { key: crypto.randomUUID(), seed: { credentials: file } } } }
       : { files: { ".config/credentials": file } }
-    const threadId = `box-home-failure-${source}`
+    const threadId = `sandbox-home-failure-${source}`
     let launched: LauncherResult | undefined
     providerRuntime(threadId, async ({ cwd }) => {
       const options = createProviderRuntime.mock.lastCall?.[0]
@@ -729,35 +729,35 @@ describe("Agent Box provider execution", () => {
       throw new Error("Codex App Server process exited with code 7")
     })
     await expect(createProviderAgentAdapter<PullRequestOptions>({
-      box: { ...testBox(repository), home, runtime: { kind: "trusted-host", stateRoot: join(root, "state") } },
+      sandbox: { ...testSandbox(repository), home, runtime: { kind: "trusted-host", stateRoot: join(root, "state") } },
       provider: "codex",
       providerSettings: { binaryPath: process.execPath },
       // SAFETY: The fixture provides the provider invocation fields read by the adapter.
     }).generate(invocationContext(threadId, { prompt: "review", options: { ref: "refs/heads/first", sha: first, token: "token" } }) as never)).rejects.toMatchObject({
       code: "PROVIDER_LAUNCH_FAILED",
-      details: { exitCode: 7, stderr: "[Box Home diagnostic output omitted]" },
+      details: { exitCode: 7, stderr: "[Sandbox Home diagnostic output omitted]" },
     })
     expect(launched).toMatchObject({ code: 7, stderr: secret })
   })
 
-  it("checks Box requirements before the provider starts", async () => {
+  it("checks Sandbox requirements before the provider starts", async () => {
     const root = await temporaryRoot()
     const { first, repository } = await gitRepository(root)
-    const runtime = providerRuntime("box-requires", async () => undefined)
+    const runtime = providerRuntime("sandbox-requires", async () => undefined)
 
     await expect(createProviderAgentAdapter<PullRequestOptions>({
-      box: testBox(repository, ["vitehub-missing-box-command"]),
+      sandbox: testSandbox(repository, ["vitehub-missing-sandbox-command"]),
       provider: "codex",
       providerSettings: { binaryPath: process.execPath },
       // SAFETY: The fixture provides the provider invocation fields read by the adapter.
-    }).generate(invocationContext("box-requires", { prompt: "review", options: { ref: "refs/heads/first", sha: first, token: "token" } }) as never)).rejects.toThrow("vitehub-missing-box-command")
+    }).generate(invocationContext("sandbox-requires", { prompt: "review", options: { ref: "refs/heads/first", sha: first, token: "token" } }) as never)).rejects.toThrow("vitehub-missing-sandbox-command")
     expect(runtime.startSession).not.toHaveBeenCalled()
   })
 
-  it("ends the relay when the Box provider exits while its input stays open", async () => {
+  it("ends the relay when the Sandbox provider exits while its input stays open", async () => {
     const root = await temporaryRoot()
     const { first, repository } = await gitRepository(root)
-    const threadId = "box-open-input"
+    const threadId = "sandbox-open-input"
     let launched: LauncherResult | undefined
     providerRuntime(threadId, async ({ cwd }) => {
       const options = createProviderRuntime.mock.lastCall?.[0]
@@ -770,7 +770,7 @@ describe("Agent Box provider execution", () => {
     })
 
     await createProviderAgentAdapter<PullRequestOptions>({
-      box: testBox(repository),
+      sandbox: testSandbox(repository),
       provider: "codex",
       providerSettings: { binaryPath: process.execPath },
       // SAFETY: The fixture provides the provider invocation fields read by the adapter.
@@ -778,37 +778,37 @@ describe("Agent Box provider execution", () => {
     expect(launched).toMatchObject({ code: 0, stdout: "done\n" })
   })
 
-  it("fails the invocation when the Box session cannot close", async () => {
+  it("fails the invocation when the Sandbox session cannot close", async () => {
     const root = await temporaryRoot()
     const { first, repository } = await gitRepository(root)
-    const threadId = "box-close-failure"
-    boxCloseFailure.error = new Error("Box cwd synchronization failed")
+    const threadId = "sandbox-close-failure"
+    sandboxCloseFailure.error = new Error("Sandbox cwd synchronization failed")
     const runtime = providerRuntime(threadId, async () => undefined)
 
     const invocation = createProviderAgentAdapter<PullRequestOptions>({
-      box: testBox(repository),
+      sandbox: testSandbox(repository),
       provider: "codex",
       providerSettings: { binaryPath: process.execPath },
       // SAFETY: The fixture provides the provider invocation fields read by the adapter.
     }).generate(invocationContext(threadId, { prompt: "review", options: { ref: "refs/heads/first", sha: first, token: "token" } }) as never)
     await expect(invocation).rejects.toBeInstanceOf(AggregateError)
-    await expect(invocation).rejects.toMatchObject({ errors: expect.arrayContaining([boxCloseFailure.error]) })
+    await expect(invocation).rejects.toMatchObject({ errors: expect.arrayContaining([sandboxCloseFailure.error]) })
     expect(runtime.startSession).toHaveBeenCalled()
   })
 
-  it("rejects Box execution on Windows hosts before the Box opens", async () => {
+  it("rejects Sandbox execution on Windows hosts before the Sandbox opens", async () => {
     const root = await temporaryRoot()
     const { first, repository } = await gitRepository(root)
-    const runtime = providerRuntime("box-windows", async () => undefined)
+    const runtime = providerRuntime("sandbox-windows", async () => undefined)
     const platform = Object.getOwnPropertyDescriptor(process, "platform")!
     Object.defineProperty(process, "platform", { ...platform, value: "win32" })
     try {
       await expect(createProviderAgentAdapter<PullRequestOptions>({
-        box: testBox(repository),
+        sandbox: testSandbox(repository),
         provider: "codex",
         providerSettings: { binaryPath: process.execPath },
         // SAFETY: The fixture provides the provider invocation fields read by the adapter.
-      }).generate(invocationContext("box-windows", { prompt: "review", options: { ref: "refs/heads/first", sha: first, token: "token" } }) as never)).rejects.toMatchObject({
+      }).generate(invocationContext("sandbox-windows", { prompt: "review", options: { ref: "refs/heads/first", sha: first, token: "token" } }) as never)).rejects.toMatchObject({
         code: "AGENT_R0963",
         message: expect.stringContaining("POSIX Node host"),
       })

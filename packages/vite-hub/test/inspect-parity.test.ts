@@ -26,7 +26,7 @@ const sectionByKind = {
   database: "databases",
   queue: "queues",
   "rate-limit": "rate-limits",
-  sandbox: "sandboxes",
+  "sandbox-task": "sandbox-tasks",
   schedule: "schedules",
   workflow: "workflows",
   workspace: "workspaces",
@@ -40,14 +40,14 @@ describe("Definition inspection parity", () => {
     await writeProjectFile(root, "server/databases/config.ts", "export default defineDatabase({ schema: { notes } })\n")
     await writeProjectFile(root, "server/queues/email.ts", "export default defineQueue({ handler() {} })\n")
     await writeProjectFile(root, "server/api/login.post.ts", 'export default defineHandler(async (event) => { await requireRateLimit(event, "login", { limit: 5, window: "1m" }) })\n')
-    await writeProjectFile(root, "src/runner.sandbox.ts", "export default defineSandbox({ run: async () => ({}) })\n")
+    await writeProjectFile(root, "src/runner.sandbox-task.ts", "export default defineSandboxTask({ run: async () => ({}) })\n")
     await writeProjectFile(root, "server/schedules/adhoc.ts", "export default defineSchedule({ cron: '0 9 * * *', handler() {} })\n")
     await writeProjectFile(root, "server/workflows/welcome.ts", "export default defineWorkflow(async () => {})\n")
     await writeProjectFile(root, "server/workspaces/docs/config.ts", "export default defineWorkspace({ store: { provider: 'memory' } })\n")
 
     const config = await resolveConfig({
       logLevel: "silent",
-      plugins: [vitehub({ blob: false, console: false, database: true, env: false, preset: "cloudflare", queue: true, rateLimit: true, sandbox: true, schedule: true, workflow: true, workspace: true })],
+      plugins: [vitehub({ blob: false, console: false, database: true, env: false, preset: "cloudflare", queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })],
       root,
     }, "build")
     const inspectors = await collectViteHubDefinitionInspectors(config.plugins)

@@ -58,7 +58,7 @@ describe("built-in deployment preset integration", () => {
         rateLimit: false,
       })],
     }, "build")
-    expect(config.plugins.map(plugin => plugin.name)).not.toContain("@vite-hub/sandbox/vite")
+    expect(config.plugins.map(plugin => plugin.name)).not.toContain("@vite-hub/sandbox-task/vite")
     expect((config as typeof config & { nitro?: { preset?: string } }).nitro?.preset).toBeTruthy()
   })
 

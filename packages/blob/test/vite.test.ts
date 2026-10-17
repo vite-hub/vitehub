@@ -9,8 +9,7 @@ import { promisify } from "node:util"
 import { build as bundle } from "esbuild"
 import { H3Event, toResponse } from "h3"
 import { describe, expect, it, vi } from "vitest"
-import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
-import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
+import { createProviderDeploymentOutputGenerationState, getProviderRuntimeModule, getVercelRuntimePackages, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
@@ -22,29 +21,7 @@ function driverImports(source: string) {
   return source.match(/from\s+["'][^"']+\/drivers\/[^"']+["']/g) || []
 }
 
-async function runProviderOutputHooks(plugin: ReturnType<typeof hubBlob>) {
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this callable Vite lifecycle hook in the focused test.
-  await (plugin.buildEnd as unknown as () => void | Promise<void>)()
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this object Vite lifecycle hook in the focused test.
-  await (plugin.closeBundle as unknown as { handler: () => void | Promise<void> }).handler()
-}
-
 describe("hubBlob", () => {
-  it.each([undefined, "custom-output"])("omits standalone artifacts when Nitro owns Cloudflare output %s", async (outputDir) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-inspection-output-"))
-    try {
-      const plugin = hubBlob({ driver: "cloudflare-r2", bucketName: "assets" }, { nitroOwned: true })
-      await (plugin.configResolved as (config: unknown) => Promise<void>)({
-        root, build: { outDir: "dist" }, command: "build",
-        nitro: { preset: "cloudflare_module", output: { dir: outputDir } },
-      })
-      expect(await collectViteHubProviderOutputEntries([plugin])).toEqual([])
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
   it.each([undefined, { authorize: false }, { authorize: true }])("only restarts authorized Blob serving for Auth discovery changes (%j)", async (serve) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-auth-watcher-"))
     try {
@@ -77,10 +54,6 @@ describe("hubBlob", () => {
     }
   })
 
-  it("serializes shared Provider Output finalization", () => {
-    expect(hubBlob().closeBundle).toMatchObject({ order: "post", sequential: true })
-  })
-
   it("uses the bundled driver in the Nitro Vercel shared runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-blob-nitro-vercel-runtime-"))
     try {
@@ -95,6 +68,53 @@ describe("hubBlob", () => {
       const runtime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
       expect(runtime).toContain("/drivers/vercel-bundled")
       expect(runtime).not.toContain('/drivers/vercel"')
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    ["cloudflare_module", "cloudflare", { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" }],
+    ["vercel", "vercel", { access: "private", driver: "vercel-blob" }],
+  ] as const)("gives sibling %s host functions the Nitro Blob runtime module", async (preset, provider, store) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-sibling-runtime-"))
+    try {
+      const plugin = hubBlob(store)
+      const resolvedConfig = { build: { outDir: "dist" }, command: "build", nitro: { preset }, plugins: [{ name: "nitro:main" }], root }
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)(resolvedConfig as never)
+      const context = { environment: {} }
+      const sibling = createProviderDeploymentOutputGenerationState()
+      const catalog = useProviderOutputCatalog(resolvedConfig)
+      sibling.capture(context, catalog)
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this callable Vite lifecycle hook in the focused test.
+      ;(plugin.buildStart as unknown as (this: unknown) => void).call(context)
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this callable Vite lifecycle hook in the focused test.
+      ;(plugin.buildEnd as unknown as (this: unknown, error?: Error) => void).call(context)
+
+      const generation = sibling.get(context)
+      expect(getProviderRuntimeModule(catalog, "blob", provider, generation)).toBe(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"))
+      expect(getVercelRuntimePackages(catalog, "blob", generation).map(runtimePackage => runtimePackage.name))
+        .toEqual(provider === "vercel" ? ["@vite-hub/blob"] : [])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("gives sibling host functions no Blob runtime for local fs stores", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-sibling-fs-"))
+    try {
+      const plugin = hubBlob({ driver: "fs" })
+      const resolvedConfig = { build: { outDir: "dist" }, command: "build", nitro: { preset: "vercel" }, plugins: [{ name: "nitro:main" }], root }
+      await (plugin.configResolved as (config: unknown) => void | Promise<void>)(resolvedConfig as never)
+      const context = { environment: {} }
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this callable Vite lifecycle hook in the focused test.
+      ;(plugin.buildStart as unknown as (this: unknown) => void).call(context)
+      // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: hubBlob owns this callable Vite lifecycle hook in the focused test.
+      ;(plugin.buildEnd as unknown as (this: unknown, error?: Error) => void).call(context)
+
+      expect(getProviderRuntimeModule(useProviderOutputCatalog(resolvedConfig), "blob", "vercel")).toBeUndefined()
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -236,7 +256,7 @@ describe("hubBlob", () => {
       bucketName: "assets",
       driver: "cloudflare-r2",
       serve: true,
-    }, { nitroOwned: true })
+    })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
     const generatedPlugin = ".vitehub/nitro/blob/plugin.ts"
@@ -304,7 +324,7 @@ describe("hubBlob", () => {
     try {
       await mkdir(appRoot)
       await writeFile(join(root, "package.json"), JSON.stringify({ name: "blob-nuxt-app" }))
-      const plugin = hubBlob({ driver: "fs" }, { nitroOwned: true })
+      const plugin = hubBlob({ driver: "fs" })
       const resolvedConfig = {
         build: { outDir: "dist" },
         nitro: {},
@@ -609,11 +629,8 @@ describe("hubBlob", () => {
     expect(resolved).not.toHaveProperty("nitro.cloudflare.wrangler.observability")
   })
 
-  it("lets a facade declare Nitro ownership without a separate Nitro Vite plugin", () => {
-    const plugin = hubBlob(
-      { bucketName: "vitehub-blob", driver: "cloudflare-r2" },
-      { nitroOwned: true },
-    )
+  it("contributes R2 bindings from the Cloudflare Nitro preset", () => {
+    const plugin = hubBlob({ bucketName: "vitehub-blob", driver: "cloudflare-r2" })
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const userConfig = { nitro: { preset: "cloudflare-module" } }
 
@@ -711,9 +728,7 @@ describe("hubBlob", () => {
       root,
     }
     await configResolved(resolved as never)
-    await runProviderOutputHooks(plugin)
 
-    expect(existsSync(join(root, "dist", toSafeAppName(root), "index.js"))).toBe(true)
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
     expect(nitroPlugin).not.toContain("cloudflare:workers")
     const resolvedHandlers = ((resolved as { nitro: { handlers?: { handler: string }[] } }).nitro.handlers) ?? []
@@ -748,26 +763,9 @@ describe("hubBlob", () => {
     expect(resolved).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets.0")
   })
 
-  it("does not contribute Cloudflare config for plain Vite or non-R2 stores", { timeout: 30_000 }, async () => {
+  it("does not contribute R2 bindings for non-R2 stores", () => {
     const config = (plugin: ReturnType<typeof hubBlob>, value: Record<string, unknown>) =>
       (plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown)(value, { command: "build" })
-    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-plain-vite-"))
-    const previousPreset = process.env.NITRO_PRESET
-    process.env.NITRO_PRESET = "cloudflare_module"
-    try {
-      const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
-      const plainVite = { build: { outDir: "dist" }, root }
-      config(plugin, plainVite)
-      expect(plainVite).not.toHaveProperty("nitro.cloudflare")
-      await (plugin.configResolved as (config: unknown) => void | Promise<void>)(plainVite as never)
-      await runProviderOutputHooks(plugin)
-      expect(existsSync(join(root, "dist", toSafeAppName(root), "index.js"))).toBe(true)
-    }
-    finally {
-      if (typeof previousPreset === "undefined") delete process.env.NITRO_PRESET
-      else process.env.NITRO_PRESET = previousPreset
-    }
-
     const fsOnCloudflare = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }] }
     config(hubBlob({ base: ".vitehub/data/blob", driver: "fs" }), fsOnCloudflare)
     expect(fsOnCloudflare).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets")

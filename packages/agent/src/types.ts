@@ -32,7 +32,7 @@ import type {
   WorkspaceRules,
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
-import type { BoxDefinition, BoxToolchain } from "@vite-hub/box"
+import type { SandboxDefinition, SandboxToolchain } from "@vite-hub/sandbox"
 import type { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
 import type { ReplayChannelResult } from "./channel-replay.ts"
 import type {
@@ -70,12 +70,12 @@ export type AgentCapabilities = RuntimeCapabilities
 
 export interface AgentRuntimeConfig {}
 
-/** Box used by a built-in provider Driver. Callbacks resolve once per invocation. */
-export type AgentBoxDefinition<
+/** Sandbox used by a built-in provider Driver. Callbacks resolve once per invocation. */
+export type AgentSandboxDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
-> = BoxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
+> = SandboxDefinition<AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>>
 
 export interface AgentHostIdentity {
   readonly name: string
@@ -1559,10 +1559,10 @@ export interface AgentProviderDriverOptions<
   sessionStorePath?: string
   /**
    * Node.js and package manager pinned by the prepared checkout, with the same declaration as
-   * `box.toolchain`. ViteHub provisions them on this host and puts them first on the PATH of the
-   * provider and every command it starts. With `defineAgent({ box })`, declare `box.toolchain` instead.
+   * `sandbox.toolchain`. ViteHub provisions them on this host and puts them first on the PATH of the
+   * provider and every command it starts. With `defineAgent({ sandbox })`, declare `sandbox.toolchain` instead.
    */
-  toolchain?: BoxToolchain
+  toolchain?: SandboxToolchain
 }
 
 export interface AgentProviderSealedCredential {
@@ -1863,8 +1863,8 @@ type AgentSharedSettings<
   TIntercept = never,
   TDataInput = TData,
 > = {
-  /** Run the built-in provider Driver inside this Box. Each invocation opens a new Box session. */
-  box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  /** Run the built-in provider Driver inside this Sandbox. Each invocation opens a new Sandbox session. */
+  sandbox?: AgentSandboxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   /** Per-invocation token and cost limits. */
   budget?: AgentBudgetOptions
   /**
@@ -1944,7 +1944,7 @@ export interface AgentDefinition<
   TInterceptOutput = TOutput,
 > extends AgentDataCarrier<TDataInput>, AgentDataOutputCarrier<TData>, AgentDriverOutputCarrier<TDriverOutput>, AgentInterceptOutputCarrier<TInterceptOutput> {
   [agentOutputType]?: TOutput
-  box?: AgentBoxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  sandbox?: AgentSandboxDefinition<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   /** Per-invocation token and cost limits. */
   budget?: AgentBudgetOptions
   github?: AgentGitHub
@@ -2732,7 +2732,7 @@ export interface AgentInspectionProviderMetadata {
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
   sessionStore?: "sqlite"
-  toolchain?: BoxToolchain
+  toolchain?: SandboxToolchain
 }
 
 export interface AgentInspectionDriverMetadata {
