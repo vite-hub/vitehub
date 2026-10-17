@@ -24,15 +24,13 @@ export type {
   CollectionOptions,
   CollectionPage,
   CollectionPageOptions,
+  CollectionReadOptions,
+  CollectionQueryBuilder,
   CollectionQuery,
   CollectionQueryInput,
   CollectionRequestQuery,
-  CollectionSource,
-  CursorCollectionSource,
+  ProviderCollectionOptions,
   ProviderCollectionLoader,
-  ProviderCollectionPage,
-  ProviderCollectionSource,
-  SourceCollectionOptions,
 } from "./core/collection.ts"
 export { combineSources } from "./core/combine-sources.ts"
 export { defineSource, defineSources } from "./core/define.ts"
