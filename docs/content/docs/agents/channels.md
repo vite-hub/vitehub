@@ -67,6 +67,20 @@ concurrency modes use the same admission policy. The provider must deliver the
 messages first. For Teams, the Team app installation needs channel-message read
 permission and consent.
 
+## Ignore other bots
+
+Built-in chat Channels ignore messages from bot authors, including mentions and direct messages. Two bots that answer each other can loop without end. The Chat SDK already skips the Agent's own messages. Set `messages.allowBots: true` on the Agent or on one Channel to admit other bots:
+
+```ts
+teams({
+  messages: {
+    allowBots: true,
+  },
+})
+```
+
+An ignored bot message is recorded as a `rejected` Channel delivery. It does not reach `messages.filter`.
+
 ## Act on the Channel message in hooks
 
 The Channel defines the connector. The Agent reacts in its hooks. `agent:finish` and `agent:error` hooks receive `event.message`, a handle for the Channel message that started the Invocation.

@@ -5325,6 +5325,11 @@ async function admitChatSdkMessage(
   historyThroughCurrent = false,
   inlineKey?: string,
 ) {
+  // The Chat SDK skips the Agent's own messages. Other bots can loop with the Agent, so they need `allowBots`.
+  if (message.author.isBot === true && options?.allowBots !== true) {
+    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    return
+  }
   let input = createChatTriggerInput(
     chatRegistrationOrigin(registration),
     thread,
