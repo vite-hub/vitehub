@@ -11,6 +11,7 @@ import {
 } from "../client/connections-management";
 import ConsoleConnectionsActivity from "./console-connections-activity.vue";
 import ConsoleConnectionsApprovals from "./console-connections-approvals.vue";
+import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{ connection: ConnectionInspection; endpoint: string }>();
 const emit = defineEmits<{ changed: [] }>();
@@ -23,7 +24,8 @@ watch(
 );
 const tab = ref("details");
 const busy = ref(false);
-const error = ref("");
+const error = ref<unknown>();
+const keyBlocked = ref(false);
 const notice = ref("");
 const revoking = ref(false);
 const confirmation = ref("");
@@ -33,12 +35,13 @@ let authorizing = false;
 
 async function run(action: () => Promise<void>) {
   busy.value = true;
-  error.value = "";
+  error.value = undefined;
+  keyBlocked.value = false;
   notice.value = "";
   try {
     await action();
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : "Could not complete the request.";
+    error.value = cause;
   } finally {
     busy.value = false;
   }
@@ -69,11 +72,9 @@ function connect() {
   authorizing = true;
 }
 function openKeyForm() {
-  error.value = "";
-  if (!canSendConnectionKey(window.location)) {
-    error.value = "Open the Console over HTTPS to set an API key.";
-    return;
-  }
+  error.value = undefined;
+  keyBlocked.value = !canSendConnectionKey(window.location);
+  if (keyBlocked.value) return;
   settingKey.value = !settingKey.value;
 }
 function setKey() {
@@ -205,7 +206,8 @@ onBeforeUnmount(() => window.removeEventListener("focus", onFocus));
         />
         <UButton label="Reload" color="neutral" variant="ghost" :loading="busy" @click="reload" />
       </div>
-      <p v-if="error" role="alert" class="text-sm text-error">{{ error }}</p>
+      <ConsoleState v-if="error" compact :error="error" title="Could not complete the request" />
+      <p v-if="keyBlocked" role="alert" class="text-sm text-error">Open the Console over HTTPS to set an API key.</p>
       <p v-if="notice" role="status" class="text-sm text-muted">{{ notice }}</p>
       <form v-if="settingKey" class="space-y-3" @submit.prevent="setKey">
         <UFormField

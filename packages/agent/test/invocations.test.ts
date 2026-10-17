@@ -1010,6 +1010,7 @@ describe("Agent Invocations", () => {
   it("rejects startup when a stalled store prevents cancellation verification", async () => {
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
+      enforcement: "strict",
       store: {
         ...memory,
         create: () => new Promise(() => {}),
@@ -1026,7 +1027,7 @@ describe("Agent Invocations", () => {
 
   it.each([false, true])("rejects stalled journal startup before lifecycle hooks, driver failure: %s", async (fail) => {
     const memory = createMemoryAgentInvocationStore()
-    const invocations = defineAgentInvocations({ store: {
+    const invocations = defineAgentInvocations({ enforcement: "strict", store: {
       ...memory,
       create: () => new Promise(() => {}),
     } })
@@ -1249,7 +1250,7 @@ describe("Agent Invocations", () => {
     const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
     let resolveCreate!: () => void
     const created = new Promise<void>((resolve) => { resolveCreate = resolve })
-    const invocations = defineAgentInvocations({ store: {
+    const invocations = defineAgentInvocations({ enforcement: "strict", store: {
       ...memory,
       async create(input) {
         await createGate
@@ -3715,6 +3716,7 @@ describe("Agent Invocations", () => {
     let releaseCreate!: () => void
     const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
     const invocations = defineAgentInvocations({
+      enforcement: "strict",
       store: {
         ...memory,
         async create(input) {
@@ -4817,7 +4819,7 @@ describe("Agent Invocations", () => {
     }
     const agent = defineAgent({
       driver: { run: () => "done" },
-      invocations: defineAgentInvocations({ store }),
+      invocations: defineAgentInvocations({ enforcement: "strict", store }),
       runtime: false,
     })
 
@@ -4867,6 +4869,7 @@ describe("Agent Invocations", () => {
     let runningFailures = 1
     const recoveryTasks: Array<Promise<unknown>> = []
     const invocations = defineAgentInvocations({
+      enforcement: "strict",
       store: {
         ...memory,
         update(id, input, claimId) {
