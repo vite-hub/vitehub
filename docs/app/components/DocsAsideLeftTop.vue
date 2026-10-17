@@ -20,7 +20,8 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDo
       class="vh-sidebar-search"
       :ui="{
         base: 'h-10 rounded-none border-0 border-b border-default bg-muted/20 ps-5 pe-5 text-muted hover:bg-muted/40 hover:text-highlighted',
-        trailing: 'ms-auto flex items-center gap-1',
+        // Touch screens have no keyboard shortcut to show.
+        trailing: 'ms-auto flex items-center gap-1 pointer-coarse:hidden',
       }"
     />
 

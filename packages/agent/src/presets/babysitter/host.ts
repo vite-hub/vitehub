@@ -96,7 +96,7 @@ export async function readGitHubAppEnvironment(context: Pick<AgentCallbackContex
 }
 
 /** The repositories that the PR filter allows. The Babysitter discovers open PRs only there. */
-export function babysitterRepositories(filter: unknown): string[] {
+function babysitterRepositories(filter: unknown): string[] {
   const allow = isRuntimeRecord(filter) && isRuntimeRecord(filter.repository) ? filter.repository.allow : undefined;
   const repositories = Array.isArray(allow) ? allow.filter((value): value is string => hasRuntimeType(value, "string") && /^[\w.-]+\/[\w.-]+$/.test(value)) : [];
   if (!repositories.length) throw new Error('[vitehub] Set options.filter.repository.allow to the "owner/name" repositories that the Babysitter serves.');

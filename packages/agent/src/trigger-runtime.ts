@@ -459,7 +459,6 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       registration,
     }))
     .filter((entry): entry is { headerValue: string | null, registration: AgentWebhookRegistrationDefinition } =>
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored verifier callbacks require runtime validation at the webhook boundary.
       entry.headerValue !== null || (typeof entry.registration.signature === "object" && entry.registration.signature !== null && "verify" in entry.registration.signature && typeof entry.registration.signature.verify === "function"))
 
   if (!targeted.length) {
@@ -486,7 +485,6 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     if (secretToken === false) {
       return { registration, verified: true }
     }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Webhook signature verifiers cross the user configuration boundary and require runtime validation.
     if (typeof registration.signature === "object" && registration.signature !== null && "verify" in registration.signature && typeof registration.signature.verify === "function") {
       const rawBody = await readRawBody()
       if (await registration.signature.verify({ context: verificationContext, header: headerValue ?? "", rawBody, request, secret: secretToken || "" })) {
@@ -611,16 +609,16 @@ export async function resolveAgentTriggerInvocation<
   }
   const result = await trigger.invoke(validatedInput)
   if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
-  const invokedRun = { ...(context.run || {}), ...(result.run || {}) }
+  const invokedRun = result.run ? { ...context.run, ...result.run } : context.run
   const invoked = withWebhookDeliveryRun({
     ...result,
-    ...(Object.keys(invokedRun).length ? { run: invokedRun } : {}),
+    ...(invokedRun ? { run: invokedRun } : {}),
   }, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
-  const inheritedRun = { ...(invoked.run || {}) }
+  const inheritedRun = invoked.run && { ...invoked.run }
   const run = annotations
-    ? { ...(Object.keys(inheritedRun).length ? inheritedRun : { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun.annotations, ...annotations } }
-    : Object.keys(inheritedRun).length ? inheritedRun : undefined
+    ? { ...(inheritedRun ?? { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun?.annotations, ...annotations } }
+    : inheritedRun
   return resolveAgentTriggerInvocationResult({
     ...invoked,
     ...(run ? { run } : {}),

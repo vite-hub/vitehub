@@ -1879,6 +1879,16 @@ function githubActivityAnswer(entry: GitHubActivityHistoryEntry): string | undef
   return githubActivityText(entry.summary, 2_000)
 }
 
+/** The live state of the current run, so an older run's answer is never read as current. */
+function githubActivityStatus(activity: AgentActivityUpdate): string | undefined {
+  const summary = activity.summary?.trim()
+  const detail = summary ? githubActivityText(summary, 2_000) : undefined
+  if (activity.status === "queued") return `Queued\n\n${detail || "Waiting for a worker slot."}`
+  if (activity.status === "running") return `In progress\n\n${detail || "The agent is working. Open the current session for live details."}`
+  if (activity.status === "waiting") return `Next step\n\n${detail || "Waiting for new pull request evidence."}`
+  return undefined
+}
+
 /** Saved PR projections and invocation events can describe the same linked session. */
 function githubActivitySessions(state: GitHubActivityCommentState): GitHubActivityCommentState {
   const sessions: GitHubActivityHistoryEntry[] = []
@@ -1900,14 +1910,19 @@ function renderGithubActivity(
   state = githubActivitySessions(state)
   const sections = [encodeGithubActivityState(state)]
   const current = state.current
-  const sessions = [current, ...state.history].filter((entry): entry is GitHubActivityHistoryEntry => !!entry && (entry.links.length > 0 || entry.status !== "queued"))
+  // Earlier runs without a session link have nothing to open; only the current run may show unlinked.
+  const sessions = [current, ...state.history].filter((entry, index): entry is GitHubActivityHistoryEntry =>
+    !!entry && (entry.links.length > 0 || (index === 0 && entry.status !== "queued")))
   const labels: Record<AgentActivityStatus, string> = {
     queued: "Starting", running: "Running", waiting: "Waiting",
     completed: "Completed", failed: "Failed", cancelled: "Cancelled",
   }
+  const status = githubActivityStatus(activity)
   if (activity.status === "queued" && !current?.links.length) {
-    sections.push(activity.summary ? githubActivityText(activity.summary, 2_000) : "Waiting to start.")
-    if (!sessions.length) return sections.join("\n\n")
+    if (!sessions.length) {
+      if (status) sections.push(status)
+      return sections.join("\n\n")
+    }
   }
   sections.push([
     "| Session | Status | Started | Duration |",
@@ -1917,15 +1932,10 @@ function renderGithubActivity(
       return `| ${links || "Pending"} | ${entry !== current && entry.status === "running" ? "Last seen running" : entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry, entry === current)} |`
     }),
   ].join("\n"))
-  let latestAnswer: string | undefined
-  for (const entry of [current, ...state.history]) {
-    if (!entry) continue
-    latestAnswer = githubActivityAnswer(entry)
-    if (latestAnswer !== undefined) break
-  }
-  if (latestAnswer) {
-    sections.push(`Latest answer\n\n${latestAnswer}`)
-  }
+  if (status) sections.push(status)
+  // Earlier answers stay in "Final answers"; only a finished current run has a latest result.
+  const latestAnswer = current && ["completed", "failed", "cancelled"].includes(current.status ?? "") ? githubActivityAnswer(current) : undefined
+  if (latestAnswer) sections.push(`Latest result\n\n${latestAnswer}`)
   if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"))
   if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1_000)}`)
   const answers = [current, ...state.history]

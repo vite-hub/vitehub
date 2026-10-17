@@ -15,8 +15,11 @@ export type ProviderAttemptOutcome = 'success' | 'retryable-failure' | 'other-fa
 const progressBudgetSchema = v.object({
   head: v.string(), limit: v.pipe(count, v.minValue(1)), count, exhausted: v.boolean(), evidence: v.optional(v.string()),
   creditedEvidence: v.array(v.string()), resetReason: v.optional(v.string()),
+  grants: v.optional(v.array(v.picklist(['conflict', 'bot-feedback']))),
 })
-export interface ProgressBudget { head: string; limit: number; count: number; exhausted: boolean; evidence?: string; creditedEvidence: string[]; resetReason?: string }
+/** New evidence that gives an exhausted head one more pass, once per head. */
+export type ProgressGrant = 'conflict' | 'bot-feedback'
+export interface ProgressBudget { head: string; limit: number; count: number; exhausted: boolean; evidence?: string; creditedEvidence: string[]; resetReason?: string; grants?: ProgressGrant[] }
 export function parseProgressBudget(value: unknown): ProgressBudget { return v.parse(progressBudgetSchema, value) }
 /** The host verifies progress from GitHub/provider state, never from Agent prose. */
 export type ProgressOutcome = { kind: 'no-progress' } | { kind: 'verified'; evidence: string }

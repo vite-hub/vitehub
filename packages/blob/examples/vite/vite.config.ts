@@ -1,17 +1,20 @@
-import { resolve } from "node:path"
-
 import { defineConfig } from "vite"
+import { nitro } from "nitro/vite"
 
 import { hubBlob } from "@vite-hub/blob/vite"
 
 export default defineConfig({
-  appType: "custom",
-  build: {
-    ssr: true,
-    rolldownOptions: {
-      input: resolve(import.meta.dirname, "src/server.ts"),
-    },
+  nitro: {
+    preset: "cloudflare-module",
+    serverEntry: "./src/server.ts",
   },
-  plugins: [hubBlob()],
-  blob: {},
+  plugins: [
+    hubBlob(),
+    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
+    nitro() as never,
+  ],
+  blob: {
+    driver: "cloudflare-r2",
+    bucketName: "vitehub-blob",
+  },
 })

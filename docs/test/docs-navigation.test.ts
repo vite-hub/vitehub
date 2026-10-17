@@ -37,6 +37,27 @@ const serverPrimitiveSections = [
 ];
 
 describe("docs product navigation", () => {
+  it("keeps platform topics in the catalog but out of the product rail", () => {
+    const catalog = getDocsCatalog(docsManifest.sections);
+    const rail = getDocsRailCatalog(docsManifest.sections);
+    expect(catalog.find(group => group.category === "Platform")?.sections.map(section => section.id))
+      .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "reference"]));
+    const railSectionIds = rail.flatMap(group => group.sections.map(section => section.id));
+    for (const sectionId of ["development", "frameworks-hosts", "reference"]) {
+      expect(railSectionIds).not.toContain(sectionId);
+    }
+    expect(rail.map(group => group.category)).toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
+    expect(rail.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
+  });
+
+  it("labels UI catalog tiles as UI components", () => {
+    const section = (id: string) => docsManifest.sections.find(candidate => candidate.id === id)!;
+    expect(getDocsSectionKind(section("ui"))).toBe("UI components");
+    expect(getDocsSectionKind(section("agents"))).toBe("Agents");
+    expect(getDocsSectionKind(section("getting-started"))).toBe("Get started");
+    expect(getDocsSectionKind(section("reference"))).toBe("Platform");
+  });
+
   it("files every section under one catalog category", () => {
     expect(getUncategorizedDocsSections(docsManifest.sections)).toEqual([]);
 
@@ -52,21 +73,6 @@ describe("docs product navigation", () => {
     expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
   });
 
-  it("keeps the rail concise while retaining Platform in the catalog", () => {
-    expect(getDocsRailCatalog(docsManifest.sections).map(group => group.category))
-      .toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
-    expect(getDocsCatalog(docsManifest.sections).some(group => group.category === "Platform")).toBe(true);
-  });
-
-  it("labels product sections for the catalog consumer", () => {
-    const kind = (id: string) => getDocsSectionKind(docsManifest.sections.find(section => section.id === id)!);
-    expect(kind("kv")).toBe("Server Primitive");
-    expect(kind("agents")).toBe("Agent runtime");
-    expect(kind("ui")).toBe("UI components");
-    expect(kind("getting-started")).toBe("Getting started");
-    expect(kind("reference")).toBe("Platform");
-  });
-
   it("orders every Server Primitive section by the product page template", () => {
     const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
 
@@ -80,9 +86,9 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
-      // Template pages keep their order when related topic pages sit between them.
+      // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
-      expect(templateTitles.every((title, index) => titles.indexOf(title) === pages.findIndex(page => page.title === title)), sectionId).toBe(true);
+      expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -167,7 +173,7 @@ describe("docs product navigation", () => {
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle)
+    expect(getDocsPageByPath("/docs/getting-started/concepts/runtime-policy-approvals-and-traces")?.title)
       .toBe("Runtime policy, approvals, and traces");
   });
 

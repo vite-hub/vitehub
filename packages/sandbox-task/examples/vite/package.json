@@ -1,0 +1,19 @@
+{
+  "name": "@vite-hub/sandbox-task-example-vite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "catalog:sandbox",
+    "@vercel/sandbox": "catalog:sandbox",
+    "@vite-hub/sandbox-task": "workspace:*",
+    "h3": "catalog:unjs",
+    "vite": "catalog:vite"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "vite-plus": "catalog:tooling"
+  }
+}

@@ -1,6 +1,5 @@
 import { parseCronExpression } from "cron-schedule"
 
-import type { RuntimeScheduleRecord } from "../types.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 const weekdayIndexes = new Map([
@@ -13,13 +12,16 @@ const weekdayIndexes = new Map([
   ["Sat", 6],
 ])
 
-const minuteMs = 60_000
-const hourMinutes = 60
-/** Longest search window for the next run. It covers leap-day crons such as `0 0 29 2 *`. */
-const nextRunHorizonMs = 4 * 366 * 24 * hourMinutes * minuteMs
 const timeZoneFormatters = new Map<string, Intl.DateTimeFormat>()
 
 type ScheduleCron = ReturnType<typeof parseCronExpression>
+
+/** The cron fields of one Schedule that the process checks. `timeZone` defaults to UTC. */
+export interface ScheduleCronRecord {
+  cron: string
+  id: string
+  timeZone?: string
+}
 
 interface ScheduleDateFields {
   day: number
@@ -65,14 +67,14 @@ function scheduleDateFields(scheduledAt: Date, timeZone: string | undefined): Sc
   const minute = Number(values.get("minute"))
   const month = Number(values.get("month")) - 1
   if (weekday === undefined || [day, hour, minute, month].some(value => !Number.isInteger(value))) {
-    throw scheduleErrorDiagnostics.SCHEDULE_R0022({ message: `Runtime Schedule time zone could not resolve calendar fields: ${timeZone}` })
+    throw scheduleErrorDiagnostics.SCHEDULE_R0022({ message: `Schedule time zone could not resolve calendar fields: ${timeZone}` })
   }
   return { day, hour, minute, month, weekday }
 }
 
-function parseScheduleCron(schedule: RuntimeScheduleRecord): ScheduleCron {
+function parseScheduleCron(schedule: ScheduleCronRecord): ScheduleCron {
   if (schedule.cron.trim().split(/\s+/).length !== 5) {
-    throw scheduleErrorDiagnostics.SCHEDULE_R0023({ message: `Runtime Schedule "${schedule.id}" must use a five-field cron expression.` })
+    throw scheduleErrorDiagnostics.SCHEDULE_R0023({ message: `Schedule "${schedule.id}" must use a five-field cron expression.` })
   }
   return parseCronExpression(schedule.cron)
 }
@@ -87,45 +89,12 @@ function matchesCronHour(cron: ScheduleCron, fields: ScheduleDateFields): boolea
   return cron.days.includes(fields.day) && cron.weekdays.includes(fields.weekday)
 }
 
-export function isRuntimeScheduleDue(schedule: RuntimeScheduleRecord, scheduledAt: Date): boolean {
+/** Returns `true` when `schedule` is due at the exact minute `scheduledAt`. */
+export function isScheduleDue(schedule: ScheduleCronRecord, scheduledAt: Date): boolean {
   if (scheduledAt.getUTCSeconds() !== 0 || scheduledAt.getUTCMilliseconds() !== 0) {
     return false
   }
   const cron = parseScheduleCron(schedule)
   const fields = scheduleDateFields(scheduledAt, schedule.timeZone)
   return cron.minutes.includes(fields.minute) && matchesCronHour(cron, fields)
-}
-
-/**
- * Returns the first minute after `after` when `schedule` is due, or `undefined` when no minute in the next four
- * years matches. The result uses the same cron and time zone rules as {@link isRuntimeScheduleDue}. It does not
- * check `enabled`, and it does not mean that a wake driver will run the Schedule.
- */
-function safeAdvance(cursor: number, minutes: number, fields: ScheduleDateFields, timeZone: string | undefined): number {
-  if (!timeZone || timeZone === "UTC" || minutes === 1) return cursor + minutes * minuteMs
-  const advanced = scheduleDateFields(new Date(cursor + minutes * minuteMs), timeZone)
-  const expected = (fields.hour * hourMinutes + fields.minute + minutes) % (24 * hourMinutes)
-  // A DST offset change makes the local-clock jump unsafe. Search UTC minutes through the transition.
-  return advanced.hour * hourMinutes + advanced.minute === expected ? cursor + minutes * minuteMs : cursor + minuteMs
-}
-
-export function nextRuntimeScheduleRunAt(schedule: RuntimeScheduleRecord, after: Date): Date | undefined {
-  const cron = parseScheduleCron(schedule)
-  let cursor = Math.floor(after.getTime() / minuteMs) * minuteMs + minuteMs
-  const end = cursor + nextRunHorizonMs
-  while (cursor <= end) {
-    const fields = scheduleDateFields(new Date(cursor), schedule.timeZone)
-    if (matchesCronHour(cron, fields)) {
-      const minute = cron.minutes.find(value => value >= fields.minute)
-      if (minute !== undefined) {
-        const candidate = new Date(safeAdvance(cursor, minute - fields.minute, fields, schedule.timeZone))
-        if (isRuntimeScheduleDue(schedule, candidate)) return candidate
-        // A time zone offset change can move the candidate out of this local hour. Check the next minute.
-        cursor += minuteMs
-        continue
-      }
-    }
-    cursor = safeAdvance(cursor, hourMinutes - fields.minute, fields, schedule.timeZone)
-  }
-  return undefined
 }

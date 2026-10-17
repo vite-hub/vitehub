@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   docsManifest,
-  getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
@@ -14,29 +13,13 @@ import {
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
 const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
-const pageGroups = computed(() => {
-  if (!section.value) return [];
-  const groups = getDocsSidebarGroups(section.value);
-  const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
-  if (section.value.id !== "ui" || !perspective) return groups;
-
-  const perspectivePath = normalizeDocsPath(perspective.path);
-  const hasPerspective = groups.some(group => group.pages.some(page => normalizeDocsPath(page.path) === perspectivePath));
-  if (hasPerspective) return groups;
-  const perspectiveGroup = groups.find(group => group.label === "Perspective");
-  if (perspectiveGroup) {
-    return groups.map(group => group === perspectiveGroup
-      ? { ...group, pages: [...group.pages, perspective] }
-      : group);
-  }
-  return [...groups, { label: "Perspective", pages: [perspective] }];
-});
+const pageGroups = computed(() => section.value ? getDocsSidebarGroups(section.value) : []);
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
-const platformSections = computed(() => docsManifest.sections.filter(section => section.category === "Platform"));
+const platformSections = computed(() => catalog.find(group => group.category === "Platform")?.sections ?? []);
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
@@ -84,19 +67,6 @@ function isActive(path: string) {
       >
         <UIcon :name="sidebarSectionIcon(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ relatedSection.title }}</span>
-      </NuxtLink>
-    </section>
-
-    <section v-if="section.id === 'getting-started' || section.category === 'Platform'" class="vh-docs-sidebar-related" aria-label="Build and deploy">
-      <h2 class="vh-docs-sidebar-heading">Build and deploy</h2>
-      <NuxtLink
-        v-for="platformSection in platformSections"
-        :key="platformSection.id"
-        :to="platformSection.path"
-        class="vh-docs-sidebar-link"
-      >
-        <UIcon :name="sidebarSectionIcon(platformSection)" class="size-4 shrink-0" />
-        <span class="min-w-0 truncate">{{ platformSection.title }}</span>
       </NuxtLink>
     </section>
 

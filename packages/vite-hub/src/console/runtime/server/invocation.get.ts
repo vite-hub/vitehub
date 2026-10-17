@@ -176,7 +176,7 @@ export async function getConsoleInvocationDetail(event: ConsoleRequestEvent): Pr
   return detail
 }
 
-// The devframe `invocation` operation reads one record with GET and changes it with POST.
+// The Console `invocation` operation reads one record with GET and changes it with POST.
 const invocationHandler = async (event: ConsoleRequestEvent): Promise<ConsoleInvocationDetail | Awaited<ReturnType<typeof deleteConsoleInvocation>> | AgentInvocationCancelResult> => {
   assertConsoleRequest(event, ["GET", "POST"])
   if ((event.method ?? event.req?.method ?? event.node?.req?.method) !== "POST") return getConsoleInvocationDetail(event)

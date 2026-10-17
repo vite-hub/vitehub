@@ -1,4 +1,4 @@
-import { parseProviderBudget, parseProgressBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome } from './budgets.ts'
+import { parseProviderBudget, parseProgressBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome } from './budgets.ts'
 
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { createHash, randomUUID } from 'node:crypto'
@@ -20,6 +20,8 @@ export type Snapshot = {
   wait?: PullRequestWait
   lease: string | null; leaseUntil: number; attempts: number
   progressBudget?: ProgressBudget
+  /** Generation of the last human comment or review. A wait rejected before it stays free. */
+  humanFeedbackGeneration?: number
   recoveryHead?: string
   sourcePushHead?: string
   sourcePushHeads?: string[]
@@ -76,6 +78,7 @@ function parseSnapshot(value: unknown): Snapshot {
   if (input.sourcePushOverflow !== undefined) v.parse(v.boolean(), input.sourcePushOverflow)
   if (input.sourcePushHead !== undefined) v.parse(v.string(), input.sourcePushHead)
   if (input.recoveryHead !== undefined) v.parse(v.string(), input.recoveryHead)
+  if (input.humanFeedbackGeneration !== undefined) v.parse(v.pipe(v.number(), v.integer(), v.minValue(0)), input.humanFeedbackGeneration)
   if (input.ciEvidence !== undefined) v.parse(v.array(v.record(v.string(), v.unknown())), input.ciEvidence)
   if (input.wait !== undefined) parseWait(input.wait)
   if (input.progressBudget !== undefined) parseProgressBudget(input.progressBudget)
@@ -102,6 +105,8 @@ export interface PullRequestInboxOptions {
   activityAuthors?: readonly string[]
   budgets?: InboxBudgets
 }
+
+const conflicted = (pr: GitHubPullRequestRecord | null | undefined): boolean => pr?.mergeable === false || pr?.mergeable_state === 'dirty'
 
 export function pullRequestFilterContext(repository: string, pr: GitHubPullRequestRecord | null): GitHubPullRequestFilterContext {
   const headRepository = pr?.head?.repo?.full_name
@@ -706,7 +711,7 @@ export class PullRequestInbox {
       if (limit === undefined) throw new Error('Configure budgets.noProgress before resetting progress')
       const previous = s.progressBudget?.head === head ? s.progressBudget : undefined
       s.progressBudget = { head, limit, count: 0, exhausted: false, evidence: previous?.evidence,
-        creditedEvidence: previous?.creditedEvidence ?? [], resetReason: reason }
+        creditedEvidence: previous?.creditedEvidence ?? [], resetReason: reason, ...(previous?.grants ? { grants: previous.grants } : {}) }
       this.dirty(s, 'progress-budget:reset'); await this.put(tx, s)
       return true
     })
@@ -743,6 +748,7 @@ export class PullRequestInbox {
     // A wait on a pushed head survives that head's synchronize event.
     if (newHead && pr.head?.sha !== s.wait?.headSha || pr.state === 'closed') delete s.wait
     s.pr = { ...previous, ...pr }
+    if (previous && !newHead && conflicted(s.pr) && !conflicted(previous)) this.grantProgress(s, 'conflict')
     if (newHead) {
       delete s.ciEvidence
       s.checks = Object.fromEntries(Object.entries(s.checks).filter(([, check]) => check.head_sha === pr.head?.sha))
@@ -796,7 +802,7 @@ export class PullRequestInbox {
       if (!this.repositories.includes(repository)) return await finish('repository not configured')
       // Activity suppression applies to issue comments only. Actual reviews
       // and inline review comments are evidence regardless of reviewer name.
-      const commentAuthor = String(payload.comment?.user?.login ?? payload.sender?.login ?? '').trim().toLowerCase()
+      const commentAuthor = String(payload.comment?.user?.login ?? payload.comment?.author?.login ?? payload.sender?.login ?? '').trim().toLowerCase()
       const commentBody = String(payload.comment?.body ?? '')
       const marked = commentBody.startsWith('<!-- vitehub-agent-activity:')
       const repairMarked = commentBody.startsWith('<!-- vitehub-babysitter-repair:')
@@ -928,12 +934,22 @@ export class PullRequestInbox {
           || event === 'status' && payload.state === 'pending'
         const wake = (changed || !s.pr) && !pendingCi
         // New human feedback is new evidence on the same head. It resets an exhausted no-progress budget.
-        const human = String(payload.sender?.type ?? '').toLowerCase() === 'user' && !this.activityAuthors.has(String(payload.sender?.login ?? '').toLowerCase())
-        if (changed && human && ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event) && s.progressBudget?.exhausted) {
+        // Use the feedback author's identity for feedback events. The webhook
+        // sender is the actor that delivered the event and can differ from the
+        // comment/review author (for example, imported or relayed activity).
+        const actor = event === 'issue_comment' || event === 'pull_request_review' || event === 'pull_request_review_comment'
+          ? (payload.comment?.user ?? payload.comment?.author ?? payload.review?.user ?? payload.review?.author ?? payload.sender)
+          : payload.sender
+        const human = String(actor?.type ?? '').toLowerCase() === 'user' && !this.activityAuthors.has(String(actor?.login ?? '').toLowerCase())
+        const feedbackEvent = ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event)
+        if (changed && human && feedbackEvent && s.progressBudget?.exhausted) {
           s.progressBudget = { ...s.progressBudget, count: 0, exhausted: false, resetReason: `${event}:${payload.sender?.login ?? 'unknown'}` }
         }
+        else if (changed && feedbackEvent && String(actor?.type ?? '').toLowerCase() === 'bot'
+          && !this.activityAuthors.has(String(actor?.login ?? '').toLowerCase())) this.grantProgress(s, 'bot-feedback')
         if (wake) this.dirty(s, `${event}:${payload.action ?? check?.conclusion ?? payload.state ?? 'updated'}`)
         else if (changed) s.revision = (s.revision ?? 0) + 1
+        if (changed && human && feedbackEvent) s.humanFeedbackGeneration = s.generation
         const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha
         const eligible = this.eligible(repository, s.pr)
         if (s.pr && !eligible) {
@@ -993,9 +1009,11 @@ export class PullRequestInbox {
         if (s.pr && stamp(pr) < stamp(s.pr)) return false
         patch = { ...patch, pr }
       }
+      const before = s.pr
       Object.assign(s, patch)
+      if (patch.pr && before && before.head?.sha === s.pr?.head?.sha && conflicted(s.pr) && !conflicted(before)) this.grantProgress(s, 'conflict')
       if (s.pr && !this.eligible(s.repository, s.pr)) s.status = 'terminal'
-      await this.put(tx, s); Object.assign(claim.snapshot, patch, { status: s.status }); return true
+      await this.put(tx, s); Object.assign(claim.snapshot, patch, { status: s.status, progressBudget: s.progressBudget }); return true
     })
   }
   async refreshThreads(observed: Snapshot, threads: GitHubReviewThread[]): Promise<boolean> {
@@ -1104,6 +1122,7 @@ export class PullRequestInbox {
           || s.sourcePushHeads?.some(head => !pushed.has(head))) {
           s.lease = null; s.leaseUntil = 0
           if (s.status !== 'terminal') { s.status = 'ready'; s.nextAt = 0 }
+          this.recordRejectedProgress(s, claim, result.progress)
           await this.put(tx, s)
           return false
         }
@@ -1126,6 +1145,7 @@ export class PullRequestInbox {
           || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) {
           s.lease = null; s.leaseUntil = 0
           if (s.status !== 'terminal') { s.status = 'ready'; s.nextAt = 0 }
+          this.recordRejectedProgress(s, claim, result.progress)
           await this.put(tx, s)
           return false
         }
@@ -1153,6 +1173,22 @@ export class PullRequestInbox {
       return true
     })
   }
+  /**
+   * A wait rejected by new evidence still used its pass. Checks and bot reviews arrive during most
+   * passes, so the pass counts unless a person commented after the claim: the next pass answers them.
+   */
+  private recordRejectedProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
+    if ((s.humanFeedbackGeneration ?? 0) <= claim.generation) this.recordProgress(s, claim, progress)
+  }
+  /**
+   * An exhausted head gets one more pass for new evidence that a pass can act on: a new merge
+   * conflict, or new bot feedback. Each kind is granted once per head. A person's feedback resets the budget instead.
+   */
+  private grantProgress(s: Snapshot, grant: ProgressGrant): void {
+    const budget = s.progressBudget
+    if (!budget?.exhausted || budget.head !== s.pr?.head?.sha || budget.grants?.includes(grant)) return
+    s.progressBudget = { ...budget, count: budget.limit - 1, exhausted: false, resetReason: grant, grants: [...budget.grants ?? [], grant] }
+  }
   private recordProgress(s: Snapshot, claim: Claim, progress: ProgressOutcome | undefined): void {
     const head = s.pr?.head?.sha
     if (progress?.kind === 'verified') requireEvidence(progress.evidence)
@@ -1165,7 +1201,7 @@ export class PullRequestInbox {
       s.progressBudget = { head, limit, count, exhausted: count >= limit,
         evidence: verified ? progress.evidence : previous?.evidence,
         creditedEvidence: verified ? [...creditedEvidence, progress.evidence] : creditedEvidence,
-        resetReason: previous?.resetReason }
+        resetReason: previous?.resetReason, ...(previous?.grants ? { grants: previous.grants } : {}) }
     }
   }
   /** Waiting PRs that received events since the host last evaluated their wait. */
