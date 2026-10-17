@@ -14,6 +14,8 @@ import type { ConsoleSectionId } from "./runtime/sections.ts"
 /** Discovery roots that the host passes to owner section readers. */
 export interface ConsoleSectionDiscoveryContext {
   discoveryRoot: string
+  /** Resolved Vite plugins. Owner packages read build-time contributions from them, for example contributed Workspaces. */
+  plugins?: readonly unknown[]
   projectRoot: string
   queueDiscoveryRoot?: string
   rateLimitDiscoveryRoot?: string
@@ -80,6 +82,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     rootDir: context.sandboxDiscoveryRoot ?? context.projectRoot,
   })),
   registerConsoleSection(workspaceConsoleSection, context => ({
+    plugins: context.plugins,
     projectRoot: context.projectRoot,
     rootDir: context.discoveryRoot,
     serverDirs: context.serverDirs,
@@ -96,6 +99,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     serverDirs: context.serverDirs,
   })),
   registerConsoleSection(scheduleConsoleSection, context => ({
+    plugins: context.plugins,
     projectRoot: context.projectRoot,
     rootDir: context.discoveryRoot,
     serverDirs: context.serverDirs,

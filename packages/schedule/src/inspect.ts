@@ -1,5 +1,6 @@
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
+import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { readRuntimeDefinitionCrons } from "./internal/provider-output.ts"
 
@@ -8,6 +9,8 @@ import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 export interface ScheduleInspectionOptions {
+  /** Vite plugins that can contribute Schedule Definitions through `vitehub.schedules`. */
+  plugins?: readonly unknown[]
   projectRoot: string
   rootDir: string
   serverDirs?: string[]
@@ -35,6 +38,12 @@ function summarizeScheduleDefinition(
   if (definition.manual) {
     fields.push({ label: "Manual", value: "Enabled" })
   }
+  if (definition.contributor) {
+    fields.push({ label: "Contributed by", value: definition.contributor })
+  }
+  if (definition.reason) {
+    fields.push({ label: "Reason", value: definition.reason })
+  }
   return {
     fields,
     file: relativeDefinitionFile(projectRoot, definition.handler),
@@ -43,9 +52,18 @@ function summarizeScheduleDefinition(
   }
 }
 
-/** Lists Schedule Definitions with their static cron when the Definition declares one. */
+/**
+ * Lists Schedule Definitions with their static cron when the Definition declares one. Contributed Definitions name the
+ * plugin that added them and its reason.
+ */
 export async function inspectScheduleDefinitions(options: ScheduleInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
+  const contributions = await collectScheduleContributions(options.plugins, {
+    projectRoot: options.projectRoot,
+    root: options.rootDir,
+    serverDirs: options.serverDirs,
+  })
   const definitions = discoverScheduleDefinitions({
+    contributions,
     rootDir: options.rootDir,
     serverDirs: options.serverDirs,
     serverRootDir: options.serverRootDir,
