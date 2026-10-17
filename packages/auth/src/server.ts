@@ -373,7 +373,17 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // Cross-realm Web API operations are still native functions. Requiring the
     // native source marker rejects caller-defined arrows and ordinary methods
     // that merely spoof an intrinsic name before they can be invoked.
-    return !requireNativeSource || Function.prototype.toString.call(value).includes("[native code]")
+    const source = Function.prototype.toString.call(value)
+    if (requireNativeSource) return source.includes("[native code]")
+    // Function#toString intentionally exposes callable proxies as an
+    // anonymous native function. Genuine Web API operations retain their
+    // operation name, so reject this proxy form before invocation.
+    if (source === "function () { [native code] }") return false
+    // Cross-runtime implementations may be ordinary functions, but caller
+    // supplied arrows and concise methods have distinctive source forms. Keep
+    // those out of the normalization boundary before they can be invoked.
+    if (source.includes("=>") || /^\s*[^\s(]+\s*\([^)]*\)\s*\{/.test(source)) return false
+    return true
   }
   catch {
     return false
