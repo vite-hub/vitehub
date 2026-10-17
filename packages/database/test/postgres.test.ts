@@ -195,7 +195,7 @@ describe("Postgres build configuration", () => {
     const rootDir = await createTempProject()
     await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
 
-    expect(inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir })[0]?.fields).toEqual([
+    expect((await inspectDatabaseDefinitions({ projectRoot: rootDir, rootDir }))[0]?.fields).toEqual([
       { label: "Mode", value: "Default" },
       { label: "Dialect", value: "PostgreSQL" },
       { label: "Tables", value: "notes" },
