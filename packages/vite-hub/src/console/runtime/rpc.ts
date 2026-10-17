@@ -39,4 +39,8 @@ export interface ConsoleRpcInput {
   query?: Record<string, string | string[]>
 }
 
-export type ConsoleRpcResult = { ok: true; value: unknown } | { message: string; ok: false; status: number }
+/**
+ * One Console RPC result. A failure has the Console diagnostic fields: a stable `code`, `message` (the why),
+ * and `fix` and `docs` when the failure site has them.
+ */
+export type ConsoleRpcResult = { ok: true; value: unknown } | { code: string; docs?: string; fix?: string; message: string; ok: false; status: number }

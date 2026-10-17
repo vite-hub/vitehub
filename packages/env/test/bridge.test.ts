@@ -56,6 +56,24 @@ describe("Env Bridge", () => {
     expect(await db.all(sql`SELECT * FROM vitehub_env_activity`)).toEqual([]);
     expect(emit).not.toHaveBeenCalled();
   });
+  it.each([1, new String("owner"), Symbol("owner")])(
+    "rejects non-string actor identifiers before creating a context (%s)",
+    async (id) => {
+      const { store } = setup();
+      await expect(createEnvBridge({
+        ...store,
+        runtimeActor: { id, kind: "service" },
+      } as never).read({ env: {}, keys: ["github"] })).rejects.toMatchObject({
+        code: "ENV_BRIDGE_INVALID",
+      });
+    },
+  );
+  it("rejects non-string direct bridge identifiers", async () => {
+    const { bridge } = setup();
+    await expect(bridge.inspect(admin, 42 as never)).rejects.toMatchObject({
+      code: "ENV_BRIDGE_INVALID",
+    });
+  });
   it("persists encrypted replacements, resolves the new revision, and separates previews from inspection", async () => {
     const { bridge, db } = setup();
     const first = await bridge.replace(admin, {
@@ -224,6 +242,35 @@ it("sanitizes access-store failures in SDK authorization and history", async () 
   }
 });
 
+it("sanitizes malformed grants returned by a custom access store", async () => {
+  const { store } = setup();
+  for (const grants of [
+    { some: () => true },
+    [{ key: "key", actor: agent.actor, permissions: ["admin"] }],
+    [{ key: "key", actor: null }],
+  ]) {
+    const bridge = createEnvBridge({
+      ...store,
+      access: { ...store.access, grants: async () => grants as never },
+      runtimeActor: agent.actor,
+    });
+    await expect(bridge.permissions(agent, "key")).rejects.toMatchObject({
+      code: "ENV_BRIDGE_OPERATION_FAILED",
+    });
+  }
+  const bridge = createEnvBridge({
+    ...store,
+    access: {
+      ...store.access,
+      grants: async () => [{ actor: null } as never],
+    },
+    runtimeActor: agent.actor,
+  });
+  await expect(bridge.permissions(agent, "key")).rejects.toMatchObject({
+    code: "ENV_BRIDGE_OPERATION_FAILED",
+  });
+
+});
 it("rejects malformed grant permissions through the public bridge error", async () => {
   const { bridge } = setup();
   await expect(

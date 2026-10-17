@@ -45,15 +45,16 @@ Server code can now use the configured Runtime Helper:
 ```ts
 import { email } from "@vite-hub/email/server"
 
-const result = await email.send({
+const [error, sent] = await email.send({
   from: "hello@example.com",
   to: "you@example.com",
   subject: "Welcome",
   text: "Welcome to ViteHub.",
 })
+if (error) throw error
 ```
 
-A successful send returns `{ id, driver }`; the provider supplies `id`. ViteHub maps provider failures to stable `EMAIL_*` codes and keeps the original error in `cause`.
+`send()` returns `[error, sent]`. On success, `sent` is `{ id, driver }`, and the provider supplies `id`. On failure, `error.code` is one of the `EmailErrorCode` values, `error.why` and `error.fix` explain it, and `error.cause` keeps the provider error. A missing provider or invalid driver options throw `EMAIL_NOT_CONFIGURED`. See [Email limits and errors](https://vitehub.dev/docs/email/limits-and-errors).
 
 ## Grant an Agent permission to send
 
@@ -71,12 +72,13 @@ const body = await renderEmailMarkdown("# Welcome {{ data.user.name }}\n\nYour w
   data: { user: { name: "Maxi" } },
 })
 
-await email.send({
+const [error] = await email.send({
   ...body,
   from: "hello@example.com",
   to: "you@example.com",
   subject: "Your workspace is ready",
 })
+if (error) throw error
 ```
 
 `html` contains rendered HTML. `text` contains the fully composed Markdown, which remains readable in text clients and keeps composition deterministic. Supply your own `text` when you need a marker-free plain-text version.
@@ -123,7 +125,7 @@ it("sends a welcome email", async () => {
     to: "you@example.com",
     subject: "Welcome",
     text: "Hello",
-  })).resolves.toEqual({ driver: "memory", id: "memory-1" })
+  })).resolves.toEqual([undefined, { driver: "memory", id: "memory-1" }])
 
   expect(mail.messages[0]?.subject).toBe("Welcome")
 })

@@ -63,7 +63,7 @@ describe("hubConnections", () => {
     });
     const nitro = config.nitro as {
       alias: Record<string, string>;
-      handlers: Array<{ handler: string; route: string }>;
+      handlers: Array<{ handler: string; method?: string; route: string }>;
     };
     const registry = await readFile(nitro.alias[CONNECTIONS_REGISTRY_ID]!, "utf8");
     expect(registry).toContain(JSON.stringify(definition));
@@ -72,8 +72,11 @@ describe("hubConnections", () => {
     );
     expect(nitro.handlers.map((handler) => handler.route)).toEqual([
       "/_vitehub/connections",
-      "/_vitehub/connections/**",
+      "/_vitehub/connections/connect/**",
+      "/_vitehub/connections/callback",
     ]);
+    // A GET of the management path stays free for the Console Connections page.
+    expect(nitro.handlers.map((handler) => handler.method)).toEqual(["post", "get", "get"]);
     await expect(readFile(nitro.handlers[0]!.handler, "utf8")).resolves.toContain(
       `from "${importBase}/server"`,
     );
@@ -92,7 +95,8 @@ describe("hubConnections", () => {
     };
     expect(nitro.handlers.map((handler) => handler.route)).toEqual([
       "/portal/_vitehub/connections",
-      "/portal/_vitehub/connections/**",
+      "/portal/_vitehub/connections/connect/**",
+      "/portal/_vitehub/connections/callback",
     ]);
     await expect(readFile(nitro.handlers[0]!.handler, "utf8")).resolves.toContain(
       'basePath: "/portal/_vitehub/connections"',
@@ -126,7 +130,8 @@ describe("hubConnections", () => {
     expect(nitro.handlers.map(handler => handler.route)).toEqual([
       "/existing",
       "/portal/_vitehub/connections",
-      "/portal/_vitehub/connections/**",
+      "/portal/_vitehub/connections/connect/**",
+      "/portal/_vitehub/connections/callback",
     ]);
     expect(initializedNitro.options.handlers).toEqual(nitro.handlers);
     expect(initializedNitro.routing.sync).toHaveBeenCalledOnce();
@@ -155,7 +160,7 @@ describe("hubConnections", () => {
         .config as unknown as ConfigHook
     )(managed, { command: "build", mode: "production" });
     const handlers = (managed.nitro as { handlers: Array<{ handler: string }> }).handlers;
-    expect(handlers).toHaveLength(2);
+    expect(handlers).toHaveLength(3);
     const handler = await readFile(handlers[0]!.handler, "utf8");
     expect(handler).toContain(
       `import actor from ${JSON.stringify(join(root, "server/connections-auth.ts"))}`,
@@ -238,7 +243,8 @@ describe("hubConnections", () => {
     expect(merged.nitro.handlers.map((handler: { route: string }) => handler.route)).toEqual([
       "/existing",
       "/_vitehub/connections",
-      "/_vitehub/connections/**",
+      "/_vitehub/connections/connect/**",
+      "/_vitehub/connections/callback",
     ]);
   });
 

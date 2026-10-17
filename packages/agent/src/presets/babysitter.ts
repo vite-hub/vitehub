@@ -7,7 +7,8 @@ import type {
   AgentInvocationContextValues,
 } from "../index.ts";
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterRules } from "../channels.ts";
-import type { BuiltInAgentDriverName } from "../types.ts";
+import type { AgentSandboxDefinition, BuiltInAgentDriverName } from "../types.ts";
+import { createBabysitterPassResultSchema } from "./babysitter/result.ts";
 import { babysitterInstructions } from "./babysitter/instructions.ts";
 import { resolveBabysitterMerge, type BabysitterMerge } from "./babysitter/merge.ts";
 import { validBabysitterAdmission, type BabysitterAdmissionOptions } from "./babysitter/admission.ts";
@@ -30,9 +31,29 @@ export interface BabysitterLifecycleOptions {
   labels?: BabysitterLifecycleLabels;
 }
 
+/** Where one pass runs. A pass without a Sandbox uses the host checkout and the configured `sandbox`. */
+export interface BabysitterPlacementLease {
+  /** Sandbox for this pass, for example a custom runtime on another host. */
+  sandbox?: AgentSandboxDefinition;
+  /** Called once when the pass finishes, fails or is cancelled. */
+  release(): void;
+}
+
+/** Chooses a host for each pass before the Babysitter installs dependencies on this one. */
+export interface BabysitterPlacement {
+  place(pullRequest: { repository: string; number: number }): BabysitterPlacementLease | Promise<BabysitterPlacementLease>;
+  /** Passes currently placed on other hosts. They hold a concurrency slot but no local memory. */
+  remoteActive?(): number;
+}
+
 export interface BabysitterOptions {
   /** Process admission policy. Concurrency remains the preset hard maximum. */
   capacity?: Pick<import("../runtime/process.ts").ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
+  /**
+   * Places each pass on this host or in a Sandbox before host dependency installation. Sandbox passes
+   * skip the host install; the Sandbox installs through `refreshDependencies` when it provides one.
+   */
+  placement?: BabysitterPlacement;
   /** Select PRs with the same rules as the GitHub Channel. */
   filter: GitHubPullRequestFilter;
   /** Additional lifecycle admission rules. Use labels to pause or resume a PR without changing the filter. */
@@ -85,8 +106,6 @@ export interface BabysitterOptions {
    * and 4096 MiB of free temporary space.
    */
   admission: BabysitterAdmissionOptions;
-  /** @deprecated Use `merge: "auto"`. */
-  autoMerge: boolean;
 }
 
 /**
@@ -100,7 +119,8 @@ export type BabysitterInstall = boolean | {
   /**
    * Reuse the node_modules trees of a detected pnpm install across passes with the same lockfile,
    * using independent copy-on-write copies on Linux. `directory` defaults to `BABYSITTER_INSTALL_CACHE` or
-   * `<tmpdir>/vitehub-install-cache` and must share a filesystem with the pass workspaces.
+   * `<tmpdir>/vitehub-install-cache` and must share a filesystem with the pass workspaces. The default
+   * directory is used only when it supports reflinks; a configured `directory` is used on any filesystem.
    * `entries` defaults to `BABYSITTER_INSTALL_CACHE_ENTRIES` or 8. `false` disables the cache.
    */
   cache?: false | { directory?: string; entries?: number };
@@ -125,55 +145,7 @@ export interface BabysitterPassResult {
   waitForChecksHead?: string;
 }
 
-const babysitterSha = /^[a-f0-9]{40,64}$/;
-const validSha = (value: unknown): value is string => hasRuntimeType(value, "string") && babysitterSha.test(value);
-
-function parseWake(value: unknown): BabysitterPassWake | undefined {
-  if (!isRuntimeRecord(value) || !hasRuntimeType(value.kind, "string") || !hasRuntimeType(value.repository, "string")) return undefined;
-  if (value.kind === "checks" && validSha(value.headSha)) return { kind: "checks", repository: value.repository, headSha: value.headSha };
-  if (value.kind === "pull-request" && hasRuntimeType(value.number, "number") && Number.isSafeInteger(value.number) && value.number > 0) return { kind: "pull-request", repository: value.repository, number: value.number };
-  return undefined;
-}
-
-function parseWait(value: unknown): BabysitterPassWait | undefined {
-  if (!isRuntimeRecord(value) || !hasRuntimeType(value.kind, "string")) return undefined;
-  if (value.kind === "checks" && validSha(value.headSha)) return { kind: "checks", headSha: value.headSha };
-  if (value.kind === "external" && hasRuntimeType(value.reason, "string") && value.reason.trim()) {
-    const wake = parseWake(value.wake);
-    const wait = { kind: "external" as const, reason: value.reason.trim() };
-    // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional wake metadata is omitted when no dependency can unblock the wait.
-    if (wake) Object.assign(wait, { wake });
-    return wait;
-  }
-  return undefined;
-}
-
-/**
- * Provider output is an untrusted boundary. Keep the required disposition, but
- * normalize optional coordination fields so an invalid wait hint cannot discard
- * an otherwise useful park/retry result (older models frequently omit `kind`).
- */
-export const babysitterPassResultSchema = {
-  "~standard": {
-    version: 1 as const,
-    vendor: "vitehub.babysitter",
-    validate(value: unknown): { value: BabysitterPassResult } | { issues: Array<{ message: string }> } {
-      if (!isRuntimeRecord(value) || (value.disposition !== "park" && value.disposition !== "retry")) {
-        return { issues: [{ message: "Expected a park/retry disposition." }] };
-      }
-      const text = hasRuntimeType(value.text, "string") && value.text.trim() ? value.text.trim() : "Babysitter pass completed.";
-      const wait = parseWait(value.wait);
-      const reviewedHead = validSha(value.reviewedHead) ? value.reviewedHead : undefined;
-      const waitForChecksHead = validSha(value.waitForChecksHead) ? value.waitForChecksHead : undefined;
-      const normalized: BabysitterPassResult = { disposition: value.disposition, text };
-      // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional provider metadata is omitted when invalid or absent.
-      if (wait) normalized.wait = wait;
-      if (reviewedHead) normalized.reviewedHead = reviewedHead;
-      if (waitForChecksHead) normalized.waitForChecksHead = waitForChecksHead;
-      return { value: normalized };
-    },
-  },
-};
+export const babysitterPassResultSchema: ReturnType<typeof createBabysitterPassResultSchema> = createBabysitterPassResultSchema();
 
 function validInstall(install: unknown): boolean {
   if (hasRuntimeType(install, "boolean")) return true;
@@ -211,7 +183,7 @@ const babysitterIntake = defineChannel("babysitter-github", {
         // A missing secret fails closed: unsigned deliveries must never reach the inbox.
         secretToken: async (context) => {
           const secret = plainSecret(await channelEnvValue("github", "webhookSecret", context));
-          if (!secret) throw new Error("[vitehub] The Babysitter webhook needs GITHUB_WEBHOOK_SECRET.");
+          if (!secret) throw new Error("[vitehub] The Babysitter webhook needs VITEHUB_GITHUB_WEBHOOK_SECRET.");
           return secret;
         },
       }],
@@ -289,32 +261,22 @@ export function resolveBabysitterLifecycleFilter(
 
 export const babysitter: BabysitterAgent = defineAgent({
   options: {
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default filter is constrained by BabysitterOptions at the public preset boundary.
     filter: {} as GitHubPullRequestFilter,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented driver union.
     driver: "codex" as BuiltInAgentDriverName,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented merge union.
     merge: false as BabysitterMerge,
     reviewChecks: [] as string[],
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented prefix list.
     noFindingsReviews: [] as string[],
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented login list.
     ignoreFeedbackAuthors: [] as string[],
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented budget union.
     noProgressBudget: 3 as number | false,
     deferWhilePending: true,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default widens to the documented install union.
     install: true as BabysitterInstall,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented login allowlist.
     mentionAllowlist: [] as string[],
     concurrency: 1,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented admission options.
     admission: {} as BabysitterAdmissionOptions,
-    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The empty default widens to the documented lifecycle options.
     lifecycle: {} as BabysitterLifecycleOptions,
-    autoMerge: false,
+    placement: undefined as BabysitterPlacement | undefined,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, concurrency, admission, placement }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -336,12 +298,15 @@ export const babysitter: BabysitterAgent = defineAgent({
     if (!validInstall(install)) {
       throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
     }
+    if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function"))) {
+      throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive? } functions.");
+    }
     if (!validBabysitterAdmission(admission)) {
       throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
     }
     resolveBabysitterLifecycleFilter(filter, lifecycle);
     // Validate merge settings when the Agent is defined, not on the first PR.
-    resolveBabysitterMerge(merge, autoMerge);
+    resolveBabysitterMerge(merge);
     const definition = defineAgent({
       description: "Repair selected pull requests and wait for their checks and reviews.",
       // Signed GitHub deliveries feed the PR inbox. They never start the Agent directly.

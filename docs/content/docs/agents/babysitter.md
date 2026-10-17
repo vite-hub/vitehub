@@ -1,30 +1,27 @@
 ---
 title: Babysitter
 description: Deploy an Agent that repairs pull requests, waits for checks, and merges ready ones.
-navigation.order: 92
-navigation.group: Presets
-icon: i-lucide-git-pull-request
+navigation.group: Configure
 ---
 
 The Babysitter preset repairs selected pull requests. It addresses review feedback from people and bots, fixes failing checks, and pushes the repair. Then it waits for check and review results without another model pass. It can also merge ready pull requests.
 
-Use it when a persistent worker should maintain pull requests across webhooks and restarts. Start with [Agent presets](/docs/agents/presets) for selection and customization rules.
-
-## Add the Agent
+## Enable the Agent integration
 
 Use the [Agent setup](/docs/agents/get-started) to install ViteHub and configure Nitro. Enable the Agent integration with the Node host preset:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true }), nitro() as never],
+  plugins: [vitehub({ preset: 'node', agent: true })],
 })
 ```
 
-The host needs Git, Corepack for detected dependency installation, and the selected provider CLI with its authentication. See [Agent Drivers](/docs/agents/agent-drivers) for provider setup. Configure GitHub and persistent SQL Agent State below before starting production work.
+The host needs Git, Corepack for dependency installation, and the selected provider CLI with its authentication. See [Agent Drivers](/docs/agents/agent-drivers) for provider setup. Configure GitHub and persistent SQL Agent State below before starting production work.
+
+## Add the Agent
 
 Select the preset in a discovered Agent. The repository filter is required: the Babysitter looks for open pull requests only in these repositories.
 
@@ -33,20 +30,19 @@ import { defineAgent } from 'vite-hub/agent'
 import { babysitter } from 'vite-hub/agent/presets/babysitter'
 
 export default defineAgent({
-  preset: 'babysitter',
-  presets: { babysitter },
-  workspace: {},
+  extends: babysitter,
   options: {
     filter: {
       repository: { allow: ['acme/app'] },
+      author: { allow: ['octocat'] },
     },
     lifecycle: {
       labels: { require: ['agent:repair'], deny: ['agent:paused'] },
     },
-    merge: false,
-    concurrency: 1,
+    merge: 'direct',
+    concurrency: 2,
   },
-  driver: { model: 'your-codex-model' },
+  driver: { model: 'gpt-5.6-sol' },
 })
 ```
 
@@ -55,7 +51,7 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `filter` | `{}` | Pull requests to repair, with the [GitHub Channel filter rules](/docs/agents/channels). `repository.allow` is required. |
-| `lifecycle` | `{}` | Required and denied labels that start, pause, or resume work. See [Control work with labels](#control-work-with-labels). |
+| `lifecycle` | `{}` | Label lifecycle controls, such as `labels.require` and `labels.deny`, that gate eligible pull requests. |
 | `driver` | `'codex'` | `'codex'` or `'claude-code'`. Set the model and provider settings with the ordinary `driver` field. |
 | `merge` | `false` | `false`, `'auto'` (request GitHub auto-merge), `'direct'` (merge a ready PR on the host), or `{ strategy: 'direct', method, ready }`. |
 | `reviewChecks` | `[]` | Check names, such as a review bot's check, that keep a PR waiting while they run. |
@@ -68,6 +64,9 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `concurrency` | `1` | Pull requests repaired at the same time. |
 | `admission` | `{}` | Token budgets, a free-space guard and custom checks that stop model passes. See [Limit model passes](#limit-model-passes). |
 | `capacity` | Process defaults | Host admission `memory`, `cpu`, and `fallbackConcurrency` settings. |
+| `placement` | None | Runs each pass on this host or in a Sandbox on another host. See [Bound local verification](#bound-local-verification). |
+
+Use the Agent's top-level [`budget`](/docs/agents/capabilities/budget) option for a per-pass token or USD policy. Babysitter `admission` remains a host and time-window gate over retained journal usage. The two policies compose: admission can delay a new pass, while an invocation budget reports or enforces the usage of the pass that runs.
 
 ## Control work with labels
 
@@ -75,36 +74,13 @@ Create the configured labels in your repositories. With the example above, add `
 
 | Pull request labels | Eligible for work |
 | --- | --- |
-| No `agent:repair` | No. |
-| `agent:repair` | Yes, when the repository and other filters match. |
-| `agent:repair` and `agent:paused` | No. A denied label takes precedence. |
-| `agent:paused` only | No. |
+| `agent:repair` present, `agent:paused` absent | Yes |
+| `agent:repair` absent | No |
+| `agent:paused` present | No |
 
-`lifecycle.labels.require` needs at least one listed label. An empty or omitted list adds no requirement. `lifecycle.labels.deny` excludes a PR with any listed label. The preset applies these rules to discovery and to `opened`, `labeled`, and `unlabeled` webhook events. Removing a required label or adding a denied label also cancels an active claim.
+`lifecycle.labels.require` needs at least one listed label. An empty or omitted list adds no requirement. `lifecycle.labels.deny` excludes a pull request with any listed label. The preset applies these rules to discovery and to `opened`, `labeled`, and `unlabeled` webhook events. Removing a required label or adding a denied label also cancels an active claim.
 
 Configure label controls in `lifecycle.labels` or selection rules in `filter.labels`. Defining both throws a configuration error. Labels control eligibility; they do not report progress, authorize a merge, or bypass check and review gates.
-
-## Tools and repair results
-
-The host prepares the assigned PR checkout and supplies tools scoped to that PR. The provider's shell edits files and runs focused validation. GitHub credentials and protected Git metadata stay on the host.
-
-| Tool | Use |
-| --- | --- |
-| `readCheckLogs` | Read failed Actions logs for the assigned PR head. |
-| `readBaseCheckEvidence`, `readBaseCheckLogs` | Compare checks and failed logs on the exact assigned base commit. |
-| `refreshDependencies` | Install frozen dependencies after changing manifests, lockfiles, or dependency conflicts, before validation. |
-| `commitRepair` | Commit a message and explicit repair paths through the host. |
-| `pushRepair` | Push committed repairs to the pinned source branch. |
-| `resolveReviewThread` | Resolve a PR thread after addressing its finding. |
-| `commentOnPullRequest`, `updatePullRequest` | Record a verified finding or update the PR title and body. |
-| `mentionOnPullRequest` | Notify an allowed person about a verified blocker. Available only with `mentionAllowlist`. |
-| `requestAutoMerge` | Request GitHub native auto-merge. Available only with `merge: 'auto'`. |
-
-The normal repair sequence is to inspect feedback, edit, refresh changed dependency inputs, validate, commit, push, and resolve addressed threads. Direct merging is a host decision after the gates pass.
-
-A pass must push a repair, reach a merge outcome, or record a durable wait. For checks, the structured result carries `wait: { kind: 'checks', headSha }`. For an external blocker, it carries `wait: { kind: 'external', reason, wake? }`. Result prose alone does not set a wake condition. The host parks the PR and waits for changed evidence instead of running repeated passes to poll unchanged checks.
-
-After inspecting every supplied review body and failed check, a pass with no remaining actionable findings sets `reviewedHead` to the inspected HEAD SHA. The host records that assessment against the exact evidence, so a later ready-to-merge wake can proceed without another model review. Omit it when feedback or failures remain unassessed.
 
 ## Limit model passes
 
@@ -142,9 +118,11 @@ The health route shows the decision in `admission` and the token use, the limits
 
 Start with one concurrent repair on a shared Linux host. Use `options.capacity.memory.perInvocationBytes` for each worker's growth budget and `reserveBytes` for memory that other services need. Use `serviceReserveBytes` for the reserve inside the process or cgroup budget (1 GiB by default); the host reserve is applied only to host memory. Linux admission checks host pressure and each visible cgroup ancestor, including a delegated service parent. It uses the least remaining cgroup memory headroom and observes ancestor pressure and high events. It does not read above a namespaced cgroup mount. An unreadable known cgroup uses the configured sample fallback. Admission reserves growth headroom for active workers. Set `options.capacity.fallbackConcurrency` to zero if a failed sample must pause admission.
 
-A Babysitter Box uses the host-prepared PR checkout as its `cwd`. Configure its runtime, Home and requirements; the preset owns the working tree.
+A Babysitter Sandbox uses the host-prepared PR checkout as its `cwd`. Configure its runtime, Home and requirements; the preset owns the working tree.
 
-Admission only gates new work. Configure [Box memory limits](/docs/agents/boxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
+To add capacity beyond one host, set `options.placement`. Its `place({ repository, number })` runs before host dependency installation and returns `{ sandbox?, release }`. A pass with a `sandbox` runs there, for example in a custom SSH runtime with `network: "direct"`, and skips the host install. The Sandbox installs through its session's `refreshDependencies`. A pass without a `sandbox` runs on this host. `release()` runs once when the pass ends. Return `remoteActive()` to count remote passes toward `concurrency` without reserving local memory for them. A configured `sandbox` always takes precedence over placement.
+
+Admission only gates new work. Configure [Sandbox memory limits](/docs/agents/sandboxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
 
 ## Share the Console journal
 
@@ -157,9 +135,8 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
-    agent: true,
     console: {
-      exposure: 'host-managed',
+      auth: false,
       authorize: './server/console-authorize.ts',
       databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
     },
@@ -167,7 +144,7 @@ export default defineConfig({
 })
 ```
 
-Create `server/console-authorize.ts` with your host session policy as shown in [host-managed Console access](/docs/development/console#protect-the-console-route). Every Console data route calls this function before it reads data.
+Create `server/console-authorize.ts` with your host session policy as shown in [Use another authentication library](/docs/development/console#use-another-authentication-library). Every Console data route calls this function before it reads data.
 
 The worker records and recovers Invocations under `<discovered-agent-name>-worker`, for example `babysitter-worker`. Each discovered Babysitter Agent has its own recovery scope. Other Agents can keep using the same journal without having their active Invocations failed. A standalone process host without an assigned journal keeps its private `dataDir/invocations.sqlite` file.
 
@@ -180,15 +157,15 @@ Set these variables on the host, or declare them in `env.server.github`:
 
 | Variable | Purpose |
 | --- | --- |
-| `GITHUB_APP_ID` | The App ID. |
-| `GITHUB_APP_PRIVATE_KEY` or `GITHUB_APP_PRIVATE_KEY_PATH` | The App private key. |
-| `GITHUB_WEBHOOK_SECRET` | The webhook secret. Deliveries without a valid signature are rejected. |
-| `GITHUB_APP_INSTALLATION_ID` | Optional fixed installation. Requires `GITHUB_APP_OWNER`; it applies only to that owner. |
-| `GITHUB_APP_OWNER` | Repository owner for the fixed installation, such as `vite-hub`. Server Env field `env.server.github.appOwner`. |
-| `GITHUB_APP_INSTALLATIONS` | Optional JSON object mapping repository owners to installation IDs. Server Env field `env.server.github.appInstallations`. |
+| `VITEHUB_GITHUB_APP_ID` | The App ID. |
+| `VITEHUB_GITHUB_PRIVATE_KEY` or `VITEHUB_GITHUB_PRIVATE_KEY_PATH` | The App private key. |
+| `VITEHUB_GITHUB_WEBHOOK_SECRET` | The webhook secret. Deliveries without a valid signature are rejected. |
+| `VITEHUB_GITHUB_INSTALLATION_ID` | Optional fixed installation. Requires `VITEHUB_GITHUB_APP_OWNER`; it applies only to that owner. |
+| `VITEHUB_GITHUB_APP_OWNER` | Repository owner for the fixed installation, such as `vite-hub`. Server Env field `env.server.github.appOwner`. |
+| `VITEHUB_GITHUB_APP_INSTALLATIONS` | Optional JSON object mapping repository owners to installation IDs. Server Env field `env.server.github.appInstallations`. |
 | `VITEHUB_AGENT_STATE_URL` | Agent State, for example `file:/var/lib/babysitter/state.sqlite`. Production builds require it. |
 
-Declare the fixed ID as `env.server.github.appInstallationId` together with `appOwner`. Without an owner, the fixed ID is ignored. Owners without a configured installation use GitHub App discovery, which requires access to the App API.
+Declare the fixed ID as `env.server.github.installationId` together with `appOwner`. Without an owner, the fixed ID is ignored. Owners without a configured installation use GitHub App discovery, which requires access to the App API.
 
 The Babysitter commits as the App's bot. Workers call `commitRepair` with a message and explicit file paths because the provider sandbox protects Git metadata. GitHub tokens stay on the host; the worker reaches GitHub only through tools that are bound to its pull request. Host dependency installation uses the frozen lockfile before the provider starts. Invalid installation inputs wait durably without a timer retry. Correct the inputs, then push a new head or comment on the PR to resume. Installer capacity, filesystem, and package-manager failures retry after five minutes.
 

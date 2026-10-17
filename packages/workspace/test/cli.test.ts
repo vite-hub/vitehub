@@ -62,10 +62,19 @@ describe("workspace CLI", () => {
   it("contributes the Workspace CLI namespace from plain hubWorkspace", async () => {
     await expect(hubWorkspace().vitehub?.cli?.()).resolves.toEqual({
       namespaces: [{
-        description: "Workspace development workflows.",
+        description: "Workspace development workflows and retained history.",
         features: [expect.objectContaining({
           name: "dev",
           usage: "vitehub workspace dev <workspace> [exec <command...>]",
+        }), expect.objectContaining({
+          name: "history",
+          usage: "vitehub workspace history <workspace> [--ref <ref>] [--limit <n>] [--cursor <value>] [--json] [--url <url>]",
+        }), expect.objectContaining({
+          name: "refs",
+          usage: "vitehub workspace refs <workspace> [--json] [--url <url>]",
+        }), expect.objectContaining({
+          name: "show",
+          usage: "vitehub workspace show <workspace> <ref|revision> [path] [--json] [--url <url>]",
         })],
         name: "workspace",
       }],
@@ -461,7 +470,7 @@ describe("workspace CLI", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it("requires an explicit Box session host for Workspace Dev commands", async () => {
+  it("requires an explicit Sandbox session host for Workspace Dev commands", async () => {
     const workspace = `workspace-dev-${Math.random().toString(36).slice(2)}`
 
     await expect(runWorkspaceDevCommand({
@@ -474,6 +483,6 @@ describe("workspace CLI", () => {
         store: { provider: "memory" },
       },
       workspace,
-    })).rejects.toThrow("requires a Box session host")
+    })).rejects.toThrow("requires a Sandbox session host")
   })
 })

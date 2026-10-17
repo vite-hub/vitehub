@@ -10,9 +10,14 @@ import { resolveAuthViteConfig } from "./config.ts"
 import { discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { isAuthRequestPath } from "./shared.ts"
+import { sendWebResponse } from "./node-response.ts"
+
+export function shouldPassThroughAuthResponse(basePath: string, status: number): boolean {
+  return basePath === "/" && status === 404
+}
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { IncomingMessage, ServerResponse } from "node:http"
+import type { IncomingMessage } from "node:http"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type {
   AuthDefinition,
@@ -178,9 +183,24 @@ function authRoutePattern(route: string): string {
   return `${route}/**`
 }
 
+const authApplicationBaseURLName = "__VITEHUB_AUTH_APP_BASE_URL__"
+
+/** Return Nitro `baseURL` when the host serves the app below a path, such as Nuxt `app.baseURL`. */
+function nitroApplicationBaseURL(value: unknown): string | undefined {
+  const nitro = cloneNitroConfig(value)
+  const baseURL = typeof nitro.baseURL === "string" ? nitro.baseURL : "/"
+  return baseURL.split("/").some(Boolean) ? baseURL : undefined
+}
+
 function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | undefined): NitroConfig {
   const nitro = cloneNitroConfig(value)
   if (!config) return nitro
+
+  // Nitro serves Auth routes below its baseURL, so Auth server code needs the same path for Better Auth routes and callbacks.
+  const applicationBaseURL = nitroApplicationBaseURL(nitro)
+  if (applicationBaseURL) {
+    nitro.replace = { ...cloneNitroConfig(nitro.replace), [authApplicationBaseURLName]: JSON.stringify(applicationBaseURL) }
+  }
 
   const kit = createNitroServerKit(nitro)
   const authHandlers: NitroHandler[] = [
@@ -207,7 +227,8 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
 
 function readForwardedProtocol(request: IncomingMessage): string {
   const value = request.headers["x-forwarded-proto"]
-  return Array.isArray(value) ? value[0] ?? "http" : value ?? "http"
+  const first = Array.isArray(value) ? value[0] : value
+  return first?.split(",", 1)[0]?.trim() || "http"
 }
 
 function createWebRequest(request: IncomingMessage): Request {
@@ -235,37 +256,6 @@ function createWebRequest(request: IncomingMessage): Request {
   }
 
   return new Request(url, init)
-}
-
-async function sendWebResponse(response: Response, target: ServerResponse): Promise<void> {
-  target.statusCode = response.status
-  target.statusMessage = response.statusText
-  const setCookieHeaders = response.headers.getSetCookie()
-  response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return
-    target.appendHeader(key, value)
-  })
-  for (const value of setCookieHeaders) {
-    target.appendHeader("set-cookie", value)
-  }
-
-  if (!response.body) {
-    target.end()
-    return
-  }
-
-  const reader = response.body.getReader()
-  try {
-    for (;;) {
-      const chunk = await reader.read()
-      if (chunk.done) break
-      target.write(Buffer.from(chunk.value))
-    }
-  }
-  finally {
-    target.end()
-    reader.releaseLock()
-  }
 }
 
 function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {
@@ -323,11 +313,12 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
         ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
       const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig)
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
-      if (hasNitroHandlers) {
+      const applicationBaseURL = authConfig ? nitroApplicationBaseURL(nitro) : undefined
+      if (hasNitroHandlers || applicationBaseURL) {
         // Replace Nitro in place because Vite concatenates arrays from returned config hooks.
         Object.assign(config, { nitro })
       }
-      return {
+      const contribution: UserConfig = {
         ssr: {
           noExternal: mergeNoExternal(config.ssr?.noExternal),
         },
@@ -337,6 +328,9 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           },
         },
       }
+      // The default Vue Auth client sends requests below the same Nitro baseURL.
+      if (applicationBaseURL) contribution.define = { [authApplicationBaseURLName]: JSON.stringify(applicationBaseURL) }
+      return contribution
     },
     async configResolved(config) {
       resolved = config
@@ -382,6 +376,12 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
           const authResponse = hasRequestRuntime
             ? await handleAuthRequest(definition, webRequest)
             : await getAuthForDefinition(definition).handler(webRequest)
+          // Better Auth returns 404 for paths that are not Auth endpoints. Let Vite
+          // handle those requests so a root Auth base path does not swallow the app.
+          if (shouldPassThroughAuthResponse(config.basePath, authResponse.status)) {
+            next()
+            return
+          }
           await sendWebResponse(authResponse, response)
         }
         catch (error) {
