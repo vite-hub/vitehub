@@ -5,6 +5,8 @@ export const viteHubUIIcons: readonly string[] = [
   "lucide:circle-alert",
   "lucide:database",
   "ph:arrow-square-out-light",
+  "ph:check-light",
+  "ph:copy-light",
   "ph:paperclip-light",
   "ph:x-light",
 ];
