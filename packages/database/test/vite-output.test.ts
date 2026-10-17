@@ -163,12 +163,12 @@ function createRuntimeConfig(rootDir: string, database: Pick<RuntimeDrizzleDatab
       name: "primary",
       schemaSources: [{ handler, tableNames: [] }],
       source: handler,
-      tableNames: [],
     }],
     generatedDrizzleConfigFile: join(rootDir, ".vitehub", "database", "drizzle.config.ts"),
     generatedDrizzleConfigFilesByDatabase: {},
     generatedSchemaFilesByDatabase: { primary: generatedSchemaFile },
     rootDir,
+    tableContributionsByDatabase: {},
   }
 }
 
@@ -1069,6 +1069,82 @@ describe("Vite db provider outputs", () => {
       else process.env.VITEHUB_D1_HTTP_TOKEN = originalToken
       if (typeof originalUrl === "undefined") delete process.env.VITEHUB_D1_HTTP_URL
       else process.env.VITEHUB_D1_HTTP_URL = originalUrl
+    }
+  }, 30_000)
+
+  it("queries contributed tables through generated D1 HTTP output", async () => {
+    const rootDir = await createDbBuildProject("vitehub-db-vite-contributed-")
+    await writeDatabaseDefinition(rootDir, "analytics", {
+      cloudflare: [
+        "    binding: 'DB_ANALYTICS',",
+        "    databaseName: 'vitehub-playground-analytics',",
+        "    databaseId: process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID,",
+        "    http: {",
+        "      authToken: process.env.VITEHUB_D1_HTTP_TOKEN,",
+        "      url: process.env.VITEHUB_D1_HTTP_URL,",
+        "    },",
+      ].join("\n"),
+    })
+    await mkdir(join(rootDir, "vendor"), { recursive: true })
+    await writeFile(join(rootDir, "vendor/history.ts"), [
+      "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      "export const historySchema = { historyRefs: sqliteTable('history_refs', { workspace: text('workspace') }) }",
+      "",
+    ].join("\n"))
+    const viteConfig = join(rootDir, "vite.config.ts")
+    await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replace(
+      "hubDb()],",
+      "hubDb(), { name: 'history-owner/vite', vitehub: { databases: [{ name: 'history', database: 'analytics', definition: { export: 'historySchema', module: resolve(import.meta.dirname, 'vendor/history.ts') } }] } }],",
+    ))
+    await writeFile(join(rootDir, "src/server.ts"), [
+      "import { databases } from '@vite-hub/database/drizzle'",
+      "export default {",
+      "  async fetch() {",
+      "    const { db, schema } = databases.analytics",
+      "    return Response.json({ keys: Object.keys(schema).sort(), rows: await db.select().from(schema.historyRefs) })",
+      "  },",
+      "}",
+      "",
+    ].join("\n"))
+
+    await runDbBuild(rootDir, {
+      TURSO_AUTH_TOKEN: "token",
+      TURSO_DATABASE_URL: "libsql://database.example.turso.io",
+      VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+      VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+    })
+
+    const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
+    let proxySql = ""
+    const proxy = createServer(async (request, response) => {
+      let body = ""
+      for await (const chunk of request) body += chunk
+      proxySql = JSON.parse(body).sql
+      response.setHeader("Content-Type", "application/json")
+      response.end(JSON.stringify({ result: [{ results: { rows: [["docs"]] }, success: true }], success: true }))
+    })
+    const app = createServer()
+    const originalEnv = { ...process.env }
+    try {
+      process.env.VITEHUB_D1_ANALYTICS_DATABASE_ID = "analytics-d1-id"
+      process.env.VITEHUB_D1_HTTP_TOKEN = "runtime-proxy-token"
+      process.env.VITEHUB_D1_HTTP_URL = await listen(proxy)
+      const handler = (await import(`${pathToFileURL(vercelServer).href}?t=${Date.now()}`)).default
+      app.on("request", (request, response) => void Promise.resolve(handler(request, response)).catch((error) => {
+        response.statusCode = 500
+        response.end(String(error))
+      }))
+
+      const response = await fetch(await listen(app))
+      await expect(response.json()).resolves.toEqual({ keys: ["analyticsItems", "historyRefs"], rows: [{ workspace: "docs" }] })
+      expect(proxySql).toContain("history_refs")
+    }
+    finally {
+      await Promise.all([close(app), close(proxy)])
+      for (const key of ["VITEHUB_D1_ANALYTICS_DATABASE_ID", "VITEHUB_D1_HTTP_TOKEN", "VITEHUB_D1_HTTP_URL"]) {
+        if (originalEnv[key] === undefined) delete process.env[key]
+        else process.env[key] = originalEnv[key]
+      }
     }
   }, 30_000)
 

@@ -606,6 +606,39 @@ describe("Agent invocation console", () => {
     }
   })
 
+
+  it("registers the configured Agent runtime capabilities for Console invocations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-agent-capabilities-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "support.agent.ts"), "export default {}\n")
+      const plugin = consoleVitePlugin({
+        console: { auth: false },
+        preset: "node",
+        runtimeCapabilityImports: {
+          blob: "vite-hub/_internal/blob",
+          console: "vite-hub/console/server",
+          db: "vite-hub/database/drizzle",
+          kv: "vite-hub/_internal/kv",
+        },
+        sections: ["agents"],
+      })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { plugins: string[] }, root: string } = { root }
+      await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
+
+      const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
+      expect(generated).toContain(`import { blob as vitehubConsoleAgentBlob } from "vite-hub/_internal/blob"`)
+      expect(generated).toContain(`import { agentDb as vitehubConsoleAgentDb } from "vite-hub/database/drizzle"`)
+      expect(generated).toContain(`capabilities: { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, kv: vitehubConsoleAgentKv }`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it.each(["/portal/", "https://cdn.example/portal/"])("prefixes Nitro Console routes and assets with the Vite base path %s", async (base) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-base-host-"))
     try {
