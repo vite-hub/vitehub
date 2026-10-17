@@ -51,7 +51,7 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   /** Lists the deliveries in one scope that are not complete, in queue order. */
   webhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]>
   /** Lists only queued deliveries in one scope, in queue order. */
-  queuedWebhookDeliveries?: (scope: string) => Promise<AgentWebhookQueueDelivery[]>
+  queuedWebhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]>
   webhookDeliveryScopes(): Promise<string[]>
 }
 

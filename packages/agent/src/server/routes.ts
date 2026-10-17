@@ -1340,7 +1340,7 @@ function webhookDebounce(ownership: { busy?: string, debounce?: unknown }): { de
 // A debounced delivery is superseded once a later delivery with the same key is queued in its scope.
 async function supersededWebhookDelivery(state: AgentWebhookQueueStateAdapter, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
   if (!delivery.debounceKey) return false
-  const queued = await state.queuedWebhookDeliveries?.(delivery.scope) ?? []
+  const queued = await state.queuedWebhookDeliveries(delivery.scope)
   const index = queued.findIndex(item => item.deliveryId === delivery.deliveryId)
   return index !== -1 && queued.slice(index + 1).some(item => item.debounceKey === delivery.debounceKey)
 }
