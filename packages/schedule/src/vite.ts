@@ -18,6 +18,7 @@ import { discoverScheduleDefinitions, isServerScheduleDefinition } from "./disco
 import { inspectScheduleDefinitions } from "./inspect.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
 import { generateProviderOutputsWithinLock, readDefinitionCrons, readRuntimeDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
+import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-module.ts"
 import { scheduleDevRuntimeRoute } from "./dev.ts"
 import { registerScheduleDevEndpoint } from "./vite-dev.ts"
@@ -627,18 +628,8 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     })
   }
 
-  // The registry is a virtual module without a directory, so a relative import would resolve against the Vite root.
-  // Under Nuxt that root is the app directory, not the project root. Import each definition by its absolute path.
   function createRegistryContents() {
-    return [
-      "",
-      "const registry = {",
-      ...discoverRegistrySchedules().map(definition => `  [${JSON.stringify(definition.name)}]: async () => import(${JSON.stringify(definition.handler)}),`),
-      "}",
-      "",
-      "export default registry",
-      "",
-    ].join("\n")
+    return renderScheduleRegistryModule(discoverRegistrySchedules())
   }
 
   function createTargetsContents() {
