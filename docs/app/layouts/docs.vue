@@ -33,7 +33,6 @@ const hasPanel = computed(
       <AppFooter class="vh-docs-footer" />
     </div>
   </UMain>
-  <AppFooter />
 </template>
 
 <style scoped>
