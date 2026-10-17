@@ -55,7 +55,7 @@ export function createGitHubClient(repo: string): GitHubClient {
 
   async function request<T>(ref: string, description: string, token: string | undefined, signal: AbortSignal | undefined, load: (provider: GitHubProvider, repoRef: Parameters<GitHubProvider["repos"]["get"]>[0]) => Promise<T>): Promise<T> {
     if (!owner || !name || rest.length) {
-      throw sourceError(`[vitehub] github(${JSON.stringify(repo)}) expects repo as "owner/name".`)
+      throw sourceError(`[vitehub] github(${JSON.stringify(repo)}) supports GitHub.com repositories only and expects repo as "owner/name".`)
     }
     const client = await provider(token)
     try {

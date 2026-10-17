@@ -19,7 +19,7 @@ Configure the built-in loaders, or define a custom loader with `defineSource()`.
 | `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` can be a client, a client config with an `http` or `sse` transport, or a resolver. |
 | `defineSource(loader)` | A loader with `name`, `getKeys`, and `getItem`. | Defines custom retrieval behavior with inferred item types. |
 
-`github()` does not read `GH_TOKEN` or `GITHUB_TOKEN`. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. The token goes to the GitHub API and to the sparse Git fetch of that repository only. It is not sent to the `codeload.github.com` redirect. Without a token, `github()` downloads public archives from `codeload.github.com`, so the anonymous API limit does not apply to them.
+`github()` supports GitHub.com repositories (`repo` must be `owner/name`) and does not read `GH_TOKEN` or `GITHUB_TOKEN`. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. The token goes to the GitHub API and to the sparse Git fetch of that repository only. It is not sent to the `codeload.github.com` redirect. Without a token, `github()` downloads public archives from `codeload.github.com`, so the anonymous API limit does not apply to them.
 
 Use `sourceIgnores` for reusable ignore patterns. Workspace GitHub Sources apply `sourceIgnores.defaults` automatically. Pass `ignore: false` to opt out, or pass more patterns to extend the defaults.
 
