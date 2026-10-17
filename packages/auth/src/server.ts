@@ -336,7 +336,22 @@ async function runAccessAuthorize(
           // keep this branded value out of the reflective thenable path without
           // dispatching through the mutable Promise.resolve static method.
           branded = true
-          const nativeAdopted = new intrinsicPromiseConstructor(resolve => resolve(result))
+          // Promise resolution performs another observable `then` lookup. If
+          // the value has an own override, mask it while creating the native
+          // adoption promise so the fallback cannot dispatch that override.
+          const ownThen = Object.getOwnPropertyDescriptor(result, "then")
+          let masked = false
+          if (ownThen?.configurable) {
+            Object.defineProperty(result, "then", { configurable: true, value: intrinsicPromiseThen })
+            masked = true
+          }
+          let nativeAdopted: Promise<unknown>
+          try {
+            nativeAdopted = new intrinsicPromiseConstructor(resolve => resolve(result))
+          }
+          finally {
+            if (masked) Object.defineProperty(result, "then", ownThen!)
+          }
           void Reflect.apply(intrinsicPromiseThen, nativeAdopted, [
             (value: unknown) => { void settle(value).then(resolve, reject) }, reject,
           ])
