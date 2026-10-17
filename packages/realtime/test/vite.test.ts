@@ -18,8 +18,8 @@ describe("hubRealtime", () => {
     tempDirs.push(root)
     const entry = fileURLToPath(new URL("../dist/vue.js", import.meta.url))
     await writeFile(join(root, "index.html"), `<script type="module" src="/entry.js"></script>`)
-    await writeFile(join(root, "entry.js"), `import * as realtime from ${JSON.stringify(entry)}; globalThis.realtimeProbe = realtime`)
-    await build({
+    await writeFile(join(root, "entry.js"), `export { useRealtimeTiptap } from ${JSON.stringify(entry)}`)
+    const result = await build({
       root,
       configFile: false,
       logLevel: "silent",
@@ -30,8 +30,16 @@ describe("hubRealtime", () => {
           if (id.startsWith("node:")) throw new Error(`Browser entry imports server builtin ${id}`)
         },
       }],
-      build: { write: false },
+      build: { write: false, rollupOptions: { input: join(root, "entry.js"), preserveEntrySignatures: "strict" } },
     })
+    const outputs = Array.isArray(result)
+      ? result.flatMap(bundle => bundle.output)
+      : "output" in result ? result.output : []
+    const expectedFacade = join(root, "entry.js").replaceAll("\\", "/")
+    const entryChunk = outputs.find(output => output.type === "chunk"
+      && output.facadeModuleId?.replaceAll("\\", "/") === expectedFacade)
+    if (entryChunk?.type !== "chunk") throw new Error("Vite did not emit a JavaScript entry chunk")
+    expect(entryChunk.exports).toContain("useRealtimeTiptap")
   })
 
   it("ships one y-tiptap copy, so carets find the sync plugin that Collaboration installs", async () => {

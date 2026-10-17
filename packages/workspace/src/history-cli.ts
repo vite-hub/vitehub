@@ -169,15 +169,8 @@ function parseArgs(command: WorkspaceHistoryCommand, args: readonly string[], en
 function createRequest(command: WorkspaceHistoryCommand, parsed: ParsedHistoryArgs): WorkspaceHistoryDevRequest {
   const [workspace = "", target = "", path] = parsed.positionals
   if (command === "refs") return { operation: "refs", workspace }
-  if (command === "show") {
-    const request: WorkspaceHistoryDevRequest = { operation: "show", workspace, target }
-    if (path !== undefined) request.path = path
-    return request
-  }
-  const request: Extract<WorkspaceHistoryDevRequest, { operation: "history" }> = {
-    operation: "history",
-    workspace,
-  }
+  if (command === "show") return path === undefined ? { operation: "show", workspace, target } : { operation: "show", workspace, target, path }
+  const request: WorkspaceHistoryDevRequest = { operation: "history", workspace }
   if (parsed.cursor !== undefined) request.cursor = parsed.cursor
   if (parsed.limit !== undefined) request.limit = parsed.limit
   if (parsed.ref !== undefined) request.ref = parsed.ref

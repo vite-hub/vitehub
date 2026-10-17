@@ -9,6 +9,7 @@ import { computed, onMounted, ref } from "vue";
 
 // Serialize the SSR clock, then refresh it once on the client so static pages stay current.
 const now = useState("ui-dashboard-clock", () => Date.now());
+onMounted(() => { now.value = Date.now(); });
 
 // Reset synthetic timestamps in the browser after prerendered state hydrates.
 onMounted(() => {

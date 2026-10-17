@@ -718,13 +718,17 @@ describe("Schedule Run bookkeeping", () => {
     })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
     })
-    const hostileScheduledAt = { get [Symbol.toStringTag]() { throw new Error("hostile tag") } } as unknown as Date
+    const hostileScheduledAt = Object.defineProperty({}, Symbol.toStringTag, {
+      get() { throw new Error("tag access failed") },
+    }) as Date
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
       definition: { cron: "0 9 * * *", handler: async () => {} },
       name: "report",
       scheduledAt: hostileScheduledAt,
-    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+    })
   })
 
   it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
