@@ -43,7 +43,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-async function loadProcessPlugin(installProcessScheduleRuntime: PluginHarness["installProcessScheduleRuntime"]) {
+async function loadProcessPlugin(installProcessScheduleRuntime: PluginHarness["installProcessScheduleRuntime"], catchUpMs?: number) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-process-plugin-"))
   roots.push(root)
   await mkdir(join(root, "server"), { recursive: true })
@@ -51,7 +51,7 @@ async function loadProcessPlugin(installProcessScheduleRuntime: PluginHarness["i
   const plugin = hubSchedule({
     projectRoot: root,
     providerOutput: false,
-    runtime: { driver: "process" },
+    runtime: { driver: "process", ...(catchUpMs === undefined ? {} : { catchUpMs }) },
   })
   await (plugin.config as (config: Record<string, unknown>, env: { command: "serve", mode: string }) => Promise<unknown>)(
     { root },
@@ -111,6 +111,15 @@ describe("generated Nitro Process Runtime plugin", () => {
       scheduleRunStore: expect.any(Object),
     }))
     expect(installProcessScheduleRuntime.mock.calls[0]![0]).not.toHaveProperty("staticRegistry")
+  })
+
+  it("passes an explicit catchUpMs setting to the Process Runtime", async () => {
+    const installProcessScheduleRuntime = vi.fn(async (_options: RuntimeInstallOptions) => ({ close: vi.fn() }))
+    const plugin = await loadProcessPlugin(installProcessScheduleRuntime, 0)
+    const { app } = createNitroApp()
+
+    plugin(app)
+    expect(installProcessScheduleRuntime.mock.calls[0]![0]).toHaveProperty("catchUpMs", 0)
   })
 
   it("logs reported runtime failures while preserving Nitro error capture", async () => {

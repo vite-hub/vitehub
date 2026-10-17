@@ -295,7 +295,8 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
   const providerWake = options.providerDefinitions.length > 0
   const processRuntime = options.processRuntime
   const processRuntimeOptions = processRuntime
-    ? {
+      ? {
+        ...(processRuntime.catchUpMs !== undefined ? { catchUpMs: processRuntime.catchUpMs } : {}),
         ...(processRuntime.concurrency !== undefined ? { concurrency: processRuntime.concurrency } : {}),
         ...(processRuntime.intervalMs !== undefined ? { intervalMs: processRuntime.intervalMs } : {}),
       }
