@@ -349,6 +349,16 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
   const targets = new Set<object>([Response.prototype])
   const UndiciResponse = await getUndiciResponse()
   if (UndiciResponse) targets.add(UndiciResponse.prototype)
+  for (const runtime of ["Deno", "Bun", "Cloudflare"]) {
+    try {
+      const Runtime = (globalThis as Record<string, unknown>)[runtime]
+      const Constructor = Runtime && typeof Runtime === "object"
+        ? (Runtime as Record<string, unknown>).Response
+        : undefined
+      if (typeof Constructor === "function" && Constructor.prototype) targets.add(Constructor.prototype)
+    }
+    catch { /* optional runtime globals may be inaccessible */ }
+  }
   try {
     let current = Object.getPrototypeOf(Object(value))
     const seen = new Set<object>()
@@ -438,8 +448,19 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Only intrinsics obtained from trusted runtime integration may establish
     // the Headers brand. A constructor supplied by the candidate is fully
     // attacker-controlled, even when its prototype is self-consistent.
-    const headerTargets = [Headers, await getUndiciHeaders()]
-      .filter((target): target is typeof Headers => typeof target === "function")
+    const headerTargets: (typeof Headers)[] = [Headers]
+    const UndiciHeaders = await getUndiciHeaders()
+    if (UndiciHeaders) headerTargets.push(UndiciHeaders)
+    for (const runtime of ["Deno", "Bun", "Cloudflare"]) {
+      try {
+        const Runtime = (globalThis as Record<string, unknown>)[runtime]
+        const Constructor = Runtime && typeof Runtime === "object"
+          ? (Runtime as Record<string, unknown>).Headers
+          : undefined
+        if (typeof Constructor === "function") headerTargets.push(Constructor as typeof Headers)
+      }
+      catch { /* optional runtime globals may be inaccessible */ }
+    }
     for (const HeaderCtor of headerTargets) {
       try {
         Reflect.apply(Object.getOwnPropertyDescriptor(HeaderCtor.prototype, "get")!.value, headers, ["content-type"])
