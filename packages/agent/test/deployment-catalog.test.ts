@@ -121,6 +121,7 @@ async function createDeploymentRuntimeFixture(
   declaredWorkspaceName?: string,
   explicitSourceRoot = false,
   explicitInstructions = false,
+  inheritedWorkspaceName = false,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
@@ -142,6 +143,7 @@ async function createDeploymentRuntimeFixture(
     ...(declaredWorkspaceName ? [`  name: ${JSON.stringify(declaredWorkspaceName)},`] : []),
     "  runtime: false,",
     "  workspace: {",
+    ...(inheritedWorkspaceName ? ["    __proto__: { name: 'inherited' },"] : []),
     "    mode: 'write',",
     ...(explicitSourceRoot ? [`    sourceRootDir: ${JSON.stringify(supportRoot)},`] : []),
     ...(explicitInstructions ? ["    sources: { __vitehubAgentInstructions: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' } },"] : []),
@@ -480,6 +482,18 @@ describe("generated Agent deployment catalog", () => {
     expect(extended?.description).toBe("Extended")
     expect(extended?.sourceRootDir).toBe(join(runtime!.supportRoot, "workspace"))
     expect(extended?.[Symbol.for("vitehub.agent.colocatedSkills")]).toEqual(skills)
+  })
+
+  it("decorates an owned Workspace with an inherited name in generated deployment output", async () => {
+    await runtime!.close()
+    runtime = await createDeploymentRuntimeFixture("nitro", "support", true, undefined, undefined, false, false, true)
+    const workspace = await runtime.workspace("support")
+
+    expect(workspace.sourceRootDir).toBe(join(runtime.supportRoot, "workspace"))
+    expect(workspace.sources).toMatchObject({
+      __vitehubAgentInstructions: { content: "Support the deployment catalog.\n", workspacePath: "AGENTS.md" },
+      "__vitehubAgentSkill:.agents/skills/review/SKILL.md": { workspacePath: ".agents/skills/review/SKILL.md" },
+    })
   })
 
   it.each([false, true])("keeps startup instructions with an explicit source root and explicit override %s", async (explicitInstructions) => {
