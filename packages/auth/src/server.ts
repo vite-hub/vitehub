@@ -459,19 +459,23 @@ async function isSerializableAuthorizationBody(body: unknown): Promise<boolean> 
     if (Object(probeReadResult) !== probeReadResult || typeof Reflect.get(probeReadResult as object, "then") !== "function") return false
     const probeResult = await probeReadResult as { done?: unknown; value?: unknown }
     if (typeof probeResult.done !== "boolean") return false
-    // `instanceof` is realm-sensitive: a genuine byte chunk produced by the
-    // stream's own runtime does not inherit this realm's Uint8Array prototype.
-    // ArrayBuffer.isView performs a cross-realm brand check; the tag then
-    // limits accepted views to Uint8Array rather than arbitrary typed arrays.
+    // `instanceof` is realm-sensitive, and prototype metadata can be forged.
+    // The intrinsic %TypedArray%.prototype @@toStringTag getter performs a
+    // cross-realm internal-brand check without consulting the value's mutable
+    // prototype, so it distinguishes Uint8Array from clamped/other views.
     const probeValue = probeResult.value
-    const probeValuePrototype = Object(probeValue) === probeValue ? Object.getPrototypeOf(probeValue) : null
-    const probeValueConstructor = probeValuePrototype && Object.getOwnPropertyDescriptor(probeValuePrototype, "constructor")?.value
-    const probeValueBytes = probeValuePrototype && Object.getOwnPropertyDescriptor(probeValuePrototype, "BYTES_PER_ELEMENT")?.value
-    if (probeResult.done
-      || !ArrayBuffer.isView(probeValue)
-      || probeValueBytes !== 1
-      || typeof probeValueConstructor !== "function"
-      || probeValueConstructor.name !== "Uint8Array") return false
+    const typedArrayTagGetter = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(Uint8Array.prototype),
+      Symbol.toStringTag,
+    )?.get
+    let probeValueTag: unknown
+    try {
+      probeValueTag = typedArrayTagGetter ? Reflect.apply(typedArrayTagGetter, probeValue, []) : undefined
+    }
+    catch {
+      probeValueTag = undefined
+    }
+    if (probeResult.done || probeValueTag !== "Uint8Array") return false
     let canceled = false
     const cancelStream = new streamConstructor({
       cancel() {
