@@ -1,6 +1,6 @@
 import { channelIcon } from "../internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "../internal/invocation-brand.ts";
-import { useMounted, useNow } from "@vueuse/core";
+import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
@@ -1465,7 +1465,7 @@ export const AgentInvocation = defineComponent({
     const conversation = computed(() => buildInvocationConversation(activities.value));
     const expandedMessages = ref<ReadonlySet<string>>(new Set());
     const mounted = useMounted();
-    const now = useNow({ interval: 60_000 });
+    const now = useNow({ scheduler: (tick) => useIntervalFn(tick, 60_000) });
     const liveNow = ref<Date>();
     let liveClock: ReturnType<typeof setInterval> | undefined;
     const workOpen = ref(false);
