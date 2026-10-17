@@ -118,7 +118,14 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // derived classes retain a caller-controlled parent and must fail closed.
         const constructorParent = Object.getPrototypeOf(constructor)
         const parentConstructor = constructorParent && Object.getOwnPropertyDescriptor(constructorParent, "constructor")?.value
-        hasNativeConstructorLineage = typeof parentConstructor === "function"
+        const constructorSource = Function.prototype.toString.call(constructor)
+        // Fetch Response constructors are class/native implementations. An
+        // ordinary caller-created function can reproduce every public field
+        // and factory above, but cannot provide a native function body. Keep
+        // class-based foreign implementations (such as happy-dom) supported.
+        const isClassConstructor = /^class(?:\s|$)/.test(constructorSource)
+        hasNativeConstructorLineage = (isClassConstructor || constructorSource.includes("[native code]"))
+          && typeof parentConstructor === "function"
           && parentConstructor.prototype === constructorParent
           && parentConstructor.name === "Function"
           // A caller-created derived constructor can supply a Function-shaped
