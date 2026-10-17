@@ -6,7 +6,7 @@ navigation.group: Utilities
 icon: i-ph-scroll-light
 ---
 
-The message scroller is the headless layer under `AgentChat`. It follows new content only while the reader stays at the live edge, keeps the position when older messages are added above, and can jump to a message ID. Use it when you want chat scrolling with your own markup and styles. It does not load styles or need Nuxt UI.
+The message scroller is the scrolling layer under `AgentChat`. It follows new content only while the reader stays at the live edge, keeps the position when older messages are added above, and can jump to a message ID. The parts have the same names and `data-slot` attributes as the [shadcn/ui Message Scroller](https://ui.shadcn.com/docs/components/message-scroller). Import them from `@vite-hub/ui/headless`, which does not load styles or need Nuxt UI. `@vite-hub/ui/styles.css` gives them the shadcn/ui layout: a full-height root, a thin-scrollbar viewport, `1.5rem` between items, and a centered button at the bottom.
 
 ::component-preview{name="MessageScrollerExample"}
 ::
@@ -18,16 +18,16 @@ Import the primitives from `@vite-hub/ui/headless`:
 ```vue
 <script setup lang="ts">
 import {
+  MessageScroller,
   MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
-  MessageScrollerRoot,
   MessageScrollerViewport,
 } from "@vite-hub/ui/headless";
 </script>
 
 <template>
-  <MessageScrollerRoot>
+  <MessageScroller>
     <MessageScrollerViewport>
       <MessageScrollerContent :items="messages.map((message) => message.id)">
         <MessageScrollerItem v-for="message in messages" :key="message.id" :message-id="message.id">
@@ -36,11 +36,11 @@ import {
       </MessageScrollerContent>
     </MessageScrollerViewport>
     <MessageScrollerButton />
-  </MessageScrollerRoot>
+  </MessageScroller>
 </template>
 ```
 
-Give the viewport a height and `overflow-y: auto`.
+Without `@vite-hub/ui/styles.css`, give the viewport a height and `overflow-y: auto`.
 
 ## Examples
 
@@ -53,7 +53,7 @@ New lines arrive every second. Scroll up to stop following. The button appears a
 
 ### Jump to a message
 
-Call `useMessageScroller()` in a component inside `MessageScrollerRoot`:
+Call `useMessageScroller()` in a component inside `MessageScroller`:
 
 ```vue [JumpToMessage.vue]
 <script setup lang="ts">
@@ -70,7 +70,7 @@ const { scrollToMessage } = useMessageScroller();
 
 ## API reference
 
-### MessageScrollerRoot
+### MessageScroller
 
 #### Props
 
@@ -139,7 +139,7 @@ interface MessageScrollerContext {
 }
 ```
 
-Call it under `MessageScrollerRoot`. Outside a root, it throws `UI_R0002`.
+Call it under `MessageScroller`. Outside a root, it throws `UI_R0002`.
 
 `calculatePrependScrollTop(previousTop, previousHeight, nextHeight)` returns the scroll position that keeps content in place after a prepend. Use it when you build your own scroller.
 

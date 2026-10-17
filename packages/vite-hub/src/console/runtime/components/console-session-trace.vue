@@ -2,7 +2,7 @@
 import { useConsoleWordWrap } from "./console-wrap";
 const wordWrap = useConsoleWordWrap();
 import type { SplitterItem } from "@nuxt/ui";
-import type { AgentInvocationView } from "@vite-hub/ui";
+import type { AgentInvocationView } from "./invocation";
 import { computed, ref, watch } from "vue";
 import {
   indexTraceLifecycles,

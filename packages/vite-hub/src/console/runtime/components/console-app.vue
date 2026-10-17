@@ -6,7 +6,7 @@ import {
   agentInvocationExternalUrl,
   agentInvocationProject,
   agentInvocationTitle,
-} from "@vite-hub/ui";
+} from "./invocation";
 import { useAgentInvocation, useAgentInvocations } from "vite-hub/agent/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -26,7 +26,7 @@ import type {
   AgentInvocationConfiguration,
   AgentInvocationListItem,
   AgentInvocationView,
-} from "@vite-hub/ui";
+} from "./invocation";
 import {
   decodeAgentRouteParam,
   encodeAgentRouteParam,
@@ -58,6 +58,7 @@ import {
 } from "./console-session-bootstrap";
 import type { CapabilityFilterRouteTransition } from "./console-session-bootstrap";
 import "./console-session.css";
+import "./invocation/invocation.css";
 
 const route = useRoute();
 const router = useRouter();

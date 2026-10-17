@@ -65,7 +65,7 @@ describe("UI documentation", () => {
   });
 
   it("gives every block page a full-width, resettable preview", () => {
-    expect(blockPages.length).toBeGreaterThanOrEqual(3);
+    expect(blockPages.length).toBeGreaterThanOrEqual(2);
     for (const page of blockPages) {
       expect(page.source, page.name).toMatch(/::component-preview\{name="[A-Za-z]+Block" flush reset\}/);
       expect(page.source, page.name).toContain("navigation.group: Console");
@@ -127,6 +127,16 @@ describe("UI documentation", () => {
     expect(layout).toContain("vh-docs-main");
     expect(layout).toContain("lg:!flex lg:!flex-row");
     expect(layout).toContain("max-width: none;");
+  });
+
+  it("gives component pages the shared article layout and page outline", () => {
+    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
+    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
+
+    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
+    expect(article).toContain("UContentToc");
+    expect(article).toContain('aria-label="Page outline"');
+    expect(article).toContain("min-w-0");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {

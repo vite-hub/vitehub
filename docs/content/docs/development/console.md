@@ -536,7 +536,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 
 A Console route that fails with its own diagnostic keeps that code, for example `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs` to the error body.
 
-Use [Agent Invocations](/docs/agents/invocations) for custom stores and invocation lifecycle behavior. Use [Invocation UI](/docs/ui/invocation) when building an application-owned inspection page instead of mounting the complete Console.
+Use [Agent Invocations](/docs/agents/invocations) for custom stores and invocation lifecycle behavior. Use the [UI parts](/docs/ui) such as [Trace](/docs/ui/trace) and [Code block](/docs/ui/code-block) when you build an application-owned inspection page instead of mounting the complete Console.
 
 ### Image upload boundaries
 
