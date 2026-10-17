@@ -79,7 +79,7 @@ function isActive(path: string) {
         :to="relatedSection.path"
         class="vh-docs-sidebar-link"
       >
-        <UIcon :name="sidebarSectionIcon(relatedSection)" class="size-4 shrink-0" />
+        <PrimitiveIcon :name="railSectionIcon(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ relatedSection.title }}</span>
       </NuxtLink>
     </section>
@@ -112,7 +112,7 @@ function isActive(path: string) {
         :to="catalogSection.path"
         class="vh-docs-sidebar-link"
       >
-        <UIcon :name="sidebarSectionIcon(catalogSection)" class="size-4 shrink-0" />
+        <PrimitiveIcon :name="railSectionIcon(catalogSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ catalogSection.title }}</span>
       </NuxtLink>
     </section>
