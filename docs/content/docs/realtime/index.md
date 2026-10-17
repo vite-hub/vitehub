@@ -6,6 +6,20 @@ navigation.order: 1
 icon: i-lucide-radio
 ---
 
+::agent-only{skill="realtime"}
+Use Realtime for collaborative state that changes while clients are connected. Realtime keeps room authority, document format, and durable checkpoints explicit.
+
+Read [Get started](/docs/realtime/get-started), [Configure](/docs/realtime/configure), or [Server API](/docs/realtime/server-api). The Configure page describes host authority and persistence.
+
+Choose Cloudflare authority for multi-instance production. Memory authority is single-process. Keep authentication and checkpoint retention in application policy.
+
+Realtime is the collaboration layer for the supported document and editor
+models. It does not replace Auth, Workspace persistence, or a general WebSocket
+server.
+
+Prove two clients joining, a concurrent edit, reconnect, and checkpoint recovery. Inspect the generated registry and handler for hosted output.
+::
+
 ::product-hero{tagline="Collaborative TipTap editing over Yjs, saved to Workspace Markdown or your own storage, with rooms in memory on Node or Durable Objects on Cloudflare." hosts="Cloudflare, Node, Docker"}
   :::code-group
   ```ts [Editor]
