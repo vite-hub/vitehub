@@ -7,53 +7,59 @@
 </p>
 
 <p align="center">
-  Define an Agent in one file. Run it on any supported Vite host.
+  The server layer for Vite apps. Storage, queues, workflows, and more.<br>
+  Use one API in your app and deploy it to your choice of cloud.
 </p>
 
 <p align="center">
   <a href="https://vitehub.dev">Website</a>
   ·
-  <a href="https://vitehub.dev/docs/getting-started/first-agent">First Agent</a>
+  <a href="https://vitehub.dev/docs/getting-started/first-server-primitive">First Server Primitive</a>
   ·
-  <a href="https://vitehub.dev/docs/agents">Docs</a>
+  <a href="https://vitehub.dev/docs">Docs</a>
 </p>
 
-## One file, one Agent
+## Write once, deploy anywhere
 
 ```ts
-// server/agents/review.ts
-import { defineAgent } from "vite-hub/agent";
-import { browser } from "vite-hub/agent/capabilities";
-import { github } from "vite-hub/agent/channels";
+// server/api/settings.get.ts
+import { defineEventHandler } from "h3";
+import { kv } from "vite-hub/kv";
 
-export default defineAgent({
-  description: "Reviews pull requests.",
-  channels: {
-    github: github({
-      pullRequest: { reconcile: { events: ["opened"] } },
-    }),
-  },
-  driver: "codex",
-  workspace: { mode: "write" },
-  capabilities: [browser()],
+export default defineEventHandler(async () => {
+  const [error, settings] = await kv.get("settings");
+  if (error) throw error;
+  return settings;
 });
 ```
 
-When a pull request opens, this Agent runs Codex in a persistent Workspace. It can use the browser Capability and the Skills it provides. Codex also has its native coding-agent tools, including shell access; Capabilities add the tools listed in the definition.
+This route does not change between hosts. The host selects the provider:
 
-- **Channels** start the Agent from GitHub, Slack, HTTP, or web chat.
-- **Driver** selects the runner: Codex, Claude Code, an AI SDK model, or your own function.
-- **Workspace** gives the Agent a file tree that persists between runs.
-- **Capabilities** grant additional tools the Agent can use. The Driver also has its own native tools and permissions.
+| Host       | KV                   | Blob                  | Database          |
+| ---------- | -------------------- | --------------------- | ----------------- |
+| Cloudflare | Workers KV           | R2                    | D1                |
+| Vercel     | Upstash Redis        | Vercel Blob           | libSQL or D1 HTTP |
+| Netlify    | Upstash Redis        | Netlify Blobs         | libSQL            |
+| Deno       | Deno KV              | S3-compatible         | libSQL            |
+| Node       | `fs-lite` or Upstash | `fs` or S3-compatible | SQLite or libSQL  |
 
-ViteHub finds the file, connects it to your server, and prepares the output for your host.
+Support is different for each primitive. Read the [support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before you select a host.
+
+## Server Primitives
+
+Use each primitive alone, or use them together in one app.
+
+- **Data:** [KV](https://vitehub.dev/docs/kv), [Blob](https://vitehub.dev/docs/blob), [Database](https://vitehub.dev/docs/database), [Realtime](https://vitehub.dev/docs/realtime)
+- **Background work:** [Queue](https://vitehub.dev/docs/queue), [Workflow](https://vitehub.dev/docs/workflows), [Schedule](https://vitehub.dev/docs/schedule)
+- **Users and services:** [Auth](https://vitehub.dev/docs/auth), [Connections](https://vitehub.dev/docs/connections), [Email](https://vitehub.dev/docs/email), [Channels](https://vitehub.dev/docs/channels), [Rate Limit](https://vitehub.dev/docs/rate-limit), [Env](https://vitehub.dev/docs/env)
+- **Execution:** [Sandbox](https://vitehub.dev/docs/sandbox), [Shell](https://vitehub.dev/docs/shell), [Browser](https://vitehub.dev/docs/browser), [Workspace](https://vitehub.dev/docs/workspace)
+- **Content:** [Source](https://vitehub.dev/docs/source), [Content](https://vitehub.dev/docs/content)
+- **Agents:** [Agent](https://vitehub.dev/docs/agents), [UI](https://vitehub.dev/docs/ui)
 
 ## Get started
 
-For a complete runnable setup, follow the [First Agent](https://vitehub.dev/docs/getting-started/first-agent) tutorial. The abbreviated configuration below assumes an existing Vite server application; `vitehub()` registers the build integration but does not create a server entry or framework.
-
 ```bash
-pnpm add vite-hub
+pnpm add vite-hub h3 vite
 ```
 
 ```ts
@@ -66,13 +72,36 @@ export default defineConfig({
 });
 ```
 
-The First Agent tutorial runs offline and needs no model key.
+`vitehub()` adds the build integration. It does not create a server entry or a framework. For a complete app, follow the [First Server Primitive](https://vitehub.dev/docs/getting-started/first-server-primitive) tutorial. It runs offline and needs no account.
 
-Requirements: Node 24.15 or newer and Vite 8 or newer. Presets: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. See [runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) for details on each feature.
+If a coding agent writes your app, install the ViteHub skill:
 
-## Built on Server Primitives
+```bash
+npx skills add https://vitehub.dev --skill vitehub
+```
 
-Capabilities use Server Primitives such as [KV](https://vitehub.dev/docs/kv), [Blob](https://vitehub.dev/docs/blob), [Queue](https://vitehub.dev/docs/queue), [Workflow](https://vitehub.dev/docs/workflows), and [Sandbox](https://vitehub.dev/docs/sandbox). You can also call them from ordinary server code without an Agent. See [Server Primitives](https://vitehub.dev/docs/getting-started/server-primitives).
+Requirements: Node 24.15 or newer and Vite 8 or newer. Presets: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
+
+## Agents use the same primitives
+
+```ts
+// server/agents/review.ts
+import { defineAgent } from "vite-hub/agent";
+import { browser, kv } from "vite-hub/agent/capabilities";
+import { github } from "vite-hub/agent/channels";
+
+export default defineAgent({
+  description: "Reviews pull requests.",
+  channels: {
+    github: github({ pullRequest: { reconcile: { events: ["opened"] } } }),
+  },
+  driver: "codex",
+  workspace: { mode: "write" },
+  capabilities: [browser(), kv({ mode: "write" })],
+});
+```
+
+Your Agents live in your app, not beside it. They share its server, storage, and deploy. Capabilities wrap the same primitives that your routes call, so a route can read the KV store that this Agent writes. Start with the [First Agent](https://vitehub.dev/docs/getting-started/first-agent) tutorial.
 
 ## Status
 
