@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/forge",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "One Forge client for ViteHub: GitHub, GitLab and Forgejo providers, App credentials and Server Env.",
   "keywords": [
     "forge",

@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/agent",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Agent DX layer and Vite integration for ViteHub.",
   "keywords": [
     "agent",
