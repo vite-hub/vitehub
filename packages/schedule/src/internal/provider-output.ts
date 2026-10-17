@@ -77,10 +77,6 @@ export function resolveScheduleDefinitionEntry(resolveImport: ImportResolver = s
 const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()
 const scheduleDefinitionEntry = resolveScheduleDefinitionEntry()
 
-function staticScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): DiscoveredScheduleDefinition[] {
-  return definitions.filter(definition => definition.runtimeOnly !== true)
-}
-
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
   denoCronFile: string
@@ -398,7 +394,6 @@ async function writeProviderEntries(
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = (providedDefinitions ?? discoverScheduleDefinitions({ rootDir }))
     .filter(definition => !source || definition.source === source)
-    .filter(definition => definition.runtimeOnly !== true)
   await writeRuntimeRegistryFile(registryFile, definitions)
 
   const cloudflareWorkerFile = resolve(generatedDir, "cloudflare-worker.mjs")
@@ -418,7 +413,7 @@ export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinit
 
 export async function readRuntimeDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
   const crons = new Map<string, string>()
-  for (const definition of staticScheduleDefinitions(definitions)) {
+  for (const definition of definitions) {
     const cron = readStaticScheduleCron(definition.handler, definition.name)
     crons.set(definition.name, cron)
   }
@@ -438,7 +433,7 @@ export async function writeVercelScheduleFunctions(options: {
   workflow?: ScheduleWorkflowRuntime
 }, crons: Map<string, string>) {
   options.signal?.throwIfAborted()
-  const definitions = staticScheduleDefinitions(options.definitions)
+  const definitions = options.definitions
   const outputRoot = options.outputRoot
   const functionRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
   const stagedFunctionRoot = `${functionRoot}.pending`
@@ -611,7 +606,7 @@ export async function createNetlifyScheduleFunctionOutputs(options: {
   includedSourcesDir?: string
   registryFile: string
 }): Promise<NetlifyScheduleFunctionOutput[]> {
-  const definitions = staticScheduleDefinitions(options.definitions)
+  const definitions = options.definitions
   const crons = await readDefinitionCrons(definitions)
   const emitted = new Map<string, string>()
   return definitions.map((definition) => {

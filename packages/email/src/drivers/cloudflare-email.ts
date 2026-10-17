@@ -92,7 +92,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
   if (!Constructor)
     throw emailProviderError(
       "cloudflare-email",
-      "INVALID_OPTIONS",
+      "NOT_CONFIGURED",
       "EmailMessage constructor is unavailable.",
     );
   return {

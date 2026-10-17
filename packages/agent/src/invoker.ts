@@ -274,7 +274,6 @@ export async function resolveAgentInvoker<
   invocationContext: AgentInvocationContextStore,
   input: AgentRunInput<CALL_OPTIONS>,
   run?: AgentRunMetadata,
-  requireMatchingRequestedInvoker = false,
 ): Promise<AgentInvoker> {
   const normalizedOptions = normalizeAgentInvokerOptions(options)
   resolverDerivedAgentInvokers.delete(invocationContext)
@@ -310,17 +309,6 @@ export async function resolveAgentInvoker<
   if (selectedProfile) resolveContext.selectedProfile = selectedProfile
   const resolved = await normalizedOptions?.resolve?.(resolveContext)
   if (resolved !== undefined && resolved !== null) resolverDerivedAgentInvokers.add(invocationContext)
-  if (requireMatchingRequestedInvoker && normalizedOptions?.resolve) {
-    if (!requestedInvoker || resolved === undefined || resolved === null) {
-      throw agentDiagnostics.AGENT_R0644({ message: "[vitehub] Scheduled Agent turns require matching invoker reauthorization." })
-    }
-    const reauthorizedInvoker = normalizeAgentInvoker(resolved, "defineAgent({ invoker.resolve })")
-    if (reauthorizedInvoker.id !== requestedInvoker.id || reauthorizedInvoker.kind !== requestedInvoker.kind) {
-      throw agentDiagnostics.AGENT_R0645({ message: "[vitehub] Scheduled Agent turns require matching invoker reauthorization." })
-    }
-    ensureAgentInvokerContext(invocationContext, reauthorizedInvoker)
-    return reauthorizedInvoker
-  }
   const invoker = resolved === undefined || resolved === null
     ? selectedInvoker || defaultInvoker
     : normalizeAgentInvoker(resolved, "defineAgent({ invoker.resolve })")

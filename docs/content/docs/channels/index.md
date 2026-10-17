@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-send
 ---
 
+::agent-only{skill="channels"}
+Use Channels for outbound message delivery through named connectors such as HTTP, chat, GitHub, Slack, or email. For inbound webhooks, chat admission, or Agent input, use [Agent Channels](/docs/agents/channels) and [Triggers](/docs/agents/triggers).
+
+Read [Get started](/docs/channels/get-started). Use [Server API](/docs/channels/server-api) for delivery and [Agent Channels](/docs/agents/channels) for Agent input.
+
+Keep connector credentials and delivery or reply policy in the Channel Definition. A Channel does not grant an Agent every application capability. Grant tools separately. For inbound webhook verification or chat admission, follow the Agent Channels and Triggers guidance instead.
+
+Prove one outbound delivery and its result on the target channel.
+::
+
 ::product-hero{tagline="Send outbound messages to a named destination from server code, through connectors you write and select per call." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Telegram, Slack, Your API" channel-mode="custom"}
   :::code-group
   ```ts [Definition]

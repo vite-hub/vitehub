@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-folder-input
 ---
 
+::agent-only{skill="source"}
+Use Source to read files, records, or external resources through a typed, read-only loader. Sources provide context; they do not grant write authority.
+
+Read [Get started](/docs/source/get-started), [Configure](/docs/source/configure), [Server API](/docs/source/server-api), or [Hosts](/docs/source/hosts).
+
+Choose the narrowest loader and scope its root, branch, or query. Validate source provenance and access before passing content to an Agent or route.
+
+Prove a successful read, an out-of-scope path, missing content, and the returned metadata or revision.
+::
+
 ::product-hero{tagline="Typed read-only loaders for files, GitHub, and MCP Resources, defined once and shared by routes, Content, and Workspaces." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-group
   ```ts [Collection]

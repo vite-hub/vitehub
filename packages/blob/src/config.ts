@@ -149,7 +149,6 @@ function normalizeServeHeaders(value: unknown): Record<string, string> | undefin
 
   const entries = Object.entries(value)
   for (const [name, headerValue] of entries) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Header values must be strings before validation by the Headers constructor.
     if (typeof headerValue !== "string") throw blobErrorDiagnostics.BLOB_C0003({ message: "`blob.serve.headers` values must be strings." })
     try {
       new Headers({ [name]: headerValue })

@@ -472,7 +472,7 @@ async function commentReactionEffect() {}
 
 it("inspects a first-party Channel imported from a relative module", async () => {
   const definition = await discover(
-    'import { defineAgent } from "vite-hub/agent"\nimport portalGithub from "../../portal.github.ts"\nexport default defineAgent({ box: { runtime: { kind: "crabbox" } }, channels: { github: portalGithub }, driver: { kind: "codex" } })\n',
+    'import { defineAgent } from "vite-hub/agent"\nimport portalGithub from "../../portal.github.ts"\nexport default defineAgent({ sandbox: { runtime: { kind: "crabbox" } }, channels: { github: portalGithub }, driver: { kind: "codex" } })\n',
     { "portal.github.ts": portalChannel },
   )
   expect(definition?.workspace).toBeUndefined()
@@ -879,7 +879,7 @@ it.each([
   'driver: { ignored: (String) => String, instructions: ({ input }) => `${String(input.id)}` }',
   'driver: { instructions: ({ input }) => `${Number(input.id)} ${Boolean(input.id)}` }',
   'driver: { instructions: ({ input }) => `${`${String(input.id)}`}` }',
-  'box: { env: { THREAD_ID: ({ input }) => `pr-${input.id}` } }',
+  'sandbox: { env: { THREAD_ID: ({ input }) => `pr-${input.id}` } }',
   'driver: { instructions: ({ input }) => `portal ${input.id}` }',
   'driver: { instructions: ({ input }) => `${input.id} portal` }',
   'driver: { instructions: ({ input }) => `portal ${input.id} portal ${input.name}` }',
@@ -1131,7 +1131,7 @@ import portal from "../../portal.ts"
 const authPath = join(process.env.HOME || "/tmp", "config")
 const setup = String.raw\`prepare\`
 export default defineAgent({
-  box: { home: { files: existsSync(authPath) ? { config: { contents: () => readFile(authPath) } } : {} }, env: { THREAD_ID: ({ input }) => \`pr-\${input.id}\` } },
+  sandbox: { home: { files: existsSync(authPath) ? { config: { contents: () => readFile(authPath) } } : {} }, env: { THREAD_ID: ({ input }) => \`pr-\${input.id}\` } },
   channels: { github: portal },
 })`, {
     "portal.ts": `${imports} export default github({ pullRequest: false })`,

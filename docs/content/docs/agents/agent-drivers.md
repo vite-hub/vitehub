@@ -237,7 +237,7 @@ The directory is the working copy. ViteHub still materializes Workspace Sources,
 
 ### Provision the project toolchain
 
-Set `toolchain` when the provider works on a JavaScript project that pins its own Node.js and package manager. It uses the same declaration as [`box.toolchain`](/docs/agents/boxes#provision-nodejs-and-the-package-manager):
+Set `toolchain` when the provider works on a JavaScript project that pins its own Node.js and package manager. It uses the same declaration as [`sandbox.toolchain`](/docs/agents/sandboxes#provision-nodejs-and-the-package-manager):
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -253,7 +253,7 @@ export default defineAgent({
 
 After ViteHub prepares the pull request checkout, the Workspace, or `cwd`, it reads the pins from that directory, provisions them on this host under `$XDG_CACHE_HOME/vitehub/toolchains`, and checks `node -v` and the package manager version. The toolchain `bin` directories come before the host `PATH` for the provider process, every command it starts, and Workspace commands. With a pull request mounted below the Workspace root, ViteHub reads the pins from that mount. A launcher from `launch` receives the same `PATH` in its environment, so it must run on this host. Provider CLIs that start through `#!/usr/bin/env node`, such as the npm Codex package, also run on the project's Node.js. Title and progress summary runs do not provision a toolchain.
 
-`status()` does not report `node`, `npm`, `npx`, `pnpm`, `pnpx`, `yarn`, or `yarnpkg` as missing when `toolchain` is set, because the toolchain exists only after an invocation prepares its checkout. With `box`, declare `box.toolchain` instead; the Agent rejects `driver.toolchain` with `AGENT_R0972`.
+`status()` does not report `node`, `npm`, `npx`, `pnpm`, `pnpx`, `yarn`, or `yarnpkg` as missing when `toolchain` is set, because the toolchain exists only after an invocation prepares its checkout. With `sandbox`, declare `sandbox.toolchain` instead; the Agent rejects `driver.toolchain` with `AGENT_R0972`.
 
 Threads resume with the provider's opaque cursor. ViteHub normalizes assistant text, reasoning, native and Capability tool activity, approvals, provider questions, usage, warnings, errors, and terminal state into Agent Invocation events.
 
@@ -280,15 +280,15 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 
 Provider Drivers do not accept model-specific Provider Tool contributions, Cloudflare Agents, or Deno. Provider Workspaces are also unsupported on Windows. These boundaries fail explicitly. Workspace-scoped Skills and ordinary Capability tools are supported.
 
-## Run a provider Driver in a Box
+## Run a provider Driver in a Sandbox
 
-Set `box` on the Agent Definition to start the provider inside a [Box](/docs/agents/boxes). The Box supplies the working tree, private Home, environment, and boot checks for each invocation:
+Set `sandbox` on the Agent Definition to start the provider inside a [Sandbox](/docs/agents/sandboxes). The Sandbox supplies the working tree, private Home, environment, and boot checks for each invocation:
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  box: {
+  sandbox: {
     runtime: 'trusted-host',
     requires: ['git'],
   },
@@ -296,7 +296,7 @@ export default defineAgent({
 })
 ```
 
-The provider runtime stays in the ViteHub process. Only the provider command runs in the Box. ViteHub adds the provider command to the Box requirements and writes the Driver instructions and Skills to the Box Home. `driver.env` values reach the provider in the Box. With `box`, the Driver rejects `launch`, `credentials`, and `credentialProfile`, and the Agent rejects `workspace`. Put provider credentials in the Box instead. A Box session lasts one invocation, so the provider does not resume a thread from an earlier invocation.
+The provider runtime stays in the ViteHub process. Only the provider command runs in the Sandbox. ViteHub adds the provider command to the Sandbox requirements and writes the Driver instructions and Skills to the Sandbox Home. `driver.env` values reach the provider in the Sandbox. With `sandbox`, the Driver rejects `launch`, `credentials`, and `credentialProfile`, and the Agent rejects `workspace`. Put provider credentials in the Sandbox instead. A Sandbox session lasts one invocation, so the provider does not resume a thread from an earlier invocation.
 
 ### Cloudflare Workers
 

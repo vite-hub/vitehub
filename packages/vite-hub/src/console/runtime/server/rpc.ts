@@ -93,7 +93,6 @@ function errorResult(error: unknown): ConsoleRpcResult {
   const rawStatus = Reflect.get(value, "statusCode") ?? Reflect.get(value, "status")
   const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500
   const statusMessage = Reflect.get(value, "statusMessage")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
   const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : undefined
   // A failure site with its own diagnostic keeps its code and guidance. Others get the Console code of the status.
   const code = text(Reflect.get(value, "code"))
@@ -107,7 +106,6 @@ function errorResult(error: unknown): ConsoleRpcResult {
 }
 
 function text(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
   return typeof value === "string" && value ? value : undefined
 }
 
@@ -159,7 +157,14 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
   [consoleRpcMethods.agentInvocations]: { section: "agents", run: (input, context) => consoleAgentInvocationsHandler(requestEvent(`agents/${input.agent ?? ""}/invocations`, input, context)) },
   [consoleRpcMethods.blob]: { section: "blob", run: (input, context) => consoleBlobHandler(requestEvent("blob", input, context)) },
   [consoleRpcMethods.database]: { section: "databases", run: (input, context) => consoleDatabaseHandler(requestEvent("database", input, context)) },
-  [consoleRpcMethods.definitions]: { section: querySection, run: (input, context) => consoleDefinitionsHandler(requestEvent("definitions", input, context)) },
+  [consoleRpcMethods.definitions]: {
+    section: querySection,
+    run: (input, context) => {
+      // The route guard rejects a request without a section. Over RPC it is invalid input.
+      if (querySection(input) === undefined) throw consoleRequestError(400, "A valid definition section is required.")
+      return consoleDefinitionsHandler(requestEvent("definitions", input, context))
+    },
+  },
   [consoleRpcMethods.invocationWorkspace]: { section: "agents", run: (input, context) => consoleInvocationWorkspaceHandler(requestEvent("invocation-workspace", input, context)) },
   [consoleRpcMethods.invocation]: { section: "agents", run: (input, context) => consoleInvocationHandler(requestEvent("invocations", input, context)) },
   [consoleRpcMethods.invocationCapabilities]: { section: "agents", run: (input, context) => consoleInvocationCapabilitiesHandler(requestEvent("invocation-capabilities", input, context)) },
@@ -280,7 +285,10 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   if (section !== false && !consoleAccessAllows(context.access, section)) {
     throw consoleRequestError(403, "This Console access does not include this section.")
   }
-  return operation.run(input.output, context)
+  const value = await operation.run(input.output, context)
+  // A guarded route returns its rejection as a Response. It is a failure, not an operation value.
+  if (value instanceof Response) throw consoleRequestError(value.status, "Console access rejected the request.")
+  return value
 }
 
 /** Run one Console operation from one checked request, so any host instance can serve any call. */
