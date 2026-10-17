@@ -521,10 +521,8 @@ describe("GitHub workspace store", () => {
       content: textBytes('{"ok":true}\n'),
       path: "data/existing.json",
     });
-    expect(
-      requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET"),
-    ).toBeUndefined();
-    expect(requests.find(request => request.path.includes("/contents/.vitehub/workspaces/docs/data/existing.json")))
+    // The Contents API truncates large files, so file reads go by blob sha.
+    expect(requests.find(request => request.path === `/repos/onmax/repo/git/blobs/${textSha('{"ok":true}\n')}`))
       .toMatchObject({ headers: expect.any(Headers), method: "GET" });
     await expect(store.list("", { recursive: true })).resolves.toEqual([
       expect.objectContaining({ path: "data", type: "directory" }),
@@ -650,7 +648,7 @@ describe("GitHub workspace store", () => {
     ]);
   });
 
-  it("loads many private files from one branch snapshot without GitHub REST blob requests", async () => {
+  it("loads many private files from one branch snapshot with one blob request per file", async () => {
     for (let index = 0; index < 756; index++) {
       seedRemote(`.vitehub/workspaces/docs/data/file-${index}.txt`, `file ${index}\n`);
     }
@@ -669,13 +667,13 @@ describe("GitHub workspace store", () => {
     await Promise.all(entries.filter(entry => entry.type === "file").map(entry => store.readFile(entry.path)));
 
     expect(requests.filter(request => request.path.startsWith("/repos/"))).toHaveLength(758);
-    expect(requests.filter(request => request.path.includes("/git/blobs/"))).toEqual([]);
-    expect(requests.filter(request => request.path.includes("/contents/.vitehub/workspaces/docs/data/file-")).length).toBe(756);
-    expect(requests.find(request => request.path.endsWith("/data/file-0.txt"))?.headers.get("authorization"))
+    expect(requests.filter(request => request.path.includes("/git/blobs/"))).toHaveLength(756);
+    expect(requests.filter(request => request.path.includes("/contents/"))).toEqual([]);
+    expect(requests.find(request => request.path.endsWith(`/git/blobs/${textSha("file 0\n")}`))?.headers.get("authorization"))
       .toBe("Bearer token");
   });
 
-  it("encodes raw file paths against the immutable loaded commit and shapes failures", async () => {
+  it("reads files by the blob sha of the loaded commit and shapes failures", async () => {
     seedRemote(".vitehub/workspaces/docs/data/a #%å.txt", "content\n");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
@@ -689,9 +687,7 @@ describe("GitHub workspace store", () => {
     );
 
     await expect(store.readFile("data/a #%å.txt")).resolves.toMatchObject({ content: textBytes("content\n") });
-    expect(requests.at(-1)?.rawPath).toBe(
-      "/repos/onmax/repo/contents/.vitehub/workspaces/docs/data/a%20%23%25%C3%A5.txt",
-    );
+    expect(requests.at(-1)?.rawPath).toBe(`/repos/onmax/repo/git/blobs/${textSha("content\n")}`);
 
     const missingStore = createGitHubWorkspaceStore(
       { provider: "github", repository: "onmax/repo", token: "token" },
@@ -722,15 +718,11 @@ describe("GitHub workspace store", () => {
     seedRemote(".vitehub/workspaces/docs/README.md", "second\n");
 
     await expect(store.readFile("README.md")).resolves.toMatchObject({ content: textBytes("first\n") });
-    expect(requests.at(-1)?.path).toBe(
-      "/repos/onmax/repo/contents/.vitehub/workspaces/docs/README.md",
-    );
+    expect(requests.at(-1)?.path).toBe(`/repos/onmax/repo/git/blobs/${textSha("first\n")}`);
     await store.list();
 
     await expect(store.readFile("README.md")).resolves.toMatchObject({ content: textBytes("second\n") });
-    expect(requests.at(-1)?.path).toBe(
-      "/repos/onmax/repo/contents/.vitehub/workspaces/docs/README.md",
-    );
+    expect(requests.at(-1)?.path).toBe(`/repos/onmax/repo/git/blobs/${textSha("second\n")}`);
   });
 
   it("deletes files and directories through snapshot commits", async () => {

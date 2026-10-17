@@ -57,6 +57,13 @@ const trees = {
   ],
 } as const
 
+const blobBodies = new Map<string, Uint8Array>([
+  ["b-guide-1", new TextEncoder().encode("hello\n")],
+  ["b-image", new Uint8Array([0, 255])],
+  ["b-guide-2", new TextEncoder().encode("updated\n\n")],
+  ["b-draft", new TextEncoder().encode("draft\n")],
+])
+
 const bodies = new Map([
   ["c1/guide.md", new TextEncoder().encode("hello\n")],
   ["c1/image.bin", new Uint8Array([0, 255])],
@@ -106,6 +113,13 @@ beforeEach(() => {
       const ref = url.pathname.split("/git/trees/")[1]
       const tree = trees[ref as keyof typeof trees] || trees[{ c1: "t1", c2: "t2", c3: "t3" }[ref] as keyof typeof trees]
       return tree ? json({ tree }) : new Response("missing", { status: 404 })
+    }
+    if (url.pathname.includes("/git/blobs/")) {
+      const sha = url.pathname.split("/git/blobs/")[1] || ""
+      const body = blobBodies.get(sha)
+      return body
+        ? json({ content: Buffer.from(body).toString("base64"), encoding: "base64", sha, size: body.byteLength })
+        : new Response("missing", { status: 404 })
     }
     if (url.pathname.includes("/contents/")) {
       const path = decodeURIComponent(url.pathname.split("/contents/")[1] || "")
@@ -177,7 +191,7 @@ describe("GitHub Workspace history", () => {
       expect.objectContaining({ path: "image.bin", type: "file", size: 2, mediaType: "application/octet-stream" }),
     ])
     await expect(view.stat("guide.md")).resolves.toMatchObject({ revision: "c2", size: 10 })
-    expect(requests.some(path => path.includes("api.github.com/repos/onmax/repo/contents/.vitehub/workspaces/docs/guide.md"))).toBe(true)
+    expect(requests.some(path => path.includes("api.github.com/repos/onmax/repo/git/blobs/b-guide-2"))).toBe(true)
   })
 
   it("reports empty history for a repository without branches", async () => {

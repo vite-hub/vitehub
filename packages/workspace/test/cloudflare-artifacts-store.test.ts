@@ -296,7 +296,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const workspace = useWorkspace("mirror")
     await expect(workspace.fs.readFile("tasks/todo.md")).resolves.toBe("hello\n")
     expect(fake.requests[0]?.headers.get("authorization")).toBe("Bearer github-token")
-    expect(fake.requests.some(request => request.path.includes("/contents/mirror/tasks/todo.md"))).toBe(true)
+    expect(fake.requests.some(request => request.path.includes("/git/blobs/"))).toBe(true)
   })
 
   it("preserves explicit GitHub tokens in the Cloudflare runtime", async () => {
