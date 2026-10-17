@@ -154,10 +154,5 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_B0012: dynamicError,
     VITE_HUB_B0013: dynamicError,
     VITE_HUB_B0014: dynamicError,
-    VITE_HUB_R0090: dynamicError,
-    VITE_HUB_R0091: dynamicError,
-    VITE_HUB_R0092: dynamicError,
-    VITE_HUB_R0093: dynamicError,
-    VITE_HUB_R0094: dynamicError,
   },
 })

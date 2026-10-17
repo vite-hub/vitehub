@@ -11,6 +11,7 @@ import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { resolveBlobViteConfig } from "@vite-hub/blob/vite"
+import { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } from "@vite-hub/database/config"
 import { hubDb as hubDatabaseNuxt } from "@vite-hub/database/nuxt"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
@@ -800,6 +801,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (options.connections && nuxt.options.dev === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] connections is not supported by the Nuxt module yet. Use the Vite plugin." })
   }
+  // Only the Vite plugin enables the implicit default Database for Connections.
+  if (options.connections && !options.database) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections in the Nuxt module requires database and a Database Definition, because grants and activity are stored in the app database." })
+  }
   const plan = resolveDeploymentPlan(options.preset)
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
@@ -973,10 +978,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       ...(viteDatabaseRoot !== undefined ? { projectRoot: viteDatabaseRoot } : {}),
       ...(options.database === true ? {} : options.database),
     }
-    await hubDatabaseNuxt({
-      ...(options.preset === "cloudflare" && !("driver" in databaseOptions) ? { driver: "d1" as const } : {}),
-      ...databaseOptions,
-    })(undefined, nuxt)
+    // Cloudflare apps default to a D1 host resource unless every Database Definition uses Postgres.
+    const defaultD1 = options.preset === "cloudflare" && !("driver" in databaseOptions) && !usesOnlyPostgresDatabases(
+      resolveViteHubProjectRoot(rootDir, { projectRoot: databaseOptions.projectRoot }),
+      databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+    )
+    await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
   const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
@@ -1432,3 +1439,8 @@ viteHubNuxtModule.getMeta = () => ({
 })
 
 export default viteHubNuxtModule
+
+function usesOnlyPostgresDatabases(rootDir: string, serverDirs: string[] | undefined) {
+  const definitions = discoverDatabaseDefinitions(rootDir, { serverDirs })
+  return definitions.length > 0 && definitions.every(definition => readDatabaseDefinitionDialect(definition.handler) === "postgresql")
+}

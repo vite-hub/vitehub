@@ -17,7 +17,7 @@ vi.mock("nitro/cache", () => {
   return { defineCachedFunction }
 })
 
-const { cachedSource } = await import("../src/source/server.ts")
+const { cachedSource } = await import("../src/server.ts")
 
 describe("cached Source readers", () => {
   beforeEach(() => {

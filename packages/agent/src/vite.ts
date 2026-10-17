@@ -1,5 +1,6 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
 import { resolvesWorkerConditions, usesProviderAgentDriver } from "./internal/provider-driver-usage.ts"
+import { installAgentShutdownDrain } from "./internal/shutdown-drain.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { existsSync, statSync } from "node:fs"
@@ -2290,7 +2291,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", shutdown?: ResolvedAgentModuleOptions["shutdown"], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
@@ -2380,8 +2381,17 @@ async function writeAgentWebhookRouteHandler(
     // A persistent server resumes queued deliveries at startup. Ephemeral hosts resume on
     // the first webhook request, so its waitUntil keeps the function alive during the drain.
     const persistent = !options.libsqlState.ephemeralHosting
+    // A persistent Node server owns its exit: drain Agent work on SIGTERM and SIGINT, then exit.
+    const shutdown = persistent && options.shutdown !== false ? options.shutdown ?? {} : undefined
     await writeFile(queuePluginPath, [
       `import { resumeWebhookQueues${persistent ? "" : ", waitUntilFromEvent"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
+      ...(shutdown
+        ? [
+            `import { drainInlineChatInvocations, webhookQueueShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server"))}`,
+            "",
+            `const installAgentShutdownDrain = ${installAgentShutdownDrain.toString()}`,
+          ]
+        : []),
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
       "  let stop",
@@ -2410,6 +2420,19 @@ async function writeAgentWebhookRouteHandler(
             "  // Start after the server installs its shutdown listeners. Invocations that started",
             "  // before this process are interrupted unless a queued delivery runs them again.",
             "  if (!import.meta.prerender) setTimeout(() => startWebhookQueues(startedAt), 0)",
+            ...(shutdown
+              ? [
+                  "  // Inline Chat invocations post a restart notice when the drain interrupts them, and the",
+                  "  // next process retries them once. The queue replays the deliveries that it aborts.",
+                  "  if (!import.meta.dev && !import.meta.prerender && nodeProcess) {",
+                  "    const queues = async () => {",
+                  "      await shutdownWebhookQueues()",
+                  "      await webhookQueueShutdown()",
+                  "    }",
+                  `    installAgentShutdownDrain({ chat: drainInlineChatInvocations, queues }, nitroApp, ${shutdown.drainMs ?? "undefined"}, nodeProcess)`,
+                  "  }",
+                ]
+              : []),
           ]
         : [
             `  const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
@@ -2960,6 +2983,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
           runtimeCapabilities,
           schedule,
+          shutdown: normalized.shutdown,
           scheduleRuntimeImport: getScheduleRuntimeImport(agent, frameworkOptions),
           workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
