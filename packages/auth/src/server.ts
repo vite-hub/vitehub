@@ -366,6 +366,12 @@ async function copyAuthorizationBody(body: unknown): Promise<ReadableStream<Uint
     const clone = structuredClone as (value: unknown, options?: { transfer?: unknown[] }) => unknown
     const cloned = clone(body, { transfer: [body] })
     if (Object(cloned) !== cloned) return
+    // Transferability alone is insufficient: ArrayBuffer and other values can
+    // also be transferred. The intrinsic stream accessor performs an
+    // unforgeable ReadableStream brand check on the cloned value.
+    const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    if (typeof lockedGetter !== "function") return
+    Reflect.apply(lockedGetter, cloned, [])
     return cloned as ReadableStream<Uint8Array>
   }
   catch {

@@ -283,12 +283,13 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
 export const consoleConnectionsActorId = "#vitehub/console/connections-actor"
 
 /** Write the Connections access policy module. It checks each management request with the Console access policy. */
-export async function writeConsoleConnectionsActor(root: string): Promise<string> {
+export async function writeConsoleConnectionsActor(root: string, sessionActorModule?: string): Promise<string> {
   const file = resolve(root, ".vitehub/nitro/console/connections-actor.mjs")
   await writeFileIfChanged(file, [
     'import { consoleConnectionsActor } from "vite-hub/console/sections"',
+    ...(sessionActorModule ? [`import { readConsoleUser } from ${JSON.stringify(pathToFileURL(sessionActorModule).href)}`] : []),
     "export default function viteHubConsoleConnectionsActor(_request, event) {",
-    "  return consoleConnectionsActor(event)",
+    `  return consoleConnectionsActor(event${sessionActorModule ? ', async () => { const user = await readConsoleUser(event); return user ? "user:" + user.id : undefined }' : ''})`,
     "}",
     "",
   ].join("\n"))
