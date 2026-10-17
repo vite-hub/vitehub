@@ -92,9 +92,12 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
   ])
   // A failed contribution is intentionally omitted in non-strict mode. Its module cannot be imported by the
   // generated schema, while the fallback warning already explains that its tables are unavailable.
-  const activeContributions = loadedContributions.filter(item => item.schema.loaded)
-  const loadedSources = sources.filter(source => source.loaded)
-  const activeSourceDefinitions = definition.schemaSources.filter((_, index) => sources[index]!.loaded)
+  // A Database without its primary Definition cannot provide a runtime entry. Drop its layers and contributions
+  // together so generated artifacts and generated types keep the same contract as the Nuxt local runtime.
+  const primaryLoaded = sources[definition.schemaSources.findIndex(source => source.handler === definition.handler)]?.loaded ?? false
+  const activeContributions = primaryLoaded ? loadedContributions.filter(item => item.schema.loaded) : []
+  const loadedSources = primaryLoaded ? sources.filter(source => source.loaded) : []
+  const activeSourceDefinitions = primaryLoaded ? definition.schemaSources.filter((_, index) => sources[index]!.loaded) : []
   const activeDefinition = { ...definition, schemaSources: activeSourceDefinitions }
   const sourceVariables = schemaSourceVariables(activeDefinition, "databaseDefinition", "schemaSource_")
   const contributed = activeContributions.map(item => item.schema)
@@ -237,16 +240,17 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   const loadedContributions = new Map<string, readonly ResolvedDatabaseContribution[]>()
   const activeDefinitions = await Promise.all(config.definitions.map(async (definition) => {
     const sources = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options)))
+    const primaryLoaded = sources[definition.schemaSources.findIndex(source => source.handler === definition.handler)]?.loaded ?? false
     const active = {
       ...definition,
-      // Keep generated types aligned with the schema artifact: a successfully
-      // loaded layer remains available even when the primary Definition fails.
-      schemaSources: definition.schemaSources.filter((_, index) => sources[index]!.loaded),
+      // Keep generated types aligned with the schema artifact and Nuxt runtime: layers
+      // remain available only when the primary Definition can provide a runtime entry.
+      schemaSources: primaryLoaded ? definition.schemaSources.filter((_, index) => sources[index]!.loaded) : [],
     }
     const contributions = config.tableContributionsByDatabase[definition.name] ?? []
     const loaded = await Promise.all(contributions.map(async contribution =>
       ({ contribution, schema: await loadContributedDatabaseSchema(contribution, config.generatedSchemaFilesByDatabase[definition.name]!, options) })))
-    loadedContributions.set(definition.name, loaded.filter(item => item.schema.loaded).map(item => item.contribution))
+    loadedContributions.set(definition.name, primaryLoaded ? loaded.filter(item => item.schema.loaded).map(item => item.contribution) : [])
     return active
   }))
 
