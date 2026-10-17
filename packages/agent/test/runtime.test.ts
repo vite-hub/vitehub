@@ -2960,6 +2960,17 @@ describe("agent message protocol", () => {
     const blobCall = generate.mock.calls.at(-1)?.[0] as { messages?: Array<{ content?: Array<{ data?: unknown }> }> }
     expect(blobCall.messages?.[0]?.content?.[0]?.data).toBeInstanceOf(ArrayBuffer)
 
+    const oversizedBlob = new Blob([new Uint8Array([1, 2, 3, 4])])
+    const readOversizedBlob = vi.spyOn(Blob.prototype, "arrayBuffer")
+    await expect(runAgent(blobAgent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({
+        parts: [{ data: oversizedBlob, mediaType: "application/pdf", type: "file" }],
+        role: "user",
+      })],
+    })).rejects.toThrow("exceeds maxBytes")
+    expect(readOversizedBlob).not.toHaveBeenCalled()
+    readOversizedBlob.mockRestore()
+
     const oversizedFetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
     const oversizedAgent = defineAgent({
       driver: {

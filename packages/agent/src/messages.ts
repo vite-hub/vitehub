@@ -189,12 +189,14 @@ export type MessagePart =
   | ToolCallPart
   | ToolResultPart
 
+export const isAttachmentBlob = isBlobValue
+
 export function isAttachmentData(value: unknown): value is AttachmentData {
   return hasRuntimeType(value, "string")
     ? value.length > 0
     : isArrayBufferValue(value)
       ? value.byteLength > 0
-      : isBlobValue(value)
+      : isAttachmentBlob(value)
         ? true
         : isUint8ArrayValue(value) && value.byteLength > 0
 }
