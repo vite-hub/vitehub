@@ -99,6 +99,8 @@ export const docsPageRedirects = {
   "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
   "/blog/agents": "/docs/getting-started/first-agent",
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
+  "/docs/agents/capabilities/code-host": "/docs/agents/capabilities/forge",
+  "/docs/agents/code-host-channels": "/docs/agents/forge-channels",
   "/docs/agents/evlog": "/docs/agents/observability",
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",

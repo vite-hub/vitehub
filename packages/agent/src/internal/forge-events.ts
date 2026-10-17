@@ -1,7 +1,7 @@
 import type { Comment, ForgeEvent, ForgeProvider, Thread, WebhookDelivery } from "forges"
 import type { GitHubIssueCommentPayload } from "../channels.ts"
-import type { CodeHostTarget } from "./code-host-channel.ts"
-import { codeHostPullRequest, codeHostPullRequestMetadata } from "./code-host-channel.ts"
+import type { ForgeTarget } from "./forge-channel.ts"
+import { forgePullRequest, forgePullRequestMetadata } from "./forge-channel.ts"
 import { AgentHttpError } from "../http-error.ts"
 import { hasRuntimeType, isRuntimeRecord as isRecord } from "./runtime-type.ts"
 
@@ -20,8 +20,8 @@ function threadPayload(thread: Thread): NonNullable<GitHubIssueCommentPayload["p
   }
 }
 
-export async function codeHostChannelPullRequest(provider: ForgeProvider, target: CodeHostTarget) {
-  const value = await codeHostPullRequest(provider, target)
+export async function forgeChannelPullRequest(provider: ForgeProvider, target: ForgeTarget) {
+  const value = await forgePullRequest(provider, target)
   const raw = record(value.raw)
   if (!value.model) return raw
   const payload: ReturnType<typeof threadPayload> & { fork?: boolean } = threadPayload(value.model)
@@ -31,8 +31,8 @@ export async function codeHostChannelPullRequest(provider: ForgeProvider, target
   return payload
 }
 
-export async function codeHostChannelMetadata(provider: ForgeProvider, target: CodeHostTarget, limits: { maxComments: number, maxFiles: number }) {
-  const value = await codeHostPullRequestMetadata(provider, target, limits)
+export async function forgeChannelMetadata(provider: ForgeProvider, target: ForgeTarget, limits: { maxComments: number, maxFiles: number }) {
+  const value = await forgePullRequestMetadata(provider, target, limits)
   return {
     ...value,
     thread: { ...value.thread, raw: value.thread.model ? threadPayload(value.thread.model) : value.thread.raw },
@@ -49,25 +49,25 @@ export async function codeHostChannelMetadata(provider: ForgeProvider, target: C
 }
 
 /** Project native ownership fields into the existing activity ownership check. */
-export function codeHostActivityComment(comment: Comment): unknown {
+export function forgeActivityComment(comment: Comment): unknown {
   const raw = record(comment.raw)
   const author = record(raw.author || raw.user)
   return { ...raw, id: Number(comment.ref.id), body: comment.body,
     user: { login: comment.author?.login || author.login || author.username } }
 }
 
-export async function codeHostIngest(provider: ForgeProvider, delivery: WebhookDelivery): Promise<ForgeEvent[]> {
+export async function forgeIngest(provider: ForgeProvider, delivery: WebhookDelivery): Promise<ForgeEvent[]> {
   try { return await provider.webhooks.ingest(delivery) }
   catch (error) {
     if (error instanceof Error && error.name === "WebhookVerificationError") throw new AgentHttpError(401, "[vitehub] Webhook signature verification failed.")
-    if (error instanceof SyntaxError) throw new AgentHttpError(400, "[vitehub] Invalid Code Host webhook body.")
+    if (error instanceof SyntaxError) throw new AgentHttpError(400, "[vitehub] Invalid Forge webhook body.")
     throw error
   }
 }
 
 /** Use the shared pull request trigger contract after the client verifies and translates the delivery. */
-export async function codeHostWebhookInput(provider: ForgeProvider, delivery: WebhookDelivery) {
-  const events = await codeHostIngest(provider, delivery)
+export async function forgeWebhookInput(provider: ForgeProvider, delivery: WebhookDelivery) {
+  const events = await forgeIngest(provider, delivery)
   for (const event of events) {
     const thread = event.thread
     if (thread?.kind !== "pull_request" || !event.actor?.login) continue

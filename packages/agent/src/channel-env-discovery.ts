@@ -898,16 +898,16 @@ export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?:
         if (optionKeys && spec.requiredUnless && !spec.requiredUnless.some(key => optionKeys.has(key))) entry.required = true
       }
     }
-    const uses = discoverBuiltInChannelUses(source, ["codeHost"], {
+    const uses = discoverBuiltInChannelUses(source, ["forge"], {
       modules: capabilityFactoryModules,
       shorthands: false,
       typescript: /\.(?:c|m)?ts$/i.test(handler),
     })
     for (const use of uses) {
-      const selected = use.stringOptions?.get("host") ?? (use.optionKeys && !use.optionKeys.has("host") ? "github" : undefined)
-      for (const [host, specs] of Object.entries(forgeEnv)) {
-        if (selected !== undefined && selected !== host) continue
-        const group = declared[host] ??= {}
+      const selected = use.stringOptions?.get("forge") ?? (use.optionKeys && !use.optionKeys.has("forge") ? "github" : undefined)
+      for (const [forge, specs] of Object.entries(forgeEnv)) {
+        if (selected !== undefined && selected !== forge) continue
+        const group = declared[forge] ??= {}
         for (const [field, spec] of Object.entries(specs)) {
           group[field] ??= { names: [...spec.names], required: false, secret: "secret" in spec && spec.secret === true }
         }

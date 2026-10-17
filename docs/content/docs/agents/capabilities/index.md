@@ -89,7 +89,7 @@ export default defineAgent({
 })
 ```
 
-`repositoryHost()` and `repositoryHostContext()` are no longer built in. Replace their GitHub tools with the extension above. GitHub Channel invocations still expose trusted pull request context through `pullRequest.read(invocation)` from `vite-hub/agent/channels`; use [`codeHost()`](/docs/agents/capabilities/code-host) for host-neutral repository tools.
+`repositoryHost()` and `repositoryHostContext()` are no longer built in. Replace their GitHub tools with the extension above. GitHub Channel invocations still expose trusted pull request context through `pullRequest.read(invocation)` from `vite-hub/agent/channels`; use [`forge()`](/docs/agents/capabilities/forge) for repository tools on GitHub, GitLab and Forgejo.
 
 The Vite plugin reads the package's Eve manifest and fails the build when a declared contract version is unsupported. For format 2, the bridge accepts `config@1`, `extension@1`, `tool@20`, `tool@54`, or `tool@76`, and `dynamicTool@20`, `dynamicTool@52`, or `dynamicTool@72`. GitHub Tools 0.7.0 uses the first pair, 0.8.0 the second, and 0.8.1 (built with Eve 0.72.1) the third. Newer contracts, such as the `tool@92` and `dynamicTool@86` that Eve 0.80 writes, are rejected until the bridge is tested against them. The manifest check does not validate the installed Eve version. The optional Eve peer is the tested `0.80.1`. Use the tested Eve 0.80.1 and GitHub Tools 0.8.1 pair above.
 

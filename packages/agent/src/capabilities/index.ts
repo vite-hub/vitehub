@@ -1,15 +1,4 @@
 export {
-  codeHost,
-} from "./code-host.ts"
-export type {
-  CodeHostCapabilityOptions,
-  CodeHostKind,
-  CodeHostOperation,
-  CodeHostReadOperation,
-  CodeHostToolPolicy,
-  CodeHostWriteOperation,
-} from "./code-host.ts"
-export {
   access,
 } from "./access.ts"
 export {
@@ -42,6 +31,17 @@ export {
 export {
   fetch,
 } from "./fetch.ts"
+export {
+  forge,
+} from "./forge.ts"
+export type {
+  ForgeCapabilityOptions,
+  ForgeKind,
+  ForgeOperation,
+  ForgeReadOperation,
+  ForgeToolPolicy,
+  ForgeWriteOperation,
+} from "./forge.ts"
 export {
   email,
 } from "./email.ts"
