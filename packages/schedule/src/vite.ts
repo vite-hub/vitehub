@@ -53,7 +53,6 @@ const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
 const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
-const registryImportAnchor = ".vitehub/schedule/registry.js"
 const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registry.js"
 const generatedNitroRuntimeRegistry = ".vitehub/nitro/schedule/runtime-registry.js"
@@ -628,10 +627,18 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     })
   }
 
+  // The registry is a virtual module without a directory, so a relative import would resolve against the Vite root.
+  // Under Nuxt that root is the app directory, not the project root. Import each definition by its absolute path.
   function createRegistryContents() {
-    const definitions = discoverRegistrySchedules()
-    const registryImport = projectRoot ? resolve(projectRoot, registryImportAnchor) : registryImportAnchor
-    return createRuntimeRegistryContents(registryImport, definitions)
+    return [
+      "",
+      "const registry = {",
+      ...discoverRegistrySchedules().map(definition => `  [${JSON.stringify(definition.name)}]: async () => import(${JSON.stringify(definition.handler)}),`),
+      "}",
+      "",
+      "export default registry",
+      "",
+    ].join("\n")
   }
 
   function createTargetsContents() {
