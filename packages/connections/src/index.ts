@@ -10,6 +10,7 @@ export type {
   ConnectionAccount,
   ConnectionActionInfo,
   ConnectionActionPattern,
+  ConnectionActivityRetention,
   ConnectionApiCatalog,
   ConnectionApiKeyDefinition,
   ConnectionApiKeyProvider,

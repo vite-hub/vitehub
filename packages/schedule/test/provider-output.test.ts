@@ -357,17 +357,12 @@ describe("schedule provider output", () => {
     const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as { exports: Record<string, unknown> }
 
     expect(packageJson.exports).not.toHaveProperty("./definition")
-    expect(packageJson.exports).toHaveProperty(["./runtime/driver", "import"], "./dist/runtime/driver.js")
+    expect(packageJson.exports).toHaveProperty(["./runtime/process", "import"], "./dist/runtime/process.js")
+    for (const removed of ["./runtime/console", "./runtime/driver"]) expect(packageJson.exports).not.toHaveProperty(removed)
   })
 
   it("emits Cloudflare, Vercel, and Netlify schedule provider wake output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-")
-    await writeFile(join(rootDir, "src", "agent-turn.schedule.ts"), [
-      "import { defineScheduleTarget } from '@vite-hub/schedule'",
-      "",
-      "export default defineScheduleTarget({ handler: () => 'ok' })",
-      "",
-    ].join("\n"), "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist/client",
@@ -398,15 +393,12 @@ describe("schedule provider output", () => {
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
     expect(await readFile(vercelFunction, "utf8")).toContain("unwrapScheduleDefinition")
     expect(await readFile(vercelFunction, "utf8")).not.toContain("setWorkflowRuntimeRegistry")
-    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "agent-turn.func"))).toBe(false)
     const netlifyModule = await import(pathToFileURL(netlifyFunction).href)
     expect(netlifyModule.config.schedule).toBe("0 0 * * *")
     expect((await netlifyModule.default(new Request("https://schedule.example"))).status).toBe(204)
-    expect(existsSync(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-agent-turn.mjs"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("unwrapScheduleDefinition")
-    await expect(readFile(join(rootDir, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.not.toContain("agent-turn")
   })
 
   it("preserves Node built-ins for the Cloudflare runtime", async () => {

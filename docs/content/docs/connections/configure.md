@@ -83,8 +83,22 @@ ViteHub checks the actor rule before the operation. A write list can contain exa
 
 | Option | Default | Description |
 | --- | --- | --- |
+| `activityRetention` | `{ maxAgeMs: 1209600000, maxRecords: 10000 }` | How long the database keeps activity. See [Activity retention](#activity-retention). |
 | `database` | `'default'` | Database that stores grants and activity. |
 | `encryptionKey` | `env({ secret: true, optional: true, source: env.source('VITEHUB_CONNECTIONS_KEY') })` | Secret Env declaration for the key. It cannot use `env.provider()` or a default. |
 | `projectRoot` | Vite root | Where ViteHub discovers `server/connections/`. |
 
 `vitehub({ connections })` enables `database` when it is unset. Without a Database Definition, Connections use the empty Default Database. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module does not support Connections yet.
+
+## Activity retention
+
+Connections write one activity event per provider request. By default the database keeps 14 days and at most 10,000 events. Change the limits, or set `false` to keep all activity:
+
+```ts [vite.config.ts]
+vitehub({
+  database: true,
+  connections: { activityRetention: { maxAgeMs: 30 * 24 * 60 * 60 * 1000, maxRecords: 50_000 } },
+})
+```
+
+Each limit is a positive integer. A missing limit uses its default. ViteHub prunes after each event, so the limits hold across multiple server processes. A failed prune logs a warning and does not fail the request. Pruning deletes only Connections activity; other Env activity stays.

@@ -188,7 +188,6 @@ const authApplicationBaseURLName = "__VITEHUB_AUTH_APP_BASE_URL__"
 /** Return Nitro `baseURL` when the host serves the app below a path, such as Nuxt `app.baseURL`. */
 function nitroApplicationBaseURL(value: unknown): string | undefined {
   const nitro = cloneNitroConfig(value)
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro config comes from user and host objects.
   const baseURL = typeof nitro.baseURL === "string" ? nitro.baseURL : "/"
   return baseURL.split("/").some(Boolean) ? baseURL : undefined
 }

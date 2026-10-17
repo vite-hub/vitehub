@@ -83,12 +83,12 @@ describe("@vite-hub/ui package contract", () => {
     });
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.7.0",
-      "@json-render/core": "0.21.0",
-      "@json-render/vue": "0.21.0",
+      "@json-render/core": "0.21.1",
+      "@json-render/vue": "0.21.1",
       "@vueuse/core": "catalog:ui",
-      katex: "^0.17.0",
+      katex: "^0.19.0",
       "@iconify-json/ph": "catalog:ui",
-      "@nuxt/kit": "4.5.2",
+      "@nuxt/kit": "4.6.2",
       "@types/node": "catalog:tooling",
       "nostics": "catalog:runtime",
       "reka-ui": "catalog:ui",

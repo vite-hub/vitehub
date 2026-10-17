@@ -130,8 +130,9 @@ describe("Console Schedule runs", () => {
 
   it("marks only installed manual definitions as runnable in the contributed record table", async () => {
     installSchedules()
-    const records = ["definition:sync", "definition:nightly", "runtime:sync"].map(id => ({
-      cells: { kind: id.startsWith("definition:") ? "Definition" : "Runtime", schedule: id.split(":")[1]! },
+    // The Schedule package writes these cells for each Schedule Definition record.
+    const records = ["definition:sync", "definition:nightly", "other:sync"].map(id => ({
+      cells: { manual: "Yes", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
       fields: [],
       id,
     }))

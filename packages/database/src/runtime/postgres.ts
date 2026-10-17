@@ -22,7 +22,6 @@ interface PostgresInstance<TSchema extends Record<string, unknown>> {
 function readHyperdriveConnectionString(binding: unknown) {
   if (!binding || Object(binding) !== binding) return
   const connectionString: unknown = Reflect.get(Object(binding), "connectionString")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Env bindings are untyped; only a nonblank string is a Hyperdrive connection string.
   return typeof connectionString === "string" && connectionString ? connectionString : undefined
 }
 
@@ -46,7 +45,7 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>>(
     if (hyperdriveUrl) return hyperdriveUrl
     const url = resolveConfigValue(definition.connection?.url ?? defaults.url)?.trim()
     if (url) return url
-    throw databaseErrorDiagnostics.DATABASE_R0017({ message: `[vitehub] Postgres database "${definition.name}" requires the Cloudflare Hyperdrive binding "${bindingName}" or connection.url.` })
+    throw databaseErrorDiagnostics.DATABASE_MISSING_CONNECTION({ database: definition.name, needs: `the Cloudflare Hyperdrive binding "${bindingName}" or \`connection.url\`` })
   }
 
   function createInstance(url: string, requestScoped: boolean): PostgresInstance<TSchema> {
@@ -82,7 +81,6 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>>(
       const instance = getDb()
       const value: unknown = Reflect.get(instance, property)
       // Bind Drizzle methods. Own function values such as the postgres.js `$client` keep their properties.
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Proxy forwarding must distinguish methods from Drizzle data properties.
       return typeof value === "function" && !Object.hasOwn(instance, property) ? value.bind(instance) : value
     },
   })

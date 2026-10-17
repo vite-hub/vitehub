@@ -909,7 +909,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       if (connectionError) {
         const details: Record<string, string | number | undefined> = {}
         for (const [detailKey, value] of Object.entries(connectionError.details ?? {})) {
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Filter untrusted provider details before exposing verification errors.
           if (detailKey.includes(key) || (typeof value === "string" && value.includes(key))) continue
           details[detailKey] = value
         }

@@ -84,7 +84,7 @@ async function createNestedProject() {
     mkdir(join(root, "frontend"), { recursive: true }),
     mkdir(join(root, ".vitehub/env"), { recursive: true }),
     mkdir(join(root, ".vitehub/data/blob"), { recursive: true }),
-    mkdir(join(root, ".vitehub/sandbox/runtime"), { recursive: true }),
+    mkdir(join(root, ".vitehub/sandbox-task/runtime"), { recursive: true }),
     mkdir(join(root, ".vitehub/types"), { recursive: true }),
     writeFile(join(root, "package.json"), JSON.stringify({ name: "generated-types-test" })),
   ])
@@ -300,7 +300,7 @@ describe("framework generated types", () => {
   it("writes a sorted self-excluding entry at the ViteHub project root", async () => {
     const { root, viteRoot } = await createNestedProject()
     await Promise.all([
-      mkdir(join(root, ".vitehub/sandbox/.runtime-generations/current"), { recursive: true }),
+      mkdir(join(root, ".vitehub/sandbox-task/.runtime-generations/current"), { recursive: true }),
       mkdir(join(root, ".vitehub/workflow/sources/0"), { recursive: true }),
       mkdir(join(root, ".vitehub/workflow-generations/one/sources/0"), { recursive: true }),
     ])
@@ -310,11 +310,11 @@ describe("framework generated types", () => {
       writeFile(join(root, ".vitehub/data/blob/upload.d.ts"), "invalid uploaded declaration\n"),
       writeFile(join(root, ".vitehub/workflow/sources/0/stale.d.ts"), "invalid retained declaration\n"),
       writeFile(join(root, ".vitehub/workflow-generations/one/sources/0/stale.d.ts"), "invalid generation declaration\n"),
-      writeFile(join(root, ".vitehub/sandbox/.runtime-generations/current/sandbox.d.ts"), 'declare module "#vitehub/sandbox" {}\n'),
+      writeFile(join(root, ".vitehub/sandbox-task/.runtime-generations/current/sandbox-task.d.ts"), 'declare module "#vitehub/sandbox-task" {}\n'),
       writeFile(join(root, ".vitehub/types.d.ts"), "stale self reference\n"),
     ])
-    await rm(join(root, ".vitehub/sandbox/runtime"), { recursive: true })
-    await symlink(".runtime-generations/current", join(root, ".vitehub/sandbox/runtime"), "dir")
+    await rm(join(root, ".vitehub/sandbox-task/runtime"), { recursive: true })
+    await symlink(".runtime-generations/current", join(root, ".vitehub/sandbox-task/runtime"), "dir")
 
     const plugin = viteHubTypesPlugin()
     await configResolved(plugin)({ root: viteRoot })
@@ -322,7 +322,7 @@ describe("framework generated types", () => {
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toBe(
       [
         `/// <reference path="./env/env.d.ts" />`,
-        `/// <reference path="./sandbox/runtime/sandbox.d.ts" />`,
+        `/// <reference path="./sandbox-task/runtime/sandbox-task.d.ts" />`,
         `/// <reference path="./types/custom.d.ts" />`,
         ``,
         `export {}`,
@@ -520,12 +520,10 @@ describe("framework generated types", () => {
       mkdir(join(root, "server/collections/admin"), { recursive: true }),
       mkdir(join(root, "server/collections/*"), { recursive: true }),
     ])
-    await mkdir(join(root, ".vitehub/source"), { recursive: true })
     await Promise.all([
       writeFile(join(root, "server/collections/*/specials.ts"), collectionModule("specials")),
       writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
       writeFile(join(root, "server/collections/admin/history.ts"), collectionModule("history")),
-      writeFile(join(root, ".vitehub/source/collections.d.ts"), "interface ViteHubCollectionMap { stale: never }\n"),
     ])
 
     const plugin = sourcePlugin()
@@ -549,7 +547,6 @@ describe("framework generated types", () => {
     )
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(`./types/source/collections.d.ts`)
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.not.toContain(`./source/collections.d.ts`)
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
     expect(handlers).toEqual([
       {
         handler: join(root, ".vitehub/source/routes/*/specials.mjs"),

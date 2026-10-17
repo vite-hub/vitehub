@@ -108,7 +108,8 @@ function isFacets(value: unknown): value is CollectionFacets {
   return Object(value) === value && !Array.isArray(value) && Object.values(Object(value)).every(entries =>
     Array.isArray(entries) && entries.every(entry => Object(entry) === entry
       && String(Reflect.get(entry, "value")) === Reflect.get(entry, "value")
-      && Number.isSafeInteger(Reflect.get(entry, "count"))))
+      && Number.isSafeInteger(Reflect.get(entry, "count"))
+      && Number(Reflect.get(entry, "count")) >= 0))
 }
 
 function appBaseURL(): string {
@@ -197,8 +198,10 @@ export function useCollection<TName extends CollectionName>(
       items.value = loadedItems
       cursors = seenCursors
       nextCursor.value = response.nextCursor
-      total.value = response.total
-      facets.value = response.facets
+      if (loadedTotal !== undefined) response = { ...response, total: loadedTotal }
+      if (loadedFacets !== undefined) response = { ...response, facets: loadedFacets }
+      total.value = loadedTotal
+      facets.value = loadedFacets
       loaded = true
       return { ...response, items: loadedItems }
     } catch (cause) {

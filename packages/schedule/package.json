@@ -49,23 +49,11 @@
       "require": "./dist/runtime.js",
       "default": "./dist/runtime.js"
     },
-    "./runtime/console": {
-      "types": "./dist/runtime/console.d.ts",
-      "import": "./dist/runtime/console.js",
-      "require": "./dist/runtime/console.js",
-      "default": "./dist/runtime/console.js"
-    },
     "./runtime/dev": {
       "types": "./dist/runtime/dev.d.ts",
       "import": "./dist/runtime/dev.js",
       "require": "./dist/runtime/dev.js",
       "default": "./dist/runtime/dev.js"
-    },
-    "./runtime/driver": {
-      "types": "./dist/runtime/driver.d.ts",
-      "import": "./dist/runtime/driver.js",
-      "require": "./dist/runtime/driver.js",
-      "default": "./dist/runtime/driver.js"
     },
     "./runtime/kv": {
       "types": "./dist/runtime/kv.d.ts",

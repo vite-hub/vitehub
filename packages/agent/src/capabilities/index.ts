@@ -81,10 +81,6 @@ export {
   sandbox,
 } from "./sandbox.ts"
 export {
-  agentScheduleIdFromCron,
-  schedule,
-} from "./schedule.ts"
-export {
   skills,
 } from "./skills.ts"
 export type {
@@ -308,14 +304,6 @@ export type {
   LlmRouteDecision,
   LlmRouteOptions,
 } from "./llm-route.ts"
-export type {
-  AgentScheduleCapabilityMetadata,
-  AgentScheduleCapabilityOptions,
-  AgentScheduleEntry,
-  RuntimeScheduleCapabilityMetadata,
-  RuntimeScheduleCapabilityOptions,
-  ScheduleCapabilityToolPolicy,
-} from "./schedule.ts"
 export type {
   StreamTranscriptionOptions,
   StreamingTranscription,
