@@ -82,6 +82,7 @@ function getForeignBlobMethods(value: object): { stream: (value: object) => Read
         // internal slots without invoking any property supplied by the instance.
         const sliced = Reflect.apply(slice, value, [0, 0])
         if (sliced === value || sliced === null || (typeof sliced !== "object" && typeof sliced !== "function")) return undefined
+        if (Object.getPrototypeOf(sliced) !== prototype || Reflect.apply(slice, sliced, [0, 0]) === sliced) return undefined
         return {
           stream: candidate => Reflect.apply(stream, candidate, []) as ReadableStream,
           type: typeof typeDescriptor?.get === "function" ? String(Reflect.apply(typeDescriptor.get, value, [])) : String(ownType),
