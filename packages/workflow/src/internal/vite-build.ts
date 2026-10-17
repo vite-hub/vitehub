@@ -13,6 +13,7 @@ import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withP
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
+import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { buildSync, transform } from "esbuild"
@@ -24,6 +25,7 @@ import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowProvider } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 import type { Plugin as VitePlugin } from "vite"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -612,6 +614,7 @@ interface GenerateProviderOutputsOptions {
   importBase?: string
   providerImportAliases?: Record<string, string>
   providerRuntimeImportAliases?: Partial<Record<WorkflowProvider, Record<string, string>>>
+  vercelRuntimePackages?: VercelFunctionRuntimePackage[]
   definitionRootDir?: string
   rootDir: string
   serverDirs?: string[]
@@ -1584,6 +1587,13 @@ async function generateProviderOutputsWithinLock(
       }
       if (vercelOutput) deploymentOutput.vercel = vercelOutput
       await writeProviderDeploymentOutputs(deploymentOutput)
+      if (vercelOutput) {
+        await copyVercelFunctionRuntimePackages({
+          packages: options.vercelRuntimePackages ?? [],
+          rootDir: options.rootDir,
+          serverFunctionName: options.serverFunctionName ?? "__server.func",
+        })
+      }
       publicationSucceeded = true
     }
     catch (error) {
