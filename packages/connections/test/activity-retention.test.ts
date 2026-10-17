@@ -91,15 +91,14 @@ describe("Connection activity retention", () => {
     expect(() => setup(activityRetention)).toThrow(expect.objectContaining({ code: "CONNECTION_INVALID", message: expect.stringMatching(/activityRetention\.max(AgeMs|Records) must be a positive integer/) }))
   })
 
-  it("prunes on the first event, then once every 100 events", async () => {
+  it("prunes after every event", async () => {
     const { db, store } = setup({ maxRecords: 1 })
     await store.access.append(event())
     expect(await ids(db)).toHaveLength(1)
-    for (let index = 0; index < 99; index += 1) await store.access.append(event())
-    expect(await ids(db)).toHaveLength(100)
-    const last = event()
-    await store.access.append(last)
-    expect(await ids(db)).toEqual([last.id])
+    for (let index = 0; index < 99; index += 1) {
+      await store.access.append(event())
+      expect(await ids(db)).toHaveLength(1)
+    }
   })
 
   it("prunes the activity that provider requests write", async () => {
@@ -110,9 +109,9 @@ describe("Connection activity retention", () => {
     const client = test.runtime.client("mail", {})
     await client.call("mail.labels.list", { userId: "me" })
     expect((await ids(db)).length).toBeGreaterThan(1)
-    // Each request writes activity. With a prune every 100 events, at most 100 events remain.
+    // Each request writes activity and triggers pruning.
     for (let index = 0; index < 150; index += 1) await client.call("mail.labels.list", { userId: "me" })
-    expect((await ids(db)).length).toBeLessThanOrEqual(100)
+    expect((await ids(db)).length).toBe(1)
   })
 
   it("logs a warning and keeps the event when pruning fails", async () => {

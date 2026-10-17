@@ -140,9 +140,6 @@ function toApproval(row: unknown): ConnectionApproval {
   return approval
 }
 
-/** Prune activity on the first event a store writes, then once every this many events. */
-const activityPruneInterval = 100
-
 /**
  * Store Connections in a ViteHub SQLite database. Tokens are encrypted with
  * AES-GCM through the Env Bridge store in the `connections` namespace.
@@ -152,7 +149,6 @@ const activityPruneInterval = 100
 export function createDatabaseConnectionStore(options: { activityRetention?: ConnectionActivityRetention | false, db: EnvDatabase, encryptionKey: Uint8Array }): ConnectionStore {
   const envStore = createDatabaseEnvStore({ db: options.db, encryptionKey: options.encryptionKey, namespace: "connections" })
   const retention = resolveActivityRetention(options.activityRetention)
-  let appendsUntilPrune = 0
   // One DELETE drops events past the newest `maxRecords` and events older than `maxAgeMs`.
   // Events store `timestamp` as an ISO string, so text order is time order.
   async function pruneActivity(limits: Required<ConnectionActivityRetention>): Promise<void> {
@@ -167,8 +163,6 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
         ...envStore.access,
         async append(event) {
           await envStore.access.append(event)
-          if (appendsUntilPrune-- > 0) return
-          appendsUntilPrune = activityPruneInterval - 1
           // Pruning is housekeeping. It never fails the provider request that wrote the event.
           await pruneActivity(retention).catch((error: unknown) => {
             console.warn("[vitehub] Connections could not prune old activity. The next prune retries.", error)

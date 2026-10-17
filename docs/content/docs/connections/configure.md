@@ -99,4 +99,4 @@ vitehub({
 })
 ```
 
-Each limit is a positive integer. A missing limit uses its default. ViteHub prunes on the first event that a server process writes, then once every 100 events, so the count can pass `maxRecords` by up to 99 events between prunes. A failed prune logs a warning and does not fail the request. Pruning deletes only Connections activity; other Env activity stays.
+Each limit is a positive integer. A missing limit uses its default. ViteHub prunes after each event, so the limits hold across multiple server processes. A failed prune logs a warning and does not fail the request. Pruning deletes only Connections activity; other Env activity stays.
