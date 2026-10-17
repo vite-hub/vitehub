@@ -16223,7 +16223,7 @@ packages:
       vite: ^2.9.0 || ^3.0.0-0 || ^4.0.0-0 || ^5.0.0-0 || ^6.0.1 || ^7.0.0-0 || ^8.0.0
 
   vite-doctor@https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1:
-    resolution: {tarball: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1}
+    resolution: {integrity: sha512-niOZ6/ftv7MPnMlrppb44lIiJMdk/Y22cCX8wwsK2GCTmBEEMCqcNiNHyCLkn2nbPWcwdunAT9/EaaqJuB0d1Q==, tarball: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1}
     version: 0.0.12
     engines: {node: '>=22.20.0'}
     hasBin: true
