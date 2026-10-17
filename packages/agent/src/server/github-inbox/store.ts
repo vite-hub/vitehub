@@ -802,7 +802,7 @@ export class PullRequestInbox {
       if (!this.repositories.includes(repository)) return await finish('repository not configured')
       // Activity suppression applies to issue comments only. Actual reviews
       // and inline review comments are evidence regardless of reviewer name.
-      const commentAuthor = String(payload.comment?.user?.login ?? payload.sender?.login ?? '').trim().toLowerCase()
+      const commentAuthor = String(payload.comment?.user?.login ?? payload.comment?.author?.login ?? payload.sender?.login ?? '').trim().toLowerCase()
       const commentBody = String(payload.comment?.body ?? '')
       const marked = commentBody.startsWith('<!-- vitehub-agent-activity:')
       const repairMarked = commentBody.startsWith('<!-- vitehub-babysitter-repair:')
@@ -938,7 +938,7 @@ export class PullRequestInbox {
         // sender is the actor that delivered the event and can differ from the
         // comment/review author (for example, imported or relayed activity).
         const actor = event === 'issue_comment' || event === 'pull_request_review' || event === 'pull_request_review_comment'
-          ? (payload.comment?.user ?? payload.review?.user ?? payload.sender)
+          ? (payload.comment?.user ?? payload.comment?.author ?? payload.review?.user ?? payload.review?.author ?? payload.sender)
           : payload.sender
         const human = String(actor?.type ?? '').toLowerCase() === 'user' && !this.activityAuthors.has(String(actor?.login ?? '').toLowerCase())
         const feedbackEvent = ['issue_comment', 'pull_request_review', 'pull_request_review_comment'].includes(event)
