@@ -62,7 +62,7 @@ const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual(
-      [".", "./headless", "./nuxt", "./package.json", "./primitive-rail", "./styles.css", "./vite"].sort(),
+      [".","./agent-code-view","./agent-file-tree","./agent-tool-list","./agent-trace","./attachment","./bubble","./chat","./chat-message","./chat-session","./code-block","./headless","./markdown","./marker","./message","./message-parts","./nuxt","./package.json","./primitive-rail","./prompt-input","./styles.css","./trace","./vite"] .sort(),
     );
     expect(packageJson.peerDependencies).toMatchObject({
       "@nuxt/ui": expect.any(String),
@@ -87,11 +87,28 @@ describe("@vite-hub/ui package contract", () => {
   });
 
   // Each fresh Node process gets its own timeout and reports the failing entrypoint.
-  it.each([
-    ".",
+  it.each([    ".",
+    "./agent-code-view",
+    "./agent-file-tree",
+    "./agent-tool-list",
+    "./agent-trace",
+    "./attachment",
+    "./bubble",
+    "./chat",
+    "./chat-message",
+    "./chat-session",
+    "./code-block",
     "./headless",
+    "./markdown",
+    "./marker",
+    "./message",
+    "./message-parts",
     "./nuxt",
+    "./package.json",
     "./primitive-rail",
+    "./prompt-input",
+    "./styles.css",
+    "./trace",
     "./vite",
   ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
