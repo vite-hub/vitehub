@@ -77,7 +77,6 @@ const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
 const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
 const intrinsicFunctionToString = Function.prototype.toString
 const nativeErrorConstructorSource = intrinsicFunctionToString.call(Error)
-const brandedErrorValues = new WeakSet<object>()
 const nativeAggregateErrorConstructorSource = intrinsicFunctionToString.call(AggregateError)
 
 function isNativeConstructor(value: unknown, source: string): value is Function {
@@ -589,7 +588,6 @@ function isArrayBufferView(value: unknown): value is ArrayBufferView {
 
 function isErrorValue(value: unknown): value is Error {
   if (!value || !hasRuntimeType(value, "object")) return false
-  if (brandedErrorValues.has(value)) return true
   try {
     // Probe the intrinsic Error slot before reading `stack`. A foreign realm
     // can cache a non-string formatter result (including `undefined`) on the
@@ -619,7 +617,6 @@ function isErrorValue(value: unknown): value is Error {
               writable: true,
             })
             if (errorStackGetter.call(value) === sentinel) {
-              brandedErrorValues.add(value)
               return true
             }
           }
@@ -662,7 +659,6 @@ function isErrorValue(value: unknown): value is Error {
         // an actual stack value; structural checks below cover custom formatters
         // that intentionally return `undefined`.
         if (typeof stack === "string") {
-          brandedErrorValues.add(value)
           return true
         }
       }
@@ -672,7 +668,6 @@ function isErrorValue(value: unknown): value is Error {
       }
     }
     if (isInstance(value, Error)) {
-      brandedErrorValues.add(value)
       return true
     }
     let prototype = Object.getPrototypeOf(value)
