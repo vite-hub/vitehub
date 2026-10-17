@@ -112,6 +112,9 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
       return Object.is(left, right)
     }
+    // structuredClone rejects Proxy values while avoiding a Node-only builtin.
+    // Rejecting them keeps target descriptors from hiding observable get traps.
+    if (!isCloneableSourceValue(left) || !isCloneableSourceValue(right)) return false
     const prototype = Object.getPrototypeOf(left)
     if (Array.isArray(left) !== Array.isArray(right)
       || prototype !== Object.getPrototypeOf(right)
@@ -140,6 +143,16 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     }
   } catch {
     // Unknown fingerprints may contain proxies or other values that cannot be inspected.
+    return false
+  }
+}
+
+function isCloneableSourceValue(value: object): boolean {
+  try {
+    structuredClone(value)
+    return true
+  }
+  catch {
     return false
   }
 }
