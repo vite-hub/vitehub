@@ -84,7 +84,6 @@ function parseVercelMessageId(value: unknown): Result<string | undefined, "QUEUE
   catch (cause) {
     return invalidVercelSendResponse(cause)
   }
-  if (messageId === undefined || messageId === null) return [undefined, undefined]
   if (typeof messageId !== "string" || !messageId || messageId.length > 128 || messageId.trim() !== messageId) {
     return invalidVercelSendResponse(value)
   }
