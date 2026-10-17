@@ -1,4 +1,5 @@
 import { runInNewContext } from "node:vm"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthAccessHandler } from "../src/server.ts"

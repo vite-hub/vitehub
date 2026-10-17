@@ -49,7 +49,7 @@ Prove one manual run, one scheduled wake, retry or overlap behavior, and the ter
 
 
 ::product-features
-  :::product-feature-item{title="The file is the schedule, in UTC" icon="i-lucide-code-2" to="/docs/schedule/configure#define-a-static-schedule"}
+  :::product-feature-item{title="The file is the schedule" icon="i-lucide-code-2" to="/docs/schedule/configure#define-a-static-schedule"}
   Deploys with the app; `manual: true` allows runs outside the cron.
   :::
 
