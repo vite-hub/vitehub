@@ -239,7 +239,8 @@ function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], mo
 async function addNitroScheduleDevHandler(value: unknown, roots: ReturnType<typeof resolveSchedulePluginRoots>, serverId: string, importBase?: string): Promise<NitroConfig> {
   const handler = resolve(roots.projectRoot, generatedNitroDevHandlerDirectory, `${serverId}.ts`)
   await mkdir(dirname(handler), { recursive: true })
-  const contents = renderViteHubNitroDevHandler({ context: { rootDir: roots.viteRoot, serverId }, export: "handleScheduleDevRequest", module: `${importBase ?? schedulePackageName}/runtime/dev` })
+  // The Static Schedule registry is a Vite virtual module, so the Nitro dev environment loads it with the app code.
+  const contents = renderViteHubNitroDevHandler({ context: { rootDir: roots.viteRoot, serverId }, contextModules: { registry: SCHEDULE_REGISTRY_ID }, export: "handleScheduleDevRequest", module: `${importBase ?? schedulePackageName}/runtime/dev` })
   if (!existsSync(handler) || await readFile(handler, "utf8") !== contents) await writeFile(handler, contents, "utf8")
   const nitro = cloneNitroConfig(value)
   if (Array.isArray(nitro.handlers) && nitro.handlers.some(entry => isRecord(entry) && entry.route === scheduleDevRuntimeRoute)) return nitro
@@ -665,8 +666,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
           return typeof baseURL === "string" ? baseURL : process.env.NITRO_APP_BASE_URL
         },
       })
-      const { registerScheduleDevRunEndpoint } = await import("./dev-run.ts")
-      registerScheduleDevRunEndpoint(server, { serverId: devServerId })
     },
     async configResolved(config) {
       resolved = config
