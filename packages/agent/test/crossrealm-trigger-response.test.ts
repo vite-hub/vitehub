@@ -1,4 +1,5 @@
 import { runInNewContext } from "node:vm"
+import { Response as ForeignFetchResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { streamAgentOutputToEvents } from "../src/agent-output.ts"
 import { isResponse } from "../src/internal/response.ts"
@@ -8,12 +9,10 @@ import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocationR
 const HostResponse = Response
 
 function foreignResponse(body = "foreign", init?: ResponseInit): Response {
-  // Node VM contexts have no Fetch globals. Supply the host Fetch implementation,
-  // then give the consuming realm a different constructor, as runtime loaders do.
-  const response = runInNewContext("new Response(body, init)", { Response: HostResponse, body, init })
+  const response = new ForeignFetchResponse(body, init)
   vi.stubGlobal("Response", class extends HostResponse {})
   expect(response).not.toBeInstanceOf(Response)
-  return response
+  return response as unknown as Response
 }
 
 afterEach(() => vi.unstubAllGlobals())
