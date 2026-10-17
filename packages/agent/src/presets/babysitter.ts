@@ -164,7 +164,7 @@ const babysitterIntake = defineChannel("babysitter-github", {
         // A missing secret fails closed: unsigned deliveries must never reach the inbox.
         secretToken: async (context) => {
           const secret = plainSecret(await channelEnvValue("github", "webhookSecret", context));
-          if (!secret) throw new Error("[vitehub] The Babysitter webhook needs GITHUB_WEBHOOK_SECRET.");
+          if (!secret) throw new Error("[vitehub] The Babysitter webhook needs VITEHUB_GITHUB_WEBHOOK_SECRET.");
           return secret;
         },
       }],

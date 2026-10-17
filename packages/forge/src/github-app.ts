@@ -1,51 +1,8 @@
 import { createHash } from "node:crypto"
 
 import type { ForgeProvider } from "forges"
-import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
-
-export type CodeHostKind = "github" | "gitlab" | "forgejo"
-
-export interface CodeHostConnection {
-  host: CodeHostKind
-  /** GitHub: API base. GitLab and Forgejo: instance root. */
-  baseUrl?: string
-  /** Omitted: anonymous public reads. */
-  token?: string
-  readOnly?: boolean
-  fetch?: typeof fetch
-  /** Default "vitehub". */
-  userAgent?: string
-}
-
-/** Create the library provider for one Code Host. Internal only: never return it from a public API. */
-export async function codeHostProvider(connection: CodeHostConnection): Promise<ForgeProvider> {
-  const auth = connection.token
-    ? { type: "token" as const, token: connection.token }
-    : { type: "anonymous" as const }
-  const options = {
-    ...(connection.baseUrl ? { baseUrl: connection.baseUrl } : {}),
-    ...(connection.fetch ? { fetch: connection.fetch } : {}),
-    userAgent: connection.userAgent ?? "vitehub",
-    ...(connection.readOnly === undefined ? {} : { readOnly: connection.readOnly }),
-    auth,
-  }
-  switch (connection.host) {
-    case "github": {
-      const { github } = await import("forges/github")
-      return github(options).create()
-    }
-    case "gitlab": {
-      const { gitlab } = await import("forges/gitlab")
-      return gitlab(options).create()
-    }
-    case "forgejo": {
-      const { forgejo } = await import("forges/forgejo")
-      return forgejo(options).create()
-    }
-  }
-  throw new Error("Unsupported Code Host.")
-}
+import { forgeDiagnostics } from "./error-diagnostics.ts"
+import { abortError, forgeErrorStatus, ForgeResponseError, withSignal } from "./provider.ts"
 
 export interface GitHubAppCredentials {
   installationToken(
@@ -58,23 +15,12 @@ export interface GitHubAppCredentials {
   app(signal?: AbortSignal): Promise<{ id: number, slug: string, login: string }>
 }
 
-interface GitHubAppInput {
+export interface GitHubAppInput {
   appId: number | string
   privateKey: string
   baseUrl?: string
   fetch?: typeof fetch
   userAgent?: string
-}
-
-/** A Code Host response that succeeded but did not include the expected data. */
-export class CodeHostResponseError extends Error {
-  override name = "CodeHostResponseError"
-}
-
-/** The HTTP status of a failed Code Host request, or undefined for other errors. */
-export function codeHostErrorStatus(error: unknown): number | undefined {
-  if (!(error instanceof Error) || !isRuntimeRecord(error)) return undefined
-  return hasRuntimeType(error.status, "number") ? error.status : undefined
 }
 
 const appProviders = new Map<string, Promise<ForgeProvider>>()
@@ -121,32 +67,12 @@ function appProvider(input: GitHubAppInput, installationId = "", refresh = false
   return pending
 }
 
-function abortError(signal: AbortSignal): Error {
-  if (signal.reason instanceof Error) return signal.reason
-  return new DOMException("The operation was aborted.", "AbortError")
-}
-
-export async function withSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return await promise
-  if (signal.aborted) throw abortError(signal)
-  return await new Promise<T>((resolve, reject) => {
-    const abort = () => reject(abortError(signal))
-    signal.addEventListener("abort", abort, { once: true })
-    promise.then(
-      (value) => {
-        signal.removeEventListener("abort", abort)
-        resolve(value)
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", abort)
-        reject(error)
-      },
-    )
-  })
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function positiveId(value: unknown): number | undefined {
-  return hasRuntimeType(value, "number") && Number.isSafeInteger(value) && value > 0 ? value : undefined
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined
 }
 
 /**
@@ -165,7 +91,7 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const response = await withSignal(provider.request<{ token?: string, expires_at: string }>(
         "POST", `/app/installations/${id}/access_tokens`, { signal: options.signal },
       ), options.signal)
-      if (!response.data.token) throw new CodeHostResponseError("GitHub App installation token response did not include token.")
+      if (!response.data.token) throw new ForgeResponseError("GitHub App installation token response did not include token.")
       const details = { token: response.data.token, expiresAt: new Date(response.data.expires_at) }
       installationTokens.set(provider, details)
       return details
@@ -175,24 +101,24 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const path = `/repos/${repository}/installation`
       try {
         const response = await provider.request<unknown>("GET", path, { signal })
-        const id = positiveId(isRuntimeRecord(response.data) ? response.data.id : undefined)
-        if (!id) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App is not installed for ${repository}.` })
+        const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
+        if (!id) throw forgeDiagnostics.FORGE_R0001({ message: `GitHub App is not installed for ${repository}.` })
         return id
       }
       catch (error) {
         if (signal?.aborted) throw abortError(signal)
-        const status = codeHostErrorStatus(error)
+        const status = forgeErrorStatus(error)
         if (status === undefined) throw error
-        throw agentDiagnostics.AGENT_R0757({ message: `GitHub App request ${path} failed with ${status}.`, cause: error })
+        throw forgeDiagnostics.FORGE_R0001({ message: `GitHub App request ${path} failed with ${status}.`, cause: error })
       }
     },
     async app(signal) {
       const provider = await withSignal(appProvider(input), signal)
       const response = await provider.request<unknown>("GET", "/app", { signal })
-      const id = positiveId(isRuntimeRecord(response.data) ? response.data.id : undefined)
-      const slug = isRuntimeRecord(response.data) && hasRuntimeType(response.data.slug, "string") ? response.data.slug : undefined
-      if (!id) throw new CodeHostResponseError("GitHub App metadata did not include an ID.")
-      if (!slug) throw new CodeHostResponseError("GitHub App response did not include a slug.")
+      const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
+      const slug = isRecord(response.data) && typeof response.data.slug === "string" ? response.data.slug : undefined
+      if (!id) throw new ForgeResponseError("GitHub App metadata did not include an ID.")
+      if (!slug) throw new ForgeResponseError("GitHub App response did not include a slug.")
       return { id, slug, login: `${slug}[bot]` }
     },
   }

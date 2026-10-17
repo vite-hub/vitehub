@@ -914,11 +914,11 @@ Agent State. Hosts start in production builds, or in development only with
 `VITEHUB_AGENT_PROCESS_HOSTS=1`, so a development server does not repair real
 PRs by accident.
 
-The host reads the GitHub App from `env.server.github` or `GITHUB_APP_ID`,
-`GITHUB_APP_PRIVATE_KEY` (or `GITHUB_APP_PRIVATE_KEY_PATH`), and
-`GITHUB_WEBHOOK_SECRET`. It resolves the App installation of each repository and
-commits as the App's bot. `GITHUB_APP_INSTALLATION_ID` pins the installation for
-`GITHUB_APP_OWNER`. `GITHUB_APP_INSTALLATIONS` accepts a JSON object mapping owner
+The host reads the GitHub App from `env.server.github` or `VITEHUB_GITHUB_APP_ID`,
+`VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and
+`VITEHUB_GITHUB_WEBHOOK_SECRET`. It resolves the App installation of each repository and
+commits as the App's bot. `VITEHUB_GITHUB_INSTALLATION_ID` pins the installation for
+`VITEHUB_GITHUB_APP_OWNER`. `VITEHUB_GITHUB_APP_INSTALLATIONS` accepts a JSON object mapping owner
 names to installation IDs. Other owners resolve their own installation. The host
 ignores an environment installation ID without an owner.
 A delivery without a configured webhook secret is rejected. Only the commit
