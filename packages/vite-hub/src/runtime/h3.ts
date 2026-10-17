@@ -99,6 +99,7 @@ function isRequest(value: unknown): value is Request {
                 // unrelated receiver; checking several prevents a forged
                 // bodyUsed-only prototype from being accepted.
                 const accessors = ["bodyUsed", "headers", "url", "method"] as const
+                const currentRealmRequest = new Request("https://example.test")
                 for (const name of accessors) {
                   const accessor = Object.getOwnPropertyDescriptor(prototype, name)?.get
                   if (typeof accessor !== "function") {
@@ -116,11 +117,22 @@ function isRequest(value: unknown): value is Request {
                     break
                   } catch {
                     try {
-                      accessor.call(probe)
-                      accessor.call(value)
-                    } catch {
+                      // A foreign Request accessor must reject a genuine
+                      // current-realm Request as well. Caller-controlled
+                      // getters that merely special-case `{}` and their
+                      // candidate are rejected by this independent receiver
+                      // check before their return values can be trusted.
+                      accessor.call(currentRealmRequest)
                       valid = false
                       break
+                    } catch {
+                      try {
+                        accessor.call(probe)
+                        accessor.call(value)
+                      } catch {
+                        valid = false
+                        break
+                      }
                     }
                   }
                 }
