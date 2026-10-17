@@ -80,8 +80,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           commands,
           cwd,
           networkGrants,
-          maxOutputLength: runOptions.maxOutputLength,
-          signal: runOptions.signal
+          signal: execOptions.signal,
         })
         if (curlResult) return curlResult
 
@@ -92,7 +91,12 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           cwd,
           fs: options.fs,
         })
-
+        const timeoutSignal = typeof execOptions.timeout === "number"
+          ? AbortSignal.timeout(execOptions.timeout)
+          : undefined
+        const signal = timeoutSignal && execOptions.signal
+          ? AbortSignal.any([execOptions.signal, timeoutSignal])
+          : timeoutSignal ?? execOptions.signal
         return await bash.exec(command, {
           cwd,
           env: execOptions.env,
@@ -132,7 +136,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
 
 async function runControlledCurlCommand(
   command: string,
-  options: { commands?: string[], cwd?: string, maxOutputLength?: number, networkGrants?: ShellNetworkGrantExecutor, signal?: AbortSignal },
+  options: { commands?: string[], cwd?: string, networkGrants?: ShellNetworkGrantExecutor, signal?: AbortSignal },
 ): Promise<ShellObservation | undefined> {
   if (!mentionsCurlCommand(command)) return undefined
   options.signal?.throwIfAborted()
