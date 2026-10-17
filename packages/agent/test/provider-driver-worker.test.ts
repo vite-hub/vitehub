@@ -49,7 +49,7 @@ describe("provider Agent Drivers in Worker builds", () => {
     `import { defineAgent } from "@vite-hub/agent"; export default defineAgent({ driver: { model: "openai/gpt-5" } })`,
     `import { defineAgent } from "@vite-hub/agent"; export default defineAgent({ driver: { run: () => "ok" } })`,
     `import { defineAgent } from "@vite-hub/agent"; const instructions = 'driver: "codex"'; export default defineAgent({ driver: { model: "openai/gpt-5" } })`,
-    `import { defineAgent } from "@vite-hub/agent"; const url = "https://example.com//driver: \\\"codex\\\""; export default defineAgent({ driver: { model: "openai/gpt-5" } })`,
+    `import { defineAgent } from "@vite-hub/agent"; const url = "https://example.com//driver: \\"codex\\""; export default defineAgent({ driver: { model: "openai/gpt-5" } })`,
     `import { defineAgent } from "@vite-hub/agent"; const value = { kind: "codex" }; export default defineAgent({ driver: { run: () => "codex" } })`,
     `import { defineAgent } from "@vite-hub/agent"; export default defineAgent({ options: { driver: "codex" }, driver: { model: "openai/gpt-5" } })`,
     `import { defineAgent } from "@vite-hub/agent"; export default defineAgent({ settings: { nested: { driver: { kind: "codex" } } }, driver: { model: "openai/gpt-5" } })`,

@@ -397,9 +397,98 @@ function createId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`
 }
 
+function isDateValue(value: unknown): value is Date {
+  try {
+    Date.prototype.getTime.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function hasNativeDateJSONHook(value: object): boolean {
+  const nativeSource = /\[native code\]/
+  const isNative = (hook: unknown): boolean => hasRuntimeType(hook, "function") && nativeSource.test(Function.prototype.toString.call(hook))
+  // Native Date.prototype.toJSON has a stable intrinsic signature across realms.
+  // Other native-looking functions (for example bound user serializers) are
+  // ambiguous and must be rejected rather than trusted by their name.
+  const isIntrinsicDateJSON = (hook: unknown): boolean => {
+    if (!isNative(hook)) return false
+    // Callable proxies stringify as an anonymous native function even when
+    // their target is Date.prototype.toJSON. Require the intrinsic source
+    // shape so a proxy around an arbitrary serializer cannot pass as Date.
+    if (!/^function toJSON\(\) \{ \[native code\] \}$/.test(Function.prototype.toString.call(hook))) return false
+    const name = Reflect.getOwnPropertyDescriptor(hook, "name")
+    const length = Reflect.getOwnPropertyDescriptor(hook, "length")
+    return !!name && "value" in name && name.value === "toJSON" && !!length && "value" in length && length.value === 1
+  }
+  const findDescriptor = (start: object, key: string): PropertyDescriptor | undefined => {
+    let current: object | null = start
+    const visited = new Set<object>()
+    while (current && !visited.has(current)) {
+      visited.add(current)
+      const descriptor = Reflect.getOwnPropertyDescriptor(current, key)
+      if (descriptor) return descriptor
+      current = Reflect.getPrototypeOf(current)
+    }
+    return undefined
+  }
+  try {
+    const own = Reflect.getOwnPropertyDescriptor(value, "toJSON")
+    if (own && "value" in own) return false
+    const getTimeDescriptor = findDescriptor(value, "getTime")
+    const toISOStringDescriptor = findDescriptor(value, "toISOString")
+    const toJSONDescriptor = findDescriptor(value, "toJSON")
+    const getTime = getTimeDescriptor?.value
+    const toISOString = toISOStringDescriptor?.value
+    // A proxy can hide its target prototype from descriptor traversal. If no
+    // method descriptors are visible and no custom serializer is present, read
+    // the effective hook as a guarded fallback for that hidden-prototype case.
+    if (!getTimeDescriptor && !toISOStringDescriptor) {
+      if (toJSONDescriptor) return false
+      const hook = Reflect.get(value, "toJSON")
+      // A hidden prototype prevents us from proving which serializer would run.
+      // Reject any callable hook so a throwing proxy cannot cross validation.
+      return hasRuntimeType(hook, "function")
+    }
+    if (!isNative(getTime) || !isNative(toISOString)) return false
+    let prototype: object | null = Reflect.getPrototypeOf(value)
+    const visited = new Set<object>()
+    while (prototype && !visited.has(prototype)) {
+      visited.add(prototype)
+      const descriptor = Reflect.getOwnPropertyDescriptor(prototype, "toJSON")
+      if (descriptor) {
+        if ("value" in descriptor) {
+          if (!hasRuntimeType(descriptor.value, "function")) return false
+          if (!isNative(descriptor.value)) return false
+          const name = Reflect.getOwnPropertyDescriptor(descriptor.value, "name")
+          const isBound = !!name && "value" in name && hasRuntimeType(name.value, "string") && name.value.startsWith("bound ")
+          return isIntrinsicDateJSON(descriptor.value) || !isBound
+        }
+        // An accessor may expose the native hook while hiding its value from
+        // descriptor inspection. Treat it as unsafe once native Date methods
+        // identify the surrounding object as a Date proxy.
+        return true
+      }
+      prototype = Reflect.getPrototypeOf(prototype)
+    }
+    // Hidden prototype proxies still expose the native Date methods.
+    const hook = Reflect.get(value, "toJSON")
+    return hasRuntimeType(hook, "function") ? isIntrinsicDateJSON(hook) : false
+  }
+  catch {
+    return false
+  }
+}
+
 function normalizeCreatedAt(value: Date | string | undefined): string | undefined {
-  if (!value) return undefined
-  return value instanceof Date ? value.toISOString() : value
+  if (value === undefined) return undefined
+  if (isDateValue(value)) return Date.prototype.toISOString.call(value)
+  if (!hasRuntimeType(value, "string")) {
+    throw agentDiagnostics.AGENT_R0651({ message: "[vitehub:messages] message.createdAt must be serialized before storing." })
+  }
+  return value
 }
 
 function normalizePart(part: MessagePart | string, index: number): MessagePart {
@@ -515,7 +604,7 @@ function assertSerializable(value: unknown, field: string): void {
   if (!value || !hasRuntimeType(value, "object")) {
     return
   }
-  if (value instanceof Date) {
+  if (isDateValue(value) || hasNativeDateJSONHook(value)) {
     throw agentDiagnostics.AGENT_R0651({ message: `[vitehub:messages] ${field} must be serialized before storing.` })
   }
   if (Array.isArray(value)) {
@@ -530,7 +619,12 @@ function assertSerializable(value: unknown, field: string): void {
 export function validateMessage(message: Message): void {
   assertString(message.id, "message.id")
   assertSerializable(message.id, "message.id")
-  if (message.createdAt !== undefined) assertSerializable(message.createdAt, "message.createdAt")
+  if (message.createdAt !== undefined) {
+    if (!hasRuntimeType(message.createdAt, "string")) {
+      throw agentDiagnostics.AGENT_R0651({ message: "[vitehub:messages] message.createdAt must be serialized before storing." })
+    }
+    assertSerializable(message.createdAt, "message.createdAt")
+  }
   if (message.metadata !== undefined) assertSerializable(message.metadata, "message.metadata")
   if (!["assistant", "system", "tool", "user"].includes(message.role)) {
     throw agentDiagnostics.AGENT_R0652({ message: `[vitehub:messages] Unsupported message role: ${String(message.role)}.` })

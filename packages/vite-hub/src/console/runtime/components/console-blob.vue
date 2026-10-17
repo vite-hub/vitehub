@@ -5,6 +5,7 @@ import { requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 interface BlobObjectResponse {
@@ -112,14 +113,6 @@ function parsePage(value: unknown): BlobPageResponse {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Blob response is untrusted JSON, so validate each store identity before rendering it.
     stores: source.stores.filter((store): store is string => typeof store === "string"),
   };
-}
-
-function errorMessage(value: unknown): string | undefined {
-  return value instanceof Error
-    ? value.message
-    : value
-      ? "The Console could not load Blob metadata."
-      : undefined;
 }
 
 function formatBytes(value: number | undefined): string {
@@ -247,8 +240,8 @@ onBeforeUnmount(() => {
           <USelect v-if="stores.length > 1" v-model="selectedStore" :items="storeItems" aria-label="Blob store" size="sm" />
           <UInput v-model="prefix" aria-label="Filter objects by prefix" icon="i-lucide-search" placeholder="Filter by prefix" size="sm" />
         </div>
-        <div v-if="!collapsed && errorMessage(error)" class="px-3 pb-3">
-          <UAlert color="error" variant="subtle" icon="i-lucide-cloud-off" title="Could not load objects" :description="errorMessage(error)" :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', onClick: refresh }]" />
+        <div v-if="!collapsed && error" class="px-3 pb-3">
+          <ConsoleState compact :error="error" title="Could not load objects" :retry="refresh" />
         </div>
         <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
           <div class="grid gap-1 px-2 py-1">
@@ -268,7 +261,8 @@ onBeforeUnmount(() => {
           </button>
           <UButton v-if="hasMore" class="mt-2" block color="neutral" icon="i-lucide-chevron-down" label="Load more" size="sm" variant="ghost" :loading="loadingMore" @click="loadObjects({ append: true, keepSelection: true })" />
         </nav>
-        <UEmpty v-else-if="!loading && !error && !collapsed" class="min-h-0 flex-1 px-4" icon="i-lucide-file-box" :title="prefix ? 'No matching objects' : 'This store is empty'" :description="prefix ? 'Try a shorter object prefix.' : 'Objects will appear here when the application stores them.'" />
+        <UEmpty v-else-if="!loading && !error && !collapsed && prefix" class="min-h-0 flex-1 px-4" icon="i-lucide-file-box" title="No matching objects" description="Try a shorter object prefix." />
+        <ConsoleState v-else-if="!loading && !error && !collapsed" section="blob" icon="i-lucide-file-box" title="This store is empty" description="Objects appear here after the application stores them with the Blob API." />
       </template>
 
     </UDashboardSidebar>

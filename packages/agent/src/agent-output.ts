@@ -679,8 +679,13 @@ export function toAgentStreamEvent(
       return { id: approvalId, input: request.input, ...optionalMessageId(messageId), name: capability, reason, type: "approval-request" }
     }
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
-    const event = { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(hasRuntimeType(value.id, "string") ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
-    if (value.error instanceof Error) Object.defineProperty(event, agentStreamErrorSymbol, { value: value.error })
+    const error = value.error
+    const crossRealmError = crossRealmStreamError(error)
+    const errorMessage = crossRealmError
+      ? crossRealmError.message
+      : safeStreamErrorString(error)
+    const event = { error: errorMessage, ...(hasRuntimeType(value.id, "string") ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" as const }
+    if (crossRealmError) Object.defineProperty(event, agentStreamErrorSymbol, { value: crossRealmError.value })
     return event
   }
   if (type === "usage" && isUsageRecord(value.usageRecord)) {
@@ -691,6 +696,93 @@ export function toAgentStreamEvent(
     return { ...optionalMessageId(messageId), ...(reason ? { reason } : {}), type: "finish" }
   }
   return undefined
+}
+
+function crossRealmStreamError(error: unknown): { message: string; value: object } | undefined {
+  if (error === null || typeof error !== "object") return
+  try {
+    const currentIsError: unknown = Reflect.get(Error, "isError")
+    // Node exposes the same intrinsic brand check through util.types. Use it
+    // when Error.isError is unavailable so custom Symbol.toStringTag values
+    // remain valid while prototype-only forgeries are rejected.
+    const processValue: unknown = Reflect.get(globalThis, "process")
+    const getBuiltinModule = processValue && typeof processValue === "object"
+      ? Reflect.get(processValue, "getBuiltinModule")
+      : undefined
+    const nativeIsError = hasRuntimeType(getBuiltinModule, "function")
+      ? Reflect.get(Reflect.apply(getBuiltinModule, processValue, ["util"]), "types")
+      : undefined
+    const intrinsicIsError = isRecord(nativeIsError)
+      ? Reflect.get(nativeIsError, "isNativeError")
+      : undefined
+    const hasToStringTag = Symbol.toStringTag in error
+    // A proxy can hide the tag from the `in` check while returning a forged
+    // value from property access. Reject that inconsistent shape before the
+    // structural fallback can mistake it for an Error.
+    if (!hasToStringTag && Reflect.get(error, Symbol.toStringTag) === "Error") return
+    const nativeBranded = hasRuntimeType(currentIsError, "function")
+      ? currentIsError(error) === true
+      : hasRuntimeType(intrinsicIsError, "function")
+        ? intrinsicIsError(error) === true
+        : undefined
+    if (nativeBranded === false) return
+    // Avoid traversing arbitrary provider objects with structuredClone when
+    // no native brand helper is available. Genuine Errors either expose the
+    // intrinsic Error tag, inherit from Error in this realm, or carry a
+    // custom toStringTag that still needs clone validation.
+    if (nativeBranded === undefined && !hasToStringTag
+      && Object.prototype.toString.call(error) !== "[object Error]"
+      && !(error instanceof Error)) return
+    // A custom tag alone is not evidence of an Error. Avoid cloning arbitrary
+    // provider payloads unless they expose one of the standard Error fields;
+    // genuine cross-realm Errors provide these even when their tag is custom.
+    if (nativeBranded === undefined && hasToStringTag && !(error instanceof Error)
+      && !Reflect.has(error, "message") && !Reflect.has(error, "stack") && !Reflect.has(error, "cause")) return
+    // structuredClone preserves the intrinsic Error brand but does not copy
+    // user-defined symbol tags or an Error prototype chain onto plain objects.
+    // Prefer it when available so configurable stack descriptors cannot forge
+    // the fallback brand.
+    const structuredClone = Reflect.get(globalThis, "structuredClone")
+    let cloneBranded = false
+    if (hasRuntimeType(structuredClone, "function")) {
+      try {
+        const clone = Reflect.apply(structuredClone, globalThis, [error])
+        if (Object.prototype.toString.call(clone) !== "[object Error]" && nativeBranded !== true) return
+        // A successful clone carries the engine's intrinsic Error brand. Keep
+        // this result so Firefox-style configurable data `stack` properties
+        // do not need to resemble V8's accessor descriptor.
+        cloneBranded = true
+      }
+      catch {
+        // No portable brand signal remains when cloning fails.
+      }
+    }
+    // A failed clone provides no portable brand signal. Prototype chains and
+    // stack descriptors are forgeable (including by copying native accessors),
+    // so fail closed rather than preserving an attacker-controlled object.
+    const branded = cloneBranded || nativeBranded === true
+    if (!branded) return
+    const message = Reflect.get(error, "message")
+    return { message: message === undefined ? "" : String(message), value: error }
+  }
+  catch {
+    return
+  }
+}
+
+function safeStreamErrorString(error: unknown): string {
+  try {
+    const value = error || "Unknown error"
+    const text = String(value)
+    if (text === "Error" && hasRuntimeType(value, "object") && value !== null
+      && Reflect.getPrototypeOf(value) === Error.prototype) {
+      return "[object Object]"
+    }
+    return text
+  }
+  catch {
+    return "Unknown error"
+  }
 }
 
 export const agentStreamErrorSymbol: unique symbol = Symbol("vitehub.agent-stream-error")
