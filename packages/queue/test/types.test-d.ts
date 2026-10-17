@@ -3,7 +3,8 @@ import type { Plugin } from "vite"
 
 import { deferQueue, dynamicQueue, getQueue, runQueue } from "../src/runtime/client.ts"
 import { defineQueue } from "../src/definition.ts"
-import type { QueueErrorCode } from "../src/errors.ts"
+import type { Result } from "@vite-hub/runtime"
+import type { CloudflareQueueClient, CloudflareQueueErrorCode, QueueErrorCode, QueueSendResult, VercelQueueClient, VercelQueueErrorCode } from "../src/index.ts"
 import { hubQueue } from "../src/vite.ts"
 
 it("returns a vite plugin", () => {
@@ -23,22 +24,42 @@ it("infers queue payload types", () => {
 
 it("types Queue error codes", () => {
   expectTypeOf<QueueErrorCode>().toEqualTypeOf<
-    | "CLOUDFLARE_BINDING_INVALID"
-    | "CLOUDFLARE_BINDING_RESOLUTION_REQUIRED"
-    | "CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS"
-    | "QUEUE_DEFINITION_LOAD_FAILED"
-    | "QUEUE_DEFINITION_NOT_FOUND"
-    | "QUEUE_DISABLED"
-    | "QUEUE_PROVIDER_OPERATION_FAILED"
-    | "QUEUE_PROVIDER_RESPONSE_INVALID"
-    | "VERCEL_PROVIDER_EXPECTED"
-    | "VERCEL_QUEUE_REGION_REQUIRED"
-    | "VERCEL_QUEUE_SDK_INVALID"
-    | "VERCEL_QUEUE_SDK_LOAD_FAILED"
-    | "VERCEL_TOPIC_RESOLUTION_REQUIRED"
-    | "VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS"
+    | "QUEUE_PROVIDER_FAILED"
+    | "QUEUE_PROVIDER_INVALID_RESPONSE"
+    | "QUEUE_UNSUPPORTED_OPTION"
   >()
+  expectTypeOf<CloudflareQueueErrorCode>().toEqualTypeOf<"QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">()
+  expectTypeOf<VercelQueueErrorCode>().toEqualTypeOf<QueueErrorCode>()
+})
 
+it("types the codes of each method", () => {
+  expectTypeOf(runQueue<"welcome">).returns.toEqualTypeOf<Promise<Result<QueueSendResult, QueueErrorCode>>>()
+  expectTypeOf(dynamicQueue.run).returns.toEqualTypeOf<Promise<Result<QueueSendResult, QueueErrorCode>>>()
+  expectTypeOf<CloudflareQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">>>()
+  expectTypeOf<CloudflareQueueClient["sendBatch"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult[], "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">>>()
+  expectTypeOf<VercelQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION">>>()
+  expectTypeOf(deferQueue<"welcome">).returns.toEqualTypeOf<void>()
+})
+
+it("narrows Queue results by the error element", async () => {
+  const [error, result] = await runQueue("welcome", { email: "ada@example.test" })
+  if (error) {
+    expectTypeOf(error.code).toEqualTypeOf<QueueErrorCode>()
+    expectTypeOf(error.why).toEqualTypeOf<string>()
+    expectTypeOf(result).toEqualTypeOf<undefined>()
+    return
+  }
+  expectTypeOf(result).toEqualTypeOf<QueueSendResult>()
+
+  const client = await getQueue("welcome")
+  if (client.provider === "cloudflare") {
+    const [sendError] = await client.send({ email: "ada@example.test" })
+    if (sendError) {
+      expectTypeOf(sendError.code).toEqualTypeOf<"QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">()
+      // @ts-expect-error A Cloudflare send never returns an invalid provider response.
+      void (sendError.code === "QUEUE_PROVIDER_INVALID_RESPONSE")
+    }
+  }
 })
 
 const welcome = defineQueue<{ email: string }>(job => job.payload.email)

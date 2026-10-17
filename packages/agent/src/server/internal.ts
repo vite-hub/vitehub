@@ -13,7 +13,6 @@ export {
   installAgentChannelDeliveryWorkflowResolver,
   setAgentChannelDeliveryWorkflowStateResolver,
 } from "./routes.ts"
-export { defineScheduledAgentTarget } from "./scheduled-turn.ts"
 export { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 export { observabilityStatus } from "../internal/observability-host.ts"
 export { handleChannelReplayRequest } from "../channel-replay.ts"
@@ -48,12 +47,14 @@ export type {
   AgentTelegramPollingRouteOptions,
 } from "./routes.ts"
 
-export { inheritAgentLayerOptions } from "../agent-layers.ts"
+export { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions, inheritAgentLayerOptions } from "../agent-layers.ts"
+export { resolveAgentCapabilityDefinitions } from "../capability-runtime.ts"
+export { activeProviderSandbox } from "../internal/provider-box.ts"
 export { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
-type AgentGeneratedRuntimeErrorCode = "AGENT_R0892" | "AGENT_R0893" | "AGENT_R0894" | "AGENT_R0895" | "AGENT_R0896" | "AGENT_R0897"
+type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R0895" | "AGENT_R0896" | "AGENT_R0897"
 
 /** Creates a coded Agent diagnostic for generated host runtime code. */
 export function agentGeneratedRuntimeError(code: AgentGeneratedRuntimeErrorCode, message: string): Error {

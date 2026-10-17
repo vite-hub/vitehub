@@ -1,3 +1,4 @@
+import type { PostgresDatabaseDefaults } from "../runtime/postgres.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 
 function renderConfigExpression(value: unknown) {
@@ -20,4 +21,20 @@ export function renderDatabaseConfigExpression(name: string, config: ResolvedDBV
     `      drizzle: ${definitionVariable}.drizzle ?? {},`,
     "    }",
   ].join("\n")
+}
+
+/** Renders the `createPostgresDatabase()` call for a Postgres Definition in a generated runtime module. */
+export function renderPostgresDatabaseExpression(name: string, config: ResolvedDBViteConfig, definitionVariable: string) {
+  const database = config.databases[name]!
+  const defaults: PostgresDatabaseDefaults = { binding: database.hyperdrive?.binding ?? "HYPERDRIVE" }
+  if (database.connection?.url !== undefined) defaults.url = database.connection.url
+  return `createPostgresDatabase(${definitionVariable}, ${JSON.stringify(defaults)})`
+}
+
+export function usesPostgres(config: ResolvedDBViteConfig) {
+  return config.databaseNames.some(name => config.databases[name]?.dialect === "postgresql")
+}
+
+export function usesSqlite(config: ResolvedDBViteConfig) {
+  return config.databaseNames.some(name => config.databases[name]?.dialect !== "postgresql")
 }
