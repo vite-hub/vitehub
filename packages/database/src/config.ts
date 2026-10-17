@@ -330,7 +330,10 @@ function readDefinitionCloudflareResource(expression: string | undefined): Defin
 
 function readOpaqueDeclarationExpression(identifier: string, source: string): string | undefined {
   const masked = maskCommentsAndStrings(source)
-  const topLevelStatementStart = /^\s*(?:export\s+(?:default\b|async\s+function\b|(?:const|let|var|function|class|interface|type|enum|namespace|declare)\b|\{|\*)|async\s+function\b|(?:const|let|var|function|class|interface|type|enum|namespace|declare)\b|import\b)/
+  // At a top-level newline, any export form starts a new statement. This
+  // includes export-only lists/star exports and exported async functions,
+  // which do not have a declaration keyword immediately after `export`.
+  const topLevelStatementStart = /^\s*(?:export\b|async\s+function\b|(?:const|let|var|function|class|interface|type|enum|namespace|declare|import)\b)/
   const declarations = [...masked.matchAll(/(?:^|[;\n\r])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?:\s*:\s*[^=;\n]+)?\s*=\s*/g)]
   for (let declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
     const declaration = declarations[declarationIndex]!
