@@ -74,6 +74,21 @@ const CANCELLATION_VERIFICATION_TIMEOUT_MS = 5_000
 const CANCELLATION_VERIFICATION_INTERVAL_MS = 100
 const STORE_OPERATION_TIMEOUT_MS = 1_000
 const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
+const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
+const brandedErrorValues = new WeakSet<object>()
+const intrinsicFunctionToString = Function.prototype.toString
+const nativeErrorConstructorSource = intrinsicFunctionToString.call(Error)
+const nativeAggregateErrorConstructorSource = intrinsicFunctionToString.call(AggregateError)
+
+function isNativeConstructor(value: unknown, source: string): value is Function {
+  if (!hasRuntimeType(value, "function")) return false
+  try {
+    return intrinsicFunctionToString.call(value) === source
+  }
+  catch {
+    return false
+  }
+}
 
 export type AgentInvocationAnnotationValue = boolean | number | string | null
 export type AgentInvocationRecordStatus = AgentInvocationStatus
@@ -210,7 +225,7 @@ export interface AgentInvocationRetentionOptions {
 /** `not-terminal` means the record is pending or running and was kept. */
 export type AgentInvocationDeleteOutcome = "deleted" | "not-found" | "not-terminal"
 
-export interface AgentInvocationStorePruneOptions {
+interface AgentInvocationStorePruneOptions {
   /** Report the selected record IDs without deleting them. */
   dryRun?: boolean
   /** ISO timestamp. Selects terminal records last updated before this time. */
@@ -268,6 +283,13 @@ export interface AgentInvocationsOptions {
   /** Retain resolved instructions and tool contracts independently of other trace content. Defaults to metadata. */
   configuration?: TraceEventContentPolicy
   content?: TraceEventContentPolicy
+  /**
+   * How journal storage failures affect a run. Defaults to `"best-effort"`.
+   * `"best-effort"`: a run starts when the store does not confirm its claim, running state, or first cancellation check. It stops only when the store reports another owner or a cancellation request.
+   * `"strict"`: a run does not start until the store confirms these writes and reads.
+   * Channel replay is always strict, because the journal claim is its duplicate protection.
+   */
+  enforcement?: "best-effort" | "strict"
   metadataContent?: readonly string[]
   observations?: AgentInvocationObservationOptions
   /** Rewrite an observation after the content policy and before the store receives it. Return undefined to drop it. A throwing hook drops the observation. */
@@ -275,6 +297,8 @@ export interface AgentInvocationsOptions {
   /** Rewrite the error stored on a failed invocation. Return undefined to store no error details. A throwing hook stores no error details. */
   redactError?: (error: NonNullable<AgentInvocationRecord["error"]>) => AgentInvocationRecord["error"]
   store: AgentInvocationStore
+  /** Time to wait for one store operation before the journal treats it as unconfirmed. Default 1000 ms; maximum 60000 ms. Raise it for a store in a distant region. */
+  storeTimeoutMs?: number
 }
 
 export interface AgentInvocationCancelResult {
@@ -321,10 +345,22 @@ export interface AgentInvocations {
   prune(options?: AgentInvocationPruneOptions): Promise<AgentInvocationPruneResult>
 }
 
+interface AgentInvocationBindOptions {
+  agentName?: string
+  cancellationDriver?: AgentInvocationCancellationDriver
+  deferClaim?: boolean
+  /** Overrides the configured enforcement for this run. Channel replay passes `"strict"`. */
+  enforcement?: AgentInvocationsOptions["enforcement"]
+  terminalTakeover?: boolean
+  requireNew?: boolean
+  replaceClaimToken?: string
+  recoverPending?: boolean
+}
+
 interface BoundAgentInvocations extends AgentInvocations {
   [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
     context: AgentRuntimeContext<TRuntimeConfig>,
-    options?: { agentName?: string, cancellationDriver?: AgentInvocationCancellationDriver, deferClaim?: boolean, terminalTakeover?: boolean, requireNew?: boolean, replaceClaimToken?: string, recoverPending?: boolean },
+    options?: AgentInvocationBindOptions,
   ): Promise<AgentInvocationJournal<TRuntimeConfig>>
   [recoverInterruptedAgentInvocationsSymbol](options: Parameters<typeof failInterruptedAgentInvocations>[1]): Promise<number>
 }
@@ -368,9 +404,17 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   prepareWorkflowDispatch(binding: AgentInvocationWorkflowBinding): Promise<boolean>
   confirmWorkflowDispatch(binding?: AgentInvocationWorkflowBinding): Promise<boolean>
   releaseClaim(): Promise<void>
+  /** Persists the running state. Returns false when the store did not confirm it; a retry continues in the background. */
   running(): Promise<boolean>
+  /**
+   * Whether the run may start after {@link running} returned false.
+   * Best-effort journals allow it unless the store reported another owner or a cancellation request, and log one warning.
+   */
+  startsUnconfirmed(): boolean
+  /** Whether the invocation still has a safe claim state at the dispatch boundary. */
+  dispatchAllowed(): boolean
   /** Records the Driver dispatch boundary without delaying execution. */
-  driverStarted(): void
+  driverStarted(): boolean
   setAnnotations(annotations: AgentRunMetadata["annotations"]): Promise<void>
   /** Persist resolved run metadata while this journal owns the execution claim. */
   setRunMetadata(run: AgentRunMetadata): Promise<boolean>
@@ -451,6 +495,7 @@ function invocationCapabilityIds(record: Pick<AgentInvocationRecord, "capability
 async function boundedStoreOperation<T>(
   operation: () => MaybePromise<T>,
   timeoutMs = STORE_OPERATION_TIMEOUT_MS,
+  propagateErrors = false,
 ): Promise<T | undefined | typeof storeOperationTimedOut> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -461,7 +506,8 @@ async function boundedStoreOperation<T>(
       }),
     ])
   }
-  catch {
+  catch (error) {
+    if (propagateErrors) throw error
     return undefined
   }
   finally {
@@ -536,6 +582,217 @@ function boundedString(value: string | undefined): string | undefined {
   return value === undefined ? undefined : value.slice(0, MAX_METADATA_STRING_LENGTH)
 }
 
+function arrayBufferByteLength(value: unknown): number | undefined {
+  try {
+    const length = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+    // SAFETY: The intrinsic byteLength getter returns a number for a branded ArrayBuffer.
+    return length as number
+  }
+  catch {
+    const SharedArrayBufferConstructor = globalThis.SharedArrayBuffer
+    if (hasRuntimeType(SharedArrayBufferConstructor, "function")) {
+      try {
+        const length = Object.getOwnPropertyDescriptor(SharedArrayBufferConstructor.prototype, "byteLength")!.get!.call(value)
+        // SAFETY: The intrinsic byteLength getter returns a number for a branded SharedArrayBuffer.
+        return length as number
+      }
+      catch {
+        // Not an ArrayBuffer or SharedArrayBuffer.
+      }
+    }
+    return undefined
+  }
+}
+
+function isInstance<T>(value: unknown, constructor: Function & { prototype: T }): value is T {
+  try {
+    return value instanceof constructor
+  }
+  catch {
+    return false
+  }
+}
+
+function isArray(value: unknown): value is unknown[] {
+  try {
+    return Array.isArray(value)
+  }
+  catch {
+    return false
+  }
+}
+
+function isArrayBufferView(value: unknown): value is ArrayBufferView {
+  try {
+    return ArrayBuffer.isView(value)
+  }
+  catch {
+    return false
+  }
+}
+
+function isErrorValue(value: unknown): value is Error {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  if (brandedErrorValues.has(value)) return true
+  try {
+    // Probe the intrinsic Error slot before reading `stack`. A foreign realm
+    // can cache a non-string formatter result (including `undefined`) on the
+    // first read, which would otherwise make the later brand probe fail.
+    if (errorStackGetter) {
+      let prototype = Object.getPrototypeOf(value)
+      while (prototype && prototype !== Object.prototype) {
+        const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
+        const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (
+          typeof name === "string"
+          && typeof message === "string"
+          && isNativeConstructor(constructor, nativeErrorConstructorSource)
+          && constructor.prototype === prototype
+        ) {
+          const prepareDescriptor = Object.getOwnPropertyDescriptor(constructor, "prepareStackTrace")
+          const stackDescriptor = Object.getOwnPropertyDescriptor(value, "stack")
+          const sentinel = {}
+          try {
+            // A prior intrinsic read can cache a custom formatter result on the
+            // Error's own lazy stack accessor. Remove that cache before probing.
+            if (stackDescriptor?.configurable) delete (value as object & { stack?: unknown }).stack
+            Object.defineProperty(constructor, "prepareStackTrace", {
+              configurable: true,
+              value: () => sentinel,
+              writable: true,
+            })
+            if (errorStackGetter.call(value) === sentinel) {
+              brandedErrorValues.add(value)
+              return true
+            }
+          }
+          catch {
+            // Continue to the remaining checks when the realm is locked down.
+          }
+          finally {
+            try {
+              if (prepareDescriptor) Object.defineProperty(constructor, "prepareStackTrace", prepareDescriptor)
+              else delete constructor.prepareStackTrace
+              if (stackDescriptor) Object.defineProperty(value, "stack", stackDescriptor)
+              else delete (value as object & { stack?: unknown }).stack
+            }
+            catch {
+              // Ignore restoration failures; classification remains bounded.
+            }
+          }
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+    }
+    // V8's intrinsic stack accessor performs the Error internal-slot check and
+    // works for Error instances created in another realm. Keep the structural
+    // fallback below for runtimes without that accessor.
+    if (errorStackGetter) {
+      try {
+        // Calling the intrinsic accessor performs the non-spoofable Error
+        // internal-slot check. The stack value may be non-string when a
+        // foreign realm customizes prepareStackTrace.
+        const stack = errorStackGetter.call(value)
+        // The intrinsic accessor returns `undefined` for objects without the
+        // Error internal slot. Only accept the intrinsic brand when it yields
+        // an actual stack value; structural checks below cover custom formatters
+        // that intentionally return `undefined`.
+        if (typeof stack === "string") {
+          // Preserve the non-spoofable intrinsic-brand evidence for the
+          // subsequent AggregateError classification pass.  Fallback
+          // classifications are intentionally never cached because proxies
+          // and other mutable values may change between observations.
+          brandedErrorValues.add(value)
+          return true
+        }
+      }
+      catch {
+        // A custom stack formatter can make the intrinsic getter throw. Keep
+        // checking the other Error brands so genuine values are still found.
+      }
+    }
+    if (isInstance(value, Error)) {
+      return true
+    }
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype && prototype !== Object.prototype) {
+      const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
+      const message = Object.getOwnPropertyDescriptor(prototype, "message")?.value
+      if (typeof name === "string" && typeof message === "string") {
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        if (isNativeConstructor(constructor, nativeErrorConstructorSource) && constructor.prototype === prototype) {
+          // The intrinsic sentinel probe above is the non-spoofable brand check.
+        }
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
+  }
+  catch {
+    return false
+  }
+}
+
+function isAggregateErrorValue(value: unknown): value is AggregateError {
+  if (!isErrorValue(value)) return false
+  try {
+    if (isInstance(value, AggregateError)) return true
+    let prototype = Object.getPrototypeOf(value)
+    while (prototype && prototype !== Object.prototype) {
+      const name = Object.getOwnPropertyDescriptor(prototype, "name")?.value
+      const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+      if (
+        name === "AggregateError"
+        && isNativeConstructor(constructor, nativeAggregateErrorConstructorSource)
+        && constructor.prototype === prototype
+        && Object.hasOwn(value, "errors")
+        && isArray((value as unknown as Record<string, unknown>).errors)
+      ) return true
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return false
+  }
+  catch {
+    return false
+  }
+}
+
+function isRegExpValue(value: unknown): value is RegExp {
+  try {
+    Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function regExpFlags(value: RegExp): string {
+  const flags = [
+    ["hasIndices", "d"],
+    ["global", "g"],
+    ["ignoreCase", "i"],
+    ["multiline", "m"],
+    ["dotAll", "s"],
+    ["unicode", "u"],
+    ["unicodeSets", "v"],
+    ["sticky", "y"],
+  ] as const
+  return flags.filter(([property]) => {
+    try {
+      return Object.getOwnPropertyDescriptor(RegExp.prototype, property)?.get?.call(value) === true
+    }
+    catch {
+      return false
+    }
+  }).map(([, flag]) => flag).join("")
+}
+
+function regExpLastIndex(value: RegExp): unknown {
+  return Object.getOwnPropertyDescriptor(value, "lastIndex")?.value
+}
+
 function normalizedTimestamp(value: Date | string): string {
   const timestamp = value instanceof Date ? value : new Date(value)
   return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : new Date().toISOString()
@@ -572,6 +829,25 @@ function boxedObservationPrimitive(value: unknown): { type: string, value: bigin
   }
 }
 
+function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
+  try {
+    return Set.prototype.values.call(value)
+  }
+  catch {
+    return
+  }
+}
+
+function reflectedMapEntries(value: unknown): IterableIterator<[unknown, unknown]> | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Map.prototype.entries.call(value)
+  }
+  catch {
+    return
+  }
+}
+
 async function collectBoundedObservationBuiltIns(
   value: unknown,
   builtIns: Map<object, BoundedObservationBuiltIn>,
@@ -580,76 +856,98 @@ async function collectBoundedObservationBuiltIns(
   depth = 0,
 ): Promise<void> {
   if (!value || !hasRuntimeType(value, "object") || seen.has(value) || budget.items <= 0 || depth >= MAX_OBSERVATION_DEPTH) return
-  budget.items--
-  seen.add(value)
-  const BlobConstructor = globalThis.Blob
-  if (hasRuntimeType(BlobConstructor, "function") && value instanceof BlobConstructor) {
-    const FileConstructor = globalThis.File
-    const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
-    const bytes = Array.from(new Uint8Array(await value.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
-    const representation: Record<string, unknown> = {
-      bytes,
-      mediaType: value.type,
-      size: value.size,
-      type: file ? "File" : "Blob",
+  try {
+    budget.items--
+    seen.add(value)
+    const BlobConstructor = globalThis.Blob
+    if (hasRuntimeType(BlobConstructor, "function") && isInstance(value, BlobConstructor)) {
+      // SAFETY: isInstance verified the Blob internal brand before this narrowed access.
+      const blob = value as Blob
+      const FileConstructor = globalThis.File
+      // SAFETY: isInstance verified the File internal brand before this narrowed access.
+      const file = hasRuntimeType(FileConstructor, "function") && isInstance(value, FileConstructor) ? value as File : undefined
+      const bytes = Array.from(new Uint8Array(await blob.slice(0, MAX_OBSERVATION_COLLECTION_ITEMS).arrayBuffer()))
+      const representation: {
+        bytes: number[]
+        mediaType: string
+        size: number
+        type: string
+        lastModified?: number
+        name?: string
+      } = {
+        bytes,
+        mediaType: blob.type,
+        size: blob.size,
+        type: file ? "File" : "Blob",
+      }
+      if (file) {
+        representation.lastModified = file.lastModified
+        representation.name = file.name
+      }
+      builtIns.set(value, {
+        truncated: true,
+        value: representation,
+      })
+      return
     }
-    if (file) {
-      representation.lastModified = file.lastModified
-      representation.name = file.name
+    const primitive = boxedObservationPrimitive(value)
+    if (primitive) {
+      builtIns.set(value, { truncated: true, value: primitive })
+      return
     }
-    builtIns.set(value, {
-      truncated: true,
-      value: representation,
-    })
-    return
-  }
-  const primitive = boxedObservationPrimitive(value)
-  if (primitive) {
-    builtIns.set(value, { truncated: true, value: primitive })
-    return
-  }
-  if (Array.isArray(value)) {
-    const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
-    for (let index = 0; index < length; index++) {
-      if (Object.hasOwn(value, index)) await collectBoundedObservationBuiltIns(value[index], builtIns, budget, seen, depth + 1)
+    if (isArray(value)) {
+      const length = Math.min(value.length, MAX_OBSERVATION_COLLECTION_ITEMS, budget.items)
+      for (let index = 0; index < length; index++) {
+        if (Object.hasOwn(value, index)) await collectBoundedObservationBuiltIns(value[index], builtIns, budget, seen, depth + 1)
+      }
+      return
     }
-    return
-  }
-  if (value instanceof Map) {
-    let count = 0
-    for (const [key, child] of value) {
-      if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
-      await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
-      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
-    }
-    return
-  }
-  if (value instanceof Set) {
-    let count = 0
-    for (const child of value) {
-      if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
-      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
-    }
-    return
-  }
-  if (value instanceof Error) {
-    if (value instanceof AggregateError) {
-      await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
-    }
-    if (Object.hasOwn(value, "cause")) {
-      await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
-    }
-    for (const [key, child] of Object.entries(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
-      if (key !== "cause" && key !== "errors") {
+    const mapEntries = reflectedMapEntries(value)
+    if (mapEntries) {
+      let count = 0
+      for (const [key, child] of mapEntries) {
+        if (count++ >= MAX_OBSERVATION_COLLECTION_ITEMS) break
+        await collectBoundedObservationBuiltIns(key, builtIns, budget, seen, depth + 1)
         await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
       }
+      return
     }
-    return
+    const setValues = reflectedSetValues(value)
+    if (setValues) {
+      let count = 0
+      while (count++ < MAX_OBSERVATION_COLLECTION_ITEMS) {
+        const next = setValues.next()
+        if (next.done) break
+        const child = next.value
+        await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+      }
+      return
+    }
+    if (isErrorValue(value)) {
+      if (isAggregateErrorValue(value)) {
+        await collectBoundedObservationBuiltIns(value.errors, builtIns, budget, seen, depth + 1)
+      }
+      if (Object.hasOwn(value, "cause")) {
+        await collectBoundedObservationBuiltIns(value.cause, builtIns, budget, seen, depth + 1)
+      }
+      let count = 0
+      let steps = 0
+      for (const key of Object.keys(value)) {
+        if (steps++ >= MAX_OBSERVATION_COLLECTION_ITEMS || count >= MAX_OBSERVATION_COLLECTION_ITEMS) break
+        if (key === "cause" || key === "errors") continue
+        count++
+        await collectBoundedObservationBuiltIns((value as unknown as Record<string, unknown>)[key], builtIns, budget, seen, depth + 1)
+      }
+      return
+    }
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== null && prototype !== Object.prototype) return
+    for (const child of Object.values(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
+      await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+    }
   }
-  const prototype = Object.getPrototypeOf(value)
-  if (prototype !== null && prototype !== Object.prototype) return
-  for (const child of Object.values(value).slice(0, MAX_OBSERVATION_COLLECTION_ITEMS)) {
-    await collectBoundedObservationBuiltIns(child, builtIns, budget, seen, depth + 1)
+  catch {
+    // Hostile objects such as revoked proxies are left to bounded serialization.
   }
 }
 
@@ -702,7 +1000,7 @@ function boundedObservationValue(
     budget.truncated = true
     return "[truncated]"
   }
-  if (Array.isArray(value)) {
+  if (isArray(value)) {
     const length = Math.min(value.length, collectionItems, budget.items)
     if (length < value.length) budget.truncated = true
     return Array.from({ length }, (_, index) => {
@@ -713,7 +1011,7 @@ function boundedObservationValue(
       return boundedObservationValue(value[index], budget, depth + 1, maxStringLength, builtIns)
     })
   }
-  if (value instanceof Date) {
+  if (isInstance(value, Date)) {
     budget.truncated = true
     return {
       type: "Date",
@@ -726,37 +1024,45 @@ function boundedObservationValue(
       ),
     }
   }
-  if (value instanceof Map) {
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
     budget.truncated = true
     const entries: [unknown, unknown][] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
+    for (const entry of mapEntries) {
       if (entries.length >= limit) break
       entries.push(entry)
     }
-    if (entries.length < value.size) budget.truncated = true
     return entries.map(([key, child]) => [
       boundedObservationValue(key, budget, depth + 1, maxStringLength, builtIns),
       boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns),
     ])
   }
-  if (value instanceof Set) {
+  const setValues = reflectedSetValues(value)
+  if (setValues) {
     budget.truncated = true
     const entries: unknown[] = []
     const limit = Math.min(collectionItems, budget.items)
-    for (const entry of value) {
-      if (entries.length >= limit) break
-      entries.push(entry)
+    while (entries.length < limit) {
+      const next = setValues.next()
+      if (next.done) break
+      entries.push(next.value)
     }
-    if (entries.length < value.size) budget.truncated = true
     return entries.map(child => boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns))
   }
-  if (value instanceof ArrayBuffer) {
+  const arrayBufferLength = arrayBufferByteLength(value)
+  if (arrayBufferLength !== undefined) {
     budget.truncated = true
-    const length = Math.min(value.byteLength, collectionItems, budget.items)
-    return boundedObservationValue(Array.from(new Uint8Array(value, 0, length)), budget, depth + 1, maxStringLength, builtIns)
+    const length = Math.min(arrayBufferLength, collectionItems, budget.items)
+    try {
+      // SAFETY: The intrinsic byteLength getter validated the ArrayBuffer internal slot above.
+      return boundedObservationValue(Array.from(new Uint8Array(value as ArrayBuffer, 0, length)), budget, depth + 1, maxStringLength, builtIns)
+    }
+    catch {
+      return []
+    }
   }
-  if (ArrayBuffer.isView(value)) {
+  if (isArrayBufferView(value)) {
     budget.truncated = true
     const length = Math.min(value.byteLength, collectionItems, budget.items)
     return {
@@ -770,24 +1076,37 @@ function boundedObservationValue(
       type: value.constructor.name,
     }
   }
-  if (value instanceof RegExp) {
+  if (isRegExpValue(value)) {
     budget.truncated = true
+    const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value)
     return {
-      flags: boundedObservationValue(value.flags, budget, depth + 1, maxStringLength, builtIns),
-      lastIndex: boundedObservationValue(value.lastIndex, budget, depth + 1, maxStringLength, builtIns),
-      source: boundedObservationValue(value.source, budget, depth + 1, maxStringLength, builtIns),
+      flags: boundedObservationValue(regExpFlags(value), budget, depth + 1, maxStringLength, builtIns),
+      lastIndex: boundedObservationValue(regExpLastIndex(value), budget, depth + 1, maxStringLength, builtIns),
+      source: boundedObservationValue(source, budget, depth + 1, maxStringLength, builtIns),
     }
   }
-  if (value instanceof Error) {
+  if (isErrorValue(value)) {
     budget.truncated = true
+    const read = (key: string): unknown => {
+      try { return (value as unknown as Record<string, unknown>)[key] }
+      catch { budget.truncated = true; return undefined }
+    }
     const details: Array<[string, unknown]> = [
-      ["name", value.name],
-      ["message", value.message],
+      ["name", read("name")],
+      ["message", read("message")],
     ]
-    if (value instanceof AggregateError) details.push(["errors", value.errors])
-    if (Object.hasOwn(value, "cause")) details.push(["cause", value.cause])
-    for (const [key, child] of Object.entries(value)) {
-      if (key !== "cause" && key !== "errors") details.push([key, child])
+    if (isAggregateErrorValue(value)) details.push(["errors", read("errors")])
+    if (Object.hasOwn(value, "cause")) details.push(["cause", read("cause")])
+    try {
+      let steps = 0
+      for (const key of Object.keys(value)) {
+        if (steps++ >= collectionItems || details.length >= collectionItems) break
+        if (key === "cause" || key === "errors") continue
+        details.push([key, read(key)])
+      }
+    }
+    catch {
+      budget.truncated = true
     }
     const length = Math.min(details.length, collectionItems)
     if (length < details.length) budget.truncated = true
@@ -801,10 +1120,22 @@ function boundedObservationValue(
     if (string.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
     return boundedString(string)
   }
-  const prototype = Object.getPrototypeOf(value)
+  let prototype: object | null
+  try {
+    prototype = Object.getPrototypeOf(value)
+  }
+  catch {
+    budget.truncated = true
+    return "[unsupported object]"
+  }
   if (prototype !== null && prototype !== Object.prototype) {
     budget.truncated = true
-    return `[unsupported ${Object.prototype.toString.call(value).slice(8, -1)}]`
+    try {
+      return `[unsupported ${Object.prototype.toString.call(value).slice(8, -1)}]`
+    }
+    catch {
+      return "[unsupported object]"
+    }
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   // Match JSON object semantics: optional undefined properties are absent data, not truncated data.
@@ -1153,7 +1484,6 @@ function deliveryOutcomeObservation(observation: TraceEventLogEntry): boolean {
 function observationTitle(observation: TraceEventLogEntry | undefined): string | undefined {
   if (observation?.name !== "agent.title.recorded") return
   const value = observation.attributes?.["vitehub.session.title"]
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Trace attributes are unknown; a title is a trimmed, bounded string and all other values are omitted.
   if (typeof value !== "string") return
   return value.trim().slice(0, MAX_METADATA_STRING_LENGTH) || undefined
 }
@@ -1703,6 +2033,21 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (options.redactError !== undefined && !hasRuntimeType(options.redactError, "function")) {
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations redactError must be a function." })
   }
+  if (options.enforcement !== undefined && options.enforcement !== "best-effort" && options.enforcement !== "strict") {
+    throw agentDiagnostics.AGENT_R0624({ message: '[vitehub] Agent Invocations enforcement must be "best-effort" or "strict".' })
+  }
+  const storeTimeoutMs = options.storeTimeoutMs ?? STORE_OPERATION_TIMEOUT_MS
+  if (!Number.isSafeInteger(storeTimeoutMs) || storeTimeoutMs < 1 || storeTimeoutMs > 60_000) {
+    throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations storeTimeoutMs must be an integer between 1 and 60000." })
+  }
+  const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => boundedStoreOperation(operation, timeoutMs)
+  const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
+    const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+    if (result === storeOperationTimedOut) {
+      throw new Error(`[vitehub] Agent Invocation store operation timed out after ${storeTimeoutMs} ms.`)
+    }
+    return result as T
+  }
   const redact = (observation: TraceEventLogEntry): TraceEventLogEntry | undefined => {
     if (!options.redact) return observation
     try {
@@ -1742,14 +2087,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async [bindAgentInvocationsSymbol]<TRuntimeConfig extends AgentRuntimeConfig>(
       context: AgentRuntimeContext<TRuntimeConfig>,
-      bindOptions: { agentName?: string, cancellationDriver?: AgentInvocationCancellationDriver, deferClaim?: boolean, terminalTakeover?: boolean, requireNew?: boolean, replaceClaimToken?: string, recoverPending?: boolean } = {},
+      bindOptions: AgentInvocationBindOptions = {},
     ): Promise<AgentInvocationJournal<TRuntimeConfig>> {
       const runId = context.run?.runId || createInvocationId()
       const agentName = bindOptions.agentName || context.agentIdentity?.name
       const recordId = await agentInvocationId(runId, agentName)
+      const strict = (bindOptions.enforcement ?? options.enforcement) === "strict"
+      let unconfirmedWarned = false
+      const warnUnconfirmed = (operation: string) => {
+        if (unconfirmedWarned) return
+        unconfirmedWarned = true
+        console.warn(`[vitehub] Agent Invocation ${JSON.stringify(recordId)} continues without a confirmed ${operation}. Its journal record can be missing or stale until a retry succeeds.`)
+      }
       let claimId = createInvocationId()
       let claimConfirmed = false
       let claimUncertain = false
+      let claimConflict = false
       let claimHandedOff = false
       let claimAttempt = 0
       let claimRenewals = Promise.resolve()
@@ -1816,8 +2169,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const pollCancellationRequest = async (initial = false) => {
         if (!unregisterCancellation || finished || cancellation.signal.aborted) return
-        const summary = await boundedStoreOperation(() => store.getSummary(recordId))
+        const summary = await boundedStore(() => store.getSummary(recordId))
         if (initial && (summary === storeOperationTimedOut || summary === undefined)) {
+          // A best-effort run reads the request again at the next poll.
+          if (!strict) {
+            warnUnconfirmed("cancellation check")
+            return
+          }
           throw agentDiagnostics.AGENT_R0973({ message: summary === storeOperationTimedOut
             ? "[vitehub] Initial Agent Invocation cancellation check timed out."
             : "[vitehub] Initial Agent Invocation cancellation check failed." })
@@ -1843,7 +2201,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         }, CLAIM_RENEW_INTERVAL_MS)
         unrefTimer(heartbeat)
       }
-      const ensureCreated = async (): Promise<boolean> => {
+      const ensureCreated = async (timeoutMs = storeTimeoutMs): Promise<boolean> => {
         if (created || creationTimedOut) return created
         if (!creationTask) {
           const task = Promise.resolve().then(() => store.create(createInput)).then((result) => {
@@ -1879,7 +2237,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           })
           creationTask = task
         }
-        const result = await boundedStoreOperation(() => creationTask!)
+        const result = await boundedStore(() => creationTask!, timeoutMs)
         if (result === storeOperationTimedOut) creationTimedOut = true
         return created
       }
@@ -1903,7 +2261,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           force ? { replaceExisting: true }
             : expectedClaimIds.length ? { expectedClaimIds }
               : bindOptions.replaceClaimToken ? { replaceClaimToken: bindOptions.replaceClaimToken } : undefined))
-        const claim = await boundedStoreOperation(() => claimTask)
+        const claim = await boundedStore(() => claimTask)
         if (claim !== true && claim !== false) {
           claimUncertain = true
           // An execution that never started must not leave a late claim blocking recovery.
@@ -1912,7 +2270,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           pendingClaimIds.delete(attemptId)
         }
         if (attempt !== claimAttempt) {
-          if (claim === true && attemptId !== claimId) await boundedStoreOperation(() => store.release(recordId, attemptId))
+          if (claim === true && attemptId !== claimId) await boundedStore(() => store.release(recordId, attemptId))
           return false
         }
         if (claim === true) {
@@ -1920,10 +2278,23 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           claimConfirmed = true
           claimUncertain = false
         }
+        else if (claim === false) {
+          // A confirmed ownership loss remains a conflict even if a later
+          // renewal is unavailable. Do not let uncertainty reopen dispatch.
+          claimConflict = true
+        }
         claimUnavailable = claim !== true && claim !== false
         ownsRecord = claim === true
+        // Best-effort may dispatch while the running state is still being
+        // retried. If that retry confirms that this claim was lost, stop the
+        // active Driver instead of allowing it to overlap the replacement
+        // owner. Unavailable results remain best-effort and keep retrying.
+        // A confirmed claim loss must stop an active Driver even when the
+        // running state was already persisted. Otherwise a replacement owner
+        // can overlap this invocation after renewal reports the lost claim.
+        if (claim === false && driverDispatched && !finished) requestCancellation()
         if (ownsRecord) {
-          const latest = await boundedStoreOperation(() => store.getSummary(recordId))
+          const latest = await boundedStore(() => store.getSummary(recordId))
           if (latest && latest !== storeOperationTimedOut) {
             readCancellationRequest(latest)
             // Only this finalizer's acknowledged terminal write permits subsequent cleanup metadata.
@@ -1941,7 +2312,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         }
         if (ownsRecord && finished) {
           if (!cancelNotEnforcedBy) stopWatchingCancellation()
-          await boundedStoreOperation(() => store.release(recordId, attemptId))
+          await boundedStore(() => store.release(recordId, attemptId))
           ownsRecord = false
           stopHeartbeat()
           return false
@@ -1992,7 +2363,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             if (result && input.status && terminalStatus(input.status) && result.status === input.status) terminalWriteCommitted = true
             return result
           })
-          const result = await boundedStoreOperation(() => operation)
+          const result = await boundedStore(() => operation)
           updated = result !== undefined && result !== storeOperationTimedOut
           if (result !== undefined && result !== storeOperationTimedOut) readCancellationRequest(result)
           if (result === storeOperationTimedOut && input.observation && recoverableOutcomeObservation(input.observation)) {
@@ -2000,7 +2371,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             const key = observationPersistenceKey(observation)
             ambiguouslyPersistingObservations.add(key)
             terminalObservationRecoveries.push(async () => {
-              const record = await boundedStoreOperation(() => store.get(recordId))
+              const record = await boundedStore(() => store.get(recordId))
               if (record && record !== storeOperationTimedOut
                 && record.observations.some(candidate => sameObservation(candidate, observation))) {
                 persistedObservations.add(key)
@@ -2044,7 +2415,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               }
               return updated
             })
-            const updated = await boundedStoreOperation(() => persistence)
+            const updated = await boundedStore(() => persistence)
             if (updated && updated !== storeOperationTimedOut) {
               observationCount = updated.observations.length
               persisted = true
@@ -2083,13 +2454,47 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         })
         observationWrite = settled
       }
+      let recoveryClaimSettled: Promise<void> | undefined
       const persistLateObservation = async (observation: TraceEventLogEntry): Promise<void> => {
         const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
         let persisted = false
         while (!persisted && !boundToTerminalRecord && Date.now() < deadline) {
           await write(async () => {
-            if (boundToTerminalRecord || !await ensureCreated()) return
-            const claimed = await boundedStoreOperation(() => store.claim(recordId, claimId, CLAIM_LEASE_MS, { replaceExisting: true }))
+            if (boundToTerminalRecord || Date.now() >= deadline || !await ensureCreated(Math.min(storeTimeoutMs, Math.max(0, deadline - Date.now())))) return
+            const recoveryStore = <T>(operation: () => MaybePromise<T>) => boundedStore(operation, Math.min(storeTimeoutMs, Math.max(0, deadline - Date.now())))
+            // A timed-out claim continues in the store. Wait for its settlement and
+            // cleanup before issuing another replacement claim, otherwise the late
+            // operation could overwrite a newer recovery lease.
+            if (recoveryClaimSettled) {
+              const remaining = Math.max(0, deadline - Date.now())
+              if (remaining <= 0) return
+              await Promise.race([
+                recoveryClaimSettled,
+                new Promise<void>(resolve => setTimeout(resolve, remaining)),
+              ])
+              if (Date.now() >= deadline) return
+            }
+            // Recovery attempts can overlap after a bounded wait times out. Keep each
+            // attempt's lease identity separate so late cleanup cannot release a newer
+            // attempt that reused the invocation claim id.
+            const recoveryClaimId = createInvocationId()
+            const claimToken = await recoveryStore(() => store.getClaimToken(recordId))
+            if (claimToken === storeOperationTimedOut) return
+            const claimOptions: { replaceClaimToken?: string } = {}
+            if (claimToken !== undefined) claimOptions.replaceClaimToken = claimToken
+            const claimTask = Promise.resolve().then(() => store.claim(recordId, recoveryClaimId, CLAIM_LEASE_MS, {
+              // Replace only the lease observed immediately before this attempt.
+              // A late claim must not overwrite a newer recovery actor's lease.
+              ...claimOptions,
+            }))
+            const claimed = await recoveryStore(() => claimTask)
+            if (claimed === storeOperationTimedOut) {
+              // The claim may still create a lease after the bounded wait. Release it when it settles.
+              recoveryClaimSettled = claimTask
+                .then(owned => owned ? store.release(recordId, recoveryClaimId) : undefined, () => undefined)
+                .then(() => {}, () => {})
+              return
+            }
             if (claimed !== true) return
             try {
               const timestamp = normalizedTimestamp(observation.timestamp)
@@ -2098,15 +2503,15 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               const update = Promise.resolve().then(() => store.update(recordId, {
                 observation: boundedObservation(persistedObservation, undefined, limits),
                 timestamp,
-              }, claimId))
-              const boundedUpdate = await boundedStoreOperation(() => update)
-              const updated = boundedUpdate === storeOperationTimedOut
-                ? await boundedStoreOperation(() => update, Math.max(0, deadline - Date.now()))
-                : boundedUpdate
+              }, recoveryClaimId))
+              const remaining = Math.max(0, deadline - Date.now())
+              const updated = remaining > 0
+                ? await boundedStore(() => update, Math.min(storeTimeoutMs, remaining))
+                : storeOperationTimedOut
               persisted = updated !== undefined && updated !== storeOperationTimedOut
             }
             finally {
-              await boundedStoreOperation(() => store.release(recordId, claimId))
+              await recoveryStore(() => store.release(recordId, recoveryClaimId))
             }
           })
           if (!persisted && Date.now() < deadline) {
@@ -2161,9 +2566,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         abortSignal: cancellation.signal,
         get createdNew() { return createdNew },
         get reusedTerminal() { return finished && !createdNew },
-        get claimStatus() { return ownsRecord ? "owned" : claimUnavailable ? "unavailable" : "conflict" },
+        get claimStatus() { return ownsRecord ? "owned" : claimConflict ? "conflict" : claimUnavailable ? "unavailable" : "conflict" },
         async getWorkflowDispatchAttempted() {
-          const record = await boundedStoreOperation(() => store.getSummary(recordId))
+          const record = await boundedStore(() => store.getSummary(recordId))
           if (!record || record === storeOperationTimedOut) return undefined
           const attempted = record.annotations?.[workflowDispatchAttemptedAnnotation]
           return attempted === true || attempted === false ? attempted : undefined
@@ -2173,49 +2578,49 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           heartbeatGeneration++
           stopHeartbeat()
           await heartbeatRenewal
-          const record = await boundedStoreOperation(() => store.get(recordId))
+          const record = await boundedStore(() => store.get(recordId))
           if (!record || record === storeOperationTimedOut || terminalStatus(record.status)) return undefined
           if (!await renew(false, true)) return undefined
           claimHandedOff = true
           stopHeartbeat()
           if (options.workflowDispatch) {
-            const current = await boundedStoreOperation(() => store.get(recordId))
+            const current = await boundedStore(() => store.get(recordId))
             if (!current || current === storeOperationTimedOut || terminalStatus(current.status)) return undefined
             const annotations = { ...current.annotations, [workflowDispatchAttemptedAnnotation]: true }
-            const updated = await boundedStoreOperation(() => store.update(recordId, { annotations, timestamp: new Date().toISOString() }, claimId))
+            const updated = await boundedStore(() => store.update(recordId, { annotations, timestamp: new Date().toISOString() }, claimId))
             if (!updated || updated === storeOperationTimedOut || updated.annotations?.[workflowDispatchAttemptedAnnotation] !== true) return undefined
           }
-          const token = await boundedStoreOperation(() => store.getClaimToken(recordId))
+          const token = await boundedStore(() => store.getClaimToken(recordId))
           return token === storeOperationTimedOut ? undefined : token
         },
         async prepareWorkflowDispatch(binding) {
-          const updated = await boundedStoreOperation(() => store.update(recordId, { workflow: binding, timestamp: new Date().toISOString() }, claimId))
+          const updated = await boundedStore(() => store.update(recordId, { workflow: binding, timestamp: new Date().toISOString() }, claimId))
           return updated !== undefined && updated !== storeOperationTimedOut
         },
         async confirmWorkflowDispatch(binding) {
           let confirmed = false
           await write(async () => {
-            let record = await boundedStoreOperation(() => store.get(recordId))
+            let record = await boundedStore(() => store.get(recordId))
             if (!record || record === storeOperationTimedOut) return
             if (binding) {
-              const associated = await boundedStoreOperation(() => store.update(recordId, { workflow: binding, timestamp: new Date().toISOString() }, claimId))
+              const associated = await boundedStore(() => store.update(recordId, { workflow: binding, timestamp: new Date().toISOString() }, claimId))
               if (!associated || associated === storeOperationTimedOut) return
               record = associated
             }
-            const updated = await boundedStoreOperation(() => store.update(recordId, { annotations: { ...record.annotations, [pendingAgentInvocationAnnotation]: false }, timestamp: new Date().toISOString() }, claimId))
+            const updated = await boundedStore(() => store.update(recordId, { annotations: { ...record.annotations, [pendingAgentInvocationAnnotation]: false }, timestamp: new Date().toISOString() }, claimId))
             confirmed = updated !== undefined && updated !== storeOperationTimedOut
           })
           return confirmed
         },
         async releaseClaim() {
           stopHeartbeat()
-          if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
+          if (ownsRecord) await write(() => boundedStore(() => store.release(recordId, claimId)))
           ownsRecord = false
         },
         configuration: options.configuration,
         get traceId() { return created ? traceId : undefined },
         async ready() {
-          if (creationTask) await boundedStoreOperation(() => creationTask!)
+          if (creationTask) await boundedStore(() => creationTask!)
         },
         context: {
           ...context,
@@ -2233,7 +2638,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           const finishingObservations = [activeObservation, ...pendingObservations]
           const observationDeadline = Date.now() + limits.flushTimeoutMs
           while (observationWrite && Date.now() < observationDeadline) {
-            await boundedStoreOperation(() => observationWrite!, observationDeadline - Date.now())
+            await boundedStore(() => observationWrite!, Math.min(storeTimeoutMs, observationDeadline - Date.now()))
           }
           const outcomeObservations = [...finishingObservations, activeObservation, ...pendingObservations]
             .filter((observation): observation is TraceEventLogEntry => observation !== undefined)
@@ -2298,7 +2703,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             finished = true
             stopWatchingCancellation()
             stopHeartbeat()
-            if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
+            if (ownsRecord) await write(() => boundedStore(() => store.release(recordId, claimId)))
             ownsRecord = false
             const recoveries = terminalObservationRecoveries.splice(0)
             const observations = terminalRetryObservations.splice(0)
@@ -2326,7 +2731,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             if (!finished) {
               stopWatchingCancellation()
               stopHeartbeat()
-              if (ownsRecord) await write(() => boundedStoreOperation(() => store.release(recordId, claimId)))
+              if (ownsRecord) await write(() => boundedStore(() => store.release(recordId, claimId)))
               ownsRecord = false
             }
             else stopWatchingCancellation()
@@ -2361,13 +2766,22 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             return runningPersisted
           }
           if (await markRunning()) return true
-          const latest = await boundedStoreOperation(() => store.getSummary(recordId))
+          // The update can lose a confirmed claim after its renewal but before
+          // the store write. Revalidate before allowing best-effort dispatch;
+          // a confirmed loss aborts the invocation, while an unavailable
+          // renewal remains eligible for best-effort recovery.
+          if (claimConfirmed && !claimUnavailable) await renew()
+          if (cancellation.signal.aborted) return false
+          const latest = await boundedStore(() => store.getSummary(recordId))
+          // A best-effort run may start without the running state, so it must
+          // still observe a cancellation request that the store returned.
+          if (!strict && latest && latest !== storeOperationTimedOut) readCancellationRequest(latest)
           // A reused terminal record is intentionally immutable, but the new
           // execution still runs its lifecycle hooks and Driver. Treat that
-          // case as ready; an active record whose update failed must remain
-          // blocked until the recovery retry succeeds.
+          // case as ready; a strict active record whose update failed must
+          // remain blocked until the recovery retry succeeds.
           if (latest && latest !== storeOperationTimedOut && terminalStatus(latest.status) && !latest.cancelRequestedAt) return true
-          if (cancellationDriver?.enforced === false && !cancellationWarningPrepared && latest && latest !== storeOperationTimedOut && !terminalStatus(latest.status)) {
+          if (strict && cancellationDriver?.enforced === false && !cancellationWarningPrepared && latest && latest !== storeOperationTimedOut && !terminalStatus(latest.status)) {
             throw agentDiagnostics.AGENT_R0973({ message: "[vitehub] Initial custom Driver cancellation state could not be persisted." })
           }
           if (runningRetry) return false
@@ -2385,15 +2799,34 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           registerAgentInvocationRecovery(context, runningRetry)
           return false
         },
+        startsUnconfirmed() {
+          // Only a store answer stops a best-effort run: another owner holds the claim, or a cancellation request was read.
+          const conflict = claimConflict || (!ownsRecord && !claimUnavailable)
+          if (strict || conflict || cancellation.signal.aborted) return false
+          warnUnconfirmed("running state")
+          return true
+        },
+        dispatchAllowed() {
+          if (cancellation.signal.aborted || claimConflict) return false
+          return !strict || ownsRecord
+        },
         driverStarted() {
-          if (finished || finishing || driverDispatched) return
+          // Keep the final ownership check adjacent to the dispatch marker.
+          // A renewal can confirm a claim loss after the caller's check but
+          // before this boundary is reached; do not start the Driver then.
+          if (cancellation.signal.aborted || claimConflict) return false
+          if (finished || finishing || driverDispatched) return true
           driverDispatched = true
-          if (!cancellationDriver || cancellationDriver.enforced) return
+          if (!cancellationDriver || cancellationDriver.enforced) return true
           cancelNotEnforcedBy = cancellationDriver.name
           const retry = (async () => {
             const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
             while (!finished && !finishing) {
               if (await update({ cancelNotEnforcedBy, cancelWarningPending: false, status: "running", timestamp: new Date().toISOString() })) return
+              // The write may race a claim replacement. Revalidate after the
+              // failed write so a confirmed loss cancels the active Driver.
+              if (claimConfirmed && !claimUnavailable) await renew()
+              if (cancellation.signal.aborted) return
               if (Date.now() >= deadline) return
               await new Promise<void>((resolve) => {
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
@@ -2402,6 +2835,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             }
           })()
           registerAgentInvocationRecovery(context, retry)
+          return true
         },
         async setAnnotations(annotations) {
           if (finished || finishing) return
@@ -2442,7 +2876,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (appendOptions.id.length > MAX_METADATA_STRING_LENGTH) {
         throw agentDiagnostics.AGENT_R0901({ message: "[vitehub] Appended observation IDs must be at most 512 characters." })
       }
-      const existing = await store.get(id)
+      const existing = await publicStore(() => store.get(id))
       if (!existing) return undefined
       const limits = observationLimits(existing.observationLimits)
       const metadataContentValues = captureMetadataContentValues(event, metadataContent)
@@ -2456,8 +2890,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         attributes: { ...observation.attributes, [AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE]: appendOptions.id },
       }, limits)
       const { sequence: _sequence, ...appendObservation } = prepared
-      const updated = await store.update(id, { appendObservation, timestamp: prepared.timestamp })
-      const persisted = updated || await store.get(id)
+      const updated = await publicStore(() => store.update(id, { appendObservation, timestamp: prepared.timestamp }))
+      const persisted = updated || await publicStore(() => store.get(id))
       if (persisted && !persisted.observations.some(entry => observationIdentity(entry) === appendOptions.id)) {
         throw agentDiagnostics.AGENT_R0902({ message: "[vitehub] Invocation store did not persist appended observation." })
       }
@@ -2468,7 +2902,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (!store.delete) {
         throw agentDiagnostics.AGENT_R0932({ message: "[vitehub] This Agent Invocation store does not support deletion. Implement store.delete() or use a ViteHub store." })
       }
-      return await store.delete(id)
+      return await publicStore(() => store.delete!(id))
     },
     async prune(pruneOptions = {}) {
       if (!store.prune) {
@@ -2482,10 +2916,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       if (cutoff && Number.isNaN(cutoff.getTime())) {
         throw agentDiagnostics.AGENT_R0929({ message: "[vitehub] Agent Invocation prune olderThanMs must produce a cutoff within JavaScript's Date range." })
       }
-      return await store.prune({
+      return await publicStore(() => store.prune!({
         ...(dryRun ? { dryRun: true } : {}),
         ...(cutoff === undefined ? {} : { updatedBefore: cutoff.toISOString() }),
-      })
+      }))
     },
     async cancel(id) {
       assertInvocationId(id)
@@ -2504,13 +2938,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (notEnforcedBy) result.notEnforcedBy = notEnforcedBy
         return result
       }
-      let summary: AgentInvocationSummary | undefined
-      try {
-        summary = await store.getSummary(id)
+      const cancellationStore = async <T>(operation: () => MaybePromise<T>) => {
+        const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+        if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
+        return result
       }
-      catch (error) {
-        throw error
-      }
+      const summary = await cancellationStore(() => store.getSummary(id))
       if (!summary) return missingResult
       if (terminalStatus(summary.status)) {
         return terminalResult(summary, local)
@@ -2518,8 +2951,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const timestamp = new Date().toISOString()
       // Persist the request first, so a run in another process and a later bind of this record read it.
       let flagged: AgentInvocationRecord | undefined
-      flagged = await store.update(id, { cancelRequestedAt: timestamp, timestamp })
-      let current = await store.getSummary(id) ?? flagged
+      flagged = await cancellationStore(() => store.update(id, { cancelRequestedAt: timestamp, timestamp }))
+      let current = await cancellationStore(() => store.getSummary(id)) ?? flagged
       if (!current) return missingResult
       if (terminalStatus(current.status)) return terminalResult(current, local)
       // The matching local owner can verify dispatch, including cancellation during setup.
@@ -2540,7 +2973,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       // Lease availability and a pending record cannot prove that no Driver started.
       // The durable request is terminalized by an execution owner that observes it.
-      current = await store.getSummary(id)
+      current = await cancellationStore(() => store.getSummary(id))
       if (!current) return missingResult
       const verificationDeadline = Date.now() + CANCELLATION_VERIFICATION_TIMEOUT_MS
       while (!terminalStatus(current.status) && current.cancelWarningPending && !current.cancelNotEnforcedBy) {
@@ -2548,7 +2981,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           throw agentDiagnostics.AGENT_R0974({ message: `[vitehub] Cancellation was recorded for Agent Invocation ${JSON.stringify(id)}, but its Driver dispatch state could not be verified within five seconds.` })
         }
         await new Promise<void>(resolve => setTimeout(resolve, CANCELLATION_VERIFICATION_INTERVAL_MS))
-        const summary = await boundedStoreOperation(() => store.getSummary(id), Math.min(STORE_OPERATION_TIMEOUT_MS, Math.max(0, verificationDeadline - Date.now())))
+        const summary = await boundedStore(() => store.getSummary(id), Math.min(storeTimeoutMs, Math.max(0, verificationDeadline - Date.now())))
         if (summary && summary !== storeOperationTimedOut) current = summary
       }
       if (!current) return missingResult
@@ -2565,30 +2998,34 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async get(id, options) {
       assertInvocationId(id)
-      const record = await store.get(id, options)
+      const record = await publicStore(() => store.get(id, options))
       if (!record || !options?.observationNames) return record
       return { ...record, observations: record.observations.filter(entry => options.observationNames!.includes(entry.name)) }
     },
     async getByRunId(runId, agentName) {
-      return await store.get(await agentInvocationId(runId, agentName))
+      const id = await agentInvocationId(runId, agentName)
+      return await publicStore(() => store.get(id))
     },
     async getSummary(id) {
       assertInvocationId(id)
-      return await store.getSummary(id)
+      return await publicStore(() => store.getSummary(id))
     },
     async list(options = {}) {
       const normalized = normalizeAgentInvocationListOptions(options)
-      return await store.list(normalized)
+      return await publicStore(() => store.list(normalized))
     },
     async listAgentNames() {
       if (store.listAgentNames) {
-        return [...new Set((await store.listAgentNames()).map(name => name.trim()).filter(Boolean))]
+        return [...new Set((await publicStore(() => store.listAgentNames!())).map(name => name.trim()).filter(Boolean))]
           .sort()
       }
       const names = new Set<string>()
       let cursor: string | undefined
+      const seenCursors = new Set<string>()
       do {
-        const page = await store.list({ cursor, limit: MAX_LIST_LIMIT })
+        const page = await publicStore(() => store.list({ cursor, limit: MAX_LIST_LIMIT }))
+        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           if (invocation.agentName?.trim()) names.add(invocation.agentName.trim())
         }
@@ -2599,15 +3036,18 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     async listTriggeredBy(agentName) {
       const selectedAgent = agentName?.trim()
       if (store.listTriggeredBy) {
-        return [...new Set((await store.listTriggeredBy(selectedAgent))
+        return [...new Set((await publicStore(() => store.listTriggeredBy!(selectedAgent)))
           .map(triggeredBy => triggeredBy.trim())
           .filter(Boolean))]
           .sort()
       }
       const triggeredBy = new Set<string>()
       let cursor: string | undefined
+      const seenCursors = new Set<string>()
       do {
-        const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
+        const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
+        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor) seenCursors.add(page.cursor)
         for (const invocation of page.invocations) {
           const label = invocation.annotations?.triggeredBy
           if (hasRuntimeType(label, "string") && label.trim()) triggeredBy.add(label.trim())
@@ -2619,16 +3059,19 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     async listCapabilityIds(agentName) {
       const selectedAgent = agentName?.trim()
       if (store.listCapabilityIds) {
-        return [...new Set((await store.listCapabilityIds(selectedAgent))
+        return [...new Set((await publicStore(() => store.listCapabilityIds!(selectedAgent)))
           .map(capabilityId => capabilityId.trim())
           .filter(Boolean))]
           .sort()
       }
       const capabilityIds = new Set<string>()
       let cursor: string | undefined
+      const seenCursors = new Set<string>()
       do {
-        const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
-        const records = await Promise.all(page.invocations.map(invocation => store.get(invocation.id)))
+        const page = await publicStore(() => store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT }))
+        if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+        if (page.cursor) seenCursors.add(page.cursor)
+        const records = await Promise.all(page.invocations.map(invocation => publicStore(() => store.get(invocation.id))))
         for (const record of records) {
           if (record) invocationCapabilityIds(record).forEach(capabilityId => capabilityIds.add(capabilityId))
         }
@@ -2649,7 +3092,7 @@ export function isAgentInvocations(value: unknown): value is AgentInvocations {
 export async function bindAgentInvocations<TRuntimeConfig extends AgentRuntimeConfig>(
   invocations: AgentInvocations | undefined,
   context: AgentRuntimeContext<TRuntimeConfig>,
-  options?: { agentName?: string, cancellationDriver?: AgentInvocationCancellationDriver, deferClaim?: boolean, terminalTakeover?: boolean, requireNew?: boolean, replaceClaimToken?: string, recoverPending?: boolean },
+  options?: AgentInvocationBindOptions,
 ): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!invocations) return
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.

@@ -2,9 +2,9 @@ import { runInNewContext } from "node:vm"
 
 import { describe, expect, it } from "vitest"
 
-import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, unwrapScheduleDefinition } from "../src/runtime/static.ts"
+import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, normalizeScheduleRuntimeError, unwrapScheduleDefinition } from "../src/runtime/static.ts"
 
-import type { ScheduleDefinitionRegistry } from "../src/types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionRegistry } from "../src/types.ts"
 
 describe("Static Schedule runtime", () => {
   it("identifies a missing generated Schedule Definition", () => {
@@ -12,6 +12,65 @@ describe("Static Schedule runtime", () => {
       code: "SCHEDULE_R0034",
       message: "Missing schedule definition: cleanup",
     })
+  })
+
+  it("rejects an invalid scheduledAt value before formatting the run id", async () => {
+    await expect(executeStaticSchedule({
+      cron: "0 4 * * *",
+      definition: { cron: "0 4 * * *", handler: async () => {} },
+      name: "report",
+      scheduledAt: new Date("invalid"),
+    })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+      details: { field: "scheduledAt", valueType: "date" },
+    })
+  })
+
+  it("rejects dates whose brand lookup throws", async () => {
+    const scheduledAt = Object.defineProperty({}, Symbol.toStringTag, {
+      get() {
+        throw new Error("spoofed date")
+      },
+    }) as Date
+    await expect(executeStaticSchedule({
+      cron: "0 4 * * *",
+      definition: { cron: "0 4 * * *", handler: async () => {} },
+      name: "report",
+      scheduledAt,
+    })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+    })
+  })
+
+  it("rejects an invalid scheduledAt value before loading matching definitions", async () => {
+    let loaded = false
+    await expect(executeMatchingStaticSchedules({
+      cron: "0 4 * * *",
+      registry: {
+        report: async () => {
+          loaded = true
+          return { cron: "0 4 * * *", handler: async () => {} }
+        },
+      },
+      scheduledAt: new Date("invalid"),
+    })).rejects.toMatchObject({
+      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+      details: { field: "scheduledAt", valueType: "date" },
+    })
+    expect(loaded).toBe(false)
+  })
+
+  it.each([42, true, {}, ["0 4 * * *"], "   "])("rejects malformed provider cron values before loading definitions: %j", async (cron) => {
+    let loaded = false
+    const registry = { report: async () => {
+      loaded = true
+      return { cron: "0 4 * * *", handler: async () => {} }
+    } }
+    await expect(executeMatchingStaticSchedules({ cron: cron as never, registry }))
+      .rejects.toMatchObject({ code: "SCHEDULE_INVALID_CRON", details: { field: "cron" } })
+    await expect(executeCloudflareStaticSchedules({ controller: { cron: cron as never } }, { registry }))
+      .rejects.toMatchObject({ code: "SCHEDULE_R0027" })
+    expect(loaded).toBe(false)
   })
 
   it("executes all static schedules matching a cron", async () => {
@@ -27,10 +86,8 @@ describe("Static Schedule runtime", () => {
         cron: "0 4 * * *",
         handler: async ({ scheduledAt }) => calls.push(`report:${scheduledAt.toISOString()}`),
       }),
-      runtimeOnly: async () => ({
-        handler: async () => calls.push("runtime-only"),
-        options: { allowRuntimeSchedules: true },
-      }),
+      // A registry entry without a cron is not a Static Schedule Definition, so cron dispatch skips it.
+      cronless: async () => ({ handler: async () => calls.push("cronless") }) as unknown as ScheduleDefinition,
       skipped: async () => ({
         default: {
           cron: "0 5 * * *",
@@ -49,6 +106,33 @@ describe("Static Schedule runtime", () => {
       "cleanup:2026-06-12T04:00:00.000Z",
       "report:2026-06-12T04:00:00.000Z",
     ])
+  })
+
+  it("matches equivalent cron whitespace from provider events", async () => {
+    const calls: string[] = []
+    await executeMatchingStaticSchedules({
+      cron: "0 4 * * *",
+      registry: {
+        report: async () => ({
+          cron: "0  4   * * *",
+          handler: async () => calls.push("report"),
+        }),
+      },
+    })
+    expect(calls).toEqual(["report"])
+  })
+
+  it("skips malformed cron values without aborting other matching schedules", async () => {
+    const calls: string[] = []
+    await executeMatchingStaticSchedules({
+      cron: "0 4 * * *",
+      registry: {
+        malformed: async () => ({ cron: 42 as never, handler: () => calls.push("invalid") }),
+        report: async () => ({ cron: "0  4 * * *", handler: () => calls.push("report") }),
+      },
+    })
+    expect(calls).toEqual(["report"])
+    expect(unwrapScheduleDefinition({ default: { cron: null, handler: () => {} } })).toBeUndefined()
   })
 
   it("executes and unwraps static definitions with cross-realm handlers", async () => {
@@ -194,4 +278,100 @@ describe("Static Schedule runtime", () => {
     await expect(execution).rejects.toThrow("handler failed")
     expect(deferredCompleted).toBe(true)
   })
+})
+
+it("preserves errors raised in another runtime realm", async () => {
+  const foreign = runInNewContext("new Error('foreign failure')") as Error
+  expect(normalizeScheduleRuntimeError(foreign)).toBe(foreign)
+})
+
+it("uses the intrinsic Error prototype when Error.isError is unavailable", () => {
+  const errorConstructor = Error as ErrorConstructor & { isError?: (value: unknown) => boolean }
+  const nativeIsError = errorConstructor.isError
+  errorConstructor.isError = undefined
+  try {
+    const taggedForeign = runInNewContext(`(() => {
+      const error = new Error('tagged foreign failure')
+      Object.defineProperty(error, Symbol.toStringTag, { value: 'ProviderError' })
+      return error
+    })()`) as Error
+    const fake = Object.create({ [Symbol.toStringTag]: "Error" })
+    const foreignPrototypeSpoof = runInNewContext("Object.create(Error.prototype)")
+    expect(normalizeScheduleRuntimeError(taggedForeign)).toBe(taggedForeign)
+    expect(normalizeScheduleRuntimeError(fake)).toMatchObject({ code: "SCHEDULE_R0035", cause: fake })
+    expect(normalizeScheduleRuntimeError(foreignPrototypeSpoof)).toMatchObject({
+      code: "SCHEDULE_R0035",
+      cause: foreignPrototypeSpoof,
+    })
+  }
+  finally {
+    errorConstructor.isError = nativeIsError
+  }
+})
+
+it("wraps spoofed and hostile thrown values safely", () => {
+  const spoof = { [Symbol.toStringTag]: "Error" }
+  const customPrototypeSpoof = Object.create({ [Symbol.toStringTag]: "Error" })
+  const hostile = new Proxy({}, {
+    get() {
+      throw new Error("tag access failed")
+    },
+    getPrototypeOf() {
+      throw new Error("prototype access failed")
+    },
+  })
+
+  expect(normalizeScheduleRuntimeError(spoof)).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
+  expect(normalizeScheduleRuntimeError(customPrototypeSpoof)).toMatchObject({ code: "SCHEDULE_R0035", cause: customPrototypeSpoof })
+  const normalizedHostile = normalizeScheduleRuntimeError(hostile)
+  expect(normalizedHostile).toMatchObject({ code: "SCHEDULE_R0035" })
+  expect(normalizedHostile.cause).toBe(hostile)
+})
+
+it("does not trust a replaced Error.isError predicate", () => {
+  const errorConstructor = Error as ErrorConstructor & { isError?: (value: unknown) => boolean }
+  const nativeIsError = errorConstructor.isError
+  errorConstructor.isError = () => true
+  const spoof = { message: "not an Error" }
+  let normalized: Error
+  try {
+    normalized = normalizeScheduleRuntimeError(spoof)
+  }
+  finally {
+    errorConstructor.isError = nativeIsError
+  }
+  expect(normalized).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
+})
+
+it("does not trust a replaced util.types.isNativeError predicate", () => {
+  const processWithBuiltinModule = process as typeof process & {
+    getBuiltinModule?: (name: string) => unknown
+  }
+  const util = processWithBuiltinModule.getBuiltinModule?.("util") as {
+    types?: { isNativeError?: (value: unknown) => boolean }
+  } | undefined
+  if (typeof util?.types?.isNativeError !== "function") return
+
+  const nativeIsNativeError = util.types.isNativeError
+  util.types.isNativeError = () => true
+  const spoof = { message: "not an Error" }
+  let normalized: Error
+  try {
+    normalized = normalizeScheduleRuntimeError(spoof)
+  }
+  finally {
+    util.types.isNativeError = nativeIsNativeError
+  }
+  expect(normalized).toMatchObject({ code: "SCHEDULE_R0035", cause: spoof })
+})
+
+it("wraps values whose coercion throws the runtime failure message", () => {
+  const thrownValue = {
+    toString() {
+      throw new Error("runtime error coercion failed")
+    },
+  }
+  const normalized = normalizeScheduleRuntimeError(thrownValue)
+  expect(normalized).toMatchObject({ code: "SCHEDULE_R0035" })
+  expect(normalized.cause).toBe(thrownValue)
 })

@@ -33,6 +33,13 @@ The package declares Node.js 24 or newer. Import the root entry for portable
 Runtime contracts. When inspected, the `/node` entry reads Node process
 information and, on Linux, `/proc` and cgroup v2 files.
 
+Trace payload inspection relies on the host's platform intrinsics. Load the
+Runtime before application code replaces platform methods. The Runtime captures
+`WebAssembly.Module.exports` at import time to recognize foreign modules even
+when that method is later replaced. It cannot recover the original intrinsic
+if the host replaces it before import; payload inspection is not an isolation
+boundary for code that can modify the host's JavaScript environment.
+
 Long-lived Node services can also use `createProcessReconciler()` from the `/node`
 entry to coalesce event-driven work, run periodic repair, stop admission, and await
 tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
@@ -125,8 +132,9 @@ task. If the task needs its own background-work controller, create a separate
 Runtime Context and flush that context instead.
 
 For H3 1, H3 2, and Nuxt routes, use `getRuntimeContext(event, options?)` from
-`vite-hub/runtime/h3`. This framework entry normalizes event bindings and lifetime
-methods. The Runtime owner package has no H3 dependency.
+`@vite-hub/runtime/h3` or `vite-hub/runtime/h3`. This framework entry normalizes
+event bindings and lifetime methods. It reads the event by shape, so the Runtime
+owner package has no H3 dependency.
 
 `createExecutionContext()` always returns a complete Execution Context. It creates
 fresh empty `capabilities` and `runtimeConfig` objects when the host omits them,
@@ -233,9 +241,40 @@ export function writeSource(grant: ReturnType<typeof checkSourceWrite>, data: st
 - Each definition has its own registry. A grant from another definition, another bundled copy of the package, or a forged object fails closed. The kind string brands the grant type, so use a unique `vitehub.<package>.<name>` kind.
 - Grants are request-scoped. Never persist one. Durable or resumed work must run the check again.
 
+### Errors
+
+Every primitive follows one error contract:
+
+1. A runtime operation returns `[error, data]`. Errors before a stream starts are in the tuple; errors after it starts go into the stream.
+2. Definition and config errors throw, at build time, at define time, or when an operation starts.
+3. A package defines a small catalog with `defineErrors()`. Each code has a guessable name, a `why`, and a `fix`.
+4. Each method type lists the union of the codes that it can return.
+5. Each code has a heading on the `limits-and-errors` docs page of the package, so `error.docs` opens it.
+
+```ts
+import { defineErrors, type Result } from "@vite-hub/runtime"
+
+const errors = defineErrors({
+  docs: "https://vitehub.dev/docs/kv/limits-and-errors",
+  codes: {
+    KV_INVALID_LIMIT: { why: "`limit` must be a positive integer.", fix: "Pass a positive integer." },
+  },
+})
+
+async function list(limit: number): Promise<Result<string[], "KV_INVALID_LIMIT">> {
+  if (!Number.isInteger(limit) || limit <= 0) return [errors.KV_INVALID_LIMIT(), undefined]
+  return [undefined, []]
+}
+
+const [error, keys] = await list(0)
+if (error) error.code // "KV_INVALID_LIMIT"
+```
+
+A `ResultError` is a Nostics diagnostic with `code`, `why`, `fix`, `docs`, and `cause`. Its `toJSON()` returns only `name`, `code`, `why`, `fix`, and `docs`, so code can return it from a route or an Agent tool without the `cause` or the stack.
+
 ### Developer diagnostics
 
-Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Expected portable failures keep the `ViteHubError` public contract. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
+Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Packages that do not follow the error contract yet keep the `ViteHubError` public contract for expected portable failures. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
 `normalizeRuntimeDiagnosticError(error)` creates a bounded diagnostic record. It
 preserves Nostics codes, fixes, documentation links, and source locations from

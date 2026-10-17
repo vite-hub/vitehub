@@ -33,7 +33,7 @@ import { useUserSession } from '@vite-hub/auth/vue'
 export const userSession = useUserSession()
 ```
 
-Import `createAuthClient` from the same entry when you use a custom `basePath` or Better Auth client plugins. Pass the same `basePath` to the client and the Definition.
+Import `createAuthClient` from the same entry when you use a custom `basePath` or Better Auth client plugins. Pass the same `basePath` to the client and the Definition. In a Nuxt app below `app.baseURL`, the default client uses that path, such as `/app/api/auth`; a custom client must include it in `basePath`.
 
 Server code can read the discovered Auth instance or require a session for a request.
 
@@ -62,8 +62,9 @@ export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id }
 | `auth` | Proxy to the discovered Better Auth instance. |
 | `getAuth(runtimeOptions?)` | Returns the discovered Better Auth instance. |
 | `getAuthForRequest(request, runtimeOptions?, event?)` | Returns a request-aware Better Auth instance. |
-| `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. |
-| `handleAuthRequest(definition, request, runtimeOptions?, event?)` | Handles an Auth request for an explicit Auth Definition. |
+| `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. `input` is a Web `Request`, `{ req: Request }`, or an H3 1 event. |
+| `handleAuthRequest(definition, input, runtimeOptions?, event?)` | Handles an Auth request for an explicit Auth Definition. |
+| `toAuthRequest(input)` | Returns the Web `Request` of a request or server event. For an H3 1 event, such as a Nuxt 4 server event, it builds one from `node.req` and keeps the app base path. |
 | `createAuthHandler(definition, runtimeOptions?)` | Creates a Better Auth handler from a Definition. |
 | `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches discovered route metadata, then authenticates and runs every matching authorization rule. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Otherwise it returns an unauthorized or sign-in response. |
@@ -104,7 +105,7 @@ The callback receives the authenticated `user`, `session`, and request. ViteHub 
 
 The same callback signature protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the protected read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it does not start a sign-in redirect, so image and fetch requests receive a status code.
 
-Generated access middleware calls `createAuthAccessHandler(routes, definition?)`. Manual hosts can use it with a Web `Request` or `{ req: Request }`. Pass `{ route, method?, authorize?: true }` metadata in the same order as the Definition's `access.routes`. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply, and `authorize: true` requires the corresponding runtime callback. Unmatched requests do not load the Auth Definition or session.
+Generated access middleware calls `createAuthAccessHandler(routes, definition?)`. Manual hosts can use it with a Web `Request`, `{ req: Request }`, or an H3 1 event such as a Nuxt 4 server event. Pass `{ route, method?, authorize?: true }` metadata in the same order as the Definition's `access.routes`. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply, and `authorize: true` requires the corresponding runtime callback. Unmatched requests do not load the Auth Definition or session.
 
 `requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` for an unauthenticated browser request instead of starting the configured provider sign-in redirect. Use it when the host shows its own sign-in page and starts provider sign-in after an explicit action. By default, it keeps the `access.signIn` redirect.
 

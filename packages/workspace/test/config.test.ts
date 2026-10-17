@@ -84,6 +84,16 @@ describe("workspace config", () => {
     })).toEqual({ provider: "memory" })
   })
 
+  it("does not treat a non-callable own readFile as a complete workspace store", () => {
+    const store = { readFile: "not-a-function" }
+
+    expect(normalizeWorkspaceStoreOptions(store as never, {
+      env: {},
+      hosting: "cloudflare_module",
+    })).toEqual({ provider: "memory" })
+    expect(typeof createWorkspaceStoreFromProvider({ name: "malformed", store: store as never }).readFile).toBe("function")
+  })
+
   it("preserves class-based workspace stores", () => {
     const store = createMemoryWorkspaceStore()
 

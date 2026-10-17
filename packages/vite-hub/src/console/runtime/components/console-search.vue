@@ -16,6 +16,7 @@ import { relativeDuration } from "../client/time"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
 import { consoleOverviewShortcut, consoleSectionDetails, consoleSectionShortcut, groupConsoleSections } from "../sections"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
+import ConsoleSectionIcon from "./console-section-icon.vue";
 
 interface ConsoleSearchFilter {
   search?: string;
@@ -34,6 +35,7 @@ interface ConsoleDefinitionSearchItem {
   details: ConsoleSectionDetails
   file: string
   name: string
+  section: ConsoleSectionId
   source: string
 }
 
@@ -124,6 +126,8 @@ const definitionSearchItems = computed<CommandPaletteItem[]>(() =>
     description: `${item.details.label.slice(0, -1)} · ${item.file}`,
     icon: item.details.icon,
     label: item.name,
+    section: item.section,
+    slot: "section",
     onSelect: () => selectDefinition(item),
   })),
 )
@@ -131,6 +135,8 @@ const kvSearchItems = computed<CommandPaletteItem[]>(() =>
   kvItems.value.map(item => ({
     description: item.store,
     icon: consoleSectionDetails.kv.icon,
+    section: "kv",
+    slot: "section",
     label: item.key || "(empty key)",
     onSelect: () => selectKVKey(item),
   })),
@@ -171,6 +177,8 @@ const groups = computed<CommandPaletteGroup[]>(() => [
               icon: details.icon,
               ...(shortcut ? { kbds: [...shortcut] } : {}),
               label: details.label,
+              section,
+              slot: "section",
               onSelect: () => selectPage(details.routeName),
             }]
           : []
@@ -182,8 +190,10 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     ? [{
         id: "agents",
         items: availableAgentNames.value.map(name => ({
-          icon: "i-ph-robot-light",
+          icon: consoleSectionDetails.agents.icon,
           label: name,
+          section: "agents",
+          slot: "section",
           onSelect: () => selectAgent(name),
         })),
         label: "Agents",
@@ -260,7 +270,6 @@ function itemDescription(item: ConsoleSearchItem): string {
 
 function strings(value: unknown): string[] {
   return Array.isArray(value)
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     ? value.filter((item): item is string => typeof item === "string")
     : []
 }
@@ -274,22 +283,20 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   })
   const catalogs = await Promise.all(definitionSections.map(async ({ details, section }) => ({
     details,
+    section,
     value: record(await requestConsole(props.definitionsBase, {
       query: { section },
       signal,
     })),
   })))
-  definitionItems.value = catalogs.flatMap(({ details, value }) =>
+  definitionItems.value = catalogs.flatMap(({ details, section, value }) =>
     Array.isArray(value?.definitions)
       ? value.definitions.flatMap((entry) => {
           const definition = record(entry)
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
           return typeof definition?.name === "string"
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
             && typeof definition.file === "string"
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
             && typeof definition.source === "string"
-            ? [{ details, file: definition.file, name: definition.name, source: definition.source }]
+            ? [{ details, file: definition.file, name: definition.name, section, source: definition.source }]
             : []
         })
       : [],
@@ -298,7 +305,6 @@ async function loadContent(installed: ConsoleSectionId[], signal: AbortSignal): 
   if (installed.includes("kv")) {
     const query = { limit: 50 }
     const first = record(await requestConsole(props.kvBase, { query, signal }))
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     const firstStore = typeof first?.store === "string" ? first.store : "default"
     const stores = strings(first?.stores)
     const remainingStores = stores.filter(store => store !== firstStore)
@@ -339,10 +345,8 @@ async function loadNavigation(discoverContent = false): Promise<void> {
 
     if (discoverContent && props.agentNames === undefined && installed.includes("agents")) {
       const agentsValue = record(await requestConsole(props.agentsBase, { signal: controller.signal }))
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every Agent identity.
       const names = Array.isArray(agentsValue?.agents)
         ? agentsValue.agents.filter((name): name is string => {
-            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every Agent identity.
             return typeof name === "string" && Boolean(name.trim());
           })
         : [];
@@ -476,6 +480,10 @@ onBeforeUnmount(() => {
           {{ value.trim() ? "Try a page, Agent, definition, key, or session." : "No Console results are available yet." }}
         </p>
       </div>
+    </template>
+    <!-- Items with the `section` slot show the same section icon as the rail and the Overview. -->
+    <template #section-leading="{ item, ui }">
+      <ConsoleSectionIcon :section="item.section" :icon="item.icon" :class="ui.itemLeadingIcon()" />
     </template>
     <template #footer>
       <div class="vitehub-console__search-footer">
