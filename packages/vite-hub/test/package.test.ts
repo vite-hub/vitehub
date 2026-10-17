@@ -83,7 +83,13 @@ describe("Console Auth package exports", () => {
 
 const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/;
 
-const consolidatedOwnerExports = new Set(["@vite-hub/blob/ensure", "@vite-hub/workspace/ai"]);
+// `vite-hub/source` also forwards `table()` from `@vite-hub/source/drizzle`. The owner root
+// cannot export it because `table()` needs the optional `drizzle-orm` peer.
+const consolidatedOwnerExports = new Set([
+  "@vite-hub/blob/ensure",
+  "@vite-hub/source/drizzle",
+  "@vite-hub/workspace/ai",
+]);
 
 const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/ai-sdk",
@@ -121,6 +127,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/cloudflare-vite",
   "@vite-hub/database/runtime/d1",
   "@vite-hub/database/runtime/hosted",
+  "@vite-hub/database/runtime/postgres",
   "@vite-hub/database/runtime/state",
   "@vite-hub/database/runtime/vercel-vite",
   "@vite-hub/database/runtime/virtual-databases",
@@ -135,7 +142,6 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/sandbox/runtime/empty-registry",
   "@vite-hub/sandbox/runtime/provider-loader",
   "@vite-hub/sandbox/runtime/state",
-  "@vite-hub/schedule/runtime/console",
   "@vite-hub/schedule/runtime/dev",
   "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
@@ -276,19 +282,18 @@ describe("framework package contract", () => {
       "./console/kv",
       "./console/sections",
       "./console/server",
-      "./database/drizzle",
       "./doctor",
       "./nuxt",
-      "./runtime/h3",
-      "./source",
-      "./source/server",
       "./source/vite",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {
       const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath);
       const ownerPackage = ownerSpecifier.split("/").slice(0, 2).join("/");
-      expect([...new Set(targets)], subpath).toEqual([ownerSpecifier]);
+      const ownTargets = [...new Set(targets)].filter(
+        (target) => !(consolidatedOwnerExports.has(target) && target.startsWith(`${ownerSpecifier}/`)),
+      );
+      expect(ownTargets, subpath).toEqual([ownerSpecifier]);
       expect(manifest.dependencies[ownerPackage], subpath).toBeDefined();
     }
   });

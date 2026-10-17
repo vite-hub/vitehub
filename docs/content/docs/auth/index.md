@@ -6,6 +6,19 @@ navigation.order: 1
 icon: i-lucide-shield-check
 ---
 
+::agent-only{skill="auth"}
+Use Auth when the application needs sign-in, sessions, route protection, or Better Auth server plugins. Auth owns identity and session state. It does not automatically protect Agent, Console, or primitive routes.
+
+Read [Get started](/docs/auth/get-started), [Configure](/docs/auth/configure), or [Server API](/docs/auth/server-api).
+
+Keep route access explicit. Configure the Auth Definition and its `access` policy, then mount the route through the Vite or Nuxt integration. Keep application authorization in the route or Capability that uses the session.
+
+Treat local session storage as development state unless the selected provider
+gives it durable storage. A signed-in user is not automatically an Agent actor.
+
+Prove the flow with a real sign-in or session lookup, then request a protected route and inspect the generated route or provider output for the selected host.
+::
+
 ::product-hero{tagline="Better Auth sessions and route guards from one Auth Definition that ViteHub discovers and mounts for your host." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::code-group
   ```ts [Definition]

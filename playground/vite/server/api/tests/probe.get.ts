@@ -13,7 +13,6 @@ export default defineEventHandler((event) => {
     return {
       ok: true,
       feature: "sandbox",
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The request adapter is a runtime boundary, and callability is the capability contract.
       hasWaitUntil: typeof event.req.waitUntil === "function",
       hosting,
       provider,

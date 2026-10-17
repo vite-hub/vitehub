@@ -6,6 +6,16 @@ navigation.order: 1
 icon: i-lucide-folder-git-2
 ---
 
+::agent-only{skill="workspace"}
+Use Workspace for persistent file-tree state, Sources, access rules, snapshots, diffs, and sessions. A Workspace is the boundary for file authority and write-back.
+
+Read [Get started](/docs/workspace/get-started), [Configure](/docs/workspace/configure), [Server API](/docs/workspace/server-api), or [Hosts](/docs/workspace/hosts).
+
+Set the root, provider, mode, and write rules explicitly. Mount only the Sources an invocation needs. A mounted Source is context and does not imply write access.
+
+Prove read, scoped write, diff, and restart or provider recovery. Inspect snapshots and generated Workspace state before relying on persistence.
+::
+
 ::product-hero{tagline="A persistent file tree for server code and Agents, with the same calls on every Store provider." hosts="Node, Docker, Cloudflare, Vercel"}
   :::code-group
   ```ts [Session]

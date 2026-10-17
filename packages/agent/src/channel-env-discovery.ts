@@ -115,7 +115,7 @@ function visitObjectProperties(tokens: string[], start: number, visit: (key: str
 }
 
 // Keys set to `undefined` or a `void` expression count as omitted, as they do at runtime.
-function staticOptionKeys(tokens: string[], start: number, empty: string, typescript: boolean): ReadonlySet<string> | undefined {
+function staticOptionKeys(tokens: string[], start: number, empty: string, typescript: boolean, kind?: string): ReadonlySet<string> | undefined {
   start = skipOptionAssertions(tokens, start, typescript)
   if (isUndefinedValue(tokens, start, new Set([",", ")", "}"]))) return new Set()
   while (tokens[start] === "(") {
@@ -134,7 +134,9 @@ function staticOptionKeys(tokens: string[], start: number, empty: string, typesc
     const omitted = value === undefined
       ? key === "botToken" && !method
       : isUndefinedValue(tokens, value, new Set([",", "}"])) || (key === "botToken" && canResolveUndefined(tokens, value))
-    if (!omitted && (key !== "adapter" || (method || (value !== undefined && isStaticAdapter(tokens, value))))) keys.add(key)
+    const adapterOverride = value !== undefined && !canResolveUndefined(tokens, value)
+      && (isStaticAdapter(tokens, value, kind) || (kind === "teams" && !isTeamsOptionsLiteral(tokens, value)))
+    if (!omitted && (key !== "adapter" || method || adapterOverride)) keys.add(key)
   })) return undefined
   const after = closingDelimiter(tokens, start) + 1
   if (["as", "satisfies"].includes(tokens[after]!) && !isValueEnd(tokens, after, new Set([",", ")", "}"]))) return undefined
@@ -186,7 +188,7 @@ export function discoverBuiltInChannelUses(
     const factory = !isShadowedAt(tokens, i, tokens[i]!, shadowBindings, lineBreaks) && factoryCall(tokens, i, bindings, namespaces, known, lineBreaks, typescript)
     if (factory) {
       const start = skipOptionAssertions(tokens, factory.open + 1, typescript)
-      const optionKeys = staticOptionKeys(tokens, start, ")", typescript)
+      const optionKeys = staticOptionKeys(tokens, start, ")", typescript, factory.name)
       const stringOptions = new Map<string, string>()
       let object = start
       while (tokens[object] === "(") object = skipOptionAssertions(tokens, object + 1, typescript)
@@ -221,7 +223,7 @@ export function discoverBuiltInChannelUses(
         }
         if (!known.has(key)) return
         const options = localObject(tokens, value, declarations, typescript) ?? value
-        const optionKeys = staticOptionKeys(tokens, options, "}", typescript)
+        const optionKeys = staticOptionKeys(tokens, options, "}", typescript, key)
         // An object with `kind` is a complete Channel definition, not built-in Channel options.
         let complete = false
         if (tokens[options] === "{") visitObjectProperties(tokens, options, (key, value) => {
@@ -400,15 +402,20 @@ function canResolveUndefined(tokens: string[], start: number, end?: number): boo
 
 // Unknown adapter expressions can resolve to undefined and select the built-in
 // adapter. Only a complete object or function literal guarantees an override.
-function isStaticAdapter(tokens: string[], start: number): boolean {
+function isStaticAdapter(tokens: string[], start: number, kind?: string): boolean {
   if (tokens[start] === "true") return isValueEnd(tokens, start + 1, new Set([",", "}", ")"]))
   if (tokens[start] === "(") {
     const close = closingDelimiter(tokens, start)
     if (isValueEnd(tokens, close + 1, new Set([",", "}", ")"]))) {
-      return isStaticAdapter(tokens, start + 1)
+      return isStaticAdapter(tokens, start + 1, kind)
     }
   }
-  if (tokens[start] === "{") return isValueEnd(tokens, closingDelimiter(tokens, start) + 1, new Set([",", "}", ")"]))
+  if (tokens[start] === "{") {
+    // Teams accepts a plain options object. It still reads omitted credentials
+    // from Server Env, so only an adapter-shaped object suppresses discovery.
+    if (kind === "teams" && isTeamsOptionsLiteral(tokens, start)) return false
+    return isValueEnd(tokens, closingDelimiter(tokens, start) + 1, new Set([",", "}", ")"]))
+  }
   if (tokens[start] === "async") start++
   if (tokens[start] === "function") {
     const parameters = tokens.indexOf("(", start + 1)
@@ -417,6 +424,14 @@ function isStaticAdapter(tokens: string[], start: number): boolean {
   }
   const afterParameters = tokens[start] === "(" ? closingDelimiter(tokens, start) + 1 : start + 1
   return tokens[afterParameters] === "=" && tokens[afterParameters + 1] === ">"
+}
+
+function isTeamsOptionsLiteral(tokens: string[], start: number): boolean {
+  if (tokens[start] !== "{") return false
+  const optionKeys = new Set(["apiUrl", "appId", "appPassword", "appTenantId", "appType", "userName"])
+  let optionsOnly = true
+  if (!visitObjectProperties(tokens, start, key => { if (!optionKeys.has(key)) optionsOnly = false })) return false
+  return optionsOnly
 }
 
 // Non-null and type assertions preserve a value. Reject runtime expressions

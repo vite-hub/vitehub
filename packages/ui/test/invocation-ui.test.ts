@@ -1030,7 +1030,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.text().match(/Done\./g)).toHaveLength(1);
 
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(hasFollowup ? "Messages (including collapsed)3" : "Messages (including collapsed)2");
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(hasFollowup ? "Messages3" : "Messages2");
   });
 
   it.each([undefined, "Finished.", "Done."])("counts a delivered answer matching history with final response %s", (finalResponse) => {
@@ -1061,7 +1061,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll('.vh-invocation-message[data-role="assistant"]').map(message => message.get(".vh-invocation-message__body").text()))
       .toEqual(finalResponse === "Finished." ? ["Done.", "Done.", "Finished."] : ["Done.", "Done."]);
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages (including collapsed)${visibleMessageCount}`);
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages${visibleMessageCount}`);
   });
 
   it.each(["reply", "update"].flatMap(kind =>
@@ -1095,7 +1095,7 @@ describe("Agent Invocation UI", () => {
     const receipt = wrapper.get('.vh-invocation-work__activities [data-kind="delivery"]');
     expect(receipt.find(".vh-invocation-delivery__body").exists()).toBe(false);
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages (including collapsed)${expectedAnswers.length}`);
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages${expectedAnswers.length}`);
   });
 
   it("keeps active work visible and collapses it when the run completes", async () => {
@@ -4249,7 +4249,7 @@ describe("Agent Invocation UI", () => {
     const thread = mount(AgentInvocation, { props: { invocation } });
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
     expect(thread.findAll(".vh-invocation-message")).toHaveLength(2);
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages (including collapsed)2");
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages2");
   });
 
   it.each(["completed", "failed", "cancelled"] as const)("labels messages in collapsed work for %s runs", (status) => {
@@ -4268,7 +4268,7 @@ describe("Agent Invocation UI", () => {
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
     expect(thread.findAll(".vh-invocation-message")).toHaveLength(2);
     expect(thread.get(".vh-invocation-work__details").attributes("open")).toBeUndefined();
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages (including collapsed)3");
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages3");
   });
 
   it("renders structured workspace sources alongside historical source strings", async () => {
@@ -4353,7 +4353,7 @@ describe("Agent Invocation UI", () => {
     it("summarizes messages, steps, tool calls, and total time", () => {
       const wrapper = mount(AgentInvocationInspector, { props: { invocation: conversation() } });
       const metrics = wrapper.get(".vh-invocation-inspector__metrics").text();
-      expect(metrics).toContain("Messages (including collapsed)2");
+      expect(metrics).toContain("Messages2");
       expect(metrics).toContain("Tool calls2");
       expect(metrics).toContain("Total time19s");
     });

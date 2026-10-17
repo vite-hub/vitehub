@@ -41,7 +41,7 @@ import { hydrateFailedCiEvidence } from "../../server/github-inbox/ci-evidence.t
 import type { PullRequestWake } from "../../server/github-inbox/wait-state.ts";
 import { createHash } from "node:crypto";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
-import type { BabysitterAgent, BabysitterPassResult } from "../babysitter.ts";
+import type { BabysitterAgent, BabysitterPassResult, BabysitterPlacementLease } from "../babysitter.ts";
 import { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions } from "../../agent-layers.ts";
 import { importBoxCommit } from "./box-commit.ts";
 import { createProviderHeadReader } from "./checkout-watch.ts";
@@ -148,7 +148,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const statusRecovery = createBabysitterStatusRecovery({
     inbox: pullRequestInbox,
     // Built packages carry this fingerprint; direct source hosts compute the same inputs.
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Guard a compile-time global that is absent when running package sources.
     revision: baseAgent.version ?? (typeof __VITEHUB_AGENT_BUILD_REVISION__ === "undefined" ? agentBuildRevision(fileURLToPath(new URL("../../../", import.meta.url))) : __VITEHUB_AGENT_BUILD_REVISION__),
     publish: statusChannel ? (pending, abortSignal) => publishAgentActivity({ name: `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`, channels: { github: statusChannel } }, {
       channelId: "github", target: { repository: pending.repository, issue: pending.number }, activity: pending.activity, abortSignal,
@@ -178,7 +177,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const args = ["api", "graphql", "-f", `query=${query}`];
       for (const [key, value] of Object.entries(variables)) {
         if (value === null) continue;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
         args.push(typeof value === "number" ? "-F" : "-f", `${key}=${value}`);
       }
       try {
@@ -828,6 +826,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           passController.signal,
         ]);
         let providerDirectory: string | undefined;
+        let placementLease: BabysitterPlacementLease | undefined;
+        // A pass placed in a Box installs there; the host checkout keeps no dependencies.
+        const hostInstall = () => presetOptions.install !== false && !placementLease?.box;
         let modelWorkParked = false;
         const parkBlockedModelWork = async () => {
           const currentAdmission = await options.admission?.();
@@ -1097,10 +1098,20 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 }
                 return ref.object.sha;
               };
+              // A base branch that only moved forward keeps the prepared merge valid. The repair resolves
+              // conflicts up to the prepared commit, and GitHub checks the newer commits after the push.
+              const baseAdvanced = async (from: string, to: string) => {
+                // One page: the status and counts do not need the list of commits between the bases.
+                const { stdout } = await github.command(["api", `repos/${repository}/compare/${from}...${to}?per_page=1`, "--jq", "{status, behind_by} | @json"],
+                  { repository, timeout: 60_000, signal: abortSignal });
+                const comparison: unknown = stdout.trim() ? JSON.parse(stdout) : undefined;
+                return isRuntimeRecord(comparison) && comparison.status === "ahead" && comparison.behind_by === 0;
+              };
               const assertRepairBase = async () => {
                 if (!preparedMergeBase) return;
                 const [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", abortSignal);
-                if (!isRuntimeRecord(live) || !isRuntimeRecord(live.base) || live.base.ref !== pullRequest.baseRefName || await readRepairBase() !== preparedMergeBase) {
+                const liveBase = isRuntimeRecord(live) && isRuntimeRecord(live.base) && live.base.ref === pullRequest.baseRefName ? await readRepairBase() : undefined;
+                if (!liveBase || liveBase !== preparedMergeBase && !await baseAdvanced(preparedMergeBase, liveBase)) {
                   await pullRequestInbox.hydrate(inboxClaim, { refresh: true });
                   const changed = new DOMException("Pull request base changed; retry the conflict repair against current GitHub state.", "AbortError");
                   passController.abort(changed);
@@ -1115,7 +1126,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                     await prepareGitHubRepairBase(directory, { expectedHead: pullRequest.headRefOid, base, signal: abortSignal, fetch: { url: `https://github.com/${repository}.git`, env: prepared.env } });
                     preparedMergeBase = base;
                   }
-                  if (presetOptions.install !== false) {
+                  if (hostInstall()) {
                     // Dependency conflicts must be resolved before the explicit refresh tool can install.
                     try { await installDependencies(directory, abortSignal, owner, nodeOptions); }
                     catch (error) { if (!preparedMergeBase || abortSignal.aborted || !(error instanceof GitHubWorkspaceInstallError) || !(error.cause instanceof GitHubDependencyConflictError)) throw error; }
@@ -1152,7 +1163,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   await assertLease();
                   await assertRepairBase();
                   const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
-                  if (presetOptions.install !== false && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) {
+                  if (hostInstall() && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) {
                     await installDependencies(providerDirectory, abortSignal, owner, undefined);
                   }
                   await assertLease();
@@ -1161,8 +1172,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
                   await assertLease();
                   await assertRepairBase();
-                  if (presetOptions.install !== false) await assertGitHubDependenciesCurrent(providerDirectory);
-                  const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies: presetOptions.install !== false });
+                  if (hostInstall()) await assertGitHubDependenciesCurrent(providerDirectory);
+                  const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies: hostInstall() });
                   await assertLease();
                   return head;
                 },
@@ -1239,7 +1250,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const driver = settings?.driver;
               if (
                 !driver ||
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
                 typeof driver !== "object" ||
                 !("kind" in driver) ||
                 (driver.kind !== "codex" && driver.kind !== "claude-code")
@@ -1248,7 +1258,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   "Babysitter requires a Codex or Claude Code driver for its isolated Git checkout.",
                 );
               }
-  // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The preceding schema guard establishes the asserted operation shape.
               const workerDriver = driver as
                 | (CodexDriverOptions<BabysitterPassResult> & { kind: "codex" })
                 | (ClaudeCodeDriverOptions<BabysitterPassResult> & { kind: "claude-code" });
@@ -1261,6 +1270,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               // the host identity, but dropping the whole map loses other
               // channel-scoped capabilities needed by repair passes.
               const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
+              // Placement runs once per pass, before any host install, and never overrides a configured Box.
+              if (presetOptions.placement && !workerSettings.box) {
+                placementLease ??= await presetOptions.placement.place({ repository, number });
+                if (placementLease.box) workerSettings.box = placementLease.box;
+              }
               if (workerSettings.box) providerDirectory = checkout;
               const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
               const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
@@ -1301,7 +1315,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   await assertLease();
                 },
               });
-              // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability inputs accept either a static list or resolver function at this runtime boundary.
               const workerCapabilities = typeof baseCapabilities === "function"
                 ? async (context: Parameters<AgentCapabilitiesResolver>[0]) => [
                   ...(await resolveAgentCapabilityDefinitions(baseCapabilities, context)).filter(capability => capability.id !== "babysitter.github"),
@@ -1471,7 +1484,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // Preserve the declared head across check progress. Wait evaluation
             // still wakes new failures or feedback from the observed snapshot.
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" },
-              wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
+              wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : undefined) } });
           } else if (assessed) {
             outcome = "waiting";
             recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" }, wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
@@ -1538,6 +1551,19 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         } finally {
           clearTimeout(pushedAt);
           stopPullRequestWatch();
+          try {
+            await placementLease?.release();
+          } catch (error) {
+            // Placement is user supplied; a failed release must not strand the
+            // durable inbox claim or the in-memory owner slot.
+            // Error reporting is user supplied too, so it must not interrupt
+            // the cleanup below when the reporter itself throws.
+            try {
+              schedulerError("babysitter.placement.release.failed", error, owner);
+            } catch {
+              // Cleanup remains authoritative even when reporting fails.
+            }
+          }
           // A rejected or ambiguous host merge retains its durable attempt
           // fence, but a finished owner must never retain a queue lease.
           // Normal finish/release paths have already cleared this token.
@@ -1580,13 +1606,11 @@ function assertBabysitterAgent(agent: AgentInput): asserts agent is BabysitterAg
     !getAgentLayerOptions(agent) ||
     !("options" in agent) ||
     !agent.options ||
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
     !hasRuntimeType(agent.options, "object") ||
     !("autoMerge" in agent.options) ||
     !hasRuntimeType(agent.options.autoMerge, "boolean") ||
     !("filter" in agent.options) ||
     !agent.options.filter ||
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Agent options are validated at runtime.
     !hasRuntimeType(agent.options.filter, "object") ||
     Array.isArray(agent.options.filter)
   ) {

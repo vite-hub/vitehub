@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createSkillReferences } from "../modules/vitehub-docs/artifacts/skill-references";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const contentRoot = resolve(docsRoot, "content/docs");
@@ -87,6 +88,17 @@ describe("public ViteHub skill", () => {
     expect(skill).toContain("## 5. Prove and repair");
     expect(skill).toContain("Package owner | Source file | Runtime path | Authority or persistence | Proof");
     expect(skill).toContain("every behavior row has an observed result, or a precise source-backed unsupported boundary");
+  });
+
+  it("builds primitive references from agent-only blocks in the docs pages", async () => {
+    // Edit the `::agent-only{skill="..."}` block on the docs page, then run `vp test -u` to regenerate.
+    const primitivesRoot = resolve(skillRoot, "references/primitives");
+    const references = createSkillReferences(docsRoot);
+
+    expect(references.map(reference => `${reference.name}.md`)).toEqual(readdirSync(primitivesRoot).sort());
+    for (const reference of references) {
+      await expect(reference.markdown, reference.source).toMatchFileSnapshot(resolve(primitivesRoot, `${reference.name}.md`));
+    }
   });
 
   it("publishes every directly routed reference", () => {

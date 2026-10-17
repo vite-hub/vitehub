@@ -192,13 +192,9 @@ function getNitroCloudflareKVNamespaces(target: unknown): ProviderJsonRecord[] {
     const id: unknown = Reflect.get(normalized, "id")
     const previewId: unknown = Reflect.get(normalized, "preview_id")
     const experimentalRemote: unknown = Reflect.get(normalized, "experimental_remote")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Nitro extension data crosses an untyped Vite boundary and binding must be a string.
     if (typeof binding !== "string") return []
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Wrangler's optional namespace IDs must remain strings after serialization.
     if (id !== undefined && typeof id !== "string") return []
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Wrangler's optional preview ID must remain a string after serialization.
     if (previewId !== undefined && typeof previewId !== "string") return []
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Wrangler's optional remote flag must remain a boolean after serialization.
     if (experimentalRemote !== undefined && typeof experimentalRemote !== "boolean") return []
     return [normalized]
   })

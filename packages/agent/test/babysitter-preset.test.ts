@@ -40,6 +40,7 @@ vi.mock("@vite-hub/box", async (importOriginal) => {
 
 import { agentWithColocatedInstructions, defineAgent, defineCapability, getAgentFromRegistry } from "../src/index.ts";
 import { babysitter, resolveBabysitterLifecycleFilter } from "../src/presets/babysitter.ts";
+import type { BabysitterPlacement } from "../src/presets/babysitter.ts";
 import { babysitterInstructions } from "../src/presets/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/presets/babysitter/merge-ready.ts";
 import { createBabysitterRuntime } from "../src/presets/babysitter/server.ts";
@@ -59,14 +60,25 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteBox?: boolean; boxCheckout?: boolean; box?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean } = {}) {
+async function fixture(autoMerge = false, discovered = false, preset: { resolveAfterPush?: string; operationInputs?: Record<string, unknown>[]; expectedOperationErrorAt?: number; operationCount?: number; inboxPath?: string; activityBarrier?: Promise<void>; allowOperationAfterAdmission?: boolean; remoteBox?: boolean; boxCheckout?: boolean; box?: boolean; actionsDenied?: boolean; admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>; agentName?: string; result?: Record<string, unknown>; merge?: unknown; driver?: string; mergeableState?: string; baseBranchHead?: string; base?: string; parents?: unknown[]; postPushGraceMs?: number; providerRetryDelayMs?: number; mentionAllowlist?: string[]; options?: Record<string, unknown>; driverEnv?: Record<string, string>; gitWorkspace?: boolean; placement?: BabysitterPlacement } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-preset-"));
   roots.push(root);
+  // The fake provider needs to know whether placement chose a Box for the pass.
+  let placedBox = false;
+  const placement = preset.placement && {
+    ...preset.placement,
+    place: async (pullRequest: { repository: string; number: number }) => {
+      const lease = await preset.placement!.place(pullRequest);
+      placedBox = Boolean(lease.box);
+      return lease;
+    },
+  };
   const checkout = join(root, "checkout");
   await mkdir(checkout);
   await writeFile(join(checkout, "source.ts"), "export const value = 1\n");
   let head = "a".repeat(40);
   let baseHead = "c".repeat(40);
+  let compareStatus = "behind";
   const git = async (cwd: string, ...args: string[]) => (await promisify(execFile)("git", ["-C", cwd, "-c", "user.name=Test", "-c", "user.email=test@example.test", ...args])).stdout.trim();
   let remoteBox: { path: string; closed: boolean } | undefined;
   if (preset.remoteBox) {
@@ -185,6 +197,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       return { stdout: (preset.parents ?? []).map((value) => JSON.stringify(value)).join("\n"), stderr: "" };
     if (path === "repos/acme/app")
       return { stdout: JSON.stringify({ delete_branch_on_merge: false }), stderr: "" };
+    if (path.startsWith("repos/acme/app/compare/"))
+      return { stdout: JSON.stringify({ status: compareStatus, behind_by: compareStatus === "ahead" ? 0 : 1 }), stderr: "" };
     if (path.startsWith("repos/acme/app/git/ref/heads/"))
       return { stdout: JSON.stringify({ ref: `refs/heads/${pr().base.ref}`, object: { type: "commit", sha: preset.baseBranchHead ?? pr().base.sha } }), stderr: "" };
     const data =
@@ -291,9 +305,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       },
     })] as never,
     // SAFETY: tests pass invalid merge values on purpose to cover runtime validation.
-    options: { filter: { labels: { allow: ["repair"] } }, autoMerge, ...(preset.merge === undefined ? {} : { merge: preset.merge as false }), ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...preset.options },
+    options: { filter: { labels: { allow: ["repair"] } }, autoMerge, ...(preset.merge === undefined ? {} : { merge: preset.merge as false }), ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
     ...(preset.box ? { box: { runtime: "trusted-host" as const, requires: ["sh"], ...(preset.boxCheckout ? { checkout: { remote: "https://github.com/acme/other.git", ref: "main", sha: "d".repeat(40) } } : {}) } } : {}),
-    driver: { kind: "codex", ...(preset.box ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } },
+    driver: { kind: "codex", ...(preset.box || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } },
   }), "Preserve the documented API contract.");
   const runtime = createBabysitterRuntime({
     agent: discovered ? await getAgentFromRegistry("babysitter", { babysitter: async () => ({ default: agent }) }) : agent,
@@ -353,10 +367,10 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
             schemas: Object.fromEntries(listedTools.map((tool) => [tool.name, tool.inputSchema])),
             prompt: input.input,
             session: threadId,
-            instructions: preset.box ? "Box Home instructions" : await readFile(join(workerDirectory!, "AGENTS.md"), "utf8"),
+            instructions: preset.box || placedBox ? "Box Home instructions" : await readFile(join(workerDirectory!, "AGENTS.md"), "utf8"),
             runtimeMode,
             approvalPolicy,
-            install: preset.box ? undefined : await readFile(join(workerDirectory!, ".git", "vitehub-install.json"), "utf8").catch(() => undefined),
+            install: preset.box || placedBox ? undefined : await readFile(join(workerDirectory!, ".git", "vitehub-install.json"), "utf8").catch(() => undefined),
           });
           if (operation === "commitRepair" && remoteBox) {
             await writeFile(join(remoteBox.path, "source.ts"), "export const value = 2\n");
@@ -433,6 +447,8 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     events,
     commit,
     advanceBase: (sha: string) => { baseHead = sha },
+    /** GitHub's compare status from the prepared base to the live base: "ahead" when the base only moved forward. */
+    compareBase: (status: string) => { compareStatus = status },
     advanceHead: (sha: string) => { head = sha },
     push,
     prepare,
@@ -771,10 +787,26 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); vi.useRealTimers(); }
   });
 
-  it.each(["commitRepair", "pushRepair"] as const)("rejects %s after the prepared conflict base changes", async operation => {
+  it.each(["commitRepair", "pushRepair"] as const)("keeps %s when the prepared conflict base only moved forward", async operation => {
+    const f = await fixture(false, false, { mergeableState: "dirty", allowOperationAfterAdmission: true });
+    f.choose(operation, operation === "commitRepair" ? { message: "resolve base conflict", paths: ["source.ts"] } : {});
+    f.compareBase("ahead");
+    f.onAdmission(() => { f.advanceBase("d".repeat(40)); });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(operation === "commitRepair" ? f.commit : f.push).toHaveBeenCalledOnce();
+      const compare = f.command.mock.calls.map(([args]) => args).find(args => args.some(arg => arg.startsWith(`repos/acme/app/compare/${"c".repeat(40)}...${"d".repeat(40)}?per_page=1`)));
+      expect(compare).toBeDefined();
+      expect(compare).not.toContain("--paginate");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it.each(["commitRepair", "pushRepair"] as const)("rejects %s after the prepared conflict base is rewritten", async operation => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const f = await fixture(false, false, { mergeableState: "dirty" });
     f.choose(operation, operation === "commitRepair" ? { message: "resolve base conflict", paths: ["source.ts"] } : {});
+    f.compareBase("diverged");
     f.onAdmission(() => { f.advanceBase("d".repeat(40)); });
     try {
       await f.reconcile();
@@ -1360,6 +1392,7 @@ describe("Babysitter preset runtime", () => {
     expect(() => defineAgent({ extends: babysitter, options: { admission: { inputTokens: { daily: 1e9 }, minFreeTmpMb: false, paused: false, check: () => undefined } } })).not.toThrow();
     expect(() => defineAgent({ extends: babysitter, options: { admission: { inputTokens: { hourly: -1 } } } })).toThrow(/admission must be/);
     expect(() => defineAgent({ extends: babysitter, options: { admission: { paused: "yes" as unknown as boolean } } })).toThrow(/admission must be/);
+    expect(() => defineAgent({ extends: babysitter, options: { placement: {} as BabysitterPlacement } })).toThrow(/placement must be/);
     expect(() => defineAgent({ extends: babysitter, options: { ignoreFeedbackAuthors: ["vercel[bot]"], noProgressBudget: false, deferWhilePending: false, install: { command: "pnpm", args: ["install"] } } })).not.toThrow();
   });
 
@@ -2590,6 +2623,36 @@ describe("Babysitter preset runtime", () => {
       expect(f.push).toHaveBeenCalledOnce();
       expect(remoteMutated).toBe(false);
     } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("places a pass in a Box before any host install and releases the placement", async () => {
+    const release = vi.fn();
+    const place = vi.fn(async () => ({ box: { runtime: "trusted-host" as const, requires: ["sh"] }, release }));
+    const f = await fixture(false, false, { placement: { place } });
+    const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockResolvedValue(undefined);
+    try {
+      f.choose("pushRepair");
+      await f.reconcile();
+      expect(place).toHaveBeenCalledOnce();
+      expect(place).toHaveBeenCalledWith({ repository: "acme/app", number: f.pr().number });
+      expect(boxDefinitions).toHaveBeenCalled();
+      // The Box host installs for itself; the host checkout gets no dependencies.
+      expect(install).not.toHaveBeenCalled();
+      expect(f.push).toHaveBeenCalledOnce();
+      expect(release).toHaveBeenCalledOnce();
+    } finally { install.mockRestore(); await f.runtime.inbox.close(); }
+  });
+
+  it("runs a pass on this host when placement returns no Box", async () => {
+    const release = vi.fn();
+    const f = await fixture(false, false, { placement: { place: () => ({ release }) } });
+    const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace").mockResolvedValue(undefined);
+    try {
+      await f.reconcile();
+      expect(boxDefinitions).not.toHaveBeenCalled();
+      expect(install).toHaveBeenCalled();
+      expect(release).toHaveBeenCalledOnce();
+    } finally { install.mockRestore(); await f.runtime.inbox.close(); }
   });
 
   it("prepares the exact conflict base and frozen dependencies before opening a Box", async () => {

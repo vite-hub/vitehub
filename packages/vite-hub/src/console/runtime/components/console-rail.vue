@@ -148,9 +148,7 @@ async function loadAccessIdentity(): Promise<void> {
     if (!response.ok) throw new Error("Identity request failed");
     // SAFETY: Reading optional properties is safe for any JSON value; each value is validated below.
     const identity = (await response.json()) as { commonName?: unknown; email?: unknown; signOutURL?: unknown } | null;
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The identity response is untrusted JSON, so validate the same-origin sign-out path.
     if (typeof identity?.signOutURL !== "string" || !identity.signOutURL.startsWith("/") || identity.signOutURL.startsWith("//")) throw new Error("Invalid identity");
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The identity response is untrusted JSON, so validate each label before rendering it.
     const label = typeof identity.email === "string" ? identity.email : typeof identity.commonName === "string" ? identity.commonName : undefined;
     accessIdentity.value = { label, signOutURL: identity.signOutURL };
     signedIn.value = true;

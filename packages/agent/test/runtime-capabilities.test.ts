@@ -22,7 +22,7 @@ describe("Agent Dev Loop runtime capabilities", () => {
     const capabilities = resolveDevRuntimeCapabilities(server as never, [
       { importName: "agentDb", name: "db", packageName: "@vite-hub/database/drizzle" },
       { importName: "blob", name: "blob", packageName: "@vite-hub/blob" },
-    ], { schedule: false })
+    ])
 
     await expect.poll(() => started.length).toBe(2)
     release()

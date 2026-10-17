@@ -35,12 +35,10 @@ function toDenoKey(key: string): ViteHubDenoKVKey {
 }
 
 function fromDenoKey(key: DenoKVKey): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Deno KV keys are untrusted structured values and only one-string keys belong to this adapter.
   return key.length === 1 && typeof key[0] === "string" ? key[0] : undefined
 }
 
 function toDenoExpireIn(ttl: unknown): { expireIn: number } | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Match unstorage's TTL normalization at the write-options boundary.
   if (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0) return undefined
   const expireIn = Math.max(1, Math.ceil(ttl * 1_000))
   return Number.isSafeInteger(expireIn) ? { expireIn } : undefined

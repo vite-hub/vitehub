@@ -20,6 +20,7 @@ describe("workspace inventory", () => {
       "database",
       "email",
       "env",
+      "forge",
       "kv",
       "markdown-template",
       "queue",

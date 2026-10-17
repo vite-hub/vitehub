@@ -10,7 +10,6 @@ import type { CloudflareQueueBatchErrorAction, CloudflareQueueBatchHandlerOption
 const cloudflareBindingName = /^[A-Z_]\w{0,127}$/i
 
 function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueBinding {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host bindings are untyped at this boundary; validate the object before inspecting its methods.
   if (binding === null || typeof binding !== "object" || Array.isArray(binding)) return false
 
   const hasCallableMethod = (name: "send" | "sendBatch") => {
@@ -26,15 +25,12 @@ function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueB
       if (descriptor) {
         if (owner !== binding) {
           const constructor = Object.getOwnPropertyDescriptor(owner, "constructor")
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A callable constructor whose prototype owns the method identifies a class-backed host binding.
           if (!constructor || !("value" in constructor) || typeof constructor.value !== "function" || constructor.value.prototype !== owner) {
             return false
           }
         }
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Queue methods must be callable data properties before provider operations can use them.
         if ("value" in descriptor) return typeof descriptor.value === "function"
         try {
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host accessors are accepted only when they return a callable queue method.
           return typeof Reflect.get(binding, name) === "function"
         }
         catch {
@@ -80,7 +76,6 @@ function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: 
     return
   }
 
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JavaScript error hooks can return callable values with retry properties.
   if (action && typeof action === "object" && !Array.isArray(action) && Object.hasOwn(action, "retry")) {
     message.retry(action.retry)
     return
