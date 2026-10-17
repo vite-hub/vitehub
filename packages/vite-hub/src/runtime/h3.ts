@@ -74,6 +74,20 @@ function isRequest(value: unknown): value is Request {
         if (typeof constructor === "function" && constructor.name === "Request"
           && constructor.prototype === prototype && typeof getter === "function") {
           try {
+            // A genuine Web IDL accessor performs its receiver brand check
+            // before reading any state. Candidate-owned getters that merely
+            // return a Request-shaped value must not be accepted as proof of
+            // Request identity.
+            try {
+              getter.call({})
+              valid = false
+            } catch {
+              // Expected for an unrelated receiver.
+            }
+            if (!valid) {
+              prototype = Object.getPrototypeOf(prototype)
+              continue
+            }
             const prototypeDescriptor = Object.getOwnPropertyDescriptor(constructor, "prototype")
             if (!prototypeDescriptor || prototypeDescriptor.writable || prototypeDescriptor.configurable) {
               valid = false
