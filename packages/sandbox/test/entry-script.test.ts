@@ -168,7 +168,8 @@ describe("package entry result transport", () => {
       `  const constructor = function Response() {}`,
       `  constructor.prototype = prototype`,
       `  Object.defineProperties(prototype, { constructor: { value: constructor }, clone: { value() { return Object.create(prototype) } }, body: { get() { return null } } })`,
-      `  return Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers, requestId: 'kept', arrayBuffer: async () => new ArrayBuffer() })`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers, requestId: 'kept' })`,
+      `  return Object.defineProperty(value, 'arrayBuffer', { value: async () => new ArrayBuffer() })`,
       `}`,
     ].join("\n"))
     expect(execution.code).toBe(0)
