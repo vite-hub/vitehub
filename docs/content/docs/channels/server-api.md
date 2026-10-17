@@ -61,3 +61,34 @@ if (error) throw error
 ```
 
 Keep `connector` explicit when a Channel has more than one delivery path. This makes the delivery choice visible at each call site.
+
+## Send to Microsoft Teams
+
+`teams.connector()` from `vite-hub/agent/channels` is a ready connector for Microsoft Teams. It builds the same adapter as the `teams()` Agent Channel, from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL`. Install `@chat-adapter/teams`, and enable KV when you use `thread` or `idempotencyKey`.
+
+```ts [server/channels/teams/index.ts]
+import { teams } from 'vite-hub/agent/channels'
+import { defineOutboundChannel } from 'vite-hub/channels'
+
+export default defineOutboundChannel({
+  connectors: { teams: teams.connector() },
+  defaultConnector: 'teams',
+})
+```
+
+```ts
+const [error] = await useChannel('teams').send('**Build failed**', {
+  recipient: teamsChannelThreadId,
+  thread: { key: `build:${buildId}`, root: `Build ${buildId}` },
+  idempotencyKey: `build:${buildId}:failed`,
+})
+if (error) throw error
+```
+
+| Option | Value |
+| --- | --- |
+| `recipient` | A Teams thread ID that the bot received a message in, or `user:<id>` for a direct message. |
+| `thread` | Optional. Every send with the same `key` replies under one root message in a Teams channel. ViteHub posts the root once, from `root` or else from the first text, and stores its thread in KV. The recipient must be a channel without a message ID. |
+| `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. |
+
+ViteHub stores roots and receipts in KV under `teams:` and keeps them until you remove them. Sends with the same key run one after another within one process. Two processes that send with the same new key at the same time can each post a root, so keep one sender per key or one replica.

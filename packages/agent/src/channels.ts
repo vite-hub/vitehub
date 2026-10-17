@@ -98,6 +98,7 @@ import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, enc
 import type { Adapter, FileUpload } from "chat"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { channelEnv, channelEnvValue } from "./channel-env.ts"
+import type { BuiltInEnvContext } from "./internal/builtin-env.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
@@ -694,6 +695,27 @@ export interface TeamsChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   extends Omit<AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>, "adapter"> {
   /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.teams`. */
   adapter?: TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
+}
+
+export interface TeamsConnectorOptions {
+  /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.teams`. */
+  adapter?: TeamsAdapterOptions | Adapter | (() => MaybePromise<Adapter>)
+}
+
+export interface TeamsSendOptions {
+  /** A Teams thread ID, such as a channel or chat that the bot received a message in, or `user:<id>` for a direct message. */
+  recipient: string
+  /**
+   * Keeps every send with the same `key` under one root message in a Teams channel. The recipient must be a channel
+   * without a message ID. ViteHub posts the root once, from `root` or else from the first text.
+   */
+  thread?: { key: string, root?: string }
+  /** A send with an `idempotencyKey` that ViteHub already sent to the recipient returns the stored receipt and posts nothing. */
+  idempotencyKey?: string
+}
+
+export interface TeamsConnector {
+  send: (text: string, options: TeamsSendOptions) => Promise<{ id: string }>
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -2683,35 +2705,164 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
+function isTeamsAdapterOptions(input: unknown): input is TeamsAdapterOptions {
+  return isRecord(input) && !isAdapter(input) && !isResolver(input)
+}
+
+async function createTeamsAdapterFromEnv(options: TeamsAdapterOptions, context: BuiltInEnvContext): Promise<Adapter> {
+  let createTeamsAdapter: (options?: Record<string, unknown>) => Adapter
+  try {
+    ({ createTeamsAdapter } = await import("@chat-adapter/teams"))
+  }
+  catch (error) {
+    throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams() requires @chat-adapter/teams to be installed.", cause: error })
+  }
+  const env = await channelEnv("teams", context)
+  const adapterConfig: Record<string, unknown> = { ...options }
+  for (const field of ["apiUrl", "appId", "appPassword", "appTenantId"] as const) {
+    const value = cleanSecret(options[field] ?? env[field])
+    if (value) adapterConfig[field] = value
+    else delete adapterConfig[field]
+  }
+  return createTeamsAdapter(adapterConfig)
+}
+
 function teamsAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   input: TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined,
 ): AgentChannelOptions<TRuntimeConfig>["adapter"] {
-  if (input !== undefined && (hasRuntimeType(input, "function") || isAdapter(input) || isResolver(input))) {
-    // SAFETY: The runtime guards above establish every supported adapter option variant.
-    return input as AgentChannelOptions<TRuntimeConfig>["adapter"]
+  if (input !== undefined && !isTeamsAdapterOptions(input)) return input
+  const options = input ?? {}
+  return context => createTeamsAdapterFromEnv(options, context)
+}
+
+const teamsLocks = new Map<string, Promise<unknown>>()
+
+/** Runs sends with the same key one after another. This holds within one process only. */
+async function withTeamsLock<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const task = (teamsLocks.get(key) ?? Promise.resolve()).catch(() => undefined).then(run)
+  teamsLocks.set(key, task)
+  try {
+    return await task
   }
-  // SAFETY: The guards above leave only the plain Teams adapter options.
-  const options = (input ?? {}) as TeamsAdapterOptions
-  return async (context) => {
-    let createTeamsAdapter: (options?: Record<string, unknown>) => Adapter
-    try {
-      ({ createTeamsAdapter } = await import("@chat-adapter/teams"))
+  finally {
+    if (teamsLocks.get(key) === task) teamsLocks.delete(key)
+  }
+}
+
+function teamsHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+interface TeamsKV {
+  get: (key: string) => Promise<readonly [error: Error | null, value: unknown]>
+  set: (key: string, value: { id: string } | { threadId: string }) => Promise<readonly [error: Error | null, value: unknown]>
+}
+
+let teamsKVModule: Promise<TeamsKV> | undefined
+
+function teamsKV(): Promise<TeamsKV> {
+  teamsKVModule ??= import("@vite-hub/kv").then(module => module.kv, (error: unknown) => {
+    teamsKVModule = undefined
+    throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams.connector() requires @vite-hub/kv to be installed and configured.", cause: error })
+  })
+  return teamsKVModule
+}
+
+async function teamsKVGet(kv: TeamsKV, key: string): Promise<Record<string, unknown> | undefined> {
+  const [error, value] = await kv.get(key)
+  if (error) throw error
+  return isRecord(value) ? value : undefined
+}
+
+async function teamsKVSet(kv: TeamsKV, key: string, value: { id: string } | { threadId: string }): Promise<void> {
+  const [error] = await kv.set(key, value)
+  if (error) throw error
+}
+
+function decodeTeamsThread(adapter: Adapter, threadId: string): Record<string, unknown> & { conversationId: string } {
+  const data = adapter.decodeThreadId(threadId)
+  if (!isRecord(data) || !hasRuntimeType(data.conversationId, "string")) throw new TypeError("[vitehub] The Teams recipient is not a Teams thread ID.")
+  return { ...data, conversationId: data.conversationId }
+}
+
+/** The Chat SDK thread ID of a channel root message: the channel conversation with `;messageid=<root>`. */
+function teamsRootThreadId(adapter: Adapter, recipient: string, root: { id: string, threadId: string }): string {
+  if (root.threadId !== recipient && /;messageid=\d+/.test(decodeTeamsThread(adapter, root.threadId).conversationId)) return root.threadId
+  const target = decodeTeamsThread(adapter, recipient)
+  return adapter.encodeThreadId({ ...target, conversationId: `${target.conversationId};messageid=${root.id}` })
+}
+
+/**
+ * An outbound connector for `defineOutboundChannel()` that sends Markdown to Microsoft Teams.
+ * It builds one adapter like `teams()`. Thread roots and idempotent receipts are stored in `@vite-hub/kv` under `teams:`.
+ */
+function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
+  let adapter: Promise<Adapter> | undefined
+  const useAdapter = (): Promise<Adapter> => {
+    if (!adapter) {
+      const input = options.adapter
+      const pending = adapter = Promise.resolve(
+        input === undefined || isTeamsAdapterOptions(input) ? createTeamsAdapterFromEnv(input ?? {}, {})
+          : hasRuntimeType(input, "function") ? input()
+            : input,
+      )
+      pending.catch(() => {
+        if (adapter === pending) adapter = undefined
+      })
     }
-    catch (error) {
-      throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams() requires @chat-adapter/teams to be installed.", cause: error })
-    }
-    const env = await channelEnv("teams", context)
-    const adapterConfig: Record<string, unknown> = { ...options }
-    if (hasRuntimeType(options.appId, "function")) {
-      adapterConfig.appId = options.appId
-    }
-    for (const field of ["apiUrl", "appId", "appPassword", "appTenantId"] as const) {
-      if (field === "appId" && hasRuntimeType(options.appId, "function")) continue
-      const value = cleanSecret(options[field] ?? env[field])
-      if (value) adapterConfig[field] = value
-      else delete adapterConfig[field]
-    }
-    return createTeamsAdapter(adapterConfig)
+    return adapter
+  }
+  return {
+    async send(text, { recipient, thread, idempotencyKey }) {
+      if (!hasRuntimeType(recipient, "string") || !recipient) throw new TypeError("[vitehub] Teams send requires a recipient.")
+      if (thread !== undefined && (!isRecord(thread) || !hasRuntimeType(thread.key, "string") || !thread.key)) throw new TypeError("[vitehub] Teams thread requires a non-empty key.")
+      const teams = await useAdapter()
+      if (!thread) {
+        const post = async () => {
+          if (!recipient.startsWith("user:")) return { id: (await teams.postMessage(recipient, { markdown: text })).id }
+          if (!teams.openDM) throw new TypeError("[vitehub] The Teams adapter cannot open direct messages.")
+          return { id: (await teams.postMessage(await teams.openDM(recipient.slice(5)), { markdown: text })).id }
+        }
+        if (!idempotencyKey) return await post()
+        const kv = await teamsKV()
+        const receiptKey = `teams:messages:${teamsHash(`${recipient}\0${idempotencyKey}`)}`
+        return await withTeamsLock(receiptKey, async () => {
+          const stored = await teamsKVGet(kv, receiptKey)
+          if (hasRuntimeType(stored?.id, "string")) return { id: stored.id }
+          const receipt = await post()
+          await teamsKVSet(kv, receiptKey, receipt)
+          return receipt
+        })
+      }
+      if (recipient.startsWith("user:") || /;messageid=/.test(decodeTeamsThread(teams, recipient).conversationId)) {
+        throw new TypeError("[vitehub] A Teams thread requires a channel recipient without a message ID.")
+      }
+      if (!teams.postChannelMessage) throw new TypeError("[vitehub] The Teams adapter cannot post channel messages.")
+      const postChannelMessage = teams.postChannelMessage.bind(teams)
+      const kv = await teamsKV()
+      const key = `teams:threads:${teamsHash(`${recipient}\0${thread.key}`)}`
+      const receiptKey = idempotencyKey ? `${key}:messages:${teamsHash(idempotencyKey)}` : undefined
+      return await withTeamsLock(key, async () => {
+        const stored = receiptKey ? await teamsKVGet(kv, receiptKey) : undefined
+        if (hasRuntimeType(stored?.id, "string")) return { id: stored.id }
+        const savedRoot = await teamsKVGet(kv, `${key}:root`)
+        let threadId = hasRuntimeType(savedRoot?.threadId, "string") ? savedRoot.threadId : undefined
+        if (!threadId) {
+          const root = await postChannelMessage(recipient, { markdown: thread.root ?? text })
+          if (!root.id) throw new Error("[vitehub] Teams did not return a root message ID.")
+          threadId = teamsRootThreadId(teams, recipient, root)
+          await teamsKVSet(kv, `${key}:root`, { threadId })
+          if (thread.root === undefined) {
+            if (receiptKey) await teamsKVSet(kv, receiptKey, { id: root.id })
+            return { id: root.id }
+          }
+        }
+        const message = await teams.postMessage(threadId, { markdown: text })
+        if (!message.id) throw new Error("[vitehub] Teams did not return a message ID.")
+        if (receiptKey) await teamsKVSet(kv, receiptKey, { id: message.id })
+        return { id: message.id }
+      })
+    },
   }
 }
 
@@ -3728,11 +3879,14 @@ export function slack<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   return defineChannel("slack", options)
 }
 
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods> {
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods> {
   return defineMessageChannelInstructions(defineChannel("teams", { ...options, adapter: teamsAdapterResolver(options.adapter) }), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link.")
 }
+
+/** The Microsoft Teams Channel for an Agent. `teams.connector()` sends outbound messages through a `defineOutboundChannel()`. */
+export const teams: typeof teamsChannel & { connector: typeof teamsConnector } = Object.assign(teamsChannel, { connector: teamsConnector })
 
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
