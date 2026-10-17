@@ -237,13 +237,11 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   const loadedContributions = new Map<string, readonly ResolvedDatabaseContribution[]>()
   const activeDefinitions = await Promise.all(config.definitions.map(async (definition) => {
     const sources = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options)))
-    const definitionLoaded = sources.some((source, index) =>
-      definition.schemaSources[index]?.handler === definition.handler && source.loaded)
     const active = {
       ...definition,
-      schemaSources: definitionLoaded
-        ? definition.schemaSources.filter((_, index) => sources[index]!.loaded)
-        : [],
+      // Keep generated types aligned with the schema artifact: a successfully
+      // loaded layer remains available even when the primary Definition fails.
+      schemaSources: definition.schemaSources.filter((_, index) => sources[index]!.loaded),
     }
     const contributions = config.tableContributionsByDatabase[definition.name] ?? []
     const loaded = await Promise.all(contributions.map(async contribution =>
