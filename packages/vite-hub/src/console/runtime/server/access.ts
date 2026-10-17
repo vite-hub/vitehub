@@ -243,7 +243,9 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
  * Name the manager of one Connections management request with the installed Console access policy.
  * The generated Connections actor module calls it, so Connections routes and Console data routes share one policy.
  * - `auth`: `sessionActor` reads the signed-in user as `user:<id>`.
- * - `open`, `local`, and `cloudflare-access` have no user id. The manager is `user:<mode>`.
+ * - `open` has no user id and retains the former host-managed actor identity so
+ *   persisted Connections authorization state remains usable across upgrades.
+ * - `local` and `cloudflare-access` have no user id. The manager is `user:<mode>`.
  * Returns the policy rejection when the policy rejects the request, so the Connections handler returns the same
  * Console diagnostic. Returns `403` with `CONSOLE_MANAGER_REQUIRED` when an `auth` session has no user id.
  */
@@ -269,7 +271,9 @@ export async function consoleConnectionsActor(
     const actor = sessionActor ? await sessionActor() : (await readConsoleAccessUser(access))?.id
     return actor ? (actor.startsWith("user:") ? actor : `user:${actor}`) : rejection(403, "CONSOLE_MANAGER_REQUIRED")
   }
-  return `user:${access.mode}`
+  // `open` replaces the removed host-managed policy. Keep its actor stable so
+  // an authorization started before an upgrade can still complete afterwards.
+  return access.mode === "open" ? "user:host-managed" : `user:${access.mode}`
 }
 
 /**
