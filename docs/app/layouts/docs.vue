@@ -5,6 +5,11 @@ import { getDocsSectionForPath, isDocsLandingPath } from "~~/modules/vitehub-doc
 const route = useRoute();
 const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
+const docsShellUi = {
+  root: "lg:!flex lg:!flex-row lg:!items-start lg:!gap-0",
+  left: "lg:!w-(--vh-sidebar-width) lg:shrink-0",
+  center: "lg:!flex-1 lg:!min-w-0",
+};
 const hasPanel = computed(
   () => !isSupportMatrix.value && Boolean(getDocsSectionForPath(docsManifest.sections, route.path)),
 );

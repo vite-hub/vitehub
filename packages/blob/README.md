@@ -121,6 +121,23 @@ Browser clients:
 - `@vite-hub/blob/client`: `uploadFiles()` and `createMultipartUploader()`, built only on `fetch`.
 - `@vite-hub/blob/vue`: `useUpload()` and `useMultipartUpload()`, which add a progress ref. `vue` is an optional peer dependency.
 
+## Blob reference schemas
+
+`image()` and `file()` return [Standard Schema](https://standardschema.dev) validators for a stored pointer to one object: `{ pathname, contentType?, size? }`. They accept a `BlobObject` from `put()` or `handleUpload()` and drop its other fields. They reject unsafe pathnames, such as absolute paths and `..` segments, and they check `accept` against `contentType` and `maxSize` against the recorded `size`. They don't read the store.
+
+```ts
+import { file, image } from "@vite-hub/blob"
+
+const cover = image({ store: "media", maxSize: "8MB" }) // accepts image/* by default
+const attachment = file({ accept: ["application/pdf"] })
+
+const result = cover["~standard"].validate(uploadedObject)
+const jsonSchema = cover["~standard"].jsonSchema.input({ target: "draft-2020-12" })
+// jsonSchema["x-vitehub-blob"] -> { kind: "image", store: "media", accept: ["image/*"], maxSize: "8MB" }
+```
+
+The JSON Schema `x-vitehub-blob` keyword tells a form to render a Blob picker. Zod 4 and Valibot object schemas accept only their own schema types, so these validators can't be fields inside `z.object()` or `v.object()`. Use them where a Standard Schema is read directly.
+
 ## Signed requests
 
 Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.
