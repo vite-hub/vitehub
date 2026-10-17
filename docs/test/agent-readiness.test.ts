@@ -160,11 +160,13 @@ describe("trust and developer discovery content", () => {
     }
   });
 
-  it("links trust pages from the shared footer and the 404 page", () => {
+  it("renders no site footer and keeps recovery links on the 404 page", () => {
     const footer = readFileSync(resolve(docsRoot, "app/components/AppFooter.vue"), "utf8");
     const error = readFileSync(resolve(docsRoot, "app/error.vue"), "utf8");
 
-    for (const page of trustPages) expect(footer).toContain(`to: "/${page}"`);
+    // Docus renders AppFooter on every page. The override renders nothing.
+    expect(footer).not.toMatch(/<(?:UFooter|NuxtLink|a)\b/);
+    expect(error).not.toContain("<AppFooter");
     expect(error).toContain("Documentation index");
     expect(error).toContain("llms.txt");
     expect(error).toContain("Sitemap");
