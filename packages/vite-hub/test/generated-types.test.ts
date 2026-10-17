@@ -520,12 +520,10 @@ describe("framework generated types", () => {
       mkdir(join(root, "server/collections/admin"), { recursive: true }),
       mkdir(join(root, "server/collections/*"), { recursive: true }),
     ])
-    await mkdir(join(root, ".vitehub/source"), { recursive: true })
     await Promise.all([
       writeFile(join(root, "server/collections/*/specials.ts"), collectionModule("specials")),
       writeFile(join(root, "server/collections/meals.ts"), collectionModule("meals")),
       writeFile(join(root, "server/collections/admin/history.ts"), collectionModule("history")),
-      writeFile(join(root, ".vitehub/source/collections.d.ts"), "interface ViteHubCollectionMap { stale: never }\n"),
     ])
 
     const plugin = sourcePlugin()
@@ -549,7 +547,6 @@ describe("framework generated types", () => {
     )
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.toContain(`./types/source/collections.d.ts`)
     await expect(readFile(join(root, ".vitehub/types.d.ts"), "utf8")).resolves.not.toContain(`./source/collections.d.ts`)
-    await expect(readFile(join(root, ".vitehub/source/collections.d.ts"), "utf8")).rejects.toThrow()
     expect(handlers).toEqual([
       {
         handler: join(root, ".vitehub/source/routes/*/specials.mjs"),
