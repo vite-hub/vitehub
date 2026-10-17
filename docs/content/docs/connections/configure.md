@@ -17,7 +17,32 @@ Each provider declares the API origins that may receive its credential. `call` a
 
 An origin is `https://host` or `https://host:port`. ViteHub compares origins exactly, so list each host. `http` is accepted only for loopback hosts such as `localhost` and `127.0.0.1`.
 
-ViteHub has no generic OAuth 2 provider yet. For another service, use `apiKey()` when the service issues API keys or personal access tokens. An API key Connection does not refresh its key.
+ViteHub has no generic OAuth 2 provider function yet. For another service, declare an [OAuth provider object](#oauth-provider-objects), or use `apiKey()` when the service issues API keys or personal access tokens. An API key Connection does not refresh its key.
+
+## OAuth provider objects
+
+A provider object declares the endpoints of an OAuth 2.0 authorization code flow with PKCE:
+
+```ts [server/connections/crm.ts]
+export default defineConnection({
+  provider: {
+    id: 'crm',
+    authorizationEndpoint: 'https://auth.crm.example.com/authorize',
+    tokenEndpoint: 'https://auth.crm.example.com/token',
+    clientId: 'crm-client-id',
+    identityScopes: ['openid', 'email'],
+  },
+  scopes: ['offline_access'],
+})
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `account` | The ID token claims when `identityScopes` includes `openid` | Reads the account from the token response. |
+| `apis` | `{}` | Typed API catalogs. Their root URLs receive the token. Without catalogs, `call` and `fetch` send the token nowhere. |
+| `identityScopes` | None | Scopes added to each authorization request so the provider identifies the account. |
+
+Without `account`, a provider that requests `openid` reads the account from the ID token in the token response: `sub` becomes the account id and a string `email` labels it. ViteHub does not check the token signature, because the ID token comes directly from the token endpoint over TLS, as OpenID Connect allows for the authorization code flow. A missing or malformed ID token gives no account. A reconnect without an account, or with a different account, puts the Connection in `reauth_required`.
 
 ## API key Connections
 
