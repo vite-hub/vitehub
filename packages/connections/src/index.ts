@@ -12,6 +12,7 @@ export type {
   ConnectionActionPattern,
   ConnectionApiCatalog,
   ConnectionApiKeyDefinition,
+  ConnectionApiKeyFallback,
   ConnectionApiKeyProvider,
   ConnectionApiKeyVerification,
   ConnectionApiKeyVerifyContext,
