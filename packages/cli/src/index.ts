@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 
 import { collectViteHubCliContribution, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
-import { isAbsolute, resolve } from "pathe"
+import { resolve } from "pathe"
 
 import { createInspectNamespace } from "./inspect.ts"
 import { createProvisionNamespace } from "./provision.ts"
@@ -124,9 +124,9 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      // Windows needs a shell to run `.cmd` shims found on PATH. An absolute executable path, such as
-      // `process.execPath`, runs without one, so a space in the path does not split the command.
-      shell: process.platform === "win32" && !isAbsolute(command),
+      // Windows needs a shell to run `.cmd` and `.bat` shims, including absolute paths. Node itself
+      // runs without one, so a space in the executable path does not split the command.
+      shell: process.platform === "win32" && command !== process.execPath,
       stdio: [
         "inherit",
         options.stdout || "inherit",

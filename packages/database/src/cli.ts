@@ -69,7 +69,15 @@ function toConfigPath(rootDir: string, file: string): string {
 }
 
 /** Finds the drizzle-kit bin file in the dependencies of the project, so the command does not depend on PATH. */
-function resolveDrizzleKitBin(projectRoot: string): string | undefined {
+function resolveDrizzleKitBin(projectRoots: string[]): string | undefined {
+  for (const projectRoot of projectRoots) {
+    const drizzleKitBin = resolveDrizzleKitBinFromRoot(projectRoot)
+    if (drizzleKitBin) return drizzleKitBin
+  }
+  return undefined
+}
+
+function resolveDrizzleKitBinFromRoot(projectRoot: string): string | undefined {
   let packageJsonFile: string | undefined
   try {
     packageJsonFile = findPackageJSON("drizzle-kit", pathToFileURL(resolve(projectRoot, "package.json")))
@@ -93,7 +101,7 @@ async function runDrizzleKit(
   // Drizzle Kit resolves `out` and the SQLite URL from its working directory, and the Database writes them relative to its
   // project root. In Nuxt the Vite root is `srcDir` (`app/`), so `context.rootDir` is not the project root.
   const projectRoot = config?.rootDir ?? context.rootDir
-  const drizzleKitBin = resolveDrizzleKitBin(projectRoot)
+  const drizzleKitBin = resolveDrizzleKitBin([context.rootDir, projectRoot])
   if (!drizzleKitBin) {
     context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D drizzle-kit\`.\n`)
     return 1
