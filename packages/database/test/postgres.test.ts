@@ -12,6 +12,7 @@ import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "../src/internal/cloudflare.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 import { writeHostedDatabaseRuntimeModules } from "../src/internal/vite-build.ts"
+import { hubDb } from "../src/vite.ts"
 import { createAgentDatabase } from "../src/runtime/agent.ts"
 
 const driver = vi.hoisted(() => ({
@@ -200,6 +201,22 @@ describe("Postgres build configuration", () => {
     expect(types).toContain("dialect: \"postgresql\"")
   })
 
+  it("keeps the libSQL runtime out of the Vite databases module of a Postgres-only app", async () => {
+    const rootDir = await createLoadableProject()
+    await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
+    const plugin = hubDb()
+    // SAFETY: These are Vite hook handlers returned by hubDb.
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: rootDir })
+    // SAFETY: These are Vite hook handlers returned by hubDb.
+    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    // SAFETY: These are Vite hook handlers returned by hubDb.
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+
+    const code = await load((await resolveId("#vitehub/database/databases"))!)
+    expect(code).toContain("runtime/postgres")
+    expect(code).not.toContain("runtime/hosted")
+  })
+
   it("lists the Postgres dialect in Definition inspection", async () => {
     const rootDir = await createTempProject()
     await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: 'postgresql',"])
@@ -266,7 +283,9 @@ describe("Postgres runtime", () => {
 
     expect(first).not.toBe(second)
     expect(driver.clients).toHaveLength(2)
-    expect(driver.clients[0]).toMatchObject({ options: { fetch_types: false, max: 5 }, url: "postgres://hyperdrive/app" })
+    expect(driver.clients[0]).toMatchObject({ options: { max: 5 }, url: "postgres://hyperdrive/app" })
+    // Array columns need the type metadata that postgres.js discovers.
+    expect(driver.clients[0]!.options).not.toHaveProperty("fetch_types")
     expect(driver.clients[0]!.end).not.toHaveBeenCalled()
   })
 

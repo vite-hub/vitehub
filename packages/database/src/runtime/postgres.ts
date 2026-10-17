@@ -51,7 +51,8 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>>(
 
   function createInstance(url: string, requestScoped: boolean): PostgresInstance<TSchema> {
     // Cloudflare limits concurrent connections per request. Hyperdrive pools the origin connections.
-    const client = postgres(url, requestScoped ? { fetch_types: false, max: 5 } : {})
+    // Type discovery stays on, because array columns need the type metadata that postgres.js reads.
+    const client = postgres(url, requestScoped ? { max: 5 } : {})
     const db: RuntimePostgresDatabase<TSchema> = drizzle({ casing: definition.drizzle.casing, client, schema: definition.schema })
     return { client, db, url }
   }

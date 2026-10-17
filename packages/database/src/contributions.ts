@@ -5,7 +5,7 @@ import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import type { CollectedContribution, ContributingPlugin, Contribution, ContributionContext, ContributionFactory } from "@vite-hub/internal/contributions"
 import type { DatabaseDialect } from "./types.ts"
 
-const databaseDialects: readonly DatabaseDialect[] = ["sqlite"]
+const databaseDialects: readonly DatabaseDialect[] = ["sqlite", "postgresql"]
 
 /** Fields that only Database contributions have. */
 export interface DatabaseContributionFields {

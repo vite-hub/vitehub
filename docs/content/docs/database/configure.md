@@ -136,7 +136,7 @@ export const historySchema = {
 | `definition.export` | `string` | Export that holds the object of tables. Defaults to `default`. |
 | `reason` | `string` | Optional. Why the package adds the tables. `vitehub inspect definitions` and the Console show it. |
 | `database` | `string` | Optional. Database that receives the tables. Omit it to target the default or only Database. |
-| `dialect` | `'sqlite'` | Optional. SQL dialect of the tables. When set, the build fails if the target Database uses another dialect. |
+| `dialect` | `'sqlite' \| 'postgresql'` | Optional. SQL dialect of the tables. When set, the build fails if the target Database uses another dialect. |
 
 `vitehub.databases` accepts an array or a factory. The factory receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root, and can be async. It runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
 
