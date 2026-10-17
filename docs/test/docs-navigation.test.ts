@@ -4,8 +4,6 @@ import {
   docsCategoryOrder,
   docsRootSectionId,
   getDocsCatalog,
-  getDocsRailCatalog,
-  getDocsSectionKind,
   getDocsSectionForPath,
   getDocsSectionSubpages,
   getDocsSidebarGroups,
@@ -52,21 +50,6 @@ describe("docs product navigation", () => {
     expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
   });
 
-  it("keeps the rail concise while retaining Platform in the catalog", () => {
-    expect(getDocsRailCatalog(docsManifest.sections).map(group => group.category))
-      .toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
-    expect(getDocsCatalog(docsManifest.sections).some(group => group.category === "Platform")).toBe(true);
-  });
-
-  it("labels product sections for the catalog consumer", () => {
-    const kind = (id: string) => getDocsSectionKind(docsManifest.sections.find(section => section.id === id)!);
-    expect(kind("kv")).toBe("Server Primitive");
-    expect(kind("agents")).toBe("Agent runtime");
-    expect(kind("ui")).toBe("UI components");
-    expect(kind("getting-started")).toBe("Getting started");
-    expect(kind("reference")).toBe("Platform");
-  });
-
   it("orders every Server Primitive section by the product page template", () => {
     const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
 
@@ -80,8 +63,9 @@ describe("docs product navigation", () => {
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Get started");
       expect(templateTitles, sectionId).toContain("Server API");
-      // Template pages appear in canonical template order. Product-specific pages may be interspersed.
-      expect(templateTitles, sectionId).toEqual(template.filter(title => titles.includes(title)));
+      // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
+      expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
+      expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
@@ -128,11 +112,11 @@ describe("docs product navigation", () => {
       const groups = getDocsSidebarGroups(section!);
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
-      expect(groups.every(group => group.label && group.pages.length > 0), sectionId).toBe(true);
+      expect(groups.every(group => group.pages.length > 0), sectionId).toBe(true);
     }
 
     const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).some(group => group.label === null)).toBe(true);
+    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
   });
 
   it("lists each topic once inside a section", () => {
@@ -166,7 +150,7 @@ describe("docs product navigation", () => {
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.sourceTitle)
+    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.title)
       .toBe("Runtime policy, approvals, and traces");
   });
 

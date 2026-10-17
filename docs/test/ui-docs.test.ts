@@ -20,8 +20,7 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md"].includes(page.name) && !/^layout: tutorial$/m.test(page.source) && !page.name.startsWith("blocks/"),
-
+  (page) => !["index.md", "installation.md", "get-started.md"].includes(page.name) && !page.name.startsWith("blocks/"),
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -163,7 +162,6 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
-
   it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
 
@@ -174,23 +172,20 @@ describe("UI documentation", () => {
     expect(rail).toContain('{ label: "Templates", to: "/templates"');
     expect(rail).toContain("<template #default");
   });
-
-
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
     const sidebarPanel = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
-    expect(sidebar).toContain("flex: 1 1 0");
+    expect(sidebar).toContain("vh-docs-sidebar-nav");
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
+    expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    expect(layout).toContain("overflow-x: clip;");
     expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: visible;");
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
-    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
+    expect(layout).toContain("overflow: hidden;");
+    expect(layout).not.toContain("vh-docs-shell > .vh-docs-desktop-nav");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
@@ -199,5 +194,6 @@ describe("UI documentation", () => {
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
+    expect(page).toContain("ViteHub is a server primitive library.");
   });
 });

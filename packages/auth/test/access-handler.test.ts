@@ -1,4 +1,4 @@
-import { runInNewContext } from "node:vm"
+import * as vm from "node:vm"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
 
@@ -59,7 +59,7 @@ describe("Auth access handlers", () => {
   })
 
   it("runs authorize callbacks on routes from another JavaScript realm", async () => {
-    const foreignRoute = runInNewContext("({ route: '/private', authorize: () => true })") as never
+    const foreignRoute = vm.runInNewContext("({ route: '/private', authorize: () => true })") as never
     const handler = createAuthAccessHandler([{ route: "/private", authorize: true }], defineAuth({
       access: { routes: [foreignRoute] },
     }))
@@ -218,7 +218,7 @@ describe("Auth access handlers", () => {
   })
 
   it("rejects objects that spoof the Response shape", async () => {
-    const foreignResponse = runInNewContext(`new (class {
+    const foreignResponse = vm.runInNewContext(`new (class {
       get status() { return 409 }
       get statusText() { return "Conflict" }
       get headers() { return { get() { return null } } }
@@ -233,7 +233,7 @@ describe("Auth access handlers", () => {
   })
 
   it("rejects a forged Response-named prototype with valid headers", async () => {
-    const forgedResponse = runInNewContext(`new (class Response {
+    const forgedResponse = vm.runInNewContext(`new (class Response {
       get status() { return 409 }
       get statusText() { return "Conflict" }
       get headers() { return new Headers({ "x-policy": "forged" }) }
