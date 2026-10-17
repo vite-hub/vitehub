@@ -13,7 +13,7 @@ import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoo
 import { renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 
 import { rateLimitDevRuntimeRoute } from "./dev.ts"
 import { discoverRateLimitCatalog } from "./discovery.ts"
@@ -100,18 +100,13 @@ function resolveRateLimitNamespace(configured?: string): string | undefined {
 function resolveProvider(options: RateLimitModuleOptions, command: "build" | "serve", nitro: unknown, deferUnknown = false): "cloudflare" | "memory" | undefined {
   if (options.provider && options.provider !== "auto") return options.provider
   if (command === "serve") return "memory"
-  const hosting = resolveNitroHosting(nitro)
+  const hosting = getHostingProvider(resolveHost({ nitro }))
   if (hosting === "cloudflare") return "cloudflare"
   if (hosting) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_B0002({ message: `[vitehub] Rate Limit has no native ${hosting} driver. Configure a custom Rate Limiter instead of falling back to per-instance memory.` })
   }
   if (deferUnknown) return
   throw rateLimitErrorDiagnostics.RATE_LIMIT_B0003({ message: "[vitehub] Rate Limit provider cannot be inferred for a production build. Set rateLimit.provider to \"cloudflare\" or explicitly choose \"memory\" for a known single-process deployment." })
-}
-
-function resolveNitroHosting(nitro: unknown): string | undefined {
-  const preset = cloneNitroConfig(nitro).preset
-  return getHostingProvider(typeof preset === "string" ? preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING)
 }
 
 export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimitVitePlugin {
@@ -181,7 +176,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         declarations,
         resolveRateLimitNamespace(rateLimit.namespace),
         configuredProvider,
-        resolveNitroHosting(configuredNitro) === "cloudflare",
+        resolveHost({ nitro: configuredNitro }) === "cloudflare",
         cliDiscovery ? undefined : devHandler,
         projectRoot,
       )
@@ -193,7 +188,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       rateLimit = config.rateLimit ?? rateLimit
       projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      const nitroCloudflare = resolveNitroHosting(configuredNitro) === "cloudflare"
+      const nitroCloudflare = resolveHost({ nitro: configuredNitro }) === "cloudflare"
       provider = resolveProvider(rateLimit, config.command, configuredNitro)!
       cloudflareBindings = nitroCloudflare && provider === "cloudflare"
       collectDeclarations()

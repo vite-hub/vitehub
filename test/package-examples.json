@@ -40,7 +40,7 @@
       "framework": "vite",
       "id": "queue",
       "mode": "build",
-      "outputs": ["dist/server.js", ".vercel/output/config.json"]
+      "outputs": [".vercel/output/config.json", ".vercel/output/functions/api/vitehub/queues/vercel/welcome-email.func/.vc-config.json"]
     },
     {
       "artifact": "provider-output",

@@ -114,6 +114,7 @@ import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
 import { vitehub } from "../src/index.ts"
+import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/cli"])
@@ -127,8 +128,8 @@ const pluginContext = {} as never
 const pluginResolveOptions = {} as never
 
 function pluginNames(plugins: PluginOption[]): string[] {
-  // SAFETY: vitehub() returns a flat list of concrete plugins in these integration tests.
-  return plugins.map(plugin => (plugin as Plugin).name)
+  // SAFETY: vitehub() returns concrete plugins, and the included Nitro plugins as one nested list.
+  return (plugins.flat() as Plugin[]).filter(plugin => !isIncludedNitroPlugin(plugin)).map(plugin => plugin.name)
 }
 
 function isCallable(value: unknown): value is CallableFunction {
@@ -576,6 +577,15 @@ describe("vitehub", () => {
     }
   })
 
+  it("includes Nitro once, and steps aside when the app adds nitro()", () => {
+    const included = (vitehub({ preset: "node" }).flat() as Plugin[]).filter(isIncludedNitroPlugin)
+    const main = included.find(plugin => plugin.name === "nitro:main")!
+    const apply = main.apply as (config: { plugins?: unknown[] }, env: { command: "build" | "serve", mode: string }) => boolean
+    const env = { command: "build" as const, mode: "production" }
+    expect(apply({ plugins: [included] }, env)).toBe(true)
+    expect(apply({ plugins: [included, [{ name: "nitro:init" }, { name: "nitro:main" }]] }, env)).toBe(false)
+  })
+
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
       "vite-hub/doctor",
@@ -635,6 +645,7 @@ describe("vitehub", () => {
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
+    expect((vitehub({ preset: "node" }).flat() as Plugin[]).filter(isIncludedNitroPlugin).map(plugin => plugin.name)).toContain("nitro:main")
     expect(pluginNames(vitehub({ preset: "node", sandboxTask: false }))).not.toContain("@vite-hub/sandbox-task/vite")
     expect(pluginNames(vitehub({ agent: true, preset: "node" }))).toContain("@vite-hub/workflow/vite")
     expect(pluginNames(vitehub({ agent: true, preset: "node", workflow: false }))).not.toContain("@vite-hub/workflow/vite")

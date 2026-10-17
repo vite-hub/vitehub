@@ -116,13 +116,13 @@ describe("Postgres Database Definitions", () => {
   it("rejects SQLite-only options and unknown dialects", () => {
     // @ts-expect-error D1 HTTP is a SQLite option.
     expect(() => defineDatabase({ cloudflare: { http: true }, dialect: "postgresql", schema: { notes } }))
-      .toThrow(expect.objectContaining({ code: "DATABASE_C0012", message: expect.stringContaining("cloudflare.http") }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_UNKNOWN_OPTION", message: expect.stringContaining("cloudflare.http") }))
     // @ts-expect-error libSQL auth tokens are a SQLite option.
     expect(() => defineDatabase({ connection: { authToken: "token" }, dialect: "postgresql", schema: { notes } }))
-      .toThrow(expect.objectContaining({ code: "DATABASE_C0012", message: expect.stringContaining("connection.authToken") }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_UNKNOWN_OPTION", message: expect.stringContaining("connection.authToken") }))
     // @ts-expect-error MySQL is not a supported dialect.
     expect(() => defineDatabase({ dialect: "mysql", schema: { notes } }))
-      .toThrow(expect.objectContaining({ code: "DATABASE_C0011" }))
+      .toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DIALECT" }))
   })
 })
 
@@ -172,14 +172,14 @@ describe("Postgres build configuration", () => {
 
     const config = resolveDBViteConfig(undefined, rootDir)!
     expect(config.databases.analytics?.hyperdrive?.binding).toBe("HYPERDRIVE_ANALYTICS")
-    expect(() => resolveCloudflareHyperdriveBindings(config)).toThrow(expect.objectContaining({ code: "DATABASE_B0007" }))
+    expect(() => resolveCloudflareHyperdriveBindings(config)).toThrow(expect.objectContaining({ code: "DATABASE_BINDING_CONFLICT" }))
   })
 
   it("requires a literal dialect", async () => {
     const rootDir = await createTempProject()
     await writePostgresDefinition(rootDir, "server/databases/config.ts", ["  dialect: process.env.DATABASE_DIALECT,"])
 
-    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_C0011" }))
+    expect(() => resolveDBViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "DATABASE_INVALID_DIALECT" }))
   })
 
   it("generates a postgresql Drizzle Kit config and a typed registry", async () => {
@@ -223,8 +223,8 @@ describe("Postgres build configuration", () => {
     const plugins = [{ name: "history-owner/vite", vitehub: { databases: [{ definition: { module: "history-tables/schema" }, dialect: "sqlite", name: "history" }] } }]
 
     await expect(inspectDatabaseDefinitions({ plugins, projectRoot: rootDir, rootDir })).rejects.toMatchObject({
-      code: "DATABASE_B0011",
-      message: expect.stringContaining("use the \"sqlite\" dialect, but Database \"default\" uses \"postgresql\""),
+      code: "DATABASE_INVALID_CONTRIBUTION_TARGET",
+      message: expect.stringContaining("use the \"sqlite\" dialect, but the Database \"default\" uses \"postgresql\""),
     })
   })
 
@@ -356,8 +356,8 @@ describe("Postgres runtime", () => {
     const db = createPostgresDatabase({ ...definition, name: "analytics" }, { binding: "HYPERDRIVE_ANALYTICS" })
 
     expect(() => db.select).toThrow(expect.objectContaining({
-      code: "DATABASE_R0017",
-      message: "[vitehub] Postgres database \"analytics\" requires the Cloudflare Hyperdrive binding \"HYPERDRIVE_ANALYTICS\" or connection.url.",
+      code: "DATABASE_MISSING_CONNECTION",
+      message: "The database \"analytics\" has no connection. It needs the Cloudflare Hyperdrive binding \"HYPERDRIVE_ANALYTICS\" or `connection.url`.",
     }))
   })
 

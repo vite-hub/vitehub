@@ -80,9 +80,9 @@ export async function writeHostedDatabaseRuntimeModules(
   if (providers.includes("cloudflare") && unprojectedNativeDatabases.length) {
     const opaqueNativeDatabases = unprojectedNativeDatabases.filter(name => runtimeConfig.definitionDefaults.cloudflareProjections[name]?.resource === "opaque")
     if (opaqueNativeDatabases.length) {
-      throw databaseErrorDiagnostics.DATABASE_B0003({ message: `[vitehub] Cloudflare native D1 output requires a literal cloudflare block for databases: ${opaqueNativeDatabases.join(", ")}. Use a literal block so ViteHub can project the resource, or configure D1 HTTP or a remote libSQL connection.` })
+      throw databaseErrorDiagnostics.DATABASE_OPAQUE_CLOUDFLARE_CONFIG({ databases: opaqueNativeDatabases })
     }
-    throw databaseErrorDiagnostics.DATABASE_B0005({ message: `[vitehub] Owned Cloudflare native D1 databases require resolved cloudflare.databaseId and cloudflare.databaseName values: ${unprojectedNativeDatabases.join(", ")}. Set the resource values at build time or provision the database ID. Use D1 HTTP or a remote libSQL connection for resource values that resolve at runtime.` })
+    throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: unprojectedNativeDatabases, missing: "resolved `cloudflare.databaseId` and `cloudflare.databaseName` values" })
   }
   if (providers.includes("cloudflare")) resolveCloudflareD1Bindings(runtimeConfig)
   const definitionDefaults = normalizeDefinitionDefaults(runtimeConfig.definitionDefaults)
