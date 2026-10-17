@@ -333,18 +333,6 @@
       "require": "./dist/agent/eval.js",
       "default": "./dist/agent/eval.js"
     },
-    "./agent/evlog": {
-      "types": "./dist/agent/evlog.d.ts",
-      "import": "./dist/agent/evlog.js",
-      "require": "./dist/agent/evlog.js",
-      "default": "./dist/agent/evlog.js"
-    },
-    "./agent/evlog/posthog": {
-      "types": "./dist/agent/evlog/posthog.d.ts",
-      "import": "./dist/agent/evlog/posthog.js",
-      "require": "./dist/agent/evlog/posthog.js",
-      "default": "./dist/agent/evlog/posthog.js"
-    },
     "./agent/gateways": {
       "types": "./dist/agent/gateways.d.ts",
       "import": "./dist/agent/gateways.js",

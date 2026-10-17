@@ -126,8 +126,7 @@ non-draft PR, and GitHub's live `mergeable_state: "clean"` on the default
 branch. The merge request pins the head SHA, so a concurrent push makes GitHub
 reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
 add a policy, such as a required approval check; return `true` or a reason. Any
-other result runs a normal repair pass. `autoMerge: true` is a deprecated alias
-for `merge: "auto"`.
+other result runs a normal repair pass.
 
 After a repair push, the pass may continue for 3 minutes, then ends. The PR
 waits on the pushed head. Later events on a waiting PR start a pass only when

@@ -498,9 +498,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Sandbox Tasks is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox. |
 | KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
-| A production build rejects `console: true` | Configure an explicit production access contract: use `console: { access: 'auth' }` with a callback-backed policy for `/_vitehub/**`, or use `console: { exposure: 'host-managed', authorize: './server/console-authorize.ts' }`. |
 | A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
-| Console data routes return `500` with "requires console.authorize" | Set `console.authorize` for `exposure: 'host-managed'`. |
 | ViteHub rejects `console: true` (`VITE_HUB_B0003`) | Choose who can open the Console: `console: { auth: false }` for no sign-in, or `console: { auth: 'app' }` to use the app Auth. |
 | ViteHub reports that `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object. Use `false`, `'app'`, or a Console Auth config. |
 | `auth: 'app'` fails with `VITE_HUB_B0005` | Set `auth: true` and add a discovered Auth Definition, such as `server/auth.ts`. |
@@ -521,10 +519,9 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_SIGN_IN_REQUIRED` | `401` | Sign in again. |
 | `CONSOLE_ACCESS_DENIED` | `403` | Sign in with an account that the access policy allows. |
 | `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. Make sure the Auth Definition that protects the Console returns a user with an id. |
-| `CONSOLE_DEVELOPMENT_ONLY` | `403` | Use `console: { access: 'auth' }` or `exposure: 'host-managed'` in production. |
+| `CONSOLE_DEVELOPMENT_ONLY` | `403` | Set `console: { auth: 'app' }` or a Console Auth config in production. |
 | `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. |
 | `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
-| `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |
 | `CONSOLE_AUTH_NOT_CONFIGURED` | `500` | Add an Auth Definition, or configure Cloudflare Access. |
 | `CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE` | `404` | Set `connections: { management: true }` for production. |
 | `CONSOLE_ENV_MANAGEMENT_UNAVAILABLE` | `404` | Give the Env declaration a management bridge. |

@@ -106,8 +106,6 @@ export interface BabysitterOptions {
    * and 4096 MiB of free temporary space.
    */
   admission: BabysitterAdmissionOptions;
-  /** @deprecated Use `merge: "auto"`. */
-  autoMerge: boolean;
 }
 
 /**
@@ -277,9 +275,8 @@ export const babysitter: BabysitterAgent = defineAgent({
     admission: {} as BabysitterAdmissionOptions,
     lifecycle: {} as BabysitterLifecycleOptions,
     placement: undefined as BabysitterPlacement | undefined,
-    autoMerge: false,
   },
-  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission, placement }) => {
+  configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, concurrency, admission, placement }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
       throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
     }
@@ -309,7 +306,7 @@ export const babysitter: BabysitterAgent = defineAgent({
     }
     resolveBabysitterLifecycleFilter(filter, lifecycle);
     // Validate merge settings when the Agent is defined, not on the first PR.
-    resolveBabysitterMerge(merge, autoMerge);
+    resolveBabysitterMerge(merge);
     const definition = defineAgent({
       description: "Repair selected pull requests and wait for their checks and reviews.",
       // Signed GitHub deliveries feed the PR inbox. They never start the Agent directly.

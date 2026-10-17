@@ -9,16 +9,15 @@ import type { ConsoleSectionId } from "../sections.ts"
 
 /**
  * How the Console checks each request. Generated host output installs one policy for each server process.
- * - `local`: the development server, for `console: true` and development without an edge.
+ * - `open`: no sign-in. `authorize` runs when it is set.
+ * - `local`: the development server only. Production requests fail closed.
  * - `auth`: a ViteHub Auth Session. `check` is built on `withAuthorization()`.
  * - `cloudflare-access`: the Cloudflare Access application token.
- * - `host-managed`: the host-supplied `console.authorize` function.
  */
 export type ConsoleAccessPolicy =
   | { mode: "open", authorize?: ConsoleAuthorize }
   | { mode: "local" }
   | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
-  | { mode: "host-managed", authorize?: ConsoleAuthorize }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 
@@ -53,7 +52,7 @@ const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleA
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
-const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-managed", "local", "open"])
+const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open"])
 
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
 
@@ -199,25 +198,16 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   const policy = scope[policyKey]
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
   let user: ConsoleUser | undefined
-  let authorization: unknown = true
   if (policy.mode === "local") {
     if (productionRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   }
   else if (policy.mode === "open") {
     // open access intentionally performs no authentication
   }
-  else if (policy.mode === "host-managed") {
-    if (!policy.authorize) {
-      return rejection(500, "CONSOLE_AUTHORIZE_REQUIRED")
-    }
-    const result = await policy.authorize({ request: consoleRequest(event) })
-    if (isResponseLike(result)) return result
-    authorization = result
-  }
   else {
     if (!policy.check) {
       return rejection(500, "CONSOLE_AUTH_NOT_CONFIGURED", policy.mode === "auth"
-        ? "console: { access: \"auth\" } requires a discovered ViteHub Auth Definition."
+        ? "console: { auth: \"app\" } requires a discovered ViteHub Auth Definition."
         : "Cloudflare Access Console Auth is not configured.")
     }
     const response = await policy.check(event)
@@ -225,7 +215,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
   let sections: ConsoleAccess["sections"]
-  if (policy.mode !== "host-managed" && policy.mode !== "local" && policy.authorize) {
+  if (policy.mode !== "local" && policy.authorize) {
     const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
     if (isResponseLike(result)) return result
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
@@ -235,13 +225,6 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
       sections = allowed
     }
-  }
-  else if (authorization !== true) {
-    if (authorization === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
-    const allowed = authorizedSections(authorization)
-    if (!allowed) return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize must return true, false, a Response, or { sections: string[] }.")
-    if (!allowed.length) return rejection(403, "CONSOLE_ACCESS_DENIED")
-    sections = allowed
   }
   const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, ...(sections ? { sections } : {}), ...(user ? { user } : {}) })
   if (policy.mode === "auth" && !user && policy.user) deferredUsers.set(access, () => policy.user!(event))
@@ -266,7 +249,9 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
  * Name the manager of one Connections management request with the installed Console access policy.
  * The generated Connections actor module calls it, so Connections routes and Console data routes share one policy.
  * - `auth`: `sessionActor` reads the signed-in user as `user:<id>`.
- * - `local`, `host-managed`, and `cloudflare-access` have no user id. The manager is `user:<mode>`.
+ * - `open` has no user id and retains the former host-managed actor identity so
+ *   persisted Connections authorization state remains usable across upgrades.
+ * - `local` and `cloudflare-access` have no user id. The manager is `user:<mode>`.
  * Returns the policy rejection when the policy rejects the request, so the Connections handler returns the same
  * Console diagnostic. Returns `403` with `CONSOLE_MANAGER_REQUIRED` when an `auth` session has no user id.
  */
@@ -292,7 +277,9 @@ export async function consoleConnectionsActor(
     const actor = sessionActor ? await sessionActor() : (await readConsoleAccessUser(access))?.id
     return actor ? (actor.startsWith("user:") ? actor : `user:${actor}`) : rejection(403, "CONSOLE_MANAGER_REQUIRED")
   }
-  return `user:${access.mode}`
+  // `open` replaces the removed host-managed policy. Keep its actor stable so
+  // an authorization started before an upgrade can still complete afterwards.
+  return access.mode === "open" ? "user:host-managed" : `user:${access.mode}`
 }
 
 /**
