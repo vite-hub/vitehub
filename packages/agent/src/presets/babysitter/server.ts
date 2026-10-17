@@ -314,6 +314,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const { provider } = await forge(repository, signal);
           const query = `query BabysitterMergeQueueEntry($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){state headRefOid mergeQueueEntry{id}}}}`;
           const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, operationName: "BabysitterMergeQueueEntry", variables: { owner: repositoryOwner, name, number } }, signal })).data;
+          if (isRuntimeRecord(response) && Array.isArray(response.errors) && response.errors.length > 0) {
+            const messages = response.errors.map(error => isRuntimeRecord(error) && hasRuntimeType(error.message, "string") ? error.message : String(error));
+            throw new Error(`GitHub merge queue query failed: ${messages.join("; ")}`);
+          }
           const queued = v.parse(v.object({ repository: v.object({ pullRequest: v.object({
             state: v.string(), headRefOid: v.string(), mergeQueueEntry: v.nullable(v.object({ id: v.string() })),
           }) }) }), isRuntimeRecord(response) && "data" in response ? response.data : response).repository.pullRequest;
