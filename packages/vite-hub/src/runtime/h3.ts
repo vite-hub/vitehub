@@ -50,14 +50,6 @@ function isRequest(value: unknown): value is Request {
     } catch {
       // Fetch implementations in another realm have their own accessors.
       if (Object.prototype.toString.call(value) !== "[object Request]") return false
-      let hostRecognized = false
-      try {
-        new Request(value as Request)
-        hostRecognized = true
-      } catch {
-        // Consumed requests cannot be copied by the constructor. They are
-        // validated below with the foreign realm's native accessor.
-      }
       // Locate that realm's genuine Request prototype and use its native
       // bodyUsed getter; copied methods on a forged prototype still fail the
       // internal-slot check.
@@ -148,19 +140,11 @@ function isRequest(value: unknown): value is Request {
                   }
                 }
                 if (valid) {
-                  let candidateBodyUsed: unknown
                   try {
-                    candidateBodyUsed = getter.call(value)
+                    getter.call(value)
                   } catch {
                     valid = false
                   }
-                  // A fresh foreign request must be recognized by the host
-                  // constructor as well. This independent operation rejects
-                  // candidate-controlled accessors that special-case only
-                  // the candidate receiver.
-                  if (valid && candidateBodyUsed === false && !hostRecognized) valid = false
-                }
-                if (valid) {
                 }
                 if (valid) {
                   const headers = Object.getOwnPropertyDescriptor(prototype, "headers")?.get?.call(value)
