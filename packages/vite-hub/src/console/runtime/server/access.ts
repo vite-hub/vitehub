@@ -4,6 +4,7 @@ import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostic
 import { consoleRequestError, consoleRequestURL, type ConsoleRequestEvent } from "./request.ts"
 
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
+import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
 
 /**
@@ -83,13 +84,85 @@ function productionRuntime(): boolean {
   return globalThis.process?.env?.NODE_ENV === "production"
 }
 
-function webRequest(event: ConsoleRequestEvent): Request {
-  if (event.req instanceof Request) return event.req
+/** Build the standard Fetch request passed to Console authorization and runtime contexts. */
+export function consoleRequest(event: ConsoleRequestEvent): Request {
+  if (isRequestLike(event.req)) return event.req
   const headers = new Headers()
-  for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
-    if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value)
+  const copyHeaders = (source: unknown, overwrite = true): void => {
+    const setHeader = (name: string, value: string): void => {
+      if (overwrite || !headers.has(name)) headers.set(name, value)
+    }
+    if (source instanceof Headers) {
+      source.forEach((value, name) => setHeader(name, value))
+      return
+    }
+    if (source instanceof Object && "get" in source && source.get instanceof Function) {
+      for (const name of ["accept", "authorization", "cookie", "content-type", "host", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
+        const value = source.get(name)
+        if (typeof value === "string") setHeader(name, value)
+      }
+    }
+    if (!(source instanceof Object)) return
+    for (const [name, value] of Object.entries(source)) {
+      if (value !== undefined) setHeader(name, Array.isArray(value) ? value.join(", ") : String(value))
+    }
   }
+  // Match consoleRequestURL(): request headers take precedence per header,
+  // followed by event-level and Node request headers as fallbacks.
+  copyHeaders(event.node?.req?.headers)
+  copyHeaders(event.headers)
+  copyHeaders(event.req?.headers, true)
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
+}
+
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object") return false
+  try {
+    const request = value as Record<string, unknown>
+    const headers = request.headers
+    return typeof request.method === "string"
+      && typeof request.url === "string"
+      && headers !== null
+      && typeof headers === "object"
+      && typeof (headers as { get?: unknown }).get === "function"
+      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof request[method] === "function")
+      && "body" in request && "bodyUsed" in request && "signal" in request
+  }
+  catch { return false }
+}
+
+function isResponseLike(value: unknown): value is Response {
+  if (value === null || typeof value !== "object") return false
+  if (value instanceof Response) return true
+  try {
+    const response = value as Record<string, unknown>
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
+    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
+    if (typeof status === "number" && headers && typeof (headers as { get?: unknown }).get === "function") return true
+  }
+  catch { /* a foreign implementation may not share native internal slots */ }
+  try {
+    const headers = responseHeaders(value)
+    const tag = Object.prototype.toString.call(value)
+    const headersTag = headers && Object.prototype.toString.call(headers)
+    const headersConstructor = headers && (headers as { constructor?: unknown }).constructor
+    const response = value as Record<string, unknown>
+    const responseConstructor = response.constructor
+    return (tag === "[object Response]" || (typeof responseConstructor === "function" && responseConstructor.name === "Response"))
+      && typeof response.status === "number"
+      && typeof response.statusText === "string"
+      && typeof response.bodyUsed === "boolean"
+      && "body" in response
+      && headers !== undefined
+      && typeof (headers as { get?: unknown }).get === "function"
+      && (headersTag === "[object Headers]" || (typeof headersConstructor === "function" && headersConstructor.name === "Headers"))
+      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof (value as Record<string, unknown>)[method] === "function")
+  }
+  catch { return false }
+}
+
+function responseHeaders(value: object): unknown {
+  try { return Reflect.get(value, "headers") } catch { return undefined }
 }
 
 function isSectionId(value: unknown): value is ConsoleSectionId {
@@ -130,8 +203,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     if (!policy.authorize) {
       return rejection(500, "CONSOLE_AUTHORIZE_REQUIRED")
     }
-    const result = await policy.authorize({ request: webRequest(event) })
-    if (result instanceof Response) return result
+    const result = await policy.authorize({ request: consoleRequest(event) })
+    if (isResponseLike(result)) return result
     authorization = result
   }
   else {
@@ -146,8 +219,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   }
   let sections: ConsoleAccess["sections"]
   if (policy.mode !== "host-managed" && policy.mode !== "local" && policy.authorize) {
-    const result: unknown = await policy.authorize(user ? { request: webRequest(event), user } : { request: webRequest(event) })
-    if (result instanceof Response) return result
+    const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
+    if (isResponseLike(result)) return result
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
     if (result !== true) {
       const allowed = authorizedSections(result)
@@ -190,6 +263,17 @@ export function allowedConsoleSections(access: ConsoleAccess, available: readonl
  * Returns the policy rejection when the policy rejects the request, so the Connections handler returns the same
  * Console diagnostic. Returns `403` with `CONSOLE_MANAGER_REQUIRED` when an `auth` session has no user id.
  */
+/** Map the verified Console user to the Agent Actor used by invocations and replay. */
+export function consoleAccessActor(user: ConsoleUser | undefined): AgentActor | undefined {
+  if (!user?.id) return undefined
+  const label = "email" in user && typeof user.email === "string" && user.email
+    ? user.email
+    : "name" in user && typeof user.name === "string" && user.name
+      ? user.name
+      : user.id
+  return { id: user.id, kind: "authUser", label, meta: { authUserId: user.id } }
+}
+
 export async function consoleConnectionsActor(
   event: ConsoleRequestEvent,
   sessionActor?: () => Promise<string | undefined>,
