@@ -99,12 +99,22 @@ function isRequest(value: unknown): value is Request {
                     break
                   }
                   try {
+                    // Web IDL accessors must reject an unrelated receiver,
+                    // then accept both a request constructed by that realm
+                    // and the candidate itself. Keep every invocation inside
+                    // the guard: copied native accessors throw for forged
+                    // receivers and must be treated as a normal rejection.
                     accessor.call({})
                     valid = false
                     break
                   } catch {
-                    accessor.call(probe)
-                    accessor.call(value)
+                    try {
+                      accessor.call(probe)
+                      accessor.call(value)
+                    } catch {
+                      valid = false
+                      break
+                    }
                   }
                 }
                 if (valid) {
