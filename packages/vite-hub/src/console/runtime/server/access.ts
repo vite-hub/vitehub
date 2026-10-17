@@ -85,8 +85,14 @@ async function authorizationResponse(value: unknown): Promise<Response | undefin
       const descriptor = Object.getOwnPropertyDescriptor(prototype, "constructor")
       const constructor = descriptor?.value
       const constructorPrototype = typeof constructor === "function" ? Object.getOwnPropertyDescriptor(constructor, "prototype") : undefined
-      if (typeof constructor === "function" && constructor.name === "Response" && constructor.prototype === prototype
-        && constructorPrototype?.writable === false && constructorPrototype.configurable === false) {
+      const isResponseConstructor = typeof constructor === "function" && constructor.name === "Response"
+        && constructor.prototype === prototype
+        && constructorPrototype?.writable === false && constructorPrototype.configurable === false
+        && ["error", "json", "redirect"].every(name => {
+          const descriptor = Object.getOwnPropertyDescriptor(constructor, name)
+          return typeof descriptor?.value === "function"
+        })
+      if (isResponseConstructor) {
         if (!(value instanceof constructor)) return
         const find = (name: string): PropertyDescriptor | undefined => {
           let current: object | null = prototype
