@@ -1,10 +1,11 @@
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { describeDatabaseContribution } from "../contributions.ts"
-import { readStaticDatabaseSchema } from "../config.ts"
+import { isImplicitDefaultDatabase, readStaticDatabaseSchema } from "../config.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { CollectedDatabaseContribution } from "../contributions.ts"
+import type { DiscoveredDatabaseDefinition } from "../types.ts"
 
 export interface DatabaseTableNameOptions {
   /** Import aliases the host applies to the Database Definition, such as Vite `resolve.alias`. */
@@ -114,6 +115,18 @@ export async function loadDatabaseSchema(handler: string, options: DatabaseTable
   options.onFallback(`${failure.message.replace(/\.?$/, ".")} Using the keys of its literal \`schema: { ... }\` object instead. \`vitehub db generate\` requires the Definition to load.`)
   const { tableNames } = readStaticDatabaseSchema(handler)
   return { keys: tableNames, loaded: false, sqlNames: new Map(), tableNames }
+}
+
+/**
+ * Loads every schema source of a Database Definition. The implicit default Database has an empty schema, so it
+ * loads no module. Its module imports the Database runtime and Drizzle, which config resolution must not load.
+ */
+export function loadDefinitionSchemas(
+  definition: Pick<DiscoveredDatabaseDefinition, "schemaSources" | "source">,
+  options: DatabaseTableNameOptions = {},
+): Promise<LoadedDatabaseSchema[]> {
+  if (isImplicitDefaultDatabase(definition)) return Promise.resolve([{ keys: [], loaded: true, sqlNames: new Map(), tableNames: [] }])
+  return Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options)))
 }
 
 /** Merges schema sources in order. A later source wins a key. */

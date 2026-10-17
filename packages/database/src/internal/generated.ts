@@ -6,7 +6,7 @@ import { dirname, isAbsolute, join, relative } from "pathe"
 import { renderConfigValueExpression } from "../config-value.ts"
 import { describeDatabaseContribution } from "../contributions.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDatabaseSchema, mergeLoadedSchemas } from "./schema-tables.ts"
+import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./schema-tables.ts"
 
 import type { ResolvedDatabaseContribution } from "../contributions.ts"
 import type { DatabaseTableNameOptions, LoadedDatabaseSchema } from "./schema-tables.ts"
@@ -84,7 +84,7 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
   const contributions = config.tableContributionsByDatabase[definition.name] ?? []
   await mkdir(dirname(file), { recursive: true })
   const [sources, loadedContributions] = await Promise.all([
-    Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options))),
+    loadDefinitionSchemas(definition, options),
     Promise.all(contributions.map(async contribution => ({
       contribution,
       schema: await loadContributedDatabaseSchema(contribution, file, options),
