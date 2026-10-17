@@ -332,9 +332,9 @@ jobs:
         timeout-minutes: 7
         run: vp run schedule:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL" --timeout 270000
 
-      - name: Sandbox Live E2E (${{ matrix.provider }})
+      - name: Sandbox Task Live E2E (${{ matrix.provider }})
         timeout-minutes: 10
-        run: vp run sandbox:e2e --mode live --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
+        run: vp run sandbox-task:e2e --mode live --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Workflow Live E2E (${{ matrix.provider }})
         timeout-minutes: 5

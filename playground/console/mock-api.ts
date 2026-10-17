@@ -30,7 +30,7 @@ for (const record of fixture.invocations) {
   store.create(input)
 }
 const invocations = defineAgentInvocations({ content: "content", store })
-const sections = ["env", "connections", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandboxes", "workspaces", "workflows", "queues", "schedules"] as const
+const sections = ["env", "connections", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules"] as const
 const definitions = {
   "rate-limits": [
     {
@@ -58,18 +58,18 @@ const definitions = {
       source: "require-rate-limit",
     },
   ],
-  sandboxes: [
+  "sandbox-tasks": [
     {
       fields: [{ label: "Kind", value: "Definition" }],
-      file: "server/sandboxes/release-check.ts",
+      file: "server/sandbox-tasks/release-check.ts",
       name: "release-check",
-      source: "sandbox",
+      source: "server-sandbox-tasks",
     },
     {
       fields: [{ label: "Kind", value: "Package entry" }],
-      file: "node_modules/@vite-hub/sandbox/dist/providers/node.js",
+      file: "node_modules/@vite-hub/sandbox-task/dist/providers/node.js",
       name: "node",
-      source: "sandbox",
+      source: "server-sandbox-tasks",
     },
   ],
   workspaces: [
@@ -689,7 +689,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       json(response, { kind: "record-table", records: scheduleRecords, section })
       return true
     }
-    if (section !== "queues" && section !== "workflows" && section !== "rate-limits" && section !== "sandboxes" && section !== "workspaces") {
+    if (section !== "queues" && section !== "workflows" && section !== "rate-limits" && section !== "sandbox-tasks" && section !== "workspaces") {
       json(response, { error: "A valid definition section is required" }, 400)
       return true
     }

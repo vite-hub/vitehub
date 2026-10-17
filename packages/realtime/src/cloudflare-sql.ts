@@ -39,18 +39,22 @@ export function hasCloudflareSqlExec(sql: unknown): sql is RealtimeRoomSql {
     // arrow constructor proxies before any candidate callback is invoked.
     if (constructorEntry.owner !== execEntry.owner || constructorEntry.owner !== databaseSizeEntry.owner) return false
     if (!Object.hasOwn(constructor, "prototype") || constructor.prototype !== constructorEntry.owner) return false
-    // Accessor callbacks supplied by JavaScript have an own `prototype`;
-    // workerd's native getter does not. Reject these before the brand probe so
-    // discovery never invokes a fabricated getter.
-    if (Object.hasOwn(databaseSize, "prototype")) return false
+    // Some workerd versions give the native getter an own `prototype`. Its
+    // `constructor` is the getter itself. A Proxy around a JavaScript function
+    // reports the prototype of its target, so reject that before the brand
+    // probe and discovery never invokes a fabricated getter.
+    const getterPrototype: unknown = Object.getOwnPropertyDescriptor(databaseSize, "prototype")?.value
+    if (getterPrototype !== undefined) {
+      if (getterPrototype === null || Object(getterPrototype) !== getterPrototype) return false
+      if (Object.getOwnPropertyDescriptor(getterPrototype, "constructor")?.value !== databaseSize) return false
+    }
     // The platform getter is a native accessor. This prevents ordinary
     // JavaScript accessors from forging the receiver-sensitive brand probe.
-    // Native accessors have a stable engine-generated source form. A broad
-    // substring check is forgeable by an ordinary JavaScript getter whose
-    // source merely contains "[native code]".
-    // Keep the native marker check independent of optional engine whitespace
-    // and accessor naming details while still requiring a native body.
-    const nativeGetterSource = /^function\s+get(?:\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
+    // A broad substring check is forgeable by an ordinary JavaScript getter
+    // whose source merely contains "[native code]". workerd prints the getter
+    // as `function get databaseSize()` or as `function ()`, so the `get` and
+    // the name are optional, but the native body is required.
+    const nativeGetterSource = /^function(?:\s+get)?(?:\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
 
     // The native getter must enforce workerd's internal SqlStorage brand.

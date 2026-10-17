@@ -129,7 +129,7 @@ With `vite-hub` and the Console, the policy is the Console access policy of the 
 | Console Auth (`console: { auth: { ... } }`) | The Console Auth session and its `authorize` callback. | The signed-in user, `user:<id>`. |
 | App Auth (`console: { auth: "app" }`) | The app Auth session and the access routes that protect the Console. | The signed-in user, `user:<id>`. |
 | Cloudflare Access (`console: { auth: { provider: "cloudflare-access" } }`) | The Cloudflare Access token. | `user:cloudflare-access`. |
-| No sign-in (`console: { auth: false }`) | None. | `user:open`. |
+| No sign-in (`console: { auth: false }`) | None. | `user:host-managed` (stable actor for upgrades). |
 
 `console.authorize` runs after each of these checks. When it returns `{ sections }`, the routes also need the `connections` section.
 

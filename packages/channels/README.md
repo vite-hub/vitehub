@@ -127,6 +127,6 @@ For each connector delivery, Channels attempts to write `outbound.started` and e
 
 Delivery logging is best effort. A logging failure does not change the result of a send. An inaccessible or non-string optional message `id` is omitted from the receipt and log without changing delivery success.
 
-This package is separate from Agent Channels. `@vite-hub/channels` sends ordinary application messages with `defineOutboundChannel()`. The earlier `defineChannel()` export is a deprecated alias for one release; `defineChannel()` from `@vite-hub/agent/channels` defines an Agent Channel Kind. [`@vite-hub/agent/channels`](https://vitehub.dev/docs/agents/channels) describes where Agent Invocations come from, inbound delivery, threads, and Agent reply policy.
+This package is separate from Agent Channels. `@vite-hub/channels` sends ordinary application messages with `defineOutboundChannel()`. `defineChannel()` from `@vite-hub/agent/channels` defines an Agent Channel Kind. [`@vite-hub/agent/channels`](https://vitehub.dev/docs/agents/channels) describes where Agent Invocations come from, inbound delivery, threads, and Agent reply policy.
 
 Read the [Channels guide](https://vitehub.dev/docs/channels) for Server Env credentials, H3 and Nitro handlers, multiple connectors, generated types, and delivery logs. Use the [public import reference](https://vitehub.dev/docs/reference/import-paths) when composing the owner package directly.

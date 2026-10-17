@@ -16,10 +16,10 @@ icon: i-lucide-code-2
 | `createQueueClient` from `@vite-hub/queue` | Create a direct provider QueueClient. |
 | `createQueueMessageId` from `@vite-hub/queue` | Generate a ViteHub message id with an optional prefix. |
 | `ViteHubError` and `getViteHubErrorShape` from `@vite-hub/runtime` | Throw application failures or inspect Queue errors by namespaced code. |
-| `createCloudflareQueueBatchHandler` from `@vite-hub/queue` | Build a Cloudflare batch handler outside generated Provider Output. |
+| `createCloudflareQueueBatchHandler` from `@vite-hub/queue` | Build a Cloudflare batch handler outside the generated Nitro plugin. |
 | `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `@vite-hub/queue` | Inspect provider-derived names. Do not persist these names as application identifiers. |
 | `handleHostedVercelQueueCallback` from `@vite-hub/queue/runtime/hosted`, `createQueueCloudflareWorker` from `@vite-hub/queue` | Host adapter helpers used by generated Provider Output. Install `@vercel/functions` when you import the Vercel-specific runtime. |
-| `hubQueue`, `createCloudflareQueueConfig` from `@vite-hub/queue/vite` | Register the Vite Integration and emit Cloudflare queue config. |
+| `hubQueue` from `@vite-hub/queue/vite` | Register the Vite Integration and its Nitro Queue config. |
 | `@vite-hub/queue/nuxt` | Compose Queue into a Nuxt app. |
 
 Queue option, client, job, provider, registry, and result types are exported from `@vite-hub/queue`. Generated output uses the specific `@vite-hub/queue/internal/runtime/*` subpaths listed in the package exports; do not import those runtime modules from application code.

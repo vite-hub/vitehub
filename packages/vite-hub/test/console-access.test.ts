@@ -81,16 +81,9 @@ describe("Console data route contract", () => {
 })
 
 describe("Console access policies", () => {
-  it("rejects unknown legacy access and exposure values", () => {
-    expect(() => resolveConsoleOptions({ access: "authz" })).toThrow(/console\.access/)
-    expect(() => resolveConsoleOptions({ exposure: "prod" })).toThrow(/console\.exposure/)
-  })
-
-  it("keeps legacy host-managed exposure out of app-auth validation", () => {
-    expect(resolveConsoleOptions({ exposure: "host-managed", authorize: "authorize.ts" })).toMatchObject({
-      auth: false,
-      exposure: "host-managed",
-    })
+  it("requires console.auth instead of the removed access and exposure keys", () => {
+    expect(() => resolveConsoleOptions({ access: "auth" })).toThrow(/console\.auth is required/)
+    expect(() => resolveConsoleOptions({ exposure: "host-managed", authorize: "authorize.ts" })).toThrow(/console\.auth is required/)
   })
 
   it("fails closed when no policy is installed", async () => {
@@ -107,30 +100,26 @@ describe("Console access policies", () => {
     vi.stubEnv("NODE_ENV", "production")
     const denied = await run({ mode: "local" })
     expect(denied.handler).not.toHaveBeenCalled()
-    await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", fix: expect.stringContaining("host-managed"), message: expect.stringContaining("development-only"), status: 403 })
+    await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", fix: expect.stringContaining("For production"), message: expect.stringContaining("development-only"), status: 403 })
   })
 
-  it("requires the host authorize function for host-managed exposure", async () => {
-    const missing = await run({ mode: "host-managed" })
-    expect(missing.handler).not.toHaveBeenCalled()
-    await expect(rejection(missing.result)).resolves.toMatchObject({ code: "CONSOLE_AUTHORIZE_REQUIRED", fix: expect.stringContaining("defineConsoleAuthorize()"), message: expect.stringContaining("requires console.authorize"), status: 500 })
-
+  it("runs console.authorize for open access", async () => {
     const authorize = vi.fn(({ request }: { request: Request }) => request.headers.get("x-role") === "admin")
-    const denied = await run({ mode: "host-managed", authorize })
+    const denied = await run({ mode: "open", authorize })
     expect(denied.handler).not.toHaveBeenCalled()
     await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", status: 403 })
 
-    const allowed = await run({ mode: "host-managed", authorize }, event({ "x-role": "admin" }))
-    expect(allowed.result).toEqual({ mode: "host-managed" })
+    const allowed = await run({ mode: "open", authorize }, event({ "x-role": "admin" }))
+    expect(allowed.result).toEqual({ mode: "open" })
     expect(authorize).toHaveBeenLastCalledWith({ request: expect.any(Request) })
 
-    const custom = await run({ mode: "host-managed", authorize: () => new Response("Sign in at the host.", { status: 401 }) })
+    const custom = await run({ mode: "open", authorize: () => new Response("Sign in at the host.", { status: 401 }) })
     expect(custom.handler).not.toHaveBeenCalled()
     expect(custom.result).toBeInstanceOf(Response)
     await expect(Response.prototype.text.call(custom.result)).resolves.toBe("Sign in at the host.")
 
-    const defined = await run({ mode: "host-managed", authorize: defineConsoleAuthorize(() => true) })
-    expect(defined.result).toEqual({ mode: "host-managed" })
+    const defined = await run({ mode: "open", authorize: defineConsoleAuthorize(() => true) })
+    expect(defined.result).toEqual({ mode: "open" })
   })
 
   it("checks the Auth Session and fails closed without an Auth Definition", async () => {
@@ -199,7 +188,7 @@ describe("Console access policies", () => {
 
   it("rejects invalid policies", () => {
     expect(() => installConsoleAccess(JSON.parse('{"mode":"public"}'))).toThrow("known access mode")
-    expect(() => installConsoleAccess({ mode: "host-managed", authorize: JSON.parse('"server/authorize.ts"') })).toThrow("default-export a function")
+    expect(() => installConsoleAccess({ mode: "open", authorize: JSON.parse('"server/authorize.ts"') })).toThrow("default-export a function")
     expect(() => defineConsoleAuthorize(JSON.parse("true"))).toThrow("requires a function")
   })
 })
@@ -253,7 +242,7 @@ describe("Connections manager from Console access", () => {
   }
 
   it.each([
-    { name: "host-managed allows", policy: { mode: "host-managed", authorize: () => true }, actor: "user:host-managed" },
+    { name: "open with authorize", policy: { mode: "open", authorize: () => true }, actor: "user:host-managed" },
     { name: "cloudflare-access", policy: { mode: "cloudflare-access", check: async () => undefined }, actor: "user:cloudflare-access" },
     { name: "local", policy: { mode: "local" }, actor: "user:local" },
     { name: "auth with a session", policy: { mode: "auth", check: async () => undefined }, session: "user:ada", actor: "user:ada" },
@@ -263,8 +252,7 @@ describe("Connections manager from Console access", () => {
   })
 
   it.each([
-    { name: "host-managed denies", policy: { mode: "host-managed", authorize: () => false }, status: 403, code: "CONSOLE_ACCESS_DENIED" },
-    { name: "host-managed without authorize", policy: { mode: "host-managed" }, status: 500, code: "CONSOLE_AUTHORIZE_REQUIRED" },
+    { name: "authorize denies", policy: { mode: "open", authorize: () => false }, status: 403, code: "CONSOLE_ACCESS_DENIED" },
     { name: "auth without a session user id", policy: { mode: "auth", check: async () => undefined }, status: 403, code: "CONSOLE_MANAGER_REQUIRED" },
   ] satisfies Array<{ name: string, policy: ConsoleAccessPolicy, status: number, code: string }>)("returns the Console diagnostic when it denies the manager: $name", async ({ policy, status, code }) => {
     installConsoleAccess(policy)
@@ -279,7 +267,7 @@ describe("Connections manager from Console access", () => {
   })
 
   it("reports section-scoped access denial separately from missing manager identity", async () => {
-    installConsoleAccess({ mode: "host-managed", authorize: () => ({ sections: ["agents"] }) })
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["agents"] }) })
     await expect(rejection(await consoleConnectionsActor(connectionsEvent()))).resolves.toMatchObject({
       code: "CONSOLE_ACCESS_DENIED",
       status: 403,
@@ -306,9 +294,9 @@ describe("Connections manager from Console access", () => {
     expect(runtime).not.toHaveBeenCalled()
   })
 
-  it("runs Connections routes only after the host-managed authorize function", async () => {
+  it("runs Connections routes only after the authorize function", async () => {
     const authorize = vi.fn(({ request }: { request: Request }) => request.headers.get("x-admin") === "1")
-    installConsoleAccess({ mode: "host-managed", authorize })
+    installConsoleAccess({ mode: "open", authorize })
     // No Connection Definitions, so `list` never opens the store.
     const runtime = vi.fn(() => createConnectionsRuntime({ definitions: {}, store: () => { throw new Error("The store is not used.") } }))
     const call = (headers: Record<string, string>) => {
@@ -356,24 +344,17 @@ describe("generated Console access", () => {
     await expect(generatedPlugin({}, "serve")).resolves.toContain('installConsoleAccess({ mode: "local" })')
   })
 
-  it("imports console.authorize for host-managed exposure", async () => {
-    const plugin = await generatedPlugin({ console: { authorize: hostManagedAuthorize, exposure: "host-managed" } }, "build")
+  it("imports console.authorize for open access", async () => {
+    const plugin = await generatedPlugin({ console: { auth: false, authorize: hostManagedAuthorize } }, "build")
     expect(plugin).toContain(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(hostManagedAuthorize).href)}`)
-    expect(plugin).toContain('installConsoleAccess({ mode: "host-managed", authorize: vitehubConsoleAuthorize })')
-  })
-
-  it("fails closed without console.authorize for host-managed exposure", async () => {
-    const development = await generatedPlugin({ console: JSON.parse('{"exposure":"host-managed"}') }, "serve")
-    expect(development).toContain('installConsoleAccess({ mode: "host-managed" })')
-    expect(() => assertConsoleProductionAccess(JSON.parse('{"exposure":"host-managed"}'), { development: false }))
-      .toThrow("requires console.authorize")
-    await expect(generatedPlugin({ console: { authorize: "missing-authorize.ts", exposure: "host-managed" } }, "serve"))
+    expect(plugin).toContain('installConsoleAccess({ mode: "open", authorize: vitehubConsoleAuthorize })')
+    await expect(generatedPlugin({ console: { auth: false, authorize: "missing-authorize.ts" } }, "serve"))
       .rejects.toThrow("console.authorize file does not exist")
   })
 
   it("checks the Primary Auth access routes that protect the Console", async () => {
     const plugin = await generatedPlugin({
-      console: { access: "auth" },
+      console: { auth: "app" },
       resolveAuthConfig: () => appAuth([
         { route: "/api/**" },
         { authorize: true, route: "/_vitehub/**" },
@@ -388,7 +369,7 @@ describe("generated Console access", () => {
 
   it("accepts exact GET rules for the registered Console API endpoints", async () => {
     const plugin = await generatedPlugin({
-      console: { access: "auth" },
+      console: { auth: "app" },
       sections: ["agents", "usage"],
       resolveAuthConfig: () => appAuth([
         { authorize: true, route: "/_vitehub/**" },
@@ -402,7 +383,7 @@ describe("generated Console access", () => {
 
   it.each([undefined, "/portal/"])("accepts exact status access with base %s when Usage is not registered", (base) => {
     const prefix = base?.replace(/\/$/, "") ?? ""
-    expect(() => assertConsoleProductionAccess({ access: "auth" }, {
+    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
       auth: appAuth([
         { authorize: true, route: `${prefix}/_vitehub/**` },
         { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/status` },
@@ -418,14 +399,14 @@ describe("generated Console access", () => {
     { method: "GET", route: "/api/_vitehub/console/status" } as const,
     { authorize: true, method: "GET", route: "/api/_vitehub/console/status/child" } as const,
   ])("rejects a rule that does not authorize GET status: %j", (route) => {
-    expect(() => assertConsoleProductionAccess({ access: "auth" }, {
+    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
       auth: appAuth([{ authorize: true, route: "/_vitehub/**" }, route]),
       development: false,
     })).toThrow("/api/_vitehub/console/status")
   })
 
   it("requires separate Usage coverage when the Usage endpoint is registered", () => {
-    expect(() => assertConsoleProductionAccess({ access: "auth" }, {
+    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
       auth: appAuth([
         { authorize: true, route: "/_vitehub/**" },
         { authorize: true, method: "GET", route: "/api/_vitehub/console/status" },
@@ -436,7 +417,7 @@ describe("generated Console access", () => {
   })
 
   it("does not treat an exact Console shell rule as recursive protection", () => {
-    expect(() => assertConsoleProductionAccess({ access: "auth" }, {
+    expect(() => assertConsoleProductionAccess({ auth: "app" }, {
       auth: appAuth([
         { authorize: true, route: "/_vitehub" },
         { authorize: true, method: "GET", route: "/api/_vitehub/console/**" },
@@ -445,7 +426,7 @@ describe("generated Console access", () => {
     })).toThrow("/_vitehub/**")
   })
 
-  it("fails closed for Auth access without a discovered Auth Definition", async () => {
-    await expect(generatedPlugin({ console: { access: "auth" } }, "serve")).resolves.toContain('installConsoleAccess({ mode: "auth" })')
+  it("rejects app Auth access without a discovered Auth Definition", async () => {
+    await expect(generatedPlugin({ console: { auth: "app" } }, "serve")).rejects.toThrow("requires a discovered ViteHub Auth Definition")
   })
 })

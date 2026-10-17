@@ -128,7 +128,6 @@ export type ProviderDeploymentOutputOwner =
   | "database"
   | "blob"
   | "queue"
-  | "rate-limit"
   | "schedule"
   | "workflow"
   | "vite-hub"
@@ -211,7 +210,6 @@ const providerDeploymentOutputOwnerOrder: ProviderDeploymentOutputOwner[] = [
   "database",
   "blob",
   "queue",
-  "rate-limit",
   "schedule",
   "workflow",
   "vite-hub",
@@ -908,8 +906,6 @@ async function withProviderDeploymentOutputRootTransaction<T>(
     resolve(rootDir, ".vitehub/queue/cloudflare-output.json"),
     resolve(rootDir, ".vitehub/queue/registry.mjs"),
     resolve(rootDir, ".vitehub/queue/vercel-output.json"),
-    resolve(rootDir, ".vitehub/rate-limit/cloudflare-output.json"),
-    resolve(rootDir, ".vitehub/rate-limit/manifest.json"),
     resolve(rootDir, ".vitehub/schedule"),
     resolve(rootDir, ".vitehub/workflow"),
   ]

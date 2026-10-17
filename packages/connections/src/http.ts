@@ -1,4 +1,4 @@
-import { isConnectionError } from "./errors.ts";
+import { ConnectionError, isConnectionError } from "./errors.ts";
 import { checkConnectionsAccess } from "./internal/http-access.ts";
 import { connectionsRoutes, errorResponse, errorStatus, json } from "./internal/http-routes.ts";
 import { managementErrorBody } from "./internal/http-diagnostics.ts";
@@ -23,6 +23,24 @@ export interface ConnectionsHandlerOptions {
   runtime?: () => ConnectionsRuntime;
 }
 
+function normalizeConnectionsBasePath(value: string | undefined): string {
+  if (value !== undefined && typeof value !== "string") {
+    throw new ConnectionError("invalid", "Connections basePath must be a string.");
+  }
+  const path = value === undefined ? CONNECTIONS_ROUTE : value.trim();
+  if (!path.startsWith("/")) {
+    throw new ConnectionError("invalid", "Connections basePath must start with `/`.");
+  }
+  if (path.includes("?") || path.includes("#")) {
+    throw new ConnectionError("invalid", "Connections basePath must be a pathname without a query or fragment.");
+  }
+  const normalized = path.length > 1 ? path.replace(/\/+$/g, "") : path;
+  if (!normalized || normalized === "/") {
+    throw new ConnectionError("invalid", "Connections basePath must include a route segment.");
+  }
+  return normalized;
+}
+
 /**
  * Management API for Connections. Every route runs the `actor` policy first. A route body reads
  * the Connections runtime only through the access that the policy grants for this request.
@@ -37,7 +55,7 @@ export function createConnectionsHandler(
   options: ConnectionsHandlerOptions,
 ): (request: Request, event?: unknown) => Promise<Response> {
   const runtime = () => (options.runtime ?? getConnectionsRuntime)();
-  const base = options.basePath?.replace(/\/+$/, "") || CONNECTIONS_ROUTE;
+  const base = normalizeConnectionsBasePath(options.basePath);
   return async (request, event) => {
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     try {
