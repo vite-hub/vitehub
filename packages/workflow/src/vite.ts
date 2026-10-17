@@ -169,7 +169,11 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
 
   function providerRuntimeImportAliases(provider: "cloudflare" | "vercel", generation?: ProviderDeploymentOutputGeneration, catalog = providerOutput): Record<string, string> {
     const database = getProviderRuntimeModule(catalog, "database", provider, generation)
-    return database ? { "@vite-hub/database/drizzle": database } : {}
+    const blob = getProviderRuntimeModule(catalog, "blob", provider, generation)
+    return {
+      ...(database ? { "@vite-hub/database/drizzle": database } : {}),
+      ...(blob ? { "@vite-hub/blob": blob } : {}),
+    }
   }
 
   async function providerImportAliases(config = resolved): Promise<Record<string, string>> {
