@@ -4252,7 +4252,26 @@ describe("Agent Invocation UI", () => {
     expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages2");
   });
 
-  it("renders structured workspace sources alongside historical source strings", () => {
+  it.each(["completed", "failed", "cancelled"] as const)("labels messages in collapsed work for %s runs", (status) => {
+    const timestamp = "2026-09-05T00:00:00Z";
+    const invocation: AgentInvocationView = {
+      id: "collapsed-messages", traceId: "trace", createdAt: timestamp, updatedAt: timestamp, status,
+      observations: [
+        { role: "user", body: "Run the tests." },
+        { role: "tool", body: "Tests passed." },
+        { role: "assistant", body: "The tests pass." },
+      ].map((message, index) => ({ name: "agent.message", type: "run", timestamp, sequence: index + 1, attributes: {
+        "message.id": String(index), "message.role": message.role, "message.content": message.body,
+      } })),
+    };
+    const thread = mount(AgentInvocation, { props: { invocation } });
+    const inspector = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(thread.findAll(".vh-invocation-message")).toHaveLength(2);
+    expect(thread.get(".vh-invocation-work__details").attributes("open")).toBeUndefined();
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages3");
+  });
+
+  it("renders structured workspace sources alongside historical source strings", async () => {
     const invocation: AgentInvocationView = {
       id: "sources", traceId: "sources", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
       status: "completed", observations: [],
@@ -4271,6 +4290,7 @@ describe("Agent Invocation UI", () => {
       "https://github.com/vite-hub/vitehub", "https://github.com/legacy/repo",
     ]);
     expect(sources?.findAll("a")[0]?.attributes("title")).toBe("docs: vite-hub/vitehub");
+    expect(mount(AgentInvocationInspector, { props: { invocation, showSources: false } }).text()).not.toContain("Sources");
   });
 
   describe("conversation view", () => {

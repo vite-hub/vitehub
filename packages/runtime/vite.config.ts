@@ -5,7 +5,10 @@ import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
-    entry: ["src/drain.ts", "src/index.ts", "src/node.ts", "src/internal/grant.ts", "src/internal/runtime-type.ts"],
+    deps: {
+      alwaysBundle: [/^@vite-hub\/internal/],
+    },
+    entry: ["src/drain.ts", "src/h3.ts", "src/index.ts", "src/node.ts", "src/internal/grant.ts", "src/internal/runtime-type.ts"],
     exports: {
       bin: {
         "vitehub-drain": "src/drain.ts",

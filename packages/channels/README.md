@@ -75,7 +75,7 @@ export default defineConfig({
 });
 ```
 
-ViteHub discovers files below `server/channels` and files named `*.channel.ts`. The file below defines the `alerts` Channel:
+ViteHub discovers files below `server/channels` and files named `*.channel.ts`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder; the other files in that folder are helpers, not Channels. The file below defines the `alerts` Channel:
 
 ```ts
 // server/channels/alerts.ts

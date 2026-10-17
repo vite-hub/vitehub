@@ -15,12 +15,26 @@ Every client of a document must reach the same authority. Set it with the
 
 | Authority | Use |
 | --- | --- |
-| `auto` | Uses Cloudflare Durable Objects when Realtime can resolve a Cloudflare Nitro preset or hosting environment. With only `vitehub({ preset: 'cloudflare' })` during Vite development, set `authority: 'cloudflare'` explicitly. Other development presets use memory; other production builds fail until an authority is selected. |
-| `cloudflare` | Generates a SQLite-backed Durable Object binding and migration. Use it for durable, distributed rooms on Cloudflare. |
+| `auto` | Uses Cloudflare Durable Objects in a build that resolves a Cloudflare Nitro preset or hosting environment, such as `vitehub({ preset: 'cloudflare' })`. Other production builds fail until an authority is selected. On the dev server, rooms run in memory. |
+| `cloudflare` | Generates a SQLite-backed Durable Object binding and migration. Use it for durable, distributed rooms on Cloudflare. On the Vite dev server, it also selects Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
 | `memory` | Keeps rooms in one process. Use it for local development or an explicitly single-process Node deployment. Room state is lost when the process stops. |
 
 ViteHub rejects the memory authority on distributed host presets. It also
 rejects a Cloudflare authority paired with another deployment preset.
+
+## Develop locally
+
+The dev server holds rooms in its own process, with every authority. Nitro's
+default Cloudflare dev runtime reads your own wrangler config, which does not
+have the generated `$DurableObject` binding, so the room handler opens memory
+rooms. Auth, `authorize()`, and document adapters run as they do in production.
+To exercise Durable Objects, build and run the output with
+`npx wrangler --cwd .output/server dev`.
+
+Room WebSockets need a dev server that passes upgrade requests to Nitro.
+`vite dev` does. Some `nuxt dev` CLI versions give Vite no HTTP server, so
+upgrades never reach Nitro. With those versions, build and preview to test
+rooms.
 
 ## Host support
 

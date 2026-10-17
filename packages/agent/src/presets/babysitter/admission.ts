@@ -155,7 +155,7 @@ export function babysitterModelAdmission(accepting: boolean, snapshot: Pick<Snap
 }
 
 /** Sums the cached per-invocation maxima for a budget window. */
-export function sumInvocationInputTokens(usage: Map<string, { updatedAt: number; tokens: number }>, since: number): number {
+function sumInvocationInputTokens(usage: Map<string, { updatedAt: number; tokens: number }>, since: number): number {
   let total = 0;
   for (const entry of usage.values()) if (entry.updatedAt >= since) total += entry.tokens;
   return total;

@@ -214,9 +214,10 @@ async function providerOutputAliases(plugin: ProviderImportPlugin): Promise<Reco
 async function applyDeploymentConfig(
   options: Parameters<typeof vitehub>[0],
   config: Record<string, unknown> = {},
+  command: "build" | "serve" = "build",
 ): Promise<Record<string, unknown>> {
   const plugin = dependencyPluginByName(vitehub(options), "vite-hub/deployment-preset")
-  await callHook(plugin.config, [config, { command: "build", mode: "production" }])
+  await callHook(plugin.config, [config, { command, mode: command === "build" ? "production" : "development" }])
   return config
 }
 
@@ -589,6 +590,7 @@ describe("vitehub", () => {
       "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
       "@vite-hub/source/vite",
+      "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
 
@@ -630,6 +632,7 @@ describe("vitehub", () => {
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
       "@vite-hub/source/vite",
+      "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
     expect(pluginNames(vitehub({ preset: "node", sandbox: false }))).not.toContain("@vite-hub/sandbox/vite")
@@ -664,7 +667,6 @@ describe("vitehub", () => {
         email: "vite-hub/email/server",
         kv: "vite-hub/_internal/kv",
       },
-      scheduleRuntimeImport: "vite-hub/_internal/schedule/runtime",
       workflowImportBase: "vite-hub/_internal/workflow",
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
@@ -697,7 +699,6 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/schedule",
-      typesImportBase: "vite-hub/schedule",
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
       },
@@ -1027,6 +1028,15 @@ describe("vitehub", () => {
     expect(aliases["vite-hub/_internal/agent/server/internal"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/internal\.js$/)
     expect(aliases["vite-hub/_internal/sandbox/runtime/state"]).toMatch(/packages\/vite-hub\/dist\/_internal\/sandbox\/runtime\/state\.js$/)
     expect(aliases["vite-hub/shell/workspace"]).toMatch(/packages\/vite-hub\/dist\/shell\/workspace\.js$/)
+  })
+
+  it("aliases non-JavaScript exports before the JavaScript entry they sit under", () => {
+    const aliases = pluginAliases(dependencyPlugin())
+    const specifiers = Object.keys(aliases)
+
+    expect(aliases["vite-hub/ui/styles.css"]).toMatch(/packages\/vite-hub\/dist\/ui\/styles\.css$/)
+    expect(aliases["vite-hub/ui"]).toMatch(/packages\/vite-hub\/dist\/ui\.js$/)
+    expect(specifiers.indexOf("vite-hub/ui/styles.css")).toBeLessThan(specifiers.indexOf("vite-hub/ui"))
   })
 
   it("passes the unused Upstash fallback only to provider bundlers", () => {
@@ -1545,6 +1555,16 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "cloudflare" }))
     vitehub({ preset: "vercel", sandbox: true })
     expect(integrationMocks.hubSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "vercel" }))
+  })
+
+  it("keeps Rate Limit in memory on the dev server", async () => {
+    const options = { name: "acme", preset: "cloudflare", rateLimit: true } as const
+    await expect(applyDeploymentConfig(options, {}, "build")).resolves.toMatchObject({
+      rateLimit: { namespace: "acme", provider: "cloudflare" },
+    })
+    await expect(applyDeploymentConfig(options, {}, "serve")).resolves.toMatchObject({
+      rateLimit: { namespace: "acme", provider: "memory" },
+    })
   })
 
   it("uses the nearest package name for the deployment identity", async () => {

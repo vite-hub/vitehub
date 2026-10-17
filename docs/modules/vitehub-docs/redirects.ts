@@ -37,7 +37,6 @@ const primitiveCapabilities = {
   "kv": "kv",
   "rate-limit": "rate-limit",
   "sandbox": "sandbox",
-  "schedule": "schedule",
   "workspace-shell": "workspace",
 } satisfies Record<string, string>;
 
@@ -83,7 +82,9 @@ const agentCapabilities = {
 } satisfies Record<string, string>;
 
 const movedLearningPages = new Map(Object.entries({
+
   "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
+
   "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/getting-started/migrate-from-nuxthub",
   "/docs/getting-started/concepts/workspace-and-sources": "/docs/workspace/concepts",
   "/docs/getting-started/concepts/auth-users-and-agent-invokers": "/docs/agents/invokers",
@@ -95,6 +96,7 @@ const movedLearningPages = new Map(Object.entries({
 }));
 
 export const docsPageRedirects = {
+  "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
   "/blog/agents": "/docs/getting-started/first-agent",
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/evlog": "/docs/agents/observability",
@@ -110,6 +112,9 @@ export const docsPageRedirects = {
   "/docs/reference/channels": "/docs/channels",
   "/docs/reference/diagnostics": "/docs/reference/errors-diagnostics",
   "/docs/reference/realtime": "/docs/realtime",
+  // The schedule() Agent Capability was removed with Runtime Schedules.
+  "/docs/capabilities/schedule": "/docs/schedule",
+  "/docs/schedule/agent-capability": "/docs/schedule",
   "/docs/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/server-primitives/env-bridge": "/docs/env/bridge",
   ...Object.fromEntries(movedServerPrimitives.map(id => [`/docs/server-primitives/${id}`, `/docs/${id}`])),

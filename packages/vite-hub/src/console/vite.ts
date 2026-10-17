@@ -314,7 +314,6 @@ export function consoleOpenAccessBuildWarning(configured: ConsoleOptions, preset
 /** Resolve the `console.authorize` file. A configured path must exist. */
 export function resolveConsoleAuthorizeFile(root: string, authorize: unknown): string | undefined {
   if (authorize === undefined) return
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- console.authorize crosses the open Vite config boundary.
   if (typeof authorize !== "string" || !authorize.trim()) throw new TypeError("[vitehub] console.authorize must be a path to a server file.")
   const file = resolve(root, authorize)
   if (!existsSync(file)) throw new TypeError(`[vitehub] console.authorize file does not exist: ${file}`)
@@ -433,7 +432,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
+    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
@@ -506,9 +505,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         sections = sections.filter(section => section !== "workspaces")
         if (viteConfig.workspace) sections = [...sections, "workspaces"]
       }
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Service configuration crosses Vite's open user-config boundary, so validate its runtime shape before reading the optional root.
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate the projectRoot value before resolving it.
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
@@ -516,7 +513,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         ? configuredProjectRoot(viteConfig.database) ?? configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
         : configuredProjectRoot({ projectRoot: options.databaseDiscoveryRoot })
       rateLimitDiscoveryRoot = configuredProjectRoot(viteConfig.rateLimit) ?? configuredProjectRoot({ projectRoot: options.rateLimitDiscoveryRoot })
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Rate Limit configuration crosses Vite's open user-config boundary, so validate scan directory entries before discovery.
       rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
         ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
         : options.rateLimitScanDirs
@@ -570,7 +566,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       if (!cliDiscovery && !fixture) {
         const resolvedOnlySections = new Set<ConsoleSectionId>(["databases", "sandboxes", "workflows", "workspaces"])
         const initialSections = sections.filter(section => !resolvedOnlySections.has(section))
-        const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
+        const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxDiscoveryRoot: root, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,
@@ -604,7 +600,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       kit.addPlugin(generatedPlugin)
 
       const connectionsActor = sections.includes("connections")
-        ? await writeConsoleConnectionsActor(root)
+        ? await writeConsoleConnectionsActor(root, consoleAuthHandlers?.middleware)
         : undefined
       const alias = kit.config.alias ?? {}
       consoleConfig.nitro = {
@@ -632,9 +628,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       resolveKVRegistration(viteConfig.kv)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate its runtime shape before reading the optional root.
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved service configuration crosses Vite's open config boundary, so validate the projectRoot value before resolving it.
         && typeof value.projectRoot === "string"
         ? resolve(root!, value.projectRoot)
         : undefined
@@ -648,10 +642,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       rateLimitDiscoveryRoot = "rateLimit" in viteConfig
         ? configuredProjectRoot(viteConfig.rateLimit)
         : rateLimitDiscoveryRoot
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit configuration crosses Vite's open config boundary, so validate scan directory entries before discovery.
       if ("rateLimit" in viteConfig) {
         rateLimitScanDirs = viteConfig.rateLimit && typeof viteConfig.rateLimit === "object" && "scanDirs" in viteConfig.rateLimit && Array.isArray(viteConfig.rateLimit.scanDirs)
-          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Resolved Rate Limit scan directories cross Vite's open config boundary, so validate each entry before discovery.
           ? viteConfig.rateLimit.scanDirs.filter((value): value is string => typeof value === "string")
           : undefined
       }

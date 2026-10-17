@@ -93,8 +93,6 @@ interface AgentDevRuntimeCapability {
 
 interface AgentDevRuntimeOptions {
   runtimeCapabilities?: AgentDevRuntimeCapability[]
-  schedule?: boolean
-  scheduleRuntimeImport?: string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -597,7 +595,6 @@ async function runCapabilityCliWithTimeout(
 export async function resolveDevRuntimeCapabilities(
   server: ViteDevServer,
   definitions: AgentDevRuntimeCapability[],
-  options: Pick<AgentDevRuntimeOptions, "schedule" | "scheduleRuntimeImport">,
 ): Promise<Record<string, unknown>> {
   const capabilities: Record<string, unknown> = {}
   // Generated capability modules are independent package imports. Resolve them together so one slow module does not block the others.
@@ -608,14 +605,6 @@ export async function resolveDevRuntimeCapabilities(
       : (await server.ssrLoadModule(definition.packageName))[definition.importName],
   })))
   for (const { name, value } of resolved) capabilities[name] = value
-  if (options.schedule) {
-    const [registry, runtime] = await Promise.all([
-      server.ssrLoadModule("#vitehub/schedule/registry"),
-      server.ssrLoadModule(options.scheduleRuntimeImport ?? "@vite-hub/schedule/runtime"),
-    ])
-    runtime.setScheduleRuntimeRegistry(registry.default)
-    capabilities.schedule = { schedules: runtime.schedules }
-  }
   return capabilities
 }
 
@@ -629,7 +618,7 @@ function isAgentDevLoopDiscoveryRequest(req: IncomingMessage): boolean {
 
 async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage, grant: ViteHubDevRequestGrant, tokenOptions: WorkspaceDevTokenOptions, abortSignal: AbortSignal | undefined, runtimeOptions: AgentDevRuntimeOptions): Promise<Response> {
   assertViteHubDevRequestGrant(grant, req)
-  const capabilities = await resolveDevRuntimeCapabilities(server, runtimeOptions.runtimeCapabilities ?? [], runtimeOptions)
+  const capabilities = await resolveDevRuntimeCapabilities(server, runtimeOptions.runtimeCapabilities ?? [])
   const entries = await discoverStreamAgents(server)
   if (req.method === "GET") {
     await ensureWorkspaceDevToken(server.config.root, tokenOptions)

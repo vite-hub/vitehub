@@ -6,6 +6,7 @@
     "database",
     "db",
     "drizzle",
+    "postgres",
     "sqlite",
     "vite",
     "vitehub"
@@ -84,6 +85,12 @@
       "require": "./dist/runtime/d1.js",
       "default": "./dist/runtime/d1.js"
     },
+    "./runtime/default-database": {
+      "types": "./dist/runtime/default-database.d.ts",
+      "import": "./dist/runtime/default-database.js",
+      "require": "./dist/runtime/default-database.js",
+      "default": "./dist/runtime/default-database.js"
+    },
     "./runtime/hosted": {
       "types": "./dist/runtime/hosted.d.ts",
       "import": "./dist/runtime/hosted.js",
@@ -132,6 +139,12 @@
       "import": "./dist/runtime/state.js",
       "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
+    },
+    "./runtime/postgres": {
+      "types": "./dist/runtime/postgres.d.ts",
+      "import": "./dist/runtime/postgres.js",
+      "require": "./dist/runtime/postgres.js",
+      "default": "./dist/runtime/postgres.js"
     }
   },
   "scripts": {
@@ -144,6 +157,7 @@
     "@libsql/client": "catalog:database",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
+    "jiti": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },
@@ -155,7 +169,8 @@
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "postgres": "catalog:database"
   },
   "peerDependencies": {
     "drizzle-kit": "catalog:database",

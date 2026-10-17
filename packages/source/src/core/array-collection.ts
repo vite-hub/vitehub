@@ -193,7 +193,7 @@ function matches(item: unknown, query: NormalizedQuery, searchFields: readonly s
 function sortItems<TItem>(items: TItem[], sort: ArrayCollectionSort | undefined): TItem[] {
   if (!sort) return items
   const direction = sort.direction === "desc" ? -1 : 1
-  return items.slice().sort((left, right) => {
+  return items.sort((left, right) => {
     const leftValue = firstScalar(collectionValueAt(left, sort.field))
     const rightValue = firstScalar(collectionValueAt(right, sort.field))
     if (Number(leftValue) === leftValue && Number(rightValue) === rightValue) return (leftValue - rightValue) * direction
@@ -258,7 +258,7 @@ export function array<TItem, const TFilter extends string = never>(
   const signatureFields = JSON.stringify({ search: [...searchFields].sort(), sort: options.sort ? { direction: options.sort.direction ?? "asc", field: options.sort.field } : null })
 
   async function snapshot(signal: AbortSignal | undefined): Promise<{ digest: string, items: readonly TItem[] }> {
-    const result = typeof load === "function" ? await load({ signal }) : load
+    const result = load instanceof Function ? await load({ signal }) : load
     signal?.throwIfAborted()
     const items: unknown = Array.isArray(result) ? result : Reflect.get(Object(result), "items")
     if (!Array.isArray(items)) {

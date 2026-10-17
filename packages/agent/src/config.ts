@@ -14,6 +14,9 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
 
   const discordGatewayRoute = normalizeAgentRouteOption(options?.routes?.discordGateway, defaultAgentDiscordGatewayRoute)
   const inspectionRoute = normalizeAgentRouteOption(options?.routes?.inspection, defaultAgentInspectionRoute)
+  const drainMs = options?.shutdown ? options.shutdown.drainMs : undefined
+  if (drainMs !== undefined && !(Number.isFinite(drainMs) && drainMs >= 0))
+    throw new TypeError("[vitehub] agent.shutdown.drainMs must be a finite number of milliseconds, 0 or more.")
   return {
     ...(options?.preparation ? { preparation: options.preparation } : {}),
     execution: options?.execution || "inline",
@@ -41,5 +44,6 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
       webhooks: defaultAgentWebhookRoute,
     },
     runtime: options?.runtime || "auto",
+    shutdown: options?.shutdown === false ? false : drainMs === undefined ? {} : { drainMs },
   }
 }

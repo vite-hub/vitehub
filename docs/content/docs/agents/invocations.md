@@ -325,6 +325,37 @@ Names match exactly, and matching observations keep their journal order. Other r
 
 The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Set `maxAgeMs` or `maxRecords` to `false` to disable that limit. Retention runs on creates and terminal transitions, so a journal without either event may retain an expired record. The age limit reads only the records it deletes. The count limit reads about `maxRecords` rows, so the SQLite and D1 adapters apply it on about 1 in `ceil(maxRecords / 100)` of these writes. Between runs, the terminal record count can exceed `maxRecords` by about 1%. `invocations.prune()` applies both limits immediately.
 
+### Choose how storage failures affect a run
+
+The journal is run history for the Console and the CLI. By default, a slow or unavailable store does not stop a run. Set `enforcement` to select this behavior:
+
+```ts
+const invocations = defineAgentInvocations({
+  enforcement: 'strict',
+  store,
+})
+```
+
+| `enforcement` | When the store does not confirm a startup operation |
+| --- | --- |
+| `'best-effort'` (default) | The run starts. The journal retries in the background and logs one warning for the Invocation. |
+| `'strict'` | The run does not start. |
+
+Each store operation has a limit of one second. A timeout, a rejected operation, or a missing result is not a confirmation. Before the Driver starts, a run needs three operations: the execution claim, the `running` state, and the first cancellation check. In best-effort mode, the journal retries the `running` state for up to 60 seconds and reads cancellation requests again every 10 seconds. A failed journal write does not change the result of the run.
+
+Best-effort mode still stops a run when the store answers with a reason to stop:
+
+- The store reports that another execution owner holds the claim. The run fails with `Could not persist the Invocation running state.`
+- The store returns a cancellation request. The run moves to `cancelled`.
+
+For a custom `run` Driver, strict mode also requires the cancellation warning state before dispatch. In best-effort mode, the Driver starts without it, and a remote `cancel()` can throw `AGENT_R0974` until the warning write succeeds.
+
+Best-effort history can be missing or stale. A record can stay `pending`, have no `startedAt` time, or have no observations until a retry succeeds. If the store does not recover, the journal can have no record of the run. Keep the product result in your application data. If the store does not answer, two runs with the same run ID can both start, because neither run can see the claim of the other. Use `'strict'` when the journal claim is your only protection against duplicate runs.
+
+Channel replay is always strict. `replayChannel()` and `dispatchChannelItems()` use the journal claim as the duplicate protection for each item, so this option does not apply to them. When a replay sends its claim to a Workflow worker, that worker is also strict. Other Workflow runs follow the configured enforcement.
+
+Live Channel webhook deliveries do not use the journal to prevent duplicates. The webhook route claims each delivery ID with `setIfNotExists()` in the State Adapter, and Chat SDK Channels, such as Telegram, skip a repeated message ID in the same State Adapter. Thus a provider retry does not start a second run in best-effort mode.
+
 ### Store invocations in a ViteHub Database
 
 `invocations: 'database'` uses the Database adapter with its defaults. Use the adapter directly to set store options, such as retention:
@@ -401,7 +432,7 @@ const invocations = defineAgentInvocations({
 
 `redact` runs after the content policy and before the journal bounds the observation. It applies to streamed observations, persisted observations, and `appendObservation()` evidence. Return `undefined` to drop evidence; `redactError` can likewise return `undefined` to store no error details while the record remains `failed`. Both hooks are synchronous.
 
-The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Trace persistence failures do not change the Agent Invocation result. The initial cancellation check must succeed before setup; a rejected, missing, or timed-out read fails startup with `AGENT_R0973`.
+The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Trace persistence failures do not change the Agent Invocation result. With `enforcement: 'strict'`, the initial cancellation check must succeed before setup; a rejected, missing, or timed-out read fails startup with `AGENT_R0973`. See [Choose how storage failures affect a run](#choose-how-storage-failures-affect-a-run).
 
 Use `triggeredBy` to filter persisted summaries by the person label recorded in `annotations.triggeredBy`. It matches the trimmed label exactly and composes with Agent, Capability, status, and text filters:
 
@@ -546,7 +577,7 @@ if (result.notEnforcedBy) console.warn(`Cancel requested, not enforced by ${resu
 | `not-found` | The journal has no Invocation with this id and no local run received the request. |
 | `unavailable` | The store did not keep the request and no run in this process holds the Invocation. |
 
-Before setup, active runs check for a journal cancellation request. A rejected or missing read, or a check that exceeds one second, fails startup with `AGENT_R0973`. After startup, active runs read journal requests every 10 seconds, including after a lost lease stops claim renewal. A crashed owner or expired lease does not prove that a Driver stopped. An orphaned record remains pending or running until execution recovery observes its request; cancellation does not recover orphaned work or promise a completion deadline. Repeating the request does not change that state. Read the final journal status to confirm cancellation.
+Before setup, active runs check for a journal cancellation request. In strict mode, a rejected or missing read, or a check that exceeds one second, fails startup with `AGENT_R0973`. In best-effort mode, the run starts and reads the request again at the next poll. A cancellation request that the store returns always stops startup. After startup, active runs read journal requests every 10 seconds, including after a lost lease stops claim renewal. A crashed owner or expired lease does not prove that a Driver stopped. An orphaned record remains pending or running until execution recovery observes its request; cancellation does not recover orphaned work or promise a completion deadline. Repeating the request does not change that state. Read the final journal status to confirm cancellation.
 
 The Development Server command `vitehub agent invocations cancel <id>` checks all registered journals before cancellation. If distinct journals contain the same ID, it rejects the request with HTTP `409` without changing either record. Call the intended Agent's `invocations.cancel(id)` to select its journal. Registry entries that share one journal are checked once. If any journal lookup fails, the request fails before cancellation because uniqueness cannot be verified.
 
