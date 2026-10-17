@@ -91,7 +91,7 @@ describe("package entry result transport", () => {
     const foreignResponseModule = pathToFileURL(join(workspaceRoot, "node_modules/.pnpm", undiciDirectory, "node_modules/undici/index.js")).href
     const execution = await executePackageEntry([
       `import { Response as ForeignResponse } from ${JSON.stringify(foreignResponseModule)}`,
-      `export default () => { const response = new ForeignResponse(new Uint8Array([0, 127, 255]), { status: 201, statusText: 'Created', headers: { 'x-result': 'preserved' } }); response.requestId = 'request-1'; return response }`,
+      `export default () => new ForeignResponse(new Uint8Array([0, 127, 255]), { status: 201, statusText: 'Created', headers: { 'x-result': 'preserved' } })`,
     ].join("\n"))
 
     expect(execution.code).toBe(0)
@@ -172,6 +172,24 @@ describe("package entry result transport", () => {
       `  return Object.defineProperty(value, 'arrayBuffer', { value: async () => new ArrayBuffer() })`,
       `}`,
     ].join("\n"))
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ requestId: "kept" })
+  })
+
+  it("preserves objects forged with a Response class constructor", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = { clone() { return Object.create(prototype) }, get body() { return null } }`,
+      `  class Response { static error() {}; static json() {}; static redirect() {} }`,
+      `  Response.prototype = prototype`,
+      `  Object.defineProperty(prototype, 'constructor', { value: Response })`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers, requestId: 'kept' })`,
+      `  return Object.defineProperty(value, 'arrayBuffer', { value: async () => new ArrayBuffer() })`,
+      `}`,
+    ].join("\n"))
+
     expect(execution.code).toBe(0)
     expect(execution.output.result).toMatchObject({ requestId: "kept" })
   })
