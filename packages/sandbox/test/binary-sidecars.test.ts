@@ -24,6 +24,15 @@ it("encodes boxed primitives created in another realm", async () => {
   }, "/assets", "payload")).resolves.toEqual({ bool: true, number: 7, string: "ready", bigint: 9n })
 })
 
+it("honors boxed primitive valueOf overrides", async () => {
+  const sandbox = { files: { mkdir: vi.fn(async () => {}), write: vi.fn(async () => {}) } }
+  const number = new Number(5)
+  number.valueOf = () => 2
+
+  await expect(encodeSandboxValue(sandbox as never, number, "/assets", "payload"))
+    .resolves.toBe(2)
+})
+
 it.each([
   ["subclass tag", "new (class extends Uint8Array { get [Symbol.toStringTag]() { return 'Bytes' } })([0, 1, 2, 3, 4]).subarray(1, 4)"],
   ["own tag", "Object.defineProperty(new Uint8Array([0, 1, 2, 3, 4]).subarray(1, 4), Symbol.toStringTag, { value: 'Bytes' })"],
