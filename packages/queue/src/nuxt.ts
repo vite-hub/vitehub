@@ -1,4 +1,7 @@
 import { resolve } from "node:path"
+
+import { resolveNuxtServerDirs, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+
 import { createQueueNitroConfig, hubQueue } from "./vite.ts"
 
 import type { QueueModuleOptions } from "./types.ts"
@@ -12,6 +15,7 @@ type NuxtLike = {
     (name: "prepare:types", handler: (context: { references: { path: string }[] }) => void): void
   }
   options: {
+    _layers?: NuxtServerDirOptions["_layers"]
     dev?: boolean
     rootDir?: string
     serverDir?: string
@@ -51,7 +55,7 @@ export default function viteHubQueueNuxtModule(options: QueueNuxtModuleOptions =
       nitro: nitroConfig,
       projectRoot,
       root: nuxt.options.srcDir || projectRoot,
-      serverDirs: nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
+      serverDirs: resolveNuxtServerDirs(nuxt.options),
     })
     Object.assign(nitroConfig, nitro)
   })

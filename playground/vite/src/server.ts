@@ -26,14 +26,13 @@ app.post("/api/queues/welcome", async (event) => {
   const body = await readValidatedBody(event, queueBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
   const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
-  return {
-    ok: true,
-    result: await runQueue(queueName, {
-      email: body?.email || "ava@example.com",
-      callbackUrl,
-      marker,
-    }),
-  }
+  const [error, result] = await runQueue(queueName, {
+    email: body?.email || "ava@example.com",
+    callbackUrl,
+    marker,
+  })
+  if (error) throw error
+  return { ok: true, result }
 })
 
 app.post("/api/queues/welcome-defer", async (event) => {
@@ -46,7 +45,10 @@ app.post("/api/queues/welcome-defer", async (event) => {
     marker,
   }
 
-  if (!runInBackground(event, () => runQueue(queueName, payload))) {
+  if (!runInBackground(event, async () => {
+    const [error] = await runQueue(queueName, payload)
+    if (error) throw error
+  })) {
     deferQueue(queueName, payload)
   }
   return { ok: true }
