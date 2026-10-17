@@ -128,7 +128,16 @@ function isRequestLike(value: AuthRequest): value is Request {
               ownSymbols.some(symbol => symbol.description === name),
             ) && ownSymbols.length === happyDomSymbols.length
               && prototypeSymbols.some(symbol => symbol.description === "window")
-            return happyDomState
+            if (!happyDomState) return false
+            // Happy DOM keeps the owning Window on the Request prototype. Tie
+            // every platform object back to that window and its constructors;
+            // a handful of copied symbols on an arbitrary object is not enough.
+            const windowSymbol = prototypeSymbols.find(symbol => symbol.description === "window")
+            const ownerWindow = windowSymbol && Reflect.get(Object.getPrototypeOf(value), windowSymbol)
+            if (!ownerWindow || Reflect.get(ownerWindow, "Request") !== Reflect.get(value, "constructor")) return false
+            if (Reflect.get(ownerWindow, "Headers") !== Reflect.get(Reflect.get(value, "headers"), "constructor")) return false
+            if (Reflect.get(ownerWindow, "AbortSignal") !== Reflect.get(Reflect.get(value, "signal"), "constructor")) return false
+            return true
           }
           catch (error) {
             if (!isBrandCheckError(error)) return false
