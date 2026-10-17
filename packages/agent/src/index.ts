@@ -1064,7 +1064,7 @@ export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunIn
 
 export async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>, context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentInvocationJournal<TRuntimeConfig> | undefined> {
   if (!agent.invocations) return
-  const journal = await bindAgentInvocations(agent.invocations, { ...context, run: { ...context.run, runId: context.run?.runId || createTraceId(), annotations: pendingAgentInvocationAnnotations(context.run?.annotations) } }, { agentName: agentInvocationName(agent, context), recoverPending: true })
+  const journal = await bindAgentInvocations(agent.invocations, { ...context, run: { ...context.run, runId: context.run?.runId || createTraceId(), annotations: pendingAgentInvocationAnnotations(context.run?.annotations) } }, { agentName: agentInvocationName(agent, context), enforcement: "strict", recoverPending: true })
   if (journal?.claimStatus !== "owned") {
     if (journal?.claimStatus === "conflict") throw new AgentInvocationClaimConflict()
     throw new Error("Could not acquire the Invocation execution claim.")
@@ -1145,7 +1145,7 @@ async function runAgentAsWorkflow<
   const ensureActivity = async () => {
     if (!exclusive || replayReserved) return
     const journal = hasAgentDefinition(agent)
-      ? await bindAgentInvocations(agent.invocations, { ...context, run: { ...context.run, runId: context.run?.runId || createTraceId(), annotations: pendingAgentInvocationAnnotations(context.run?.annotations) } }, { agentName: agentInvocationName(agent, context), recoverPending: true,
+      ? await bindAgentInvocations(agent.invocations, { ...context, run: { ...context.run, runId: context.run?.runId || createTraceId(), annotations: pendingAgentInvocationAnnotations(context.run?.annotations) } }, { agentName: agentInvocationName(agent, context), enforcement: "strict", recoverPending: true,
           // SAFETY: Channel dispatch installs the trusted private handoff token before running its Agent.
           replaceClaimToken: (context as AgentRuntimeContext & { [inheritedAgentInvocationClaim]?: string })[inheritedAgentInvocationClaim],
         })
@@ -7119,7 +7119,15 @@ async function executeAgentInvocationWithCapacityLease<
     if (options.kind === "run" && !options.renderOutput) adapterContext.nativeStructuredOutput = false
     await invocationJournal?.watchCancellation(invocationCancellationDriver(definition))
     invocation.input.abortSignal?.throwIfAborted()
-    invocationJournal?.driverStarted()
+    // Recheck ownership at the dispatch boundary. The activity update,
+    // adapter preparation, and cancellation setup above may yield while a
+    // renewal confirms a claim loss; do not start a Driver after that loss.
+    if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.dispatchAllowed()) {
+      throw new Error("Could not persist the Invocation running state.")
+    }
+    if (invocationJournal && !invocationJournal.reusedTerminal && !invocationJournal.driverStarted()) {
+      throw new Error("Could not persist the Invocation running state.")
+    }
     if (customRun) {
       result = await agent.run(invocation)
     }
@@ -8282,6 +8290,8 @@ async function executeAgentInvocation<
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         agentName: agentInvocationName(definition as AgentDefinition, context),
         cancellationDriver: invocationCancellationDriver(definition),
+        // Channel replay depends on the journal claim to prevent duplicate runs.
+        ...(exclusive || inheritedClaim ? { enforcement: "strict" } : {}),
         ...(inheritedClaim ? { replaceClaimToken: inheritedClaim } : {}),
       })
       : undefined
@@ -8328,7 +8338,7 @@ async function executeAgentInvocation<
     if (preparedInvocation?.handledResponse) {
       const runningPersisted = await invocationJournal?.running()
       input.abortSignal?.throwIfAborted()
-      if (invocationJournal && !runningPersisted && !invocationJournal.reusedTerminal) throw new Error("Could not persist the Invocation running state.")
+      if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw new Error("Could not persist the Invocation running state.")
       await activity?.update("running")
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity)
     }
@@ -8351,7 +8361,7 @@ async function executeAgentInvocation<
     try {
       const runningPersisted = await invocationJournal?.running()
       input.abortSignal?.throwIfAborted()
-      if (invocationJournal && !runningPersisted && !invocationJournal.reusedTerminal) throw new Error("Could not persist the Invocation running state.")
+      if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw new Error("Could not persist the Invocation running state.")
       await activity?.update("running")
       input.abortSignal?.throwIfAborted()
       return await executeAgentInvocationWithCapacityLease(agent, context, input, options, preparedInvocation, invocationJournal, activity)
@@ -8373,7 +8383,7 @@ async function executeAgentInvocation<
   try {
     const runningPersisted = await invocationJournal?.running()
     input.abortSignal?.throwIfAborted()
-    if (invocationJournal && !runningPersisted && !invocationJournal.reusedTerminal) throw new Error("Could not persist the Invocation running state.")
+    if (invocationJournal && !invocationJournal.reusedTerminal && ((!runningPersisted && !invocationJournal.startsUnconfirmed()) || (runningPersisted && !invocationJournal.dispatchAllowed()))) throw new Error("Could not persist the Invocation running state.")
     await activity?.update("running")
     return await executeAgentInvocationWithCapacityLease(agent, context, input, {
       ...options,

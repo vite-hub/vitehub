@@ -253,6 +253,28 @@ Keep binary assets behind the Blob boundary and store a serializable reference i
 the record. This keeps ordinary record reads lazy while treating the structured
 data and its assets as one logical item.
 
+### Inspect Collections
+
+`vitehub inspect definitions --kind collection` lists each discovered Collection
+with its file, source kind, and the options that it sets: schema, key, sort,
+filters, search, facets, limits, transform, authorize, and route. The
+`hubSource()` plugin contributes this list through `vitehub.inspect`, and
+`inspectCollectionDefinitions({ projectRoot, serverDirs })` from
+`@vite-hub/source/vite` returns the same summaries. Inspection reads the module
+text and does not run it, so a value that is computed at runtime shows as
+`Dynamic`.
+
+```txt
+Collections (collection): 1
+  articles  server/collections/articles.ts  [server-collections]
+    Source: array
+    Key: slug
+    Sort: publishedAt desc
+    Filters: category, authors.name
+    Transform: Yes
+    Route: GET /api/articles
+```
+
 ## Used by
 
 [`@vite-hub/workspace`](../workspace/README.md) materializes Source output into workspace files. Use this package directly when you only need typed source loading and not a workspace file tree.

@@ -18,7 +18,7 @@ const section = computed(() => getDocsSectionForPath(docsManifest.sections, rout
 const pageGroups = computed(() => {
   if (!section.value) return [];
   const groups = getDocsSidebarGroups(section.value);
-  const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
+  const perspective = getDocsPageByPath("/docs/getting-started/built-for-vue");
   if (section.value.id !== "ui" || !perspective) return groups;
   return groups.map((group) =>
     group.label === "Start" && !group.pages.some((page) => page.path === perspective.path)
