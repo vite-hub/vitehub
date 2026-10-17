@@ -9,7 +9,7 @@ import { sql } from "drizzle-orm"
 import { Miniflare } from "miniflare"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createWorkspace, defineWorkspace, file, isWorkspaceConflict, useWorkspace } from "../src/index.ts"
+import { createWorkspace, defineWorkspace, file, isWorkspaceConflict, registerWorkspacePlugin, useWorkspace } from "../src/index.ts"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "../src/blob-database.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
@@ -110,6 +110,90 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(await version.readFile("image.bin", { encoding: "binary" })).toEqual(binary)
   })
 
+  it("filters history changes by file and folder path before pagination", async () => {
+    const { facade } = await setup(driver)
+    const workspace = facade()
+    const first = await workspace.history.commit({
+      ifHead: null,
+      files: {
+        "docs/guide.md": { content: "one", mediaType: "text/markdown", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const same = await workspace.history.commit({
+      ifHead: first.id,
+      files: {
+        "docs/guide.md": { content: "one", mediaType: "text/markdown", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const content = await workspace.history.commit({
+      ifHead: same.id,
+      files: {
+        "docs/guide.md": { content: "two", mediaType: "text/markdown", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const mediaType = await workspace.history.commit({
+      ifHead: content.id,
+      files: {
+        "docs/guide.md": { content: "two", mediaType: "text/custom", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const metadata = await workspace.history.commit({
+      ifHead: mediaType.id,
+      files: {
+        "docs/guide.md": { content: "two", mediaType: "text/custom", metadata: { version: 2 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const rename = await workspace.history.commit({
+      ifHead: metadata.id,
+      files: {
+        "docs/new.md": { content: "two", mediaType: "text/custom", metadata: { version: 2 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const unrelated = await workspace.history.commit({
+      ifHead: rename.id,
+      files: {
+        "docs/new.md": { content: "two", mediaType: "text/custom", metadata: { version: 2 } },
+        "docs-old/z.md": "new",
+      },
+    })
+
+    const matching: string[] = []
+    let cursor: string | undefined
+    do {
+      const page = await workspace.history.list({ path: "docs/", limit: 1, cursor })
+      matching.push(...page.revisions.map(revision => revision.id))
+      cursor = page.cursor
+    } while (cursor)
+    expect(matching).toEqual([rename.id, metadata.id, mediaType.id, content.id, first.id])
+    expect(matching).not.toContain(same.id)
+    expect(matching).not.toContain(unrelated.id)
+    expect((await workspace.history.list({ path: "docs/new.md" })).revisions.map(revision => revision.id)).toEqual([rename.id])
+    expect((await workspace.history.list({ path: "docs/guide.md" })).revisions.map(revision => revision.id)).toEqual([rename.id, metadata.id, mediaType.id, content.id, first.id])
+    expect((await workspace.history.list({ path: "docs-old" })).revisions.map(revision => revision.id)).toEqual([unrelated.id, first.id])
+    await expect(workspace.history.list({ path: "../docs" })).rejects.toMatchObject({ code: "WORKSPACE_PATH_INVALID" })
+  })
+
+  it("treats LIKE metacharacters as literal path characters", async () => {
+    const { facade } = await setup(driver)
+    const workspace = facade()
+    const first = await workspace.history.commit({
+      ifHead: null,
+      files: { "foo%/file.txt": "one", "fooA/file.txt": "one", "foo_/file.txt": "one", "foox/file.txt": "one" },
+    })
+    const second = await workspace.history.commit({
+      ifHead: first.id,
+      files: { "foo%/file.txt": "one", "fooA/file.txt": "two", "foo_/file.txt": "two", "foox/file.txt": "two" },
+    })
+    expect((await workspace.history.list({ path: "foo%" })).revisions.map(revision => revision.id)).toEqual([first.id])
+    expect((await workspace.history.list({ path: "foo_" })).revisions.map(revision => revision.id)).toEqual([second.id, first.id])
+  })
+
   it("uploads each retained digest once, counts unique bytes, and keeps workspaces isolated", async () => {
     const { store, facade, uploads, blob, database } = await setup(driver)
     const workspace = facade()
@@ -159,7 +243,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect((await store.history.list()).revisions.map(revision => revision.id)).toEqual([winners[0]!.value.id, first.id])
     expect(await store.history.usage()).toEqual({ bytes: 15, objects: 2 })
     const candidates = await database.select().from(workspaceHistorySchema.workspaceHistoryRevisions)
-    const losing = candidates.find(candidate => !candidate.published)!
+    const losing = candidates.find(candidate => !candidate.committed)!
     expect(losing).toBeDefined()
     await expect(store.history.open(losing.id)).rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
     await store.delete()
@@ -169,7 +253,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
   it("preserves the previous head if manifest insertion fails in the atomic batch", async () => {
     const { store, database } = await setup(driver)
     const first = await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "base" }) })
-    await database.run(sql.raw("CREATE TRIGGER reject_publication BEFORE UPDATE OF published ON workspace_history_revisions BEGIN SELECT RAISE(ABORT, 'publication failed'); END"))
+    await database.run(sql.raw("CREATE TRIGGER reject_publication BEFORE UPDATE OF committed ON workspace_history_revisions BEGIN SELECT RAISE(ABORT, 'publication failed'); END"))
     await expect(store.history.commit({ ifHead: first.id, files: rawFiles({ "a.txt": "next" }) })).rejects.toThrow()
     expect(await store.history.head()).toEqual(first)
     expect((await store.history.list()).revisions).toEqual([first])
@@ -351,6 +435,53 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(await store.history.head()).toEqual(revision)
   })
 
+  it("keeps named refs isolated while sharing revisions and objects", async () => {
+    const { store, facade, fresh, uploads, blob } = await setup(driver)
+    const workspace = facade()
+    const main = await workspace.history.commit({ ifHead: null, files: { "posts/a.md": "a", "posts/b.md": "b" } })
+    expect(main.ref).toBe("main")
+    const draft = await workspace.history.commit({ ref: "draft", ifHead: null, files: { "posts/a.md": "a", "posts/b.md": "b draft" } })
+    expect(draft).toMatchObject({ ref: "draft", parentId: null, files: 2 })
+    expect(uploads).toHaveBeenCalledTimes(3)
+    expect(await workspace.history.head()).toEqual(main)
+    expect(await workspace.history.head({ ref: "draft" })).toEqual(draft)
+    expect(await workspace.history.head({ ref: "published" })).toBeNull()
+    expect(await workspace.history.list({ ref: "draft" })).toEqual({ revisions: [draft] })
+    expect(await workspace.history.list()).toEqual({ revisions: [main] })
+    expect(await workspace.history.refs()).toEqual([{ name: "draft", head: draft }, { name: "main", head: main }])
+    // Revision ids are Workspace-wide, so any ref can open another ref's revision.
+    expect(await (await fresh().history.open(draft.id)).readFile("posts/b.md")).toBe("b draft")
+    expect((await store.readFile("posts/b.md"))?.content).toEqual(new TextEncoder().encode("b"))
+
+    const saved = await workspace.history.commit({ ref: "draft", ifHead: draft.id, changes: { put: { "posts/c.md": { content: "c", metadata: { title: "C" } } }, delete: ["posts/a.md"] }, message: "save" })
+    expect(saved).toMatchObject({ ref: "draft", parentId: draft.id, files: 2, message: "save" })
+    expect(uploads).toHaveBeenCalledTimes(4)
+    const view = await workspace.history.open(saved.id)
+    expect((await view.list("", { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path)).toEqual(["posts/b.md", "posts/c.md"])
+    expect(await view.stat("posts/c.md")).toMatchObject({ mediaType: "text/markdown", metadata: { title: "C" } })
+    expect(await view.readFile("posts/b.md")).toBe("b draft")
+
+    await expect(workspace.history.commit({ ref: "draft", ifHead: draft.id, changes: { put: { "posts/d.md": "d" } } })).rejects.toSatisfy(error => isWorkspaceConflict(error))
+    await expect(workspace.history.commit({ ref: "draft", ifHead: draft.id, changes: { put: { "posts/d.md": "d" } } })).rejects.toMatchObject({ details: { ref: "draft", expected: draft.id, actual: saved.id } })
+    await expect(store.history.commit({ ref: "draft", ifHead: draft.id, changes: { put: rawFiles({ "posts/d.md": "d" }) } })).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "draft", expected: draft.id, actual: saved.id } })
+    const published = await store.history.commit({ ref: "published", ifHead: null, changes: { put: rawFiles({ "posts/c.md": "c" }) } })
+    expect(published).toMatchObject({ ref: "published", files: 1 })
+    expect(await workspace.history.head()).toEqual(main)
+    expect((await workspace.history.refs()).map(ref => ref.name)).toEqual(["draft", "main", "published"])
+
+    const page = await workspace.history.list({ ref: "draft", limit: 1 })
+    expect(page).toEqual({ revisions: [saved], cursor: saved.id })
+    expect(await workspace.history.list({ ref: "draft", cursor: page.cursor, limit: 1 })).toEqual({ revisions: [draft] })
+    await expect(workspace.history.list({ cursor: page.cursor })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
+    expect(await workspace.history.usage()).toEqual({ bytes: 1 + 1 + 7 + 1, objects: 4 })
+
+    await store.delete()
+    expect(await fresh().history.refs()).toEqual([])
+    expect(await fresh().history.head({ ref: "draft" })).toBeNull()
+    await expect(fresh().history.commit({ ref: "draft", ifHead: null, files: {} })).rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
+    expect((await blob.list())[1]?.blobs).toEqual([])
+  })
+
   it("retains a 200-file folder and uploads no bytes for an unchanged publication", async () => {
     const { facade, uploads } = await setup(driver)
     const workspace = facade()
@@ -501,6 +632,81 @@ describe("history policy and capabilities", () => {
     expect(await store.history.head()).toBeNull()
     expect(await store.readFile("locked.txt")).toMatchObject({ content: "owned", metadata: { source: "locked" } })
     expect(uploads).not.toHaveBeenCalled()
+  })
+
+  it("runs rules, validators, hooks, and Source ownership on change commits", async () => {
+    const { store, uploads } = await setup("libsql")
+    const validate = vi.fn((input: import("../src/core/types.ts").WorkspaceWriteInput) => input.operation === "writeFile" ? { ...input, metadata: { checked: true } } : input)
+    const after = vi.fn()
+    const workspace = useWorkspace("changes", { mode: "write", definition: { name: "changes", store, sources: { locked: file({ workspacePath: "locked.txt", content: "locked", materialize: "lazy" }) }, rules: {
+      "**": { maxBytes: 8, validate },
+      "keep.txt": { write: "create" as const },
+    }, hooks: { "write:after": after } } })
+    const first = await workspace.history.commit({ ref: "draft", ifHead: null, changes: { put: { "a.txt": "a", "keep.txt": "keep", "b.txt": "b" } } })
+    // The more specific keep.txt rule has no validator.
+    expect(validate).toHaveBeenCalledTimes(2)
+    expect(after).toHaveBeenCalledTimes(3)
+    expect(await (await workspace.history.open(first.id)).stat("a.txt")).toMatchObject({ metadata: { checked: true } })
+    // Only changed paths reach validators; unchanged puts and untouched files are skipped.
+    const second = await workspace.history.commit({ ref: "draft", ifHead: first.id, changes: { put: { "a.txt": "a", "b.txt": "b2" } } })
+    expect(validate).toHaveBeenCalledTimes(3)
+    expect(validate).toHaveBeenLastCalledWith(expect.objectContaining({ path: "b.txt", operation: "writeFile", previous: expect.objectContaining({ path: "b.txt" }) }))
+    expect(await (await workspace.history.open(second.id)).readFile("keep.txt")).toBe("keep")
+    const count = uploads.mock.calls.length
+    await expect(workspace.history.commit({ ref: "draft", ifHead: second.id, changes: { put: { "a.txt": "too-large" } } })).rejects.toThrow("limits writes")
+    await expect(workspace.history.commit({ ref: "draft", ifHead: second.id, changes: { delete: ["keep.txt"] } })).rejects.toThrow("does not allow rm")
+    await expect(workspace.history.commit({ ref: "draft", ifHead: second.id, changes: { put: { "locked.txt": "owned" } } })).rejects.toThrow("read-only")
+    await expect(workspace.history.commit({ ref: "draft", ifHead: second.id, changes: { delete: ["missing.txt"] } })).rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
+    await expect(workspace.history.commit({ ref: "draft", ifHead: second.id, changes: { put: { "a.txt": "x" }, delete: ["a.txt"] } })).rejects.toThrow("Duplicate history file path")
+    // @ts-expect-error A commit takes either a complete file set or changes.
+    await expect(workspace.history.commit({ ref: "draft", ifHead: second.id, files: {}, changes: {} })).rejects.toThrow("exactly one of files or changes")
+    for (const ref of ["", "../main", "a//b", "a b", 1]) {
+      // @ts-expect-error Untyped callers can pass invalid refs.
+      await expect(workspace.history.commit({ ref, ifHead: null, changes: {} })).rejects.toMatchObject({ code: "WORKSPACE_R0071" })
+    }
+    await expect(workspace.history.head({ ref: "bad ref" })).rejects.toMatchObject({ code: "WORKSPACE_R0071" })
+    expect(uploads).toHaveBeenCalledTimes(count)
+    const removed = await workspace.history.commit({ ref: "draft", ifHead: second.id, changes: { delete: ["b.txt"] } })
+    expect(removed.files).toBe(2)
+    expect(await workspace.history.head({ ref: "draft" })).toEqual(removed)
+    expect(await store.history.head()).toBeNull()
+  })
+
+  it("keeps staged writes when another ref moves and replaces them when the default ref moves", async () => {
+    const { store } = await setup("libsql")
+    await store.writeFile("staged.txt", { path: "staged.txt", content: "staged" })
+    const draft = await store.history.commit({ ref: "draft", ifHead: null, changes: { put: rawFiles({ "draft.txt": "draft" }) } })
+    expect((await store.readFile("staged.txt"))?.content).toBe("staged")
+    expect(await store.history.head()).toBeNull()
+    await store.history.commit({ ifHead: null, changes: { put: rawFiles({ "main.txt": "main" }) } })
+    expect(await store.readFile("staged.txt")).toBeUndefined()
+    expect((await store.readFile("main.txt"))?.content).toEqual(new TextEncoder().encode("main"))
+    expect(await store.history.head({ ref: "draft" })).toEqual(draft)
+  })
+
+  it("adds contributed plugins to a discovered Workspace by name", async () => {
+    const { store } = await setup("libsql")
+    registerWorkspace("contributed", defineWorkspace({ store, plugins: [{ id: "own", rules: { "own.txt": { write: false } } }] }))
+    const workspace = useWorkspace("contributed", { mode: "write" })
+    await workspace.fs.writeFile("posts/early.md", "no plugin yet")
+    const validate = vi.fn((input: import("../src/core/types.ts").WorkspaceWriteInput) => {
+      if (input.path.startsWith("posts/") && input.operation === "writeFile" && !String(input.content).startsWith("---")) throw new Error("frontmatter required")
+    })
+    const stale = registerWorkspacePlugin("contributed", { id: "content", hooks: { "write:validate": validate } })
+    // Registering the same id again replaces the earlier plugin instead of stacking it.
+    const unregister = registerWorkspacePlugin("contributed", { id: "content", hooks: { "write:validate": validate } })
+    cleanup.push(unregister)
+    stale()
+    cleanup.push(registerWorkspacePlugin("contributed", { id: "own", rules: { "own.txt": { write: true } } }))
+    await expect(workspace.fs.writeFile("posts/a.md", "body")).rejects.toThrow("frontmatter required")
+    expect(validate).toHaveBeenCalledTimes(1)
+    await expect(workspace.history.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": "body" } } })).rejects.toThrow("frontmatter required")
+    const revision = await workspace.history.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": "---\ntitle: A\n---\n" } } })
+    expect(revision.ref).toBe("draft")
+    await expect(workspace.fs.writeFile("own.txt", "x")).rejects.toThrow("does not allow writeFile")
+    unregister()
+    await workspace.fs.writeFile("posts/b.md", "plain")
+    expect(() => registerWorkspacePlugin("contributed", { id: "" })).toThrow("require an id")
   })
 
   it("reports a capability error for Stores without historical bytes", async () => {

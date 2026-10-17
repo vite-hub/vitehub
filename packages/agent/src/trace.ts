@@ -518,6 +518,17 @@ export async function traceAgentChannelDeliveryEffect<TRuntimeConfig extends Age
   })
 }
 
+export async function traceAgentChannelDeliveryReminder<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentTraceContext<TRuntimeConfig>,
+  attributes: Record<string, unknown>,
+): Promise<void> {
+  await traceAgentEvent(context, {
+    attributes: invocationAttributes(context, attributes),
+    name: "agent.channel.delivery.reminder",
+    type: "run",
+  })
+}
+
 export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
   event: unknown,

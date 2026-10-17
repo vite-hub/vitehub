@@ -1,4 +1,4 @@
-import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
+import { invalidScheduleValueDetails, createScheduleError } from "../errors.ts"
 
 export function isScheduleDate(value: unknown): value is Date {
   try {

@@ -32,12 +32,42 @@
     }
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./agent": "./dist/agent.js",
-    "./nuxt": "./dist/nuxt.js",
-    "./server": "./dist/server.js",
-    "./vite": "./dist/vite.js",
-    "./vue": "./dist/vue.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js",
+      "require": "./dist/agent.js",
+      "default": "./dist/agent.js"
+    },
+    "./nuxt": {
+      "types": "./dist/nuxt.d.ts",
+      "import": "./dist/nuxt.js",
+      "require": "./dist/nuxt.js",
+      "default": "./dist/nuxt.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "require": "./dist/server.js",
+      "default": "./dist/server.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js",
+      "require": "./dist/vue.js",
+      "default": "./dist/vue.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -47,13 +77,14 @@
     "test": "vp run -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {
-    "@cloudflare/workers-types": "^5.20261003.1",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth",
-    "bun-types": "^1.4.2",
-    "nostics": "catalog:runtime"
+    "bun-types": "^1.4.3",
+    "nostics": "catalog:runtime",
+    "undici": "8.12.2"
   },
   "devDependencies": {
     "@types/json-schema": "catalog:ai",

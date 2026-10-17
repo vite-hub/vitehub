@@ -37,7 +37,6 @@ It also becomes the Worker name unless `nitro.cloudflare.wrangler.name` is set.
 | Credentials | Provider env vars for provisioning or host runtime secrets through Server Env. |
 | Runtime context | Runtime Host Context passed by the host integration, not app-owned global state. |
 | Agent state | Agent Package state provider configuration when Cloudflare-backed state is selected. |
-| Cloudflare Computer Boxes | App-owned Computer Durable Object, backend, bindings, migrations, and compatibility flags; ViteHub adapts the configured namespace at runtime. |
 
 ## Configure the preset
 
@@ -175,12 +174,6 @@ ViteHub writes the generated `browser` binding, a compatible default `compatibil
 
 `wrangler dev` can run Browser Run against a local browser. Set `browser: { remote: true }` to keep Worker code local while connecting its Browser binding to Cloudflare, which is useful when a proof must exercise the hosted Browser Run service.
 
-### Cloudflare Computer Boxes
-
-Cloudflare Computer is an optional preview runtime for [Boxes](/docs/agents/boxes). The application configures its `withWorkspace()` Durable Object, execution backends, Worker Loader or Container bindings, migrations, compatibility flags, and deployment lifecycle. Pass the configured Durable Object namespace to ViteHub with `{ kind: 'cloudflare-computer' }`. ViteHub does not create or modify Computer infrastructure.
-
-Keep the Computer filesystem and backend configuration in the Cloudflare integration. Box callers supply inputs and select a registered backend ID without importing Computer filesystem or execution APIs.
-
 ## Production notes
 
 Cloudflare local development and deployed Workers do not always expose the same runtime behavior.
@@ -194,9 +187,9 @@ Agent Definitions run on Cloudflare through generated host output where the Agen
 
 ### Console on Workers
 
-Cloudflare can send consecutive requests from one browser to different Worker instances. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc/__call` request, so it does not need session affinity or in-memory state. With `access: 'auth'`, the access policy checks the session cookie on each call. Agent invocations started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted invocation journal, as the [Console guide](/docs/development/console) describes.
+Cloudflare can send consecutive requests from one browser to different Worker instances. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc/__call` request, so it does not need session affinity or in-memory state. With a session-based `auth`, the access policy checks the session cookie on each call. Agent invocations started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted invocation journal, as the [Console guide](/docs/development/console) describes.
 
-Protect a production Console with `console: { access: 'auth', auth: { provider: 'cloudflare-access' } }` and a Cloudflare Access application. The Worker verifies the Access token on each Console request with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`. Inline GitHub Console Auth needs `node:sqlite` and is not available on Workers. See [Cloudflare Access](/docs/development/console#protect-the-console-route).
+Protect a production Console with `console: { auth: { provider: 'cloudflare-access' } }` and a Cloudflare Access application. The Worker verifies the Access token on each Console request with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`. Inline GitHub Console Auth needs `node:sqlite` and is not available on Workers. See [Protect the Console route](/docs/development/console#protect-the-console-route).
 
 ## Next steps
 
