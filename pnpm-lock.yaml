@@ -1931,6 +1931,9 @@ importers:
       linkedom:
         specifier: ^0.18.13
         version: 0.18.13
+      miniflare:
+        specifier: 4.20260730.0
+        version: 4.20260730.0
       publint:
         specifier: catalog:tooling
         version: 0.3.25
