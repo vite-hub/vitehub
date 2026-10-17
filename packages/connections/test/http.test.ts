@@ -362,7 +362,7 @@ describe("createConnectionsHandler", () => {
     const body = await response.json();
     expect(body).toEqual({
       error: {
-        code: "CONNECTION_ORIGIN_REJECTED",
+        code: "CONNECTIONS_ORIGIN_REJECTED",
         details: { expectedOrigin: "http://agent.example.com", receivedOrigin: "https://agent.example.com" },
         docs: "https://vitehub.dev/docs/connections/server-api#origin-checks",
         fix: expect.stringContaining("TLS-terminating proxy"),
@@ -378,7 +378,7 @@ describe("createConnectionsHandler", () => {
     const response = await handler(post({ action: "list" }, { "content-type": "text/plain" }));
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({
-      error: { code: "CONNECTION_CONTENT_TYPE_REJECTED", fix: "Send the request with Content-Type: application/json." },
+      error: { code: "CONNECTIONS_CONTENT_TYPE_REJECTED", fix: "Send the request with Content-Type: application/json." },
     });
   });
 

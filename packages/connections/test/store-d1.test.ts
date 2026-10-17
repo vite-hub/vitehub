@@ -44,7 +44,7 @@ describe("Connections store on D1", () => {
     expect(await store.authorizations.take(authorization.state)).toBeUndefined()
     await store.authorizations.put({ ...authorization, state: "expired" })
     const test = createTestRuntime(mailConnection(), store)
-    await expect(test.runtime.complete({ code: "code", state: "expired" })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
+    await expect(test.runtime.complete({ code: "code", state: "expired" })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
     expect(test.provider.calls).toEqual([])
     expect(await store.authorizations.take("expired")).toBeUndefined()
   })

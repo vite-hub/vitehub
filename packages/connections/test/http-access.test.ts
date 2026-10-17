@@ -82,7 +82,7 @@ describe("Connections route guard contract", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
       error: {
-        code: "CONNECTION_FORBIDDEN",
+        code: "CONNECTIONS_FORBIDDEN",
         docs: "https://vitehub.dev/docs/connections/server-api#management-routes",
         fix: "Sign in again. A custom actor function must return user:<id> for an allowed manager.",
         message: "The management route found no signed-in manager for this request.",
@@ -105,7 +105,7 @@ describe("Connections route guard contract", () => {
     for (const request of Object.values(routeRequests)) {
       const response = await handler(request());
       expect(response.status).toBe(500);
-      expect(await response.json()).toMatchObject({ error: { code: "CONNECTION_AUTH_REQUIRED" } });
+      expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_AUTH_REQUIRED" } });
     }
     expect(runtime).not.toHaveBeenCalled();
   });
@@ -118,7 +118,7 @@ describe("Connections route guard contract", () => {
       const response = await handler(request());
       expect(response.status).toBe(500);
       expect(await response.json()).toMatchObject({
-        error: { code: "CONNECTION_AUTH_REQUIRED", message: expect.stringContaining("outside local development") },
+        error: { code: "CONNECTIONS_AUTH_REQUIRED", message: expect.stringContaining("outside local development") },
       });
     }
     expect(runtime).not.toHaveBeenCalled();
@@ -189,7 +189,7 @@ describe("Connections OAuth state binding", () => {
       method: "POST",
     }));
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: { code: "CONNECTION_DENIED" } });
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_DENIED" } });
     expect(test.provider.calls).toHaveLength(0);
   });
 
@@ -207,7 +207,7 @@ describe("Connections OAuth state binding", () => {
   it("binds runtime completion to the actor that started the flow", async () => {
     const test = createTestRuntime();
     const { state } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" });
-    await expect(test.runtime.complete({ actor: "user:other", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTION_DENIED" });
+    await expect(test.runtime.complete({ actor: "user:other", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTIONS_FORBIDDEN" });
     await expect(test.runtime.complete({ actor: "user:owner", code: "code-1", state })).rejects.toMatchObject({ code: "CONNECTION_INVALID" });
   });
 });

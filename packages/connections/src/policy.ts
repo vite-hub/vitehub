@@ -2,7 +2,7 @@ import { envAccessActor, envAccessAgentParents } from "@vite-hub/env/internal/co
 
 import type { EnvActor } from "@vite-hub/env/bridge"
 
-import { ConnectionError } from "./errors.ts"
+import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 
 import { matchesPattern } from "./catalog.ts"
 import type { ConnectionAccessRule, ConnectionDefinition, UseConnectionOptions } from "./types.ts"
@@ -17,7 +17,7 @@ export function envActor(actor: string): EnvActor {
       ? { id: actor.slice(5), kind: "user" }
       : { id: actor, kind: "service" }
   if (!mapped.id || mapped.id.length > 512 || /[\u0000-\u001f]/.test(mapped.id)) {
-    throw new ConnectionError("invalid", "Connection actor IDs must contain 1 to 512 characters and no control characters.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_ACTOR({ problem: "id" })
   }
   return mapped
 }
@@ -27,12 +27,12 @@ export function callerActor(options: Pick<UseConnectionOptions, "access" | "acto
   if (options.access) {
     const actor = envAccessActor(options.access)
     if (actor.kind !== "agent" || options.actor !== undefined) {
-      throw new ConnectionError("invalid", "Connection `access` must be the Env access context of an Agent, without `actor`.")
+      throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_ACTOR({ problem: "access" })
     }
     return `agent:${actor.id}`
   }
   if (options.actor?.startsWith("agent:")) {
-    throw new ConnectionError("invalid", "Agent actors come from the Agent runtime. Use the Connection capabilities of the Agent.")
+    throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_ACTOR({ problem: "agent" })
   }
   return options.actor ?? "server"
 }
