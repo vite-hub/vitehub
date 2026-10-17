@@ -1,64 +1,17 @@
-import { defineCollection as defineCoreCollection } from "@vite-hub/source"
 import { and, asc, desc, eq, getTableColumns, gt, lt, or } from "drizzle-orm"
 
 import type {
-  Collection,
-  CollectionCursorValue,
-  CollectionLoader,
   CollectionQueryInput,
   CollectionRequestQuery,
+  CollectionSource,
+  CursorCollectionSource,
 } from "@vite-hub/source"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { SQL } from "drizzle-orm"
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
-type ProviderCollectionLoader<TSourceItem, TQuery extends object> = (
-  options: { cursor?: string; limit: number; query: TQuery; signal?: AbortSignal },
-) => Promise<{ items: readonly TSourceItem[]; nextCursor: string | null }>
-
 export * from "@vite-hub/source"
-
-interface CollectionSourceBase<TSourceItem, TQueryInput extends object, TQuery extends object> {
-  get?: (key: string, options: { signal?: AbortSignal }) => Promise<TSourceItem | null | undefined>
-  defaultLimit?: number
-  maxLimit?: number
-  querySchema?: StandardSchemaV1<TQueryInput, TQuery>
-}
-
-interface CursorCollectionSource<
-  TSourceItem,
-  TQuery extends object,
-  TCursorInput extends CollectionCursorValue,
-  TCursorOutput extends CollectionCursorValue = TCursorInput,
-  TQueryInput extends object = TQuery,
-> extends CollectionSourceBase<TSourceItem, TQueryInput, TQuery> {
-  cursor(item: NoInfer<TSourceItem>): Readonly<TCursorInput>
-  cursorSchema: StandardSchemaV1<TCursorInput, TCursorOutput>
-  load: CollectionLoader<TSourceItem, TQuery, TCursorOutput>
-  pagination?: undefined
-}
-
-interface ProviderCollectionSource<
-  TSourceItem,
-  TQuery extends object,
-  TQueryInput extends object = TQuery,
-> extends CollectionSourceBase<TSourceItem, TQueryInput, TQuery> {
-  load: ProviderCollectionLoader<TSourceItem, TQuery>
-  pagination: "provider"
-  cursor?: undefined
-  cursorSchema?: undefined
-}
-
-export type CollectionSource<
-  TSourceItem,
-  TQuery extends object,
-  TCursorInput extends CollectionCursorValue,
-  TCursorOutput extends CollectionCursorValue = TCursorInput,
-  TQueryInput extends object = TQuery,
-> = CursorCollectionSource<TSourceItem, TQuery, TCursorInput, TCursorOutput, TQueryInput>
-  | ProviderCollectionSource<TSourceItem, TQuery, TQueryInput>
 
 interface TableShape {
   readonly _: {
@@ -264,57 +217,3 @@ export function table(input: unknown): CursorCollectionSource<TableShape["$infer
     querySchema: querySchema as StandardSchemaV1<CollectionRequestQuery, CollectionRequestQuery>,
   }
 }
-
-type AnyCollectionSource = CollectionSource<any, any, any, any, any>
-type SourceItem<TSource extends AnyCollectionSource> =
-  TSource extends CollectionSource<infer TItem, any, any, any, any> ? TItem : never
-type SourceQuery<TSource extends AnyCollectionSource> =
-  TSource extends CollectionSource<any, infer TQuery, any, any, any> ? TQuery : never
-type SourceQueryInput<TSource extends AnyCollectionSource> =
-  TSource extends CollectionSource<any, any, any, any, infer TQueryInput> ? TQueryInput : never
-
-interface DefineSourceCollection {
-  <TSource extends AnyCollectionSource, TTransform extends (item: NoInfer<SourceItem<TSource>>) => unknown>(options: {
-    authorize?: AccessAuthorizeOption
-    route?: false
-    source: TSource
-    transform: TTransform
-  }): Collection<Awaited<ReturnType<TTransform>>, SourceQuery<TSource>, SourceQueryInput<TSource>>
-  <TSource extends AnyCollectionSource>(options: {
-    authorize?: AccessAuthorizeOption
-    route?: false
-    source: TSource
-    transform?: undefined
-  }): Collection<SourceItem<TSource>, SourceQuery<TSource>, SourceQueryInput<TSource>>
-}
-
-const defineCollectionImplementation = (
-  input:
-    | Parameters<typeof defineCoreCollection>[0]
-    | { authorize?: AccessAuthorizeOption; route?: false; source: AnyCollectionSource; transform?: (item: any) => unknown },
-  options?: Parameters<typeof defineCoreCollection>[1],
-) => {
-  const core: unknown = defineCoreCollection
-  // SAFETY: This adapter forwards one of the public defineCollection overload argument sets.
-  const callCore = core as (...args: unknown[]) => unknown
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Collection loaders may come from another JavaScript realm, so callable dispatch cannot use instanceof Function.
-  if (typeof input === "function") return callCore(input, options)
-  const { authorize, route, source, transform } = input
-  const definition = {
-    authorize,
-    route,
-    get: source.get,
-    pagination: source.pagination,
-    defaultLimit: source.defaultLimit,
-    maxLimit: source.maxLimit,
-    querySchema: source.querySchema,
-    transform,
-    ...(source.pagination === "provider"
-      ? {}
-      : { cursor: source.cursor, cursorSchema: source.cursorSchema }),
-  }
-  return callCore(source.load, definition)
-}
-
-// SAFETY: The implementation dispatches the core loader and Source object overloads above.
-export const defineCollection = defineCollectionImplementation as typeof defineCoreCollection & DefineSourceCollection

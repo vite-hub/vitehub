@@ -30,6 +30,7 @@ import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
+import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
@@ -1165,6 +1166,8 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     importBase: "vite-hub/source",
   })
   plugins.push(sourcePlugin)
+  // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
+  plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,

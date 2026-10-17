@@ -99,15 +99,70 @@ async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevToken
   }
 }
 
-function headerValue(headers: Headers | Record<string, string | string[] | undefined>, name: string): string | undefined {
-  const get = hasRuntimeType(headers, "object") ? Reflect.get(headers, "get") : undefined
-  if (hasRuntimeType(get, "function")) {
-    const value = Reflect.apply(get, headers, [name])
-    return hasRuntimeType(value, "string") && value ? value : undefined
+type WorkspaceDevHeaders = Headers | Record<string, string | string[] | undefined> | { get(name: string): string | null }
+
+function headerValue(headers: WorkspaceDevHeaders, name: string, expectedToken?: string): string | undefined {
+  try {
+  const prototype = Object.getPrototypeOf(headers)
+  const constructor = prototype
+    ? Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    : undefined
+  // `Symbol.toStringTag` is user-controllable, so it cannot establish the
+  // Headers brand on its own. A genuine cross-realm Headers instance exposes
+  // its own constructor on the prototype; use that signal before invoking any
+  // inherited getter.
+  const constructorSource = hasRuntimeType(constructor, "function")
+    ? Function.prototype.toString.call(constructor)
+    : ""
+  const prototypeGet = prototype
+    ? Object.getOwnPropertyDescriptor(prototype, "get")?.value
+    : undefined
+  const isCrossRealmHeaders = hasRuntimeType(constructor, "function")
+    && Reflect.get(constructor, "name") === "Headers"
+    && (constructor === (typeof Headers === "function" ? Headers : undefined)
+      || (/^class\s+Headers\b/.test(constructorSource) && constructorSource.includes("#"))
+      || /^function\s+Headers\(\)\s*\{\s*\[native code\]\s*\}$/.test(constructorSource)
+      || constructorSource.includes("webidl.brandCheck")
+      || constructorSource.includes("#"))
+    && Reflect.get(constructor, "prototype") === prototype
+    && (() => {
+      try {
+        return headers instanceof (constructor as new (...args: never[]) => object)
+      }
+      catch {
+        return false
+      }
+    })()
+    && hasRuntimeType(prototypeGet, "function")
+  if (isCrossRealmHeaders) {
+    const get = typeof Headers === "function" ? Reflect.get(Headers.prototype, "get") : undefined
+    for (const getter of [get, prototypeGet]) {
+      if (!hasRuntimeType(getter, "function")) continue
+      try {
+        const value = Reflect.apply(getter, headers, [name])
+        return hasRuntimeType(value, "string") && value ? value : undefined
+      }
+      catch {}
+    }
   }
-  const value: unknown = Reflect.get(headers, name)
-  if (Array.isArray(value)) return hasRuntimeType(value[0], "string") ? value[0] : undefined
-  return hasRuntimeType(value, "string") ? value : undefined
+  try {
+    const ownGet = Object.hasOwn(headers, "get") ? Reflect.get(headers, "get") : undefined
+    if (hasRuntimeType(ownGet, "function")) {
+      const value = Reflect.apply(ownGet, headers, [name])
+      return hasRuntimeType(value, "string") && value ? value : undefined
+    }
+    if (!Object.hasOwn(headers, name)) return undefined
+    const value: unknown = Reflect.get(headers, name)
+    if (Array.isArray(value)) return hasRuntimeType(value[0], "string") ? value[0] : undefined
+    return hasRuntimeType(value, "string") ? value : undefined
+  }
+  catch {
+    return undefined
+  }
+  }
+  catch {
+    return undefined
+  }
 }
 
 function randomToken(): string {
@@ -147,9 +202,10 @@ export async function readWorkspaceDevToken(rootDir: string, options: WorkspaceD
   }
 }
 
-export async function validateWorkspaceDevToken(rootDir: string, headers: Headers | Record<string, string | string[] | undefined>, options: WorkspaceDevTokenOptions = {}): Promise<boolean> {
-  const token = headerValue(headers, workspaceDevTokenHeader)
-  return isViteHubSecretEqual(token, await ensureWorkspaceDevToken(rootDir, options))
+export async function validateWorkspaceDevToken(rootDir: string, headers: WorkspaceDevHeaders, options: WorkspaceDevTokenOptions = {}): Promise<boolean> {
+  const expectedToken = await ensureWorkspaceDevToken(rootDir, options)
+  const token = headerValue(headers, workspaceDevTokenHeader, expectedToken)
+  return isViteHubSecretEqual(token, expectedToken)
 }
 
 async function resolveWorkspace<Name extends WorkspaceName>(

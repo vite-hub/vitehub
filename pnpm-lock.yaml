@@ -2580,6 +2580,9 @@ importers:
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
+      nuxt:
+        specifier: catalog:nuxt
+        version: 4.5.2(971524eabc4fa6a11f4db89d07d447c9)
       publint:
         specifier: catalog:tooling
         version: 0.3.25

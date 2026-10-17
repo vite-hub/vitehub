@@ -165,47 +165,12 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     const limit = options.limit ?? 20
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: "[vitehub] History list limit must be an integer from 1 to 100." })
     const ref = normalizeHistoryRef(options.ref)
-    const path = options.path === undefined ? undefined : normalizeHistoryPath(options.path)
     const workspace = await this.#key()
     const cursor = options.cursor ? await this.#revision(options.cursor) : undefined
     if (cursor && cursor.ref !== ref) throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: `[vitehub] History cursor belongs to ref "${cursor.ref}". Pass it with the ref that returned it.` })
-    const previousEntries = sql`
-      coalesce((
-        select previous.entries
-        from ${revisions} as previous
-        where previous.workspace = ${revisions.workspace}
-          and previous.id = ${revisions.parentId}
-          and previous.committed = 1
-      ), '{}')
-    `
-    const pathFilter = path === undefined ? undefined : sql`(
-      exists (
-        select 1
-        from json_each(${revisions.entries}) as current_file
-        left join json_each(${previousEntries}) as previous_file
-          on previous_file.key = current_file.key
-        where (current_file.key = ${path} or substr(current_file.key, 1, length(${path}) + 1) = ${path} || '/')
-          and (
-            previous_file.key is null
-            or json_extract(current_file.value, '$.digest') is not json_extract(previous_file.value, '$.digest')
-            or json_extract(current_file.value, '$.size') is not json_extract(previous_file.value, '$.size')
-            or json_extract(current_file.value, '$.mediaType') is not json_extract(previous_file.value, '$.mediaType')
-            or json_extract(current_file.value, '$.metadata') is not json_extract(previous_file.value, '$.metadata')
-          )
-      )
-      or exists (
-        select 1
-        from json_each(${previousEntries}) as previous_file
-        left join json_each(${revisions.entries}) as current_file
-          on current_file.key = previous_file.key
-        where (previous_file.key = ${path} or substr(previous_file.key, 1, length(${path}) + 1) = ${path} || '/')
-          and current_file.key is null
-      )
-    )`
     const rows = await this.options.database.select().from(revisions).where(and(
       eq(revisions.workspace, workspace), eq(revisions.ref, ref), eq(revisions.committed, true),
       cursor ? lt(revisions.sequence, cursor.sequence) : undefined,
-      pathFilter,
       this.#active(workspace),
     )).orderBy(desc(revisions.sequence)).limit(limit + 1)
     const result: WorkspaceHistoryListResult = { revisions: rows.slice(0, limit).map(publicRevision) }
@@ -264,10 +229,6 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     validateHistoryMessage(options.message)
     const ref = normalizeHistoryRef(options.ref)
     if ((options.files === undefined) === (options.changes === undefined)) throw workspaceError("[vitehub] History commit requires exactly one of files or changes.")
-    const expectedHeads = Object.entries(options.ifHeads ?? {}).map(([name, head]) => {
-      if (head !== null && (!hasRuntimeType(head, "string") || !head)) throw workspaceError("[vitehub] History ifHeads values must be revision ids or null.")
-      return [normalizeHistoryRef(name), head] as const
-    })
     const workspace = await this.#key()
     await this.#assertActive()
     const current = await this.#ref(workspace, ref)
@@ -343,8 +304,6 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       for (const result of results) if (result.status === "rejected") throw result.reason
     }
     const row = { ...manifest, entries: { ...sorted }, workspace, id, sequence: (current?.sequence ?? 0) + 1, files: Object.keys(sorted).length, bytes: Object.values(sorted).reduce((total, entry) => total + entry.size, 0) }
-    // Check the other refs in the same statement that advances this ref, including absent refs.
-    const headConditions = expectedHeads.map(([name, head]) => sql`(select expected.head from ${refs} as expected where expected.workspace = ${workspace} and expected.ref = ${name}) is ${head}`)
     // All supported Database drivers execute batch atomically. No interactive transaction is needed.
     const [, , changed] = await this.options.database.batch([
       this.options.database.insert(refs).select(sql`
@@ -357,15 +316,11 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           ${row.files}, ${row.bytes}, ${JSON.stringify(row.entries)}, 0
         from ${workspaces} where ${workspaces.workspace} = ${workspace} and ${workspaces.deleted} = 0
       `).onConflictDoNothing(),
-      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), sql`${refs.head} is ${options.ifHead}`, ...headConditions, this.#active(workspace))).returning({ head: refs.head }),
+      this.options.database.update(refs).set({ head: id, sequence: sql`${refs.sequence} + 1` }).where(and(eq(refs.workspace, workspace), eq(refs.ref, ref), sql`${refs.head} is ${options.ifHead}`, this.#active(workspace))).returning({ head: refs.head }),
       this.options.database.update(revisions).set({ committed: true }).where(and(eq(revisions.workspace, workspace), eq(revisions.id, id), sql`exists (select 1 from ${refs} where ${refs.workspace} = ${workspace} and ${refs.ref} = ${ref} and ${refs.head} = ${id})`, this.#active(workspace))),
     ])
     if (!changed.length) {
       if (await this.#isDeleted()) this.#deleted()
-      for (const [name, expected] of expectedHeads) {
-        const actual = (await this.#ref(workspace, name))?.head ?? null
-        if (actual !== expected) throw this.#conflict(name, expected, actual)
-      }
       throw this.#conflict(ref, options.ifHead, (await this.#ref(workspace, ref))?.head ?? null)
     }
     return publicRevision({ ...row, committed: true })
