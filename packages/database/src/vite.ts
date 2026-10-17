@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
-import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
@@ -409,6 +409,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       }
     },
     buildStart() {
+      resetProviderOutputRuntime(providerOutput)
       siblingRuntimeGenerations.capture(this, providerOutput)
     },
     async handleHotUpdate(context) {
