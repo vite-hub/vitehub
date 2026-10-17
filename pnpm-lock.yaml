@@ -1318,6 +1318,9 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.11
