@@ -62,6 +62,6 @@ export const ConnectionStatusLabel = defineComponent({
   name: "ConnectionStatusLabel",
   setup(_props, { slots }) {
     const state = inject(stateKey, ref<ConnectionStatusState>("connecting"));
-    return () => h("span", { "data-slot": "connection-status-label" }, slots.default?.({ state: state.value }) ?? labels[state.value]);
+    return () => h("span", { "data-slot": "connection-status-label", "data-status": state.value }, slots.default?.({ state: state.value }) ?? labels[state.value]);
   },
 });

@@ -45,6 +45,6 @@ export const SyncStatusLabel = defineComponent({
   name: "SyncStatusLabel",
   setup(_props, { slots }) {
     const status = inject(statusKey, ref<SyncStatusValue>("loading"));
-    return () => h("span", { "data-slot": "sync-status-label" }, slots.default?.({ status: status.value }) ?? labels[status.value]);
+    return () => h("span", { "data-slot": "sync-status-label", "data-status": status.value }, slots.default?.({ status: status.value }) ?? labels[status.value]);
   },
 });
