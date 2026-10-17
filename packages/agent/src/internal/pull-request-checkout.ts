@@ -1,7 +1,6 @@
 import type { WorkspaceSession } from "@vite-hub/workspace"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import type { AgentGitHub } from "../types.ts"
 import { isRuntimeObject, isRuntimeString } from "./runtime-value.ts"
 
 export interface PullRequestCheckoutPlan {
@@ -129,38 +128,6 @@ export function pullRequestRepositories(context: ContextStore): { headRepository
   const headRepository = safeRepository(head?.repo)
     || safeRepository(context?.get("pullRequestSourceRepository"))
   return headRepository && headRepository.toLowerCase() !== repository.toLowerCase() ? { headRepository, repository } : { repository }
-}
-
-/** Resolve base access and add environment-only credentials for a fork push remote. */
-export async function pullRequestCheckoutEnvironment(
-  github: AgentGitHub | undefined,
-  repository: string | undefined,
-  abortSignal?: AbortSignal,
-  headRepository?: string,
-): Promise<Record<string, string>> {
-  if (!github) return {}
-  const input: { repository?: string, signal?: AbortSignal } = {}
-  if (repository) input.repository = repository
-  if (abortSignal) input.signal = abortSignal
-  const base = await github.access(input)
-  if (!headRepository || headRepository.toLowerCase() === repository?.toLowerCase()) return base.env
-
-  const head = await github.access({ ...input, repository: headRepository })
-  const env: Record<string, string> = { ...base.env, VITEHUB_GITHUB_HEAD_TOKEN: head.token }
-  let count = Number(env.GIT_CONFIG_COUNT || 0)
-  const config = (key: string, value: string) => {
-    env[`GIT_CONFIG_KEY_${count}`] = key
-    env[`GIT_CONFIG_VALUE_${count}`] = value
-    count++
-  }
-  config("credential.https://github.com.useHttpPath", "true")
-  for (const suffix of ["", ".git"]) {
-    const key = `credential.https://github.com/${headRepository}${suffix}.helper`
-    config(key, "")
-    config(key, '!f() { if [ "$1" = get ]; then printf "username=x-access-token\\npassword=%s\\n" "$VITEHUB_GITHUB_HEAD_TOKEN"; fi; }; f')
-  }
-  env.GIT_CONFIG_COUNT = String(count)
-  return env
 }
 
 /**

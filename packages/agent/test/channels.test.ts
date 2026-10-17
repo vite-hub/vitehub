@@ -439,7 +439,6 @@ describe("agent channels", () => {
   })
 
   it("serializes separate activity channels created from the same GitHub host", async () => {
-    const { github } = await import("../src/channels.ts")
     const { createGitHubHost } = await import("../src/server/github.ts")
     let release!: () => void, entered!: () => void
     const blocked = new Promise<void>(resolve => { release = resolve })
@@ -460,7 +459,7 @@ describe("agent channels", () => {
       } finally { activeWrites-- }
     })
     const host = createGitHubHost({ credentials: () => ({ token: `shared-host-token-${++tokens}` }), identity: { login: "shared-host-bot" } })
-    const channels = [github({ activity: true, app: host }), github({ activity: true, app: host })]
+    const channels = [host.channel({ activity: true }), host.channel({ activity: true })]
     const context = (channel: typeof channels[number], status: "waiting" | "running") => ({
       activity: { agentName: "shared-reviewer", links: [], runId: "shared-run", status, tasks: [], summary: "Shared status" },
       channel, memo: vi.fn(), run: { runId: "shared-run" }, runtime: "unknown", target: { repository: "acme/shared-host", issue: 42 }, waitUntil: vi.fn(),

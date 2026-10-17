@@ -9,7 +9,7 @@ import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, type GitHubProvider } from "@vite-hub/forge"
+import { ForgeResponseError, forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, type GitHubProvider } from "@vite-hub/forge"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./github-repair.ts"
@@ -45,6 +45,10 @@ export interface GitHubHostOptions {
 }
 
 export interface GitHubHostAccess {
+  /**
+   * Environment for `gh` and `git`: `GH_TOKEN`, `GITHUB_TOKEN`, and the commit identity. With a `repository`,
+   * it also has the Git credentials for that repository in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`.
+   */
   env: Record<string, string>
   token: string
 }
@@ -317,17 +321,23 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       credentialKey = tokenKey(token)
     }
 
+    // Git sends the token only to the scoped repository. An empty helper stops Git from asking an ambient credential helper.
+    const header = input.repository
+      ? forgeGitAuthHeader(forgeGitCredentials({ forge: "github", repository: input.repository, token }))
+      : undefined
     const env: Record<string, string> = {
       GH_HOST: "github.com",
       GH_TOKEN: token,
       GITHUB_TOKEN: token,
-      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_COUNT: header ? "2" : "1",
       GIT_CONFIG_KEY_0: "credential.https://github.com.helper",
-      GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_VALUE_0: "",
-      GIT_CONFIG_VALUE_1: '!f() { if [ "$1" = get ]; then printf "username=x-access-token\\npassword=%s\\n" "$GH_TOKEN"; fi; }; f',
       GIT_TERMINAL_PROMPT: "0",
+    }
+    if (header) {
+      env.GIT_CONFIG_KEY_1 = header.key
+      env.GIT_CONFIG_VALUE_1 = header.value
     }
     if (identity.login) {
       env.GIT_AUTHOR_NAME = identity.login
@@ -530,7 +540,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       return identity.login?.trim() || undefined
     },
     channel(channelOptions = {}) {
-      return github({ ...channelOptions, app: host })
+      const login = host.identity()
+      return github({
+        ...channelOptions,
+        app: {
+          token: async (_context, scope) => (await access(scope)).token,
+          ...(login ? { identity: { login } } : {}),
+        },
+      })
     },
     async environment() {
       const current = checkoutScope.getStore()

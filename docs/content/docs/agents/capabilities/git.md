@@ -70,7 +70,7 @@ The Capability reuses its Workspace Sessions within one invocation and closes th
 
 ### Pull request checkouts
 
-In a GitHub pull request Invocation, the first command prepares the pull request mount as a Git checkout of the exact head SHA. The checkout and `fetch` use the Agent GitHub identity from `defineAgent({ github })`. Without one, they run without credentials.
+In a GitHub pull request Invocation, the first command prepares the pull request mount as a Git checkout of the exact head SHA. The checkout and `fetch` use the forge access of the Agent's github() Channel App. The token goes in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` and reaches only the pull request base and head repositories. Without a github() Channel App, they run without credentials. See [GitHub Channel](/docs/agents/channels).
 
 ## Requirements
 
@@ -85,7 +85,7 @@ The Agent can run only the commands and options listed above. The `policy` optio
 - `"deny"`: reject write commands.
 - A function receives `{ name, input }` and returns one of these values.
 
-A policy cannot enable a blocked command. `fetch` can use the Agent GitHub identity in a pull request Invocation. No other credentials are added. `maxOutputLength` limits the stdout and stderr returned to the model; it does not limit the command.
+A policy cannot enable a blocked command. `fetch` can use the Agent forge access in a pull request Invocation. No other credentials are added. `maxOutputLength` limits the stdout and stderr returned to the model; it does not limit the command.
 
 ## Driver support
 

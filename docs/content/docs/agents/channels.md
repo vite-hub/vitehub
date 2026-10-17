@@ -363,6 +363,30 @@ Set `pullRequest.workspace.mount` to the repository path inside the Workspace. O
 
 When a declared GitHub Source uses the same repository and the same non-root mount, the pull request checkout replaces it for that Invocation. Reads use the pull request head SHA; the declared Source remains unchanged for other Invocations. Different repositories, overlapping parent or child mounts, and Sources contributed by other Capabilities still produce a conflict.
 
+### Forge access for Git and Drivers
+
+A github() Channel that sets `app` gives its Agent forge access. The pull request checkout, the [`git()`](/docs/agents/capabilities/git) Capability, and the `forge()` Capability use it. Provider Drivers receive `GH_TOKEN`, `GITHUB_TOKEN`, and Git credentials before `driver.env`.
+
+The Channel resolves one token for each repository. It uses `app.token` when you set it. Otherwise it mints an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository.
+
+Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in process arguments, and they reach only the pull request base and head repositories. A run without a pull request repository gets no credentials. An Agent with two github() Channels that set `app` gets no forge access.
+
+```ts [server/agents/reviewer.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    github: github({
+      app: { token: async (_context, { repository }) => await vault.githubToken(repository) },
+      pullRequest: true,
+    }),
+  },
+  driver: { kind: 'codex' },
+  workspace: { mode: 'write' },
+})
+```
+
 ## Connect a web chat
 
 `webChat()` exposes the Agent through `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep that Agent unreachable through the shared dispatcher.

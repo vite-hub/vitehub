@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { forge } from "../src/capabilities.ts"
 import { defineAgent, createAgentInspectionMetadata } from "../src/index.ts"
+import { forgeAccessKey } from "../src/internal/forge-access.ts"
 import { applyAgentToolPolicies, approveAgentToolRequest, executeApprovedAgentTool } from "../src/tool-runtime.ts"
 import type { ForgeKind } from "../src/capabilities.ts"
 import type { AgentCapabilityContext, AgentCapabilityDefinition, AgentToolSet } from "../src/types.ts"
@@ -197,11 +198,11 @@ describe("Forge capability", () => {
   })
 
   it.each([undefined, "https://api.github.com/", "https://github.example.com/api/v3"])(
-    "scopes the Agent identity to the public API (%s)",
+    "scopes the Agent forge access to the public API (%s)",
     async baseUrl => {
-      const access = vi.fn(async () => ({ token: "identity-token", env: {} }))
+      const access = vi.fn(async () => "identity-token")
       const set = await tools(forge({ ...base, baseUrl }), {
-        runtimeContext: { githubIdentity: { access } } as never,
+        runtimeContext: { [forgeAccessKey]: access } as never,
       })
       await run(set, "read_thread", { number: 1 })
       const enterprise = baseUrl?.includes("example.com")
@@ -414,11 +415,11 @@ describe("Forge capability", () => {
     )
   })
 
-  it("uses the Agent GitHub identity before Server Env", async () => {
-    const access = vi.fn(async () => ({ token: "identity-token", env: {} }))
-    const set = await tools(forge(base), { runtimeContext: { githubIdentity: { access } } as never })
+  it("uses the Agent forge access before Server Env", async () => {
+    const access = vi.fn(async () => "identity-token")
+    const set = await tools(forge(base), { runtimeContext: { [forgeAccessKey]: access } as never })
     await run(set, "read_thread", { number: 1 })
-    expect(access).toHaveBeenCalledWith({ repository: "acme/app", signal: undefined })
+    expect(access).toHaveBeenCalledWith(expect.anything(), { repository: "acme/app", signal: undefined })
     expect(requests.at(-1)?.options.auth).toEqual({ type: "token", token: "identity-token" })
   })
 
@@ -446,10 +447,10 @@ describe("Forge capability", () => {
     const controller = new AbortController()
     const access = vi.fn(async () => {
       controller.abort(new Error("Invocation cancelled"))
-      return { token: "identity-token", env: {} }
+      return "identity-token"
     })
     const set = await tools(forge({ ...base, mode: "write" }), {
-      runtimeContext: { githubIdentity: { access } } as never,
+      runtimeContext: { [forgeAccessKey]: access } as never,
       abortSignal: controller.signal,
     })
     await expect(run(set, "comment", { number: 1, body: "Do not post" })).rejects.toThrow("Invocation cancelled")

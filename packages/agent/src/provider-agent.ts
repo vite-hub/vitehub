@@ -6,7 +6,8 @@ import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
-import { preparePullRequestCheckout, pullRequestCheckoutEnvironment, pullRequestCheckoutPlan, pullRequestRepositories, type PullRequestCheckoutPlan } from "./internal/pull-request-checkout.ts"
+import { forgeGitEnvironment, readForgeAccess } from "./internal/forge-access.ts"
+import { preparePullRequestCheckout, pullRequestCheckoutPlan, pullRequestRepositories, type PullRequestCheckoutPlan } from "./internal/pull-request-checkout.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
@@ -2084,10 +2085,10 @@ async function prepareWorkspace(
     pullRequest = resolvedPullRequest
     checkoutPullRequest = Boolean(resolvedPullRequest && (!paths || paths.some(path => !path || !resolvedPullRequest.mount || resolvedPullRequest.mount === path || resolvedPullRequest.mount.startsWith(`${path}/`))))
     if (resolvedPullRequest && checkoutPullRequest) {
-      // Give the Driver shell a real checkout so it can fetch, commit, and push with the Agent GitHub identity.
+      // Give the Driver shell a real checkout so it can fetch, commit, and push with the Agent forge access.
       await preparePullRequestCheckout(session, resolvedPullRequest, {
         abortSignal: context.input.abortSignal,
-        env: await pullRequestCheckoutEnvironment(context.runtime.githubIdentity, resolvedPullRequest.repository, context.input.abortSignal, resolvedPullRequest.headRepository),
+        env: await forgeGitEnvironment(providerMetadataContext(context), context.runtime, resolvedPullRequest, context.input.abortSignal),
       })
     }
   }
@@ -3084,10 +3085,10 @@ async function* runProvider<
     // A run that opts out of the managed checkout still acts on its pull
     // request's repositories, so keep credentials scoped to them.
     const githubScope = pullRequestCheckoutPlan(context.context) ?? pullRequestRepositories(context.context)
-    const githubEnvironment = auxiliary || !context.runtime.githubIdentity
+    const githubEnvironment = auxiliary || !readForgeAccess(context.runtime)
       ? undefined
       : await waitForProviderOperation(
-          pullRequestCheckoutEnvironment(context.runtime.githubIdentity, githubScope?.repository, effectiveSignal, githubScope?.headRepository),
+          forgeGitEnvironment(resolverContext, context.runtime, githubScope, effectiveSignal),
           effectiveSignal,
         )
     const configuredEnvironmentOverrides = options.env === undefined
@@ -3099,7 +3100,7 @@ async function* runProvider<
     const gateway = options.gateway === undefined
       ? undefined
       : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
-    // driver.env can override the Agent GitHub environment. The gateway owns its own variables.
+    // driver.env can override the forge access environment. The gateway owns its own variables.
     const providerEnvironmentOverrides = withAgentDriverGatewayEnvironment(gateway, githubEnvironment
       ? { ...githubEnvironment, ...configuredEnvironmentOverrides }
       : configuredEnvironmentOverrides, { auxiliary })

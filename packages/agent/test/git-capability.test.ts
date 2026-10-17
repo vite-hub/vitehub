@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer"
 import { execFile } from "node:child_process"
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -8,7 +9,8 @@ import { describe, expect, it, vi } from "vitest"
 import { git } from "../src/capabilities.ts"
 import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
-import type { AgentGitHub, AgentToolSet } from "../src/types.ts"
+import { forgeAccessKey, type ForgeAccess } from "../src/internal/forge-access.ts"
+import type { AgentToolSet } from "../src/types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
 
 const pullRequestHeadSha = "a".repeat(40)
@@ -41,7 +43,7 @@ async function capabilityTools(
   capability = git(),
   session = gitSession(),
   contextValues: Record<string, unknown> = {},
-  githubIdentity?: AgentGitHub,
+  forgeAccess?: ForgeAccess,
 ): Promise<{ session: ReturnType<typeof gitSession>, startSession: ReturnType<typeof vi.fn>, tools: AgentToolSet }> {
   if (typeof capability.tools !== "function") throw new Error("git capability must expose tool resolver")
   const startSession = vi.fn(async () => session)
@@ -49,7 +51,7 @@ async function capabilityTools(
     context: {
       get: vi.fn((key: string) => contextValues[key]),
     },
-    ...(githubIdentity ? { runtimeContext: { githubIdentity } } : {}),
+    ...(forgeAccess ? { runtimeContext: { [forgeAccessKey]: forgeAccess } } : {}),
     workspace: {
       startSession,
     },
@@ -306,7 +308,7 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenNthCalledWith(3, "git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
   })
 
-  it("uses the Agent GitHub identity for the pull request checkout and fetch", async () => {
+  it("uses the Agent forge access for the pull request checkout and fetch", async () => {
     const session = gitSession()
     session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
       args,
@@ -315,7 +317,7 @@ describe("git capability", () => {
       stderr: "",
       stdout: command === "git" && args[0] === "remote" ? "origin\n" : "",
     }))
-    const access = vi.fn(async () => ({ env: { GH_TOKEN: "installation-token" }, token: "installation-token" }))
+    const access = vi.fn(async () => "installation-token")
     const { tools } = await capabilityTools(git({ mode: "write" }), session, {
       pullRequest: {
         pullRequest: {
@@ -325,13 +327,19 @@ describe("git capability", () => {
         },
         repository: { fullName: "vite-hub/vitehub", name: "vitehub" },
       },
-    }, { access })
+    }, access)
 
     await tools.shell!.execute?.({ command: "git fetch origin main" })
 
-    expect(access).toHaveBeenCalledWith({ repository: "vite-hub/vitehub" })
+    expect(access).toHaveBeenCalledWith(expect.anything(), { repository: "vite-hub/vitehub" })
     const setup = session.exec.mock.calls.find(([command]) => command === "sh")
-    expect(setup?.[2]).toMatchObject({ env: { GH_TOKEN: "installation-token", GIT_TERMINAL_PROMPT: "0" } })
+    expect(setup?.[2]).toMatchObject({
+      env: {
+        GH_TOKEN: "installation-token",
+        GIT_CONFIG_KEY_0: "http.https://github.com/vite-hub/vitehub.git.extraheader",
+        GIT_TERMINAL_PROMPT: "0",
+      },
+    })
     expect(setup?.[1]?.[1]).not.toContain("extraheader")
     expect(setup?.[1]?.[1]).toContain("git checkout -q -B 'feature'")
     const fetch = session.exec.mock.calls.find(([command, args]) => command === "git" && args[0] === "fetch")
@@ -343,21 +351,24 @@ describe("git capability", () => {
     { pullRequestRepository: "vite-hub/vitehub", pullRequestSourceRepository: "contributor/vitehub" },
   ])("scopes fetch credentials without a managed checkout: %j", async (context) => {
     const session = gitSession()
-    const access = vi.fn(async (input: { repository?: string }) => {
-      if (!input.repository) throw new Error("credentials require a repository")
-      const token = input.repository === "vite-hub/vitehub" ? "base-token" : "fork-token"
-      return { env: { GH_TOKEN: token }, token }
-    })
-    const { tools } = await capabilityTools(git({ mode: "write" }), session, context, { access })
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "vite-hub/vitehub" ? "base-token" : "fork-token")
+    const { tools } = await capabilityTools(git({ mode: "write" }), session, context, access)
 
     await tools.shell!.execute?.({ command: "git fetch origin main" })
 
-    expect(access).toHaveBeenNthCalledWith(1, { repository: "vite-hub/vitehub" })
-    expect(access).toHaveBeenNthCalledWith(2, { repository: "contributor/vitehub" })
+    expect(access).toHaveBeenNthCalledWith(1, expect.anything(), { repository: "vite-hub/vitehub" })
+    expect(access).toHaveBeenNthCalledWith(2, expect.anything(), { repository: "contributor/vitehub" })
     const fetch = session.exec.mock.calls.find(([command, args]) => command === "git" && args[0] === "fetch")
+    const basic = (token: string) => `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
     expect(fetch?.[2]).toMatchObject({
       cwd: "/workspace",
-      env: { GH_TOKEN: "base-token", VITEHUB_GITHUB_HEAD_TOKEN: "fork-token" },
+      env: {
+        GH_TOKEN: "base-token",
+        GIT_CONFIG_COUNT: "4",
+        GIT_CONFIG_KEY_2: "http.https://github.com/contributor/vitehub.git.extraheader",
+        GIT_CONFIG_VALUE_0: basic("base-token"),
+        GIT_CONFIG_VALUE_2: basic("fork-token"),
+      },
     })
     expect(session.exec.mock.calls.some(([command]) => command === "sh")).toBe(false)
   })

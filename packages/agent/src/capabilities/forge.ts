@@ -5,15 +5,8 @@ import * as v from "valibot"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { defineCapability, normalizeMode } from "../capability-runtime.ts"
 import { pullRequest } from "../channels.ts"
-import { readBuiltInEnv } from "../internal/builtin-env.ts"
-import {
-  forgeEnv,
-  forgeErrorStatus,
-  forgeProvider,
-  githubAppCredentials,
-  readGitHubAppPrivateKey,
-  withSignal,
-} from "@vite-hub/forge"
+import { forgeConnection } from "../internal/forge-access.ts"
+import { forgeErrorStatus, forgeProvider } from "@vite-hub/forge"
 import type { ForgeKind } from "@vite-hub/forge"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { defineInternalTool } from "./internal.ts"
@@ -21,7 +14,6 @@ import { defineInternalTool } from "./internal.ts"
 import type { ForgeProvider, ForgeVerb } from "forges"
 import type { MaybePromise } from "@vite-hub/runtime"
 import type {
-  AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentToolPolicyContext,
   AgentToolPolicyDecision,
@@ -228,60 +220,6 @@ const optionsSchema = v.strictObject({
   policy: v.optional(policySchema),
 })
 const repositoryPattern = /^[^\s/*\\?#]+(?:\/[^\s/*\\?#]+)*\/(?:[^\s/*\\?#]+|\*)$/
-
-const sealedEnvSchema = v.looseObject({ unseal: v.function() })
-const envTextSchema = v.pipe(v.string(), v.trim(), v.minLength(1))
-
-/** Server Env values can be plain strings or sealed secrets. Empty values count as missing. */
-function envString(value: unknown): string | undefined {
-  const parsed = v.safeParse(envTextSchema, v.is(sealedEnvSchema, value) ? value.unseal() : value)
-  return parsed.success ? parsed.output : undefined
-}
-
-async function connection(
-  context: AgentCapabilityContext,
-  kind: ForgeKind,
-  repository: string,
-  baseUrl: string | undefined,
-  signal: AbortSignal | undefined,
-) {
-  if (
-    kind === "github" &&
-    (baseUrl === undefined || new URL(baseUrl).href === "https://api.github.com/") &&
-    context.runtimeContext?.githubIdentity
-  ) {
-    const access = await context.runtimeContext.githubIdentity.access({ repository, signal })
-    if (access.token) return { forge: kind, baseUrl, token: access.token }
-  }
-  const specs = forgeEnv[kind]
-  // Keep the capability context object: Server Env is cached by its identity for one Invocation.
-  const env = await withSignal(readBuiltInEnv(kind, specs, Object.keys(specs), context), signal)
-  const resolvedBaseUrl = baseUrl ?? envString(env.baseUrl)
-  if (kind === "github") {
-    const appId = envString(env.appId)
-    const privateKey = appId
-      ? await readGitHubAppPrivateKey(envString(env.privateKey), envString(env.privateKeyPath))
-      : undefined
-    if (appId && privateKey) {
-      const app = githubAppCredentials({ appId, privateKey, baseUrl: resolvedBaseUrl })
-      const installation = envString(env.installationId) ?? (await app.installation(repository, signal))
-      return {
-        forge: kind,
-        baseUrl: resolvedBaseUrl,
-        token: (await app.installationToken(installation, { signal })).token,
-      }
-    }
-  }
-  const token = envString(env.token)
-  if (!token) {
-    const names =
-      kind === "github"
-        ? "VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY or VITEHUB_GITHUB_PRIVATE_KEY_PATH; optional VITEHUB_GITHUB_INSTALLATION_ID; or VITEHUB_GITHUB_TOKEN. FORGES_GITHUB_* names are also read"
-        : specs.token.names.join(", ")
-    throw agentDiagnostics.AGENT_R0941({ message: `[vitehub] Forge requires Server Env credentials: ${names}.` })
-  }
-  return { forge: kind, baseUrl: resolvedBaseUrl, token }
-}
 
 /** Remove raw Forge payloads from tool results. */
 function normalized(value: unknown): unknown {
@@ -605,7 +543,7 @@ export function forge(options: ForgeCapabilityOptions = {}): AgentCapabilityDefi
             const signal = execution?.abortSignal ?? context.abortSignal
             signal?.throwIfAborted()
             try {
-              const config = await connection(context, kind, repository, baseUrl, signal)
+              const config = await forgeConnection(context, { forge: kind, repository, baseUrl, signal })
               // The pinned client has no signal option on most write verbs. Bind it at the transport.
               const fetcher = globalThis.fetch
               const provider = await forgeProvider({
