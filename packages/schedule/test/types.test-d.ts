@@ -48,8 +48,11 @@ it("types the defineSchedule helper signature", () => {
   // @ts-expect-error Runtime Schedules were removed.
   defineSchedule({ cron: "0 9 * * *", handler: () => {}, allowRuntimeSchedules: true })
 
-  // @ts-expect-error Static Schedule Definitions remain UTC-only.
-  defineSchedule({ cron: "0 9 * * *", handler: () => {}, timeZone: "Europe/Copenhagen" })
+  expectTypeOf(defineSchedule({ cron: "0 9 * * *", handler: () => {}, timeZone: "Europe/Copenhagen" }).timeZone).toEqualTypeOf<string | undefined>()
+  defineSchedule("0 9 * * *", () => {}, { timeZone: "Europe/Copenhagen" })
+
+  // @ts-expect-error timeZone must be a string when provided.
+  defineSchedule({ cron: "0 9 * * *", handler: () => {}, timeZone: 1 })
 })
 
 it("types host waitUntil for Static Schedule execution", async () => {

@@ -16,19 +16,31 @@ export type ScheduleHandler<TResult = unknown> = {
 export interface ScheduleDefinitionInput<TResult = unknown> {
   /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
   manual?: boolean
+  allowRuntimeSchedules?: boolean
+  /** Five-field cron expression, evaluated in `timeZone`. */
   cron: string
   handler: ScheduleHandler<TResult>
+  /**
+   * IANA time zone of `cron`, such as `"Europe/Madrid"`. Defaults to `"UTC"`. The process driver follows daylight
+   * saving time. Provider cron output (Cloudflare, Vercel, Netlify, Deno) supports only UTC.
+   */
+  timeZone?: string
 }
 
 export interface ScheduleDefinitionOptions {
   /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
   manual?: boolean
+  allowRuntimeSchedules?: boolean
+  /** IANA time zone of the cron, such as `"Europe/Madrid"`. Defaults to `"UTC"`. */
+  timeZone?: string
 }
 
 export interface ScheduleDefinition<TResult = unknown> {
   cron: string
   handler: ScheduleHandler<TResult>
-  options?: ScheduleDefinitionOptions
+  /** IANA time zone of `cron`. Absent means UTC. */
+  timeZone?: string
+  options?: Omit<ScheduleDefinitionOptions, "timeZone">
 }
 
 export type ScheduleRegistryDefinition = ScheduleDefinition
