@@ -60,8 +60,7 @@ describe("documentation tutorials", () => {
     for (const path of tutorialPaths) {
       const source = await readFile(path, "utf8");
       expect(source, path).toContain("layout: tutorial");
-      const section = path.split("/content/docs/")[1]?.split("/")[0];
-      const expectedTitle = section && ["agents", "ui"].includes(section) ? "Tutorial" : "Get started";
+      const expectedTitle = "Get started";
       expect(source, path).toContain(`navigation.title: ${expectedTitle}`);
       expect(source, path).toContain("::tutorial-step");
       expect(source.match(/```[^\n]*\[[^\]]+\]/g)?.length || 0, path).toBeGreaterThan(0);
