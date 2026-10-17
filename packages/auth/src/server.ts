@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-import { Response as UndiciResponse } from "undici"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -276,14 +275,34 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
+function responseGetter(value: object, property: string): (() => unknown) | undefined {
+  let prototype: object | null = value
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (descriptor?.get) return descriptor.get
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+}
+
+function responseMethod(value: object, property: string): ((this: object) => unknown) | undefined {
+  if (Object.prototype.hasOwnProperty.call(value, property)) return
+  let prototype: object | null = Object.getPrototypeOf(value) as object | null
+  while (prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)
+    if (typeof descriptor?.value === "function") return descriptor.value as (this: object) => unknown
+    prototype = Object.getPrototypeOf(prototype) as object | null
+  }
+}
+
 async function runAccessAuthorize(
   authorize: AuthAccessAuthorize,
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
+  if (result === true) return
   const response = await normalizeAuthorizationResponse(result)
   if (response) return response
-  if (result !== true) return createForbiddenResponse(context.request)
+  return createForbiddenResponse(context.request)
 }
 
 const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
@@ -339,73 +358,25 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
   }
 }
 
-function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
-  if (body === null) return true
-  if (Object(body) !== body) return false
-
+async function copyAuthorizationBody(body: unknown): Promise<ReadableStream<Uint8Array> | null | undefined> {
+  if (body === null) return null
+  if (Object(body) !== body) return
+  if (Object.prototype.hasOwnProperty.call(body, "getReader")) return
   try {
-    const candidate = Object(body)
-    // Resolve the stream intrinsics from the body's own realm. Applying the
-    // getter performs the brand check and works across JavaScript realms.
-    if (Object.getOwnPropertyDescriptor(candidate, "getReader")) return false
-    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-    const getReader = ReadableStream.prototype.getReader
-    if (typeof locked !== "function" || typeof getReader !== "function") return false
-    if (Reflect.apply(locked, candidate, [])) return false
-    // Validate the native reader against a fresh stream. The candidate's
-    // inherited reader overrides are intentionally ignored.
-    const freshStream = new ReadableStream()
-    const reader = Reflect.apply(getReader, freshStream, [])
-    if (Object(reader) !== reader) return false
-    const readerObject = reader as object
-    if (typeof Reflect.get(readerObject, "read") !== "function"
-      || typeof Reflect.get(readerObject, "cancel") !== "function"
-      || typeof Reflect.get(readerObject, "releaseLock") !== "function") return false
-    Reflect.apply(Reflect.get(readerObject, "releaseLock"), readerObject, [])
-    return true
+    const clone = structuredClone as (value: unknown, options?: { transfer?: unknown[] }) => unknown
+    const cloned = clone(body, { transfer: [body] })
+    if (Object(cloned) !== cloned) return
+    // Transferability alone is insufficient: ArrayBuffer and other values can
+    // also be transferred. The intrinsic stream accessor performs an
+    // unforgeable ReadableStream brand check on the cloned value.
+    const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+    if (typeof lockedGetter !== "function") return
+    Reflect.apply(lockedGetter, cloned, [])
+    return cloned as ReadableStream<Uint8Array>
   }
   catch {
-    return false
+    return
   }
-}
-
-function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  // Use native operations on native stream state, never caller-supplied reader methods.
-  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
-  const reader = Reflect.apply(getReader, body, [])
-  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
-  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
-  let released = false
-  const release = () => {
-    if (released) return
-    released = true
-    Reflect.apply(releaseLock, reader, [])
-  }
-  const stream = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const result = await Reflect.apply(read, reader, [])
-        if (result.done) {
-          release()
-          controller.close()
-        }
-        else controller.enqueue(result.value)
-      }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
-    },
-    async cancel(reason) {
-      try {
-        await Reflect.apply(cancel, reader, [reason])
-      }
-      finally {
-        release()
-      }
-    },
-  }, { highWaterMark: 0 })
-  return { stream, release }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
@@ -423,6 +394,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
+    // Response construction rejects bodies for these status codes. Check this
+    // before transferring a foreign stream so a rejected candidate retains
+    // ownership of its original body.
+    if (body !== null && (status === 204 || status === 205 || status === 304)) return
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
@@ -452,10 +427,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
-    const nativeBodyMethod = body === null
-      || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
-    if (!isSerializableAuthorizationBody(body)) return
+    if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod) return value
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
@@ -482,19 +454,17 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
-    // Validate status and native body state before acquiring reader ownership.
+    // Validate non-body constructor inputs before transferring a foreign stream.
+    if (status === 0 && (statusText !== "" || body !== null || [...normalizedHeaders].length !== 0)) return
+    if (status !== 0) new Response(null, { status, statusText, headers: normalizedHeaders })
+
+    const normalizedBody = await copyAuthorizationBody(body)
+    if (normalizedBody === undefined) return
+
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
-    if (body === null) return normalizedResponse
-    const bridgedBody = bridgeAuthorizationBody(body)
-    try {
-      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
-    }
-    catch (error) {
-      bridgedBody.release()
-      throw error
-    }
+      : new Response(normalizedBody, { status, statusText, headers: normalizedHeaders })
+    return normalizedResponse
   }
   catch {
     return

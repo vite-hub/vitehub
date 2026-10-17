@@ -26,17 +26,22 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object'
 }
 
-const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
+const typedArrayTag = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  Symbol.toStringTag,
+)?.get
 
 function isUint8Array(value: unknown): value is Uint8Array {
-  return ArrayBuffer.isView(value) && typedArrayTagGetter?.call(value) === 'Uint8Array'
+  if (!ArrayBuffer.isView(value) || !typedArrayTag) return false
+  try { return typedArrayTag.call(value) === 'Uint8Array' }
+  catch { return false }
 }
 
 function unboxJsonPrimitive(value: unknown): { value: unknown } | undefined {
   for (const unbox of [Boolean.prototype.valueOf, Number.prototype.valueOf, String.prototype.valueOf, BigInt.prototype.valueOf]) {
     try { Reflect.apply(unbox, value, []) }
     catch { continue }
-    return { value: Reflect.apply((value as { valueOf: Function }).valueOf, value, []) }
+    return { value: Reflect.apply((value as { valueOf: unknown }).valueOf as (...args: []) => unknown, value, []) }
   }
   return undefined
 }

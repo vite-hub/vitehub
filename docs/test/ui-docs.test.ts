@@ -126,7 +126,7 @@ describe("UI documentation", () => {
     expect(page).toContain("<DocsArticle v-else-if=\"page\"");
     expect(layout).toContain("vh-docs-main");
     expect(layout).toContain("lg:!flex lg:!flex-row");
-    expect(layout).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 4rem)");
+    expect(layout).toContain("max-width: none;");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
