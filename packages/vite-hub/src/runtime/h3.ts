@@ -38,6 +38,11 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 function isRequest(value: unknown): value is Request {
   try {
     if (value === null || typeof value !== "object") return false
+    // Fetch Request instances keep their state in internal slots and do not
+    // expose own properties. Reject candidates with own markers/accessors
+    // before consulting any foreign-realm metadata, which is caller-controlled
+    // and can otherwise imitate the Web IDL surface.
+    if (Reflect.ownKeys(value).length > 0) return false
     // A native accessor performs the Request internal-slot check without
     // consulting properties supplied by the candidate. This covers the
     // current realm directly, including subclasses, while rejecting objects
