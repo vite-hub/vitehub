@@ -507,6 +507,10 @@ describe("resolveDBViteConfig", () => {
     "enum Marker { value }",
     "namespace Marker { export const value = 1 }",
     "declare const marker: string",
+    "async function marker() {}",
+    "export async function marker() {}",
+    "export { cloudflare }",
+    "export * from './marker'",
   ])("stops opaque declarations before TypeScript declaration: %s", async (typescriptDeclaration) => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {

@@ -330,7 +330,7 @@ function readDefinitionCloudflareResource(expression: string | undefined): Defin
 
 function readOpaqueDeclarationExpression(identifier: string, source: string): string | undefined {
   const masked = maskCommentsAndStrings(source)
-  const topLevelStatementStart = /^\s*(?:export\s+default\b|export\s+(?:(?:const|let|var|function|class|interface|type|enum|namespace|declare)\b)|(?:const|let|var|function|class|interface|type|enum|namespace|declare)\b|import\b)/
+  const topLevelStatementStart = /^\s*(?:export\s+(?:default\b|async\s+function\b|(?:const|let|var|function|class|interface|type|enum|namespace|declare)\b|\{|\*)|async\s+function\b|(?:const|let|var|function|class|interface|type|enum|namespace|declare)\b|import\b)/
   const declarations = [...masked.matchAll(/(?:^|[;\n\r])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?:\s*:\s*[^=;\n]+)?\s*=\s*/g)]
   for (let declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
     const declaration = declarations[declarationIndex]!
