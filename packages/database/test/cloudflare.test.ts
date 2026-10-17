@@ -206,7 +206,7 @@ describe("Cloudflare D1 binding projections", () => {
     }
     const config = resolveDBViteConfig(undefined, rootDir)!
 
-    expect(() => resolveCloudflareD1Bindings(config)).toThrowError(expect.objectContaining({ code: "DATABASE_B0006" }))
+    expect(() => resolveCloudflareD1Bindings(config)).toThrowError(expect.objectContaining({ code: "DATABASE_BINDING_CONFLICT" }))
   })
 
   it("replaces generated D1 bindings by binding name when merging with host config", () => {

@@ -174,10 +174,10 @@ A contribution without `database` targets the Database named `default`, or the o
 
 | Code | Cause |
 | --- | --- |
-| `DATABASE_B0010` | Two plugins contribute tables with one `name`, or a contributed table uses the key or SQL table name of an application table or another contribution. The message names both sources. If the Definition already lists the contributed tables, remove them from its schema. |
-| `DATABASE_B0011` | The target Database does not exist, the app has no Database, `database` is omitted while several Named Databases exist and none is named `default`, or `dialect` does not match the target Database. The message lists the Database names to choose from. |
-| `DATABASE_B0012` | The contribution is not `{ name, definition: { module, export? }, reason?, database?, dialect? }`, its `definition.module` is relative, or its export is missing or is not an object of tables. |
-| `DATABASE_B0007` | The contributed module cannot load. `vitehub db generate` fails. `vite dev` and builds print a warning and keep the tables in the runtime schema, without drizzle-kit exports. |
+| `DATABASE_DUPLICATE_TABLE` | Two plugins contribute tables with one `name`, or a contributed table uses the key or SQL table name of an application table or another contribution. |
+| `DATABASE_INVALID_CONTRIBUTION_TARGET` | The target Database does not exist, is ambiguous, or has a different dialect. |
+| `DATABASE_INVALID_CONTRIBUTION` | The contribution shape or schema export is invalid. |
+| `DATABASE_SCHEMA_LOAD_FAILED` | The contributed module cannot load. `vitehub db generate` fails; dev and builds print a warning. |
 
 `collectDatabaseContributions(plugins, context)` and `resolveDatabaseContributionTargets(names, contributions)` from `@vite-hub/database/vite` return the validated contributions and their targets for other build steps.
 
@@ -244,6 +244,6 @@ export default defineDatabase({
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive configuration id. When it resolves at build time, ViteHub adds the binding to the generated Wrangler config. |
 | `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. |
 
-A Postgres Definition owns its connection. It does not use the integration `connection`, the D1 options, or the local SQLite default. When the Hyperdrive binding is present at runtime, ViteHub uses its connection string. Otherwise it uses `connection.url`. A query fails with `DATABASE_R0017` when neither is available.
+A Postgres Definition owns its connection. It does not use the integration `connection`, the D1 options, or the local SQLite default. When the Hyperdrive binding is present at runtime, ViteHub uses its connection string. Otherwise it uses `connection.url`. A query fails with `DATABASE_MISSING_CONNECTION` when neither is available.
 
 `defineDatabase()` returns the Definition for a Postgres database. Query it with `useDatabase()`. See [Hosts](/docs/database/hosts#use-postgres) for how ViteHub creates clients on each host.

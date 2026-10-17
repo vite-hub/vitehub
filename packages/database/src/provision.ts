@@ -21,13 +21,13 @@ interface PlannedDatabase {
 }
 
 function parseDatabases(value: unknown): CloudflareD1Database[] {
-  if (!Array.isArray(value)) throw databaseErrorDiagnostics.DATABASE_R0004({ message: "Cloudflare provisioning returned an invalid database list." })
+  if (!Array.isArray(value)) throw databaseErrorDiagnostics.DATABASE_PROVISION_FAILED({ problem: "list" })
   // SAFETY: D1 database fields are optional and consumers narrow them before use.
   return value as CloudflareD1Database[]
 }
 
 function parseDatabase(value: unknown): CloudflareD1Database {
-  if (!value || Object(value) !== value) throw databaseErrorDiagnostics.DATABASE_R0005({ message: "Cloudflare provisioning returned an invalid database." })
+  if (!value || Object(value) !== value) throw databaseErrorDiagnostics.DATABASE_PROVISION_FAILED({ problem: "database" })
   return value
 }
 
