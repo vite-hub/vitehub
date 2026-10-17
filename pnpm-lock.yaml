@@ -942,9 +942,6 @@ importers:
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
-      undici:
-        specifier: 7.30.0
-        version: 7.30.0
     devDependencies:
       '@types/json-schema':
         specifier: catalog:ai
@@ -1395,6 +1392,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0)
+      jiti:
+        specifier: catalog:unjs
+        version: 2.7.0
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -1940,6 +1940,9 @@ importers:
       linkedom:
         specifier: ^0.18.13
         version: 0.18.13
+      miniflare:
+        specifier: 4.20260730.0
+        version: 4.20260730.0
       publint:
         specifier: catalog:tooling
         version: 0.3.25

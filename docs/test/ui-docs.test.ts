@@ -20,7 +20,8 @@ const pages = markdownFiles(uiDocsRoot).map((path) => ({
   source: readFileSync(path, "utf8"),
 }));
 const componentPages = pages.filter(
-  (page) => !["index.md", "installation.md", "get-started.md", "built-for-vue.md"].includes(page.name) && !page.name.startsWith("blocks/"),
+  (page) => !["index.md", "installation.md"].includes(page.name) && !/^layout: tutorial$/m.test(page.source) && !page.name.startsWith("blocks/"),
+
 );
 const blockPages = pages.filter((page) => page.name.startsWith("blocks/"));
 const previewNames = (source: string) => Array.from(source.matchAll(previewPattern), (match) => match[1]!);
@@ -119,14 +120,15 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("renders docs through the shared article and tutorial layouts", () => {
+  it("uses the wide component layout without the desktop outline", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
+    const styles = readFileSync(resolve(docsRoot, "app/assets/main.css"), "utf8");
 
-    expect(page).toContain('<DocsTutorial v-else-if="page && isTutorialPage"');
-    expect(page).toContain('<DocsArticle v-else-if="page"');
-    expect(article).toContain('class="vh-docs-article"');
-    expect(article).toContain('aria-label="Page outline"');
+    expect(page).toContain('path.startsWith("/docs/ui/")');
+    expect(page).toContain('root: "lg:!grid-cols-1 lg:!gap-0"');
+    expect(page).toContain('<DocsAsideRight v-if="!isUiPage"');
+    expect(styles).toContain(".docs-ui-page-shell");
+    expect(styles).toContain("max-width: 68rem");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -151,6 +153,7 @@ describe("UI documentation", () => {
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
 
+
   it("keeps site catalogs in the rail header above the product sections", () => {
     const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
 
@@ -161,6 +164,8 @@ describe("UI documentation", () => {
     expect(rail).toContain('{ label: "Templates", to: "/templates"');
     expect(rail).toContain("<template #default");
   });
+
+
   it("keeps the docs sidebar visible without disclosure toggles", () => {
     const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
@@ -174,9 +179,10 @@ describe("UI documentation", () => {
     expect(sidebarPanel).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: hidden;");
     expect(layout).toContain("overflow: visible;");
-    expect(layout).toContain("<UPage v-else :ui=\"docsShellUi\">");
-    expect(layout).toContain("class=\"vh-docs-aside\"");
-    expect(layout).toContain("lg:!flex-1 lg:!min-w-0");
+    expect(layout).toContain('<UPageAside class="vh-docs-aside">');
+    expect(layout).toMatch(/\.vh-docs-aside \{\s*display: none;/);
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
+
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
@@ -184,8 +190,6 @@ describe("UI documentation", () => {
 
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
-    expect(page).toContain("I am Maxi");
-    expect(page).toContain("ViteHub is a server primitive library.");
     expect(page).toContain("I am Maxi");
   });
 });

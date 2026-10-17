@@ -57,6 +57,7 @@ import {
 import { readRealtimeRequestState } from "./transport.ts"
 import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { hasCloudflareSqlExec } from "./cloudflare-sql.ts"
 
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
@@ -611,8 +612,37 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   }
 
   function resolveRealtimeRoomSql(event: { context: Record<string, unknown>, req: Request }): RealtimeRoomSql | undefined {
-    const context = resolveCloudflare(event)?.context as { storage?: { sql?: RealtimeRoomSql } } | undefined
-    return context?.storage?.sql
+    const context = resolveCloudflare(event)?.context
+    if (!context || typeof context !== "object" || !Object.hasOwn(context, "storage")) return undefined
+    const storageDescriptor = Object.getOwnPropertyDescriptor(context, "storage")
+    if (!storageDescriptor || !("value" in storageDescriptor)) return undefined
+    const storage = storageDescriptor.value
+    if (!storage || typeof storage !== "object") return undefined
+    const descriptor = Object.getOwnPropertyDescriptor(storage, "sql")
+    if (descriptor) {
+      if (!("value" in descriptor)) return undefined
+      return hasCloudflareSqlExec(descriptor.value) ? descriptor.value : undefined
+    }
+    let prototype = Object.getPrototypeOf(storage)
+    while (prototype && prototype !== Object.prototype) {
+      const sqlDescriptor = Object.getOwnPropertyDescriptor(prototype, "sql")
+      if (sqlDescriptor) {
+        if ("value" in sqlDescriptor) return undefined
+        const getter = sqlDescriptor.get
+        if (typeof getter !== "function") return undefined
+        const source = Function.prototype.toString.call(getter)
+        if (!/^function\s+get\s+sql\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
+        try {
+          const sql = Reflect.get(storage, "sql")
+          return hasCloudflareSqlExec(sql) ? sql : undefined
+        }
+        catch {
+          return undefined
+        }
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    return undefined
   }
 
   async function getDefinition(definitionName: string): Promise<RealtimeDefinition> {
