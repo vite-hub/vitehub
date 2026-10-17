@@ -875,11 +875,20 @@ interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding
   discoveryDefault: true
 }
 
+// Every Invocation of an Agent with `github` gets its identity, whichever entry point starts it.
+// A caller that already supplies an identity keeps it.
+function withAgentGitHubIdentity<TContext extends AgentRuntimeContext>(
+  agent: Pick<AgentInput<AgentRuntimeContext>, "github">,
+  context: TContext,
+): TContext {
+  return agent.github && !context.githubIdentity ? { ...context, githubIdentity: agent.github } : context
+}
+
 function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: IdentityRuntimeContext<TRuntimeConfig>,
 ): IdentityRuntimeContext<TRuntimeConfig> {
-  if (agent.github && !context.githubIdentity) context = { ...context, githubIdentity: agent.github }
+  context = withAgentGitHubIdentity(agent, context)
   // Only reuse identity for the same Definition. An unnamed child cannot inherit its parent's grants.
   const owner = context[agentIdentityOwner]
   if (owner === agent) return context
@@ -8258,6 +8267,8 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  // Streamed runs do not pass through withAgentIdentityOwner(), so attach the GitHub identity here.
+  context = withAgentGitHubIdentity(agent, context)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = hasAgentDefinition(agent) ? agent as object : undefined
   // SAFETY: Replay sets this private boolean marker on its runtime; other runtimes may omit it.

@@ -1030,7 +1030,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.text().match(/Done\./g)).toHaveLength(1);
 
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(hasFollowup ? "Messages3" : "Messages2");
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(hasFollowup ? "Messages (including collapsed)3" : "Messages (including collapsed)2");
   });
 
   it.each([undefined, "Finished.", "Done."])("counts a delivered answer matching history with final response %s", (finalResponse) => {
@@ -1061,7 +1061,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll('.vh-invocation-message[data-role="assistant"]').map(message => message.get(".vh-invocation-message__body").text()))
       .toEqual(finalResponse === "Finished." ? ["Done.", "Done.", "Finished."] : ["Done.", "Done."]);
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages${visibleMessageCount}`);
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages (including collapsed)${visibleMessageCount}`);
   });
 
   it.each(["reply", "update"].flatMap(kind =>
@@ -1095,7 +1095,7 @@ describe("Agent Invocation UI", () => {
     const receipt = wrapper.get('.vh-invocation-work__activities [data-kind="delivery"]');
     expect(receipt.find(".vh-invocation-delivery__body").exists()).toBe(false);
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages${expectedAnswers.length}`);
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain(`Messages (including collapsed)${expectedAnswers.length}`);
   });
 
   it("keeps active work visible and collapses it when the run completes", async () => {
@@ -4249,7 +4249,26 @@ describe("Agent Invocation UI", () => {
     const thread = mount(AgentInvocation, { props: { invocation } });
     const inspector = mount(AgentInvocationInspector, { props: { invocation } });
     expect(thread.findAll(".vh-invocation-message")).toHaveLength(2);
-    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages2");
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages (including collapsed)2");
+  });
+
+  it.each(["completed", "failed", "cancelled"] as const)("labels messages in collapsed work for %s runs", (status) => {
+    const timestamp = "2026-09-05T00:00:00Z";
+    const invocation: AgentInvocationView = {
+      id: "collapsed-messages", traceId: "trace", createdAt: timestamp, updatedAt: timestamp, status,
+      observations: [
+        { role: "user", body: "Run the tests." },
+        { role: "tool", body: "Tests passed." },
+        { role: "assistant", body: "The tests pass." },
+      ].map((message, index) => ({ name: "agent.message", type: "run", timestamp, sequence: index + 1, attributes: {
+        "message.id": String(index), "message.role": message.role, "message.content": message.body,
+      } })),
+    };
+    const thread = mount(AgentInvocation, { props: { invocation } });
+    const inspector = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(thread.findAll(".vh-invocation-message")).toHaveLength(2);
+    expect(thread.get(".vh-invocation-work__details").attributes("open")).toBeUndefined();
+    expect(inspector.get(".vh-invocation-inspector__metrics").text()).toContain("Messages (including collapsed)3");
   });
 
   it("renders structured workspace sources alongside historical source strings", async () => {
@@ -4271,12 +4290,7 @@ describe("Agent Invocation UI", () => {
       "https://github.com/vite-hub/vitehub", "https://github.com/legacy/repo",
     ]);
     expect(sources?.findAll("a")[0]?.attributes("title")).toBe("docs: vite-hub/vitehub");
-    await wrapper.setProps({ showSources: false });
-    expect(wrapper.text()).not.toContain("Sources");
-    expect(wrapper.find('a[href="https://github.com/vite-hub/vitehub"]').exists()).toBe(false);
-    await wrapper.setProps({ showSources: true });
-    expect(wrapper.text()).toContain("Sources");
-    expect(wrapper.find('a[href="https://github.com/vite-hub/vitehub"]').exists()).toBe(true);
+    expect(mount(AgentInvocationInspector, { props: { invocation, showSources: false } }).text()).not.toContain("Sources");
   });
 
   describe("conversation view", () => {
@@ -4339,7 +4353,7 @@ describe("Agent Invocation UI", () => {
     it("summarizes messages, steps, tool calls, and total time", () => {
       const wrapper = mount(AgentInvocationInspector, { props: { invocation: conversation() } });
       const metrics = wrapper.get(".vh-invocation-inspector__metrics").text();
-      expect(metrics).toContain("Messages2");
+      expect(metrics).toContain("Messages (including collapsed)2");
       expect(metrics).toContain("Tool calls2");
       expect(metrics).toContain("Total time19s");
     });

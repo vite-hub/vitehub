@@ -74,7 +74,6 @@ describe("docs product navigation", () => {
       // Concepts pages may sit between the shared template pages.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
 
- f1827ce977864dea471f7c1c3b1925e14a0c2818
 
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {

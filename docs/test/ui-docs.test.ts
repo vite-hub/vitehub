@@ -128,7 +128,6 @@ describe("UI documentation", () => {
     expect(article).toContain("UContentToc");
     expect(article).toContain('aria-label="Page outline"');
     expect(article).toContain("min-w-0");
- f1827ce977864dea471f7c1c3b1925e14a0c2818
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -187,7 +186,6 @@ describe("UI documentation", () => {
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
     expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");
- f1827ce977864dea471f7c1c3b1925e14a0c2818
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {

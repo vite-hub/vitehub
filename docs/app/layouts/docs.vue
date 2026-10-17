@@ -20,7 +20,6 @@ const hasPanel = computed(
 
     <div class="vh-docs-content">
       <UContainer v-if="isSupportMatrix">
- f1827ce977864dea471f7c1c3b1925e14a0c2818
         <AnnouncementBanner />
         <slot />
       </UContainer>
@@ -35,7 +34,6 @@ const hasPanel = computed(
 
       <AppFooter class="vh-docs-footer" />
     </div>
- f1827ce977864dea471f7c1c3b1925e14a0c2818
   </UMain>
 </template>
 
@@ -58,7 +56,6 @@ const hasPanel = computed(
 
 .vh-docs-footer {
   margin-top: auto;
- f1827ce977864dea471f7c1c3b1925e14a0c2818
 }
 
 /* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */
@@ -117,6 +114,5 @@ const hasPanel = computed(
     overflow: visible;
     border-right: 1px solid var(--ui-border);
   }
- f1827ce977864dea471f7c1c3b1925e14a0c2818
 }
 </style>

@@ -409,7 +409,7 @@ function isDateValue(value: unknown): value is Date {
 
 function hasNativeDateJSONHook(value: object): boolean {
   const nativeSource = /\[native code\]/
-  const isNative = (hook: unknown): boolean => hasRuntimeType(hook, "function") && nativeSource.test(Function.prototype.toString.call(hook))
+  const isNative = (hook: unknown): hook is (...args: never[]) => unknown => hasRuntimeType(hook, "function") && nativeSource.test(Function.prototype.toString.call(hook))
   // Native Date.prototype.toJSON has a stable intrinsic signature across realms.
   // Other native-looking functions (for example bound user serializers) are
   // ambiguous and must be rejected rather than trusted by their name.
