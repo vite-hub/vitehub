@@ -55,7 +55,6 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
     .filter(group => group.sections.length > 0);
 }
 
-
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
   return sections.filter(section => !isDocsCategory(section.category));
 }
@@ -84,13 +83,10 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     groups.set(label, [...(groups.get(label) || []), page]);
   }
 
-  const entries = [...groups].map(([label, pages], index) => ({ label, pages, index }));
-  if (!primitiveCategories.has(section.category || "")) {
-    return entries.map(({ label, pages }) => ({ label, pages }));
-  }
-  return entries
-    .sort((left, right) => left.index - right.index)
-    .map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
+  return [...groups].map(([label, pages]) => ({
+    label: pages.length > 1 ? label : null,
+    pages,
+  }))
 }
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */

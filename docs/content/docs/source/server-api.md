@@ -291,3 +291,28 @@ const signedOut = computed(() => error.value instanceof CollectionAccessError &&
 ```
 
 Enable Auth and define `server/auth.ts` before you use `authorize`. Without Auth, the generated route cannot read a session and fails closed with `SOURCE_R0025`.
+
+### Inspect Collections
+
+`vitehub inspect definitions --kind collection` lists each discovered Collection. It reads the module text and does not import or run it.
+
+```bash [Terminal]
+pnpm vitehub inspect definitions --kind collection
+```
+
+```txt [Output]
+Collections (collection): 1
+  articles  server/collections/articles.ts  [server-collections]
+    Source: array
+    Schema: v.object(...)
+    Schema fields: slug, title, category, publishedAt
+    Key: slug
+    Sort: publishedAt desc
+    Filters: category, authors.name
+    Search: title, summary
+    Facets: category
+    Transform: Yes
+    Route: GET /api/articles
+```
+
+`Source` is `array`, `table`, another helper name, `custom` for a source object, or `loader` for `defineCollection(load, options)`. The other fields show only the options that the Collection sets. A `table()` source shows `Table`, `Sort`, `Query schema`, and `Where`. A custom source or a loader shows `Pagination`, `Cursor schema`, and `Query schema`. `Schema fields` lists the top-level keys of an inline `object({ ... })` schema. A value that is computed at runtime shows as `Dynamic`, and a source that is not a literal shows as `unknown`. `Route` is the generated GET route or `Disabled`. `Authorize` is `Signed-in session` for `true` and `Callback` for a function. Add `--json` for machine-readable output.

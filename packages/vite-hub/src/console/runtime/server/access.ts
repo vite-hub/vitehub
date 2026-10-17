@@ -112,7 +112,7 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
       // accessors with own instance fields.
       const prototypeAccessorCount = accessors.filter(method =>
         typeof Object.getOwnPropertyDescriptor(responsePrototype, method)?.get === "function").length
-      const hasPrototypeAccessor = prototypeAccessorCount >= 2
+      const hasPrototypeAccessor = prototypeAccessorCount >= 1
       if (typeof cloneDescriptor?.value === "function"
         && hasResponseMethods
         && hasResponseAccessors
@@ -213,7 +213,7 @@ function developmentRuntime(): boolean {
 
 /** Rebuild the host request for runtimes that need its headers, such as Auth sessions. */
 export function consoleRequest(event: ConsoleRequestEvent): Request {
-  if (event.req instanceof Request) return event.req
+  if (isRequestLike(event.req)) return event.req
   const headers = new Headers()
   const copyHeaders = (source: unknown, overwrite = true): void => {
     const setHeader = (name: string, value: string): void => {
@@ -240,6 +240,22 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
   copyHeaders(event.headers)
   copyHeaders(event.req?.headers, true)
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
+}
+
+function isRequestLike(value: unknown): value is Request {
+  if (value === null || typeof value !== "object") return false
+  try {
+    const request = value as Record<string, unknown>
+    const headers = request.headers
+    return typeof request.method === "string"
+      && typeof request.url === "string"
+      && headers !== null
+      && typeof headers === "object"
+      && typeof (headers as { get?: unknown }).get === "function"
+      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof request[method] === "function")
+      && "body" in request && "bodyUsed" in request && "signal" in request
+  }
+  catch { return false }
 }
 
 function isSectionId(value: unknown): value is ConsoleSectionId {

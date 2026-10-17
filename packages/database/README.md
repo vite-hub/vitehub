@@ -79,6 +79,27 @@ When the Nitro Vite plugin builds with a Cloudflare preset, the Vite integration
 
 Production Nuxt builds with only D1-over-HTTP Databases do not bundle libSQL or its native libraries. Local SQLite development and projects with libSQL connections keep their existing drivers.
 
+## Contributed tables
+
+Packages can add Drizzle tables to an application's Database from their own Vite plugin with `vitehub.databases`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`, where `export` holds an object of tables. Database entries can also set `database` and `dialect`. Without `database`, the tables go to the default or only Database:
+
+```ts
+const plugin = {
+  name: "my-package/vite",
+  vitehub: {
+    databases: () => [{
+      name: "history",
+      definition: { module: "my-package/schema", export: "historySchema" },
+      reason: "Stores Workspace history.",
+    }],
+  },
+}
+```
+
+A Nuxt module adds the same plugin to `nuxt.options.vite.plugins` during setup.
+
+Contributed tables are in the generated Drizzle schema, so `vitehub db generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A contribution name, key, or SQL table name used twice fails with `DATABASE_B0010`. A missing or ambiguous target fails with `DATABASE_B0011` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
+
 ## Remote D1 development
 
 Set `cloudflare.http` on a Database Definition to query remote D1 during local development. `true` uses Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`; an object selects an authenticated D1-compatible proxy.
