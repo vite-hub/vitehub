@@ -11,7 +11,11 @@ function channelError(message: string): Error {
 
 export function toChannelSendError(cause: unknown): Error {
   try {
-    return cause instanceof Error ? cause : new Error(String(cause))
+    const isError = "isError" in Error && typeof Error.isError === "function"
+      ? Error.isError(cause) === true
+      : cause instanceof Error
+    if (isError) return cause as Error
+    return new Error(String(cause))
   }
   catch {
     return new Error(uninspectableSendErrorMessage)
