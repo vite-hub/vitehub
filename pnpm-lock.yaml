@@ -8654,7 +8654,7 @@ packages:
       effect: 4.0.1
 
   '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041}
+    resolution: {integrity: sha512-EWRQubkdu2WuZMPkM1zMyszNTFJ4v0BLu+ZslAdpuwZdoOTM+jUOCz3HeACC3YKbufGpzXLgV1oFwnZhfp3kJQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041}
     version: 0.0.33
     engines: {node: ^22.16 || ^23.11 || >=24.10}
 
