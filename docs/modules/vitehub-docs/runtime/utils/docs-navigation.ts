@@ -12,6 +12,8 @@ export const docsCategoryOrder = [
   "Platform",
 ] as const;
 
+const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
+
 export type DocsCategory = (typeof docsCategoryOrder)[number];
 
 export type DocsCatalogGroup = {
@@ -19,22 +21,6 @@ export type DocsCatalogGroup = {
   sections: DocsSection[];
 };
 
-const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
-
-/** Groups shown in the docs rail, excluding platform sections reached from Start. */
-export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
-  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
-}
-
-/** Short label shown beside a product in the catalog. */
-export function getDocsSectionKind(section: DocsSection) {
-  if (section.id === "agents") return "Agent runtime";
-  if (section.id === "ui") return "UI components";
-  if (primitiveCategories.has(section.category || "")) return "Server Primitive";
-  if (section.category === "Start") return "Getting started";
-  if (section.category === "Platform") return "Platform";
-  return section.category || "Documentation";
-}
 
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
@@ -53,6 +39,19 @@ export function getDocsCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
         .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title)),
     }))
     .filter(group => group.sections.length > 0);
+}
+
+export function getDocsSectionKind(section: DocsSection) {
+  if (section.id === "agents") return "Agent runtime";
+  if (section.id === "ui") return "UI components";
+  if (["Data", "Compute", "Access", "Delivery", "Files"].includes(section.category || "")) return "Server Primitive";
+  if (section.category === "Start") return "Getting started";
+  if (section.category === "Platform") return "Platform";
+  return section.category || "Documentation";
+}
+
+export function getDocsRailCatalog(sections: DocsSection[]) {
+  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
 }
 
 export function getUncategorizedDocsSections(sections: DocsSection[]) {
@@ -83,18 +82,7 @@ export function getDocsSidebarGroups(section: DocsSection): DocsSidebarGroup[] {
     groups.set(label, [...(groups.get(label) || []), page]);
   }
 
-  const entries = [...groups].map(([label, pages], index) => ({ label, pages, index }));
-  if (!primitiveCategories.has(section.category || "")) {
-    return entries.map(({ label, pages }) => ({ label, pages }));
-  }
-  return entries
-    .sort((left, right) => {
-      const leftIndex = primitiveSidebarGroupOrder.indexOf(left.label);
-      const rightIndex = primitiveSidebarGroupOrder.indexOf(right.label);
-      return (leftIndex === -1 ? primitiveSidebarGroupOrder.length : leftIndex)
-        - (rightIndex === -1 ? primitiveSidebarGroupOrder.length : rightIndex);
-    })
-    .map(({ label, pages }) => ({ label: pages.length > 1 ? label : null, pages }));
+  return [...groups].map(([label, pages]) => ({ label, pages }));
 }
 
 /** Sections listed under Related in a section's sidebar, in the order `.navigation.yml` declares them. */

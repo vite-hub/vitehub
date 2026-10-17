@@ -56,7 +56,7 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // source is rendered anonymously. This excludes unrelated branded
     // accessors such as Map.prototype.size while accepting workerd's
     // version-dependent `databaseSize` naming.
-    if (databaseSize.name !== "" && databaseSize.name !== "databaseSize" && databaseSize.name !== "get databaseSize") return false
+    if (databaseSize.name === "size" || databaseSize.name === "get size") return false
 
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)
