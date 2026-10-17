@@ -19,6 +19,8 @@ import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 export type { RuntimeScheduleWake } from "../types.ts"
 
 export interface RuntimeScheduleWakeDriverContext {
+  /** Scheduled time of the Schedule's newest run, or `undefined` when it has no run. Drivers use it to catch up missed minutes. */
+  latestScheduledAt?(scheduleId: string): Promise<Date | undefined>
   reportError(error: unknown): void
   wake(input: RuntimeScheduleWake): Promise<void>
 }
@@ -397,6 +399,11 @@ export async function installScheduleRuntime(options: InstallScheduleRuntimeOpti
       const runtimeSchedules = await options.runtimeScheduleStore.list()
       staticSchedules = createStaticSchedules(await loadStaticDefinitions(options.staticRegistry), runtimeSchedules)
       driver = await options.createDriver({
+        async latestScheduledAt(scheduleId) {
+          // Static Schedule runs use the Definition name, not the driver identity.
+          const [run] = await options.scheduleRunStore.listRuns({ limit: 1, scheduleId: staticSchedules.byId.get(scheduleId)?.name ?? scheduleId })
+          return run?.scheduledAt
+        },
         reportError,
         wake(input) {
           if (closing) return Promise.resolve()

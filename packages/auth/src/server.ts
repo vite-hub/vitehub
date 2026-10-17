@@ -1,5 +1,6 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
+import { Response as UndiciResponse } from "undici"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
@@ -331,11 +332,11 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       seen.add(current)
       current = Object.getPrototypeOf(current)
     }
+    return false
   }
   catch {
     return false
   }
-  return false
 }
 
 async function isSerializableAuthorizationBody(body: unknown): Promise<boolean> {
@@ -462,9 +463,15 @@ async function isSerializableAuthorizationBody(body: unknown): Promise<boolean> 
     // stream's own runtime does not inherit this realm's Uint8Array prototype.
     // ArrayBuffer.isView performs a cross-realm brand check; the tag then
     // limits accepted views to Uint8Array rather than arbitrary typed arrays.
+    const probeValue = probeResult.value
+    const probeValuePrototype = Object(probeValue) === probeValue ? Object.getPrototypeOf(probeValue) : null
+    const probeValueConstructor = probeValuePrototype && Object.getOwnPropertyDescriptor(probeValuePrototype, "constructor")?.value
+    const probeValueBytes = probeValuePrototype && Object.getOwnPropertyDescriptor(probeValuePrototype, "BYTES_PER_ELEMENT")?.value
     if (probeResult.done
-      || !ArrayBuffer.isView(probeResult.value)
-      || Object.prototype.toString.call(probeResult.value) !== "[object Uint8Array]") return false
+      || !ArrayBuffer.isView(probeValue)
+      || probeValueBytes !== 1
+      || typeof probeValueConstructor !== "function"
+      || probeValueConstructor.name !== "Uint8Array") return false
     let canceled = false
     const cancelStream = new streamConstructor({
       cancel() {
@@ -621,17 +628,26 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     let nativeProperties = false
+    let nativeBodyUnused = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
         const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
         return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
+      const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyUnused = Boolean(bodyUsedGetter && !Reflect.apply(bodyUsedGetter, candidate, []))
+        && (body === null || Boolean(lockedGetter && !Reflect.apply(lockedGetter, body, [])))
     }
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    // A foreign implementation must carry its own native Headers methods.
+    // Accepting a foreign Response prototype paired with current-realm Headers
+    // would make a user-defined Response-shaped object indistinguishable from
+    // a genuine cross-runtime response.
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)

@@ -249,12 +249,31 @@ page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
 when the data set should not be loaded per request.
 
-`workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
-in a Workspace file.
-
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured
 data and its assets as one logical item.
+
+### Inspect Collections
+
+`vitehub inspect definitions --kind collection` lists each discovered Collection
+with its file, source kind, and the options that it sets: schema, key, sort,
+filters, search, facets, limits, transform, authorize, and route. The
+`hubSource()` plugin contributes this list through `vitehub.inspect`, and
+`inspectCollectionDefinitions({ projectRoot, serverDirs })` from
+`@vite-hub/source/vite` returns the same summaries. Inspection reads the module
+text and does not run it, so a value that is computed at runtime shows as
+`Dynamic`.
+
+```txt
+Collections (collection): 1
+  articles  server/collections/articles.ts  [server-collections]
+    Source: array
+    Key: slug
+    Sort: publishedAt desc
+    Filters: category, authors.name
+    Transform: Yes
+    Route: GET /api/articles
+```
 
 ## Used by
 

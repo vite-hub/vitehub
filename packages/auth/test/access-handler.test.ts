@@ -310,7 +310,7 @@ describe("Auth access handlers", () => {
     }
   })
 
-  it("rejects a serializable Response-shaped prototype", async () => {
+  it("rejects a forged Response prototype without reading its getters", async () => {
     const sourceBody = new Response("Policy rejected").body
     const headers = vi.fn()
       .mockReturnValueOnce(new Headers({ "x-policy": "reject" }))
@@ -331,7 +331,9 @@ describe("Auth access handlers", () => {
       access: { routes: [{ route: "/**", authorize: () => candidate }] },
     }))
 
-    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+    const response = await handler(new Request("https://app.example/"))
+
+    expect(response?.status).toBe(403)
     expect(headers).not.toHaveBeenCalled()
     expect(body).not.toHaveBeenCalled()
   })

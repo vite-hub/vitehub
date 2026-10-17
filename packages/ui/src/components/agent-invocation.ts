@@ -1780,7 +1780,7 @@ export const AgentInvocationInspector = defineComponent({
             inspectorSection(
               "Run summary",
               h("dl", { class: "vh-invocation-inspector__metrics" }, [
-                h("div", [h("dt", "Messages"), h("dd", metrics.value.messages)]),
+                h("div", [h("dt", "Messages (including collapsed)"), h("dd", metrics.value.messages)]),
                 h("div", [h("dt", "Steps"), h("dd", metrics.value.steps)]),
                 h("div", [h("dt", "Tool calls"), h("dd", metrics.value.toolCalls)]),
                 totalTime ? h("div", [h("dt", "Total time"), h("dd", totalTime)]) : null,
