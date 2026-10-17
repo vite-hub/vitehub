@@ -616,7 +616,7 @@ export async function resolveAgentTriggerInvocation<
   const inheritedRun = { ...(context.run || {}), ...(invoked.run || {}) }
   const run = annotations
     ? { ...(Object.keys(inheritedRun).length ? inheritedRun : { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun.annotations, ...annotations } }
-    : invoked.run
+    : Object.keys(inheritedRun).length ? inheritedRun : undefined
   return resolveAgentTriggerInvocationResult({
     ...invoked,
     ...(run ? { run } : {}),
