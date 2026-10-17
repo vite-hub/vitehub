@@ -58,7 +58,7 @@ const definitions = {
       source: "require-rate-limit",
     },
   ],
-  sandboxes: [
+  "sandbox-tasks": [
     {
       fields: [{ label: "Kind", value: "Definition" }],
       file: "server/sandbox-tasks/release-check.ts",

@@ -134,14 +134,14 @@ function isSandboxTaskProjectManifestUpdate(
   if (basename(file) !== 'package.json' || !isLocalSourceFile(file, rootDir))
     return false
   const path = normalize(relative(rootDir!, file))
-  return /(?:^|\/)(?:src\/)?server\/sandboxes\//.test(path)
+  return /(?:^|\/)(?:src\/)?server\/sandbox-tasks\//.test(path)
 }
 
 function isSandboxTaskProjectFileUpdate(file: string, rootDir: string | undefined) {
   if (!isLocalSourceFile(file, rootDir))
     return false
   const path = normalize(relative(rootDir!, file))
-  return /(?:^|\/)(?:src\/)?server\/sandboxes\//.test(path)
+  return /(?:^|\/)(?:src\/)?server\/sandbox-tasks\//.test(path)
     || /^(?:pnpm-workspace\.yaml|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lock)$/.test(path)
 }
 
@@ -168,7 +168,7 @@ function isSandboxTaskDefinitionUpdate(
   if (!isSandboxTaskSourceFile(changedFile))
     return false
   return /\.sandbox-task\.(?:c|m)?[jt]s$/i.test(changedFile)
-    || /(?:^|\/)(?:src\/)?server\/sandboxes\//.test(changedFile)
+    || /(?:^|\/)(?:src\/)?server\/sandbox-tasks\//.test(changedFile)
     || isLocalSourceFile(changedFile, rootDir)
 }
 
