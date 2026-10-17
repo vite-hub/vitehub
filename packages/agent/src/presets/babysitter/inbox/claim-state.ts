@@ -1,3 +1,4 @@
+import { hasRuntimeType } from '../../../internal/runtime-type.ts'
 import type { PullRequest } from '../../../server/github-pull-requests.ts'
 import type { Claim, Snapshot } from './store.ts'
 
@@ -24,6 +25,7 @@ export function snapshotPullRequest(snapshot: Snapshot): PullRequest {
     updatedAt: pr.updated_at ?? '',
     title: pr.title ?? '',
     mergeStateStatus: String(pr.mergeable_state ?? 'UNKNOWN').toUpperCase(),
+    labels: (pr.labels ?? []).map(label => hasRuntimeType(label, 'string') ? { name: label } : label),
   }
 }
 

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Check, Page } from "@vite-hub/forge";
 import type { GitHubEvidence } from "./inbox/types.ts";
 import type { PullRequestWait } from "./inbox/wait-state.ts";
 import type { Snapshot } from "./inbox/store.ts";
@@ -165,18 +166,15 @@ export function hasPendingChecks(snapshot: Snapshot, _policy: BabysitterWaitPoli
   return latestCheckSignals(snapshot).some(signal => pending.has(String(signal.status ?? signal.state)));
 }
 
-/** The reader paginates and projects individual records from every REST page. */
-export async function checksDependencyEvidence(wake: { repository: string; headSha: string }, read: (path: string, projection: string) => Promise<unknown[]>) {
-  const checks = await read(`repos/${wake.repository}/commits/${wake.headSha}/check-runs?per_page=100`, ".check_runs[]");
-  const statuses = await read(`repos/${wake.repository}/commits/${wake.headSha}/statuses?per_page=100`, ".[]");
+/** A digest of every check run and commit status of a dependency's head, from forges `checks.list()`. */
+export function checksDependencyEvidence(checks: Page<Check>): string {
+  if (checks.warnings?.length) throw new Error(`Dependency checks are incomplete: ${checks.warnings.map(warning => warning.message).join("; ")}`);
+  const records = (type: Check["ref"]["type"]) => checks.items.filter(check => check.ref.type === type).map(check => {
+    if (!isRuntimeRecord(check.raw)) throw new Error("Invalid dependency check evidence.");
+    return check.raw;
+  });
   return hash({
-    checks: checks.map(check => {
-      if (!isRuntimeRecord(check)) throw new Error("Invalid dependency check evidence.");
-      return JSON.stringify([check.id, check.status, check.conclusion]);
-    }).sort(),
-    statuses: statuses.map(status => {
-      if (!isRuntimeRecord(status)) throw new Error("Invalid dependency status evidence.");
-      return JSON.stringify([status.id, status.context, status.state]);
-    }).sort(),
+    checks: records("check_run").map(check => JSON.stringify([check.id, check.status, check.conclusion])).sort(),
+    statuses: records("status").map(status => JSON.stringify([status.id, status.context, status.state])).sort(),
   });
 }

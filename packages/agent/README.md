@@ -205,7 +205,7 @@ export const agentCapacity = createProcessAgentCapacity({
 
 Import the same `agentCapacity` object into each Agent Definition that should share one process-local budget. Linux hosts use cgroup v2 memory limits and events, host `MemAvailable`, and the greater of host and cgroup CPU or memory pressure when available; other hosts use Node's available-memory signal without CPU-pressure admission. Sampling failures or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. Custom samplers should pass `context.signal` to abortable I/O. The sampler reserves `memory.perInvocationBytes` of additional growth for each active invocation before admitting new work. This is conservative because current usage is already deducted from available memory. Admission does not enforce worker limits or stop active work. Tune `memory.perInvocationBytes`, `memory.reserveBytes` for the host, `memory.serviceReserveBytes` for the process or cgroup (1 GiB by default), and the CPU or memory pressure thresholds when workload measurements justify different admission behavior.
 
-Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout contents after success, failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory because removing its pathname could delete a concurrent replacement. Checkout and push operations need Git but do not need the GitHub CLI. Generic `command()` operations still use the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
+Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, call GitHub through `@vite-hub/forge`, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout contents after success, failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory because removing its pathname could delete a concurrent replacement. Checkout and push operations need Git but do not need the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
 
 ```ts
 await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {
@@ -216,7 +216,7 @@ await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, sign
 
 For a provider that materializes a separate working directory, call `checkout.prepareWorkspace(cwd)` from the provider launch hook, then `checkout.push(cwd)` from the host after reviewing the result. The host imports the exact commit without credentials and pushes it from the original trusted clone, so provider Git configuration cannot control the authenticated push. Preparation copies the independent PR clone's Git history and push destination, removes old target metadata and saved credential/header configuration, and leaves the original clone unchanged. The standalone `prepareGitHubPullRequestWorkspace(checkoutPath, cwd, { signal })` export performs the same preparation. These helpers apply only to prepared GitHub PR checkouts; other workspace types do not receive Git metadata. Keep host credentials out of the provider environment when push authority belongs to the host.
 
-`access()`, `command()`, and `ensureGraphQLBudget()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution, token refresh, and GitHub CLI work stop on cancellation. Pass an upper bound for the GraphQL query's point cost as `ensureGraphQLBudget(repository, { cost })`; the host returns a reservation. Call `reservation.submit()` immediately before sending the query, then call `reservation.settle(actualCost)` with the non-negative point cost reported by GitHub after it completes. The actual cost cannot exceed the reserved cost. Call `reservation.release()` if work stops before submission. The host keeps submitted reservations deducted during concurrent budget refreshes until settlement confirms that the query completed. A later refresh reconciles GitHub's reported remaining points. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. Installation tokens and GraphQL budgets remain separate across installations, including concurrent checkout work. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. When GitHub cannot resolve an opaque token through `/user`, return a stable `rateLimitKey` with the token so rotations of the same credential share one budget while different credentials stay isolated. Shared GraphQL admission checks have an independent 60-second command limit. Set `graphQLCheckTimeout` on `createGitHubHost()` when the host needs a different limit.
+`access()` and `forge()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution and token refresh stop on cancellation. `forge({ repository })` returns a `forges` GitHub provider with that repository's credentials, with every Forge verb and `graphql()`. Create one for each operation, because installation tokens expire after one hour. Import `forges` errors such as `RateLimitedError` from `@vite-hub/forge`, so that `instanceof` matches the bundled classes. `rateLimit()` returns the most constrained GitHub rate limit that recent Forge responses reported, or undefined before the first response. Set `timeout` on `createGitHubHost()` to change the 60-second Forge request limit. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials.
 
 The portable `@vite-hub/agent/server` entry exports `failInterruptedAgentInvocations()`, `readAgentInvocationWorkload()`, and `summarizeAgentInvocationWorkload()` for process-start recovery and health reporting. `readAgentInvocationWorkload()` combines the latest 100 invocation summaries with every active invocation. Its `total` counts that de-duplicated union, not all historical invocations. Recovery follows every store page and acquires each invocation's lease before failing it. Invocation journals renew their lease until they finish, so work owned by a live host remains active. These are host primitives. The application still owns credential storage, admission policy, scheduling, recovery timing, and deployment lifecycle.
 
@@ -582,7 +582,7 @@ every drain in `process.__vitehubShutdown` settles, including the Agent shutdown
 Use the runtime drain CLI before replacing the process.
 
 `createGitHubPullRequests(host)` from `@vite-hub/agent/server/github` reads PR
-snapshots with paginated feedback, required checks, and host budget admission.
+snapshots with paginated feedback and required checks through the host's `forge()`.
 An explicit `activityAuthors` list excludes only those authors' managed activity
 comments from feedback fingerprints. `feedback.hasDiscussion` is conservative;
 consumers must still check failures and conflicts before deciding to wait.
@@ -643,9 +643,9 @@ Export `health = createAgentHealth({ name: 'Support', agent: () => agent })` fro
 status. Provider inspection uses the definition's credentials and launch target
 (including SSH), sends no prompt, and shares Console's cached inspection logic.
 Optional `process`, `github`, and `console` inputs add process recovery, GitHub
-access/budget, and Console delivery diagnostics. `diagnostics(signal)` and
+access and rate limit, and Console delivery diagnostics. `diagnostics(signal)` and
 `workload()` add application-specific information. An informational warning can
-set `affectsHealth: false`, so an expected budget wait does not degrade health.
+set `affectsHealth: false`, so an expected rate limit wait does not degrade health.
 
 Reports are cached for five seconds and concurrent reads share one sample.
 `maxAgeMs` and `timeoutMs` configure caching and the default 15-second deadline.
@@ -803,10 +803,12 @@ Installation runs after merge preparation. The worker resolves dependency confli
 Unattended Codex runs preauthorize only the assigned host tools. Capability checks
 still run on the host, and the native shell keeps its edit sandbox.
 
-Direct merges use GitHub's asynchronous API, including native stacks. The inbox
-records the request UUID and waits for GitHub to confirm a merge. Finished owners
-release their queue lease while preserving any unresolved merge attempt. Expired
-GitHub request results re-enter the current head's normal merge gates. An enqueued request retains its fence until the PR closes, merges, or changes head: queue absence and removal timeline commits do not identify the accepted request safely.
+Direct merges use GitHub's asynchronous API through `forges`, including native
+stacks. The pass waits for GitHub to confirm the merge. A pending request that
+does not finish in time keeps its merge fence, and the next pass rechecks the
+current head's normal merge gates. GitHub then names the pending request, and
+the pass waits for it. Finished owners release their queue lease while preserving
+any unresolved merge attempt. An enqueued request retains its fence until the PR closes, merges, or changes head: queue absence and removal timeline commits do not identify the accepted request safely.
 
 `merge` defaults to `false`:
 
@@ -978,39 +980,19 @@ The callback is skipped when provider shutdown fails or exceeds the cleanup dead
 
 Import `createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks`
 from `@vite-hub/agent/server/github` to inspect required checks for scheduling.
-Supply an authenticated REST reader `(path) => Promise<{ status, data, nextPage? }>`; paths
-are relative to the GitHub API root. The reader combines active branch rules with
-classic branch protection and preserves required GitHub App identities. It requests
-the first rules page with a page size of 100, then follows explicit continuation
-targets. For every successful rules response, the callback must normalize the
-Link header's `rel="next"` URL to an API-relative `nextPage` path without a leading
-slash, relative to the complete configured API base URL, including its pathname.
-For GitHub Enterprise Server, `https://host/api/v3/repositories/123/rules/branches/main?page=2`
-becomes `repositories/123/rules/branches/main?page=2`, without repeating `api/v3`.
-The adapter must reject URLs with a different origin or outside the API base path,
-and preserve query parameters. For example, normalize a parsed next URL with:
+Supply a reader `(repository, branch) => Promise<BranchRules>`. Use `branchRules()`
+from `@vite-hub/forge`: it combines active branch rules with classic branch
+protection, follows every rules page, and preserves required GitHub App identities.
+It throws `FORGE_R0007` when GitHub does not return a complete answer, and the
+policy is then unknown.
 
 ```ts
-function normalizeNextPage(nextUrl: string, apiBase: string): string {
-  const base = new URL(apiBase);
-  const prefix = base.pathname.replace(/\/$/, "") + "/";
-  const next = new URL(nextUrl);
-  if (next.origin !== base.origin || !next.pathname.startsWith(prefix)) {
-    throw new Error("Pagination URL is outside the GitHub API base");
-  }
-  return next.pathname.slice(prefix.length) + next.search;
-}
-```
+import { branchRules, repoRef } from '@vite-hub/forge'
 
-GitHub can change the route to `repositories/{id}/...`; the reader follows these
-paths without requiring the original route prefix.
-Set `nextPage: null` only when the header has no next relation
-(or after fetching all pages). Missing metadata, invalid or repeated targets,
-failed pages, and the 1,000-page limit return unknown policy. Page length does
-not establish completion. Other endpoint responses do not need `nextPage`.
-
-```ts
-const policies = createGitHubRequiredCheckPolicyReader(readGitHubRest)
+const policies = createGitHubRequiredCheckPolicyReader(async (repository, branch) => {
+  const provider = await github.forge({ repository })
+  return await branchRules(provider, repoRef(provider, repository), branch)
+})
 const policy = await policies.read('acme/app', 'main')
 const result = evaluateGitHubRequiredChecks(policy, {
   repository: 'acme/app', branch: 'main', headSha,

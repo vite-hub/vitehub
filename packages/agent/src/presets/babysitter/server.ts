@@ -7,7 +7,7 @@ import { agentBuildRevision } from "../../internal/build-revision.ts";
 import { GitHubDependencyConflictError } from "../../server/github-install-inputs.ts";
 import * as v from "valibot";
 import { join } from "node:path";
-import { readAsyncMerge, requestAsyncMerge } from "./async-merge.ts";
+import { branchRules, forgeErrorStatus, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
 import { prepareGitHubRepairBase } from "../../server/github-repair.ts";
 import { assertGitHubDependenciesCurrent, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace } from "../../server/github-install.ts";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
@@ -25,7 +25,7 @@ import type { GitHubHost } from "../../server/github.ts";
 import { PullRequestInbox, normalizePullRequest, type Claim, type Snapshot } from "./inbox/store.ts";
 import { snapshotPrompt, assertPromptFits } from "./inbox/snapshot-prompt.ts";
 import { snapshotPullRequest, createClaimStopCheck, claimStopReason } from "./inbox/claim-state.ts";
-import { hydrateSnapshot, reconcileOneSnapshot, readPullRequestThreads, detectChangedPullRequests, probeChangedSnapshots, type ReadGraphql } from "./inbox/snapshot-sync.ts";
+import { hydrateSnapshot, reconcileOneSnapshot, readForgePullRequestThreads, detectChangedPullRequests, probeChangedSnapshots, type ReadGraphql } from "./inbox/snapshot-sync.ts";
 import type { PullRequestInboxStorage } from "./inbox/storage.ts";
 import { hydrateFailedCiEvidence } from "./inbox/ci-evidence.ts";
 import type { PullRequestWake } from "./inbox/wait-state.ts";
@@ -80,9 +80,20 @@ export interface BabysitterRuntimeOptions {
   admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>;
 }
 
+/** The `status` of GitHub's merge result that a merge rejection carries in its response excerpt. */
+function mergeResultStatus(error: MergeBlockedError): string | undefined {
+  try {
+    const body: unknown = JSON.parse(error.body);
+    return isRuntimeRecord(body) && hasRuntimeType(body.status, "string") ? body.status : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Provider quota and rate-limit failures. Cancellation is never a rate limit. */
 export function isProviderRateLimit(error: unknown): boolean {
   if (error instanceof Error && error.name === "AbortError") return false;
+  if (error instanceof RateLimitedError) return true;
   const text = error instanceof Error ? `${error.message}\n${error.cause instanceof Error ? error.cause.message : String(error.cause ?? "")}` : String(error);
   return /\b429\b|too many requests|rate limit/i.test(text);
 }
@@ -148,40 +159,73 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     error: schedulerError,
   });
   const active = new Set<string>();
-  async function readRest(path: string, projection = ".[]", signal?: AbortSignal) {
-    const repository = path.split("/").slice(1, 3).join("/");
-    const result = await github.command(
-      ["api", "--paginate", path, "--jq", `${projection} | @json`],
-      { repository, timeout: 60_000, signal },
-    );
-    return result.stdout
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
+
+  /** A Forge provider with the repository's credentials, and refs into the repository. */
+  async function forge(repository: string, signal?: AbortSignal) {
+    const provider = await github.forge({ repository, signal });
+    const repo = repoRef(provider, repository);
+    const pull = (number: number): ThreadRef => ({ forge: provider.forge, instance: provider.instance, repo, kind: "pull_request", number: String(number) });
+    return { provider, repo, pull };
   }
 
-  /** A GraphQL reader that reserves `cost` points of the repository's shared budget per query. */
-  function readGraphql(repository: string, cost: number, signal?: AbortSignal): ReadGraphql {
+  /**
+   * The pull request as GitHub's REST API reports it, with `mergeable_state` and the base repository.
+   * forges `threads.get()` also reads every check of the head, which costs two more requests.
+   */
+  async function readPull(repository: string, number: number, signal?: AbortSignal): Promise<unknown> {
+    const { provider } = await forge(repository, signal);
+    return (await provider.request<unknown>("GET", `/repos/${repository}/pulls/${number}`, { signal })).data;
+  }
+
+  /** Pull requests by head or base branch. forges `threads.list()` cannot filter by branch. */
+  async function readPulls(repository: string, query: { state: "open" | "all"; base?: string; head?: string; limit: number }, signal?: AbortSignal): Promise<unknown[]> {
+    const { provider } = await forge(repository, signal);
+    const pulls: unknown[] = [];
+    for (let page = 1; pulls.length < query.limit; page++) {
+      const perPage = Math.min(100, query.limit);
+      const response = await provider.request<unknown>("GET", `/repos/${repository}/pulls`, { query: { state: query.state, base: query.base, head: query.head, per_page: perPage, page }, signal });
+      if (!Array.isArray(response.data)) throw new Error("GitHub did not return a pull request list.");
+      pulls.push(...response.data);
+      if (response.data.length < perPage) break;
+    }
+    return pulls.slice(0, query.limit);
+  }
+
+  /**
+   * REST reads for the inbox snapshot readers, in the shape their parsers expect.
+   * Endpoint gaps use the provider request escape hatch with Forge credentials.
+   */
+  async function readRest(path: string, projection = ".[]", signal?: AbortSignal): Promise<unknown[]> {
+    const repository = path.split("/").slice(1, 3).join("/");
+    const { provider } = await forge(repository, signal);
+    const items: unknown[] = [];
+    let next: string | undefined = `/${path}`;
+    while (next) {
+      const response: { data: unknown; headers: Headers } = await provider.request<unknown>("GET", next, { signal });
+      if (projection === ".") items.push(response.data);
+      else {
+        const key = /^\.(\w+)\[\]$/.exec(projection)?.[1];
+        const list = key ? (isRuntimeRecord(response.data) ? response.data[key] : undefined) : response.data;
+        if (!Array.isArray(list)) throw new Error(`GitHub did not return a list for ${path}.`);
+        items.push(...list);
+      }
+      next = response.headers.get("link")?.split(",").map(part => /<([^>]+)>\s*;\s*rel="next"/.exec(part)?.[1]).find(Boolean);
+    }
+    return items;
+  }
+
+  /** GraphQL reads for the inbox snapshot readers, with the `{ data }` envelope they parse. */
+  function readGraphql(repository: string, signal?: AbortSignal): ReadGraphql {
     return async (query, variables) => {
-      const reservation = await github.ensureGraphQLBudget(repository, { cost, signal });
-      reservation.submit();
-      const args = ["api", "graphql", "-f", `query=${query}`];
-      for (const [key, value] of Object.entries(variables)) {
-        if (value === null) continue;
-        args.push(typeof value === "number" ? "-F" : "-f", `${key}=${value}`);
-      }
-      try {
-        const result = await github.command(args, { repository, timeout: 60_000, signal });
-        return JSON.parse(result.stdout);
-      } finally {
-        reservation.settle(cost);
-      }
+      const { provider } = await forge(repository, signal);
+      const operationName = /\b(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(query)?.[1];
+      return (await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal })).data;
     };
   }
 
   async function readThreads(repository: string, number: number, signal?: AbortSignal) {
-    return readPullRequestThreads(readGraphql(repository, 1, signal), repository, number);
+    const { provider } = await forge(repository, signal);
+    return readForgePullRequestThreads(provider, repository, number);
   }
 
   function isAbortError(error: unknown): boolean {
@@ -231,17 +275,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     };
   }
 
-  const requiredChecks = createGitHubRequiredCheckPolicyReader(async (path) => {
-    const repository = path.split("/").slice(1, 3).join("/");
-    try {
-      const list = path.includes("/rules/");
-      const result = await github.command(["api", "--paginate", path, "--jq", list ? ".[] | @json" : ". | @json"], { repository, timeout: 60_000 });
-      const pages: unknown[] = result.stdout.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
-      // gh emits one JSON value per line. Rules are a list; protection endpoints return one object.
-      return { status: 200, data: list ? pages : pages[0], nextPage: null };
-    } catch (error) {
-      return { status: Number(String(error).match(/HTTP\s+(\d{3})/i)?.[1] ?? 0) };
-    }
+  const requiredChecks = createGitHubRequiredCheckPolicyReader(async (repository, branch) => {
+    const { provider, repo } = await forge(repository);
+    return await branchRules(provider, repo, branch);
   });
 
   /**
@@ -261,7 +297,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     };
     if (pending) {
       try {
-        const [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", signal);
+        const live = await readPull(repository, number, signal);
         const state = isRuntimeRecord(live) && hasRuntimeType(live.state, "string") ? live.state : undefined;
         const mergedAt = isRuntimeRecord(live) && hasRuntimeType(live.merged_at, "string") ? live.merged_at : undefined;
         if (state?.toLowerCase() !== "open" && mergedAt) {
@@ -272,10 +308,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         }
         const reconcileEnqueued = async (): Promise<"merged" | "blocked"> => {
           const [repositoryOwner, name] = repository.split("/");
-          const response = await readGraphql(repository, 1, signal)(`query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){state headRefOid mergeQueueEntry{id}}}}`, { owner: repositoryOwner, name, number });
-          const queued = v.parse(v.object({ data: v.object({ repository: v.object({ pullRequest: v.object({
+          // forges has no merge queue model.
+          const { provider } = await forge(repository, signal);
+          const query = `query BabysitterMergeQueueEntry($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){state headRefOid mergeQueueEntry{id}}}}`;
+          const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, operationName: "BabysitterMergeQueueEntry", variables: { owner: repositoryOwner, name, number } }, signal })).data;
+          const queued = v.parse(v.object({ repository: v.object({ pullRequest: v.object({
             state: v.string(), headRefOid: v.string(), mergeQueueEntry: v.nullable(v.object({ id: v.string() })),
-          }) }) }) }), response).data.repository.pullRequest;
+          }) }) }), isRuntimeRecord(response) && "data" in response ? response.data : response).repository.pullRequest;
           // Neither queue absence nor a timeline removal identifies this accepted
           // request. beforeCommit may be a synthetic merge-group commit, and event
           // timestamps cannot establish request ownership. Keep the fence.
@@ -289,34 +328,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           return queued.state === "MERGED" ? "merged" : "blocked";
         };
         if (pending.enqueued) return await reconcileEnqueued();
-        if (pending.requestId) {
-          const result = await readAsyncMerge(github, repository, number, pending.requestId, signal).catch(async (error: unknown) => {
-            if (!(error instanceof Error) || !/HTTP 404/.test(error.message)) throw error;
-            // Result UUIDs expire after 24 hours. A successful live PR read above
-            // proves this repository is accessible; an expired UUID must not
-            // strand a closed PR or bypass the current head's normal merge gates.
-            const liveHead = isRuntimeRecord(live) && isRuntimeRecord(live.head) ? live.head.sha : undefined;
-            if ((state?.toLowerCase() !== "open" && state?.toLowerCase() !== "closed") || !hasRuntimeType(liveHead, "string") || !/^[a-f\d]{40}$/i.test(liveHead)) throw error;
-            await pullRequestInbox.clearDirectMerge(repository, number, pending.token);
-            await pullRequestInbox.finish(claim, { text: `Expired GitHub merge result reconciled at head ${liveHead}; rechecking normal gates.`, retry: state.toLowerCase() === "open", terminal: state.toLowerCase() === "closed" });
-            return undefined;
-          });
-          if (!result) return "blocked";
-          if (result.status === "pending") return await parkMerge(`Waiting for GitHub merge request ${pending.requestId}.`);
-          if (result.status === "enqueued") {
-            if (!await pullRequestInbox.recordDirectMergeEnqueued(repository, number, pending.token)) throw new Error("Merge attempt changed before its enqueued result could be recorded.");
-            return await reconcileEnqueued();
-          }
-          await pullRequestInbox.clearDirectMerge(repository, number, pending.token);
-          const merged = result.status === "merged";
-          await pullRequestInbox.finish(claim, { text: merged ? "Asynchronous merge confirmed by GitHub." : `GitHub merge failed: ${result.details.message}`, terminal: merged, retry: !merged });
-          if (merged) schedulerEvent("babysitter.owner.merged", { ...owner, head_sha: pending.head, avoided_invocation: true });
-          return merged ? "merged" : "blocked";
-        }
-        // A legacy synchronous attempt can be reconciled from live PR state.
-        // An asynchronous request without a saved UUID may still be running.
-        // Re-admit it through every gate below, then let GitHub serialize the
-        // duplicate request and return its UUID. Never clear it just for being open.
+        // A synchronous attempt can be reconciled from live PR state.
+        // An asynchronous request may still be running. Re-admit it through every
+        // gate below: GitHub serializes the duplicate request and forges waits for
+        // the pending one. Never clear it just for being open.
         if (!pending.asynchronous || state?.toLowerCase() !== "open") {
           await pullRequestInbox.clearDirectMerge(repository, number, pending.token);
           await pullRequestInbox.finish(claim, { text: "Direct merge outcome reconciled as not merged; retrying the verified pull request.", retry: state?.toLowerCase() === "open", terminal: state?.toLowerCase() === "closed" });
@@ -358,14 +373,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     let mergeStarted = false;
     const mergeToken = pending?.token ?? claim.token;
     try {
-      const [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", signal);
+      const { provider, repo, pull } = await forge(repository, signal);
+      const live = await readPull(repository, number, signal);
       const current = liveMergeReadiness(live, decision.head);
       if (!current.ready) {
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: current.reason });
         return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${current.reason}.`) : "not-ready";
       }
-      const [repositorySettings] = await readRest(`repos/${repository}`, ".", signal);
-      const children = await readRest(`repos/${repository}/pulls?state=open&base=${encodeURIComponent(snapshot.pr?.head?.ref ?? "")}&per_page=100`, ".[]", signal);
+      const repositorySettings = (await provider.repos.get(repo, { signal })).raw;
+      const children = await readPulls(repository, { state: "open", base: snapshot.pr?.head?.ref ?? "", limit: 1_000 }, signal);
       const branchSafety = directMergeBranchSafety(repositorySettings, live, children);
       if (branchSafety !== true) {
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: branchSafety });
@@ -384,22 +400,25 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         return "blocked";
       }
       mergeStarted = true;
-      const response = await requestAsyncMerge(github, repository, number, decision.head, merge.method, signal);
-      if (response.status === "pending") {
-        if (!await pullRequestInbox.recordDirectMergeRequest(repository, number, mergeToken, response.details.uuid)) throw new Error("Merge attempt changed before its UUID could be recorded.");
-        return await parkMerge(`Waiting for GitHub merge request ${response.details.uuid}.`);
-      }
-      if (response.status !== "merged") {
-        if (response.status === "enqueued" && !await pullRequestInbox.recordDirectMergeEnqueued(repository, number, mergeToken)) throw new Error("Merge attempt changed before its enqueued result could be recorded.");
-        if (response.status === "failed") await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
-        return await parkMerge(response.status === "failed" ? `GitHub merge failed: ${response.details.message}` : "GitHub enqueued the pull request; waiting for its merge webhook.");
+      try {
+        // forges sends GitHub's asynchronous merge with the expected head and waits for its result.
+        await provider.threads.merge(pull(number), { method: merge.method, sha: decision.head, signal });
+      } catch (error) {
+        if (!(error instanceof MergeBlockedError) || error.status === 409) throw error;
+        if (mergeResultStatus(error) === "enqueued") {
+          if (!await pullRequestInbox.recordDirectMergeEnqueued(repository, number, mergeToken)) throw new Error("Merge attempt changed before its enqueued result could be recorded.");
+          return await parkMerge("GitHub enqueued the pull request; waiting for its merge webhook.");
+        }
+        await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
+        return await parkMerge(`GitHub merge failed: ${error.message}`);
       }
     } catch (error) {
       schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
       // Definite HTTP rejections did not enqueue a merge. Keep the fence for
       // timeouts and transport failures, which may have delivered the request.
-      const rejectedStatus = Number(String(error).match(/\bHTTP[ :]+(4\d\d)\b/)?.[1]);
-      if (mergeStarted && rejectedStatus && rejectedStatus !== 409) await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
+      // A 409 can name another pending merge request.
+      const rejectedStatus = forgeErrorStatus(error);
+      if (mergeStarted && rejectedStatus !== undefined && rejectedStatus >= 400 && rejectedStatus < 500 && rejectedStatus !== 409) await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
       return await parkMerge(`GitHub merge request failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`);
     }
     await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
@@ -551,11 +570,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   async function dependencyEvidence(wake: PullRequestWake): Promise<string> {
     // Dependency reads are host-owned. A parked model never polls unchanged checks.
     if (wake.kind === "pull-request") {
-      const [pr] = await readRest(`repos/${wake.repository}/pulls/${wake.number}`, ".");
+      const pr = await readPull(wake.repository, wake.number);
       if (!isRuntimeRecord(pr)) throw new Error("Missing external pull-request state.");
       return digest({ state: pr.state, mergedAt: pr.merged_at, head: isRuntimeRecord(pr.head) ? pr.head.sha : undefined });
     }
-    return await checksDependencyEvidence(wake, (path, projection) => readRest(path, projection));
+    const { provider, repo } = await forge(wake.repository);
+    return checksDependencyEvidence(await provider.checks.list(repo, wake.headSha));
   }
   async function externalWait(observed: Snapshot, wake: PullRequestWake | undefined, reason: string) {
     if (!wake) await statusRecovery.recordWorkerBlocker(observed, reason);
@@ -616,13 +636,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const target = pr && nonDefaultBase(pr);
     if (!pr || !target) return undefined;
     const { base, owner } = target;
-    const parents = await readRest(`repos/${snapshot.repository}/pulls?state=all&head=${encodeURIComponent(`${owner}:${base}`)}&per_page=10`, undefined, signal);
+    const parents = await readPulls(snapshot.repository, { state: "all", head: `${owner}:${base}`, limit: 10 }, signal);
     const to = stackRetargetBase(pr, parents);
     if (!to) {
       const parent = parents.find(value => isRuntimeRecord(value) && String(value.state).toLowerCase() === "open" && Number.isSafeInteger(value.number));
       return isRuntimeRecord(parent) && hasRuntimeType(parent.number, "number") ? { parent: parent.number } : undefined;
     }
-    const [live] = await readRest(`repos/${snapshot.repository}/pulls/${snapshot.number}`, ".", signal);
+    const live = await readPull(snapshot.repository, snapshot.number, signal);
     if (!isRuntimeRecord(live) || String(live.state).toLowerCase() !== "open"
       || !isRuntimeRecord(live.base) || live.base.ref !== base
       || !isRuntimeRecord(live.head) || live.head.sha !== pr.head?.sha
@@ -632,11 +652,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
     signal.throwIfAborted();
     try {
-      await github.command(["api", "-X", "PATCH", `repos/${snapshot.repository}/pulls/${snapshot.number}`, "-f", `base=${to}`], { repository: snapshot.repository, timeout: 60_000, signal });
+      const { provider, pull } = await forge(snapshot.repository, signal);
+      await retargetPullRequest(provider, pull(snapshot.number), to, { signal });
     } catch (error) {
       // A stale stack snapshot can race a webhook or another worker. GitHub
       // may reject a redundant retarget even though the desired base is live.
-      const [current] = await readRest(`repos/${snapshot.repository}/pulls/${snapshot.number}`, ".", signal);
+      const current = await readPull(snapshot.repository, snapshot.number, signal);
       const currentBase = isRuntimeRecord(current) && isRuntimeRecord(current.base) ? current.base.ref : undefined;
       if (currentBase !== to) throw error;
     }
@@ -703,21 +724,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if ((((await pullRequestInbox.meta(nextKey)) as number | undefined) ?? 0) > Date.now()) continue;
       await pullRequestInbox.setMeta(nextKey, Date.now() + 2 * 60_000);
       try {
-        const result = await github.command(
-          [
-            "api",
-            "--paginate",
-            `repos/${repository}/pulls?state=open&per_page=100`,
-            "--jq",
-            ".[] | @json",
-          ],
-          { repository, timeout: 60_000 },
-        );
-        const prs = result.stdout
-          .trim()
-          .split("\n")
-          .filter(Boolean)
-          .map((line) => JSON.parse(line));
+        // forges `threads.list()` also reads the checks of every listed pull request.
+        const prs = await readPulls(repository, { state: "open", limit: 10_000 });
         for (const pr of prs) await pullRequestInbox.seed(repository, normalizePullRequest(pr));
         await pullRequestInbox.setMeta(key, { at: new Date().toISOString() });
       } catch (error) {
@@ -726,7 +734,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
     try {
       // One open-PR query per repository and minute finds lost deliveries; only changed PRs are probed.
-      await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository, 4), repositories, Date.now(), !eventScopedBootstrap);
+      await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository), repositories, Date.now(), !eventScopedBootstrap);
     } catch (error) {
       schedulerError("babysitter.snapshot.detect.failed", error);
     }
@@ -936,12 +944,17 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           }
           if (!(await hydrateFailedCiEvidence(pullRequestInbox, inboxClaim, {
             readJson: (path, projection) => readRest(path, projection, passSignal),
-            readLog: async (path, repository) => (await github.command(["api", path], { repository, timeout: 60_000, signal: passSignal })).stdout,
+            readLog: async (path, repository) => {
+              const { provider } = await forge(repository, passSignal);
+              return await new Response((await provider.request("GET", `/${path}`, { raw: true, signal: passSignal })).body).text();
+            },
           }))) { await pullRequestInbox.release(inboxClaim); return; }
           const ciRecovery = await rerunFailedActions(
             pullRequestInbox,
             inboxClaim,
-            (args, request) => github.command(args, { ...request, signal: passSignal }),
+            (await forge(repository, passSignal)).provider,
+            Date.now(),
+            passSignal,
           );
           if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
             outcome = "waiting";
@@ -1083,7 +1096,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const readRepairBase = async () => {
                 // PR snapshots can retain an older base after its branch moves.
                 // Conflict preparation must merge the current target branch.
-                const [ref] = await readRest(`repos/${repository}/git/ref/heads/${encodeURIComponent(pullRequest.baseRefName)}`, ".", abortSignal);
+                // forges `contents.resolveRef()` resolves tags before branches of the same name.
+                const { provider } = await forge(repository, abortSignal);
+                const ref = (await provider.request<unknown>("GET", `/repos/${repository}/git/ref/heads/${encodeURIComponent(pullRequest.baseRefName)}`, { signal: abortSignal })).data;
                 if (!isRuntimeRecord(ref) || ref.ref !== `refs/heads/${pullRequest.baseRefName}` || !isRuntimeRecord(ref.object)
                   || ref.object.type !== "commit" || !hasRuntimeType(ref.object.sha, "string") || !/^[a-f\d]{40}$/i.test(ref.object.sha)) {
                   throw new Error("Conflict repair requires the exact live base branch commit.");
@@ -1092,7 +1107,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               };
               const assertRepairBase = async () => {
                 if (!preparedMergeBase) return;
-                const [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", abortSignal);
+                const live = await readPull(repository, number, abortSignal);
                 if (!isRuntimeRecord(live) || !isRuntimeRecord(live.base) || live.base.ref !== pullRequest.baseRefName || await readRepairBase() !== preparedMergeBase) {
                   await pullRequestInbox.hydrate(inboxClaim, { refresh: true });
                   const changed = new DOMException("Pull request base changed; retry the conflict repair against current GitHub state.", "AbortError");
@@ -1116,14 +1131,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   preparedDirectories.add(directory);
                 }
               };
-              const operationHost: Pick<GitHubHost, "command" | "ensureGraphQLBudget"> = {
-                command: async (args, request) => {
+              // Operations ask for a provider before each request group, so every group checks the lease.
+              const operationHost: Pick<GitHubHost, "forge"> = {
+                forge: async (input) => {
                   await assertLease();
-                  return await github.command(args, request);
-                },
-                ensureGraphQLBudget: async (...args) => {
-                  await assertLease();
-                  return await github.ensureGraphQLBudget(...args);
+                  return await github.forge(input);
                 },
               };
               const operations = createGitHubPullRequestOperations(operationHost, {
@@ -1495,7 +1507,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // The repair reached GitHub. Its checks and reviews resume the PR.
             outcome = "waiting";
             await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait);
-            const expected = isAbortError(error) || (error instanceof Error && error.name === "TimeoutError") || github.isRateLimitError(error);
+            const expected = isAbortError(error) || (error instanceof Error && error.name === "TimeoutError") || error instanceof RateLimitedError;
             if (!expected) schedulerError("babysitter.owner.failed", error, owner);
           } else if (isAbortError(error)) {
             outcome = "completed";
@@ -1510,12 +1522,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               reason: "pull-request-state-changed-or-aborted",
               ...owner,
             });
-          } else if (github.isRateLimitError(error)) {
+          } else if (error instanceof RateLimitedError) {
             outcome = "deferred";
             await pullRequestInbox.finish(inboxClaim, {
               text: pushSucceeded
                 ? "Repair pushed; waiting for new webhook evidence."
-                : "GitHub rate limit; retrying after budget reset.",
+                : "GitHub rate limit; retrying after it resets.",
               retry: !pushSucceeded,
             });
             schedulerEvent("babysitter.owner.deferred", { reason: "github-rate-limit", ...owner });

@@ -9,7 +9,7 @@ export interface AgentHealthDiagnostic {
   status: 'neutral' | 'ok' | 'warning'
   value: string
   detail?: string
-  /** Informational waits, such as a GitHub budget reset, need not degrade health. */
+  /** Informational waits, such as a Forge rate limit reset, need not degrade health. */
   affectsHealth?: boolean
 }
 
@@ -25,7 +25,7 @@ export interface AgentHealthOptions {
   name: string
   agent: () => AgentInput | Promise<AgentInput>
   process?: { health(): Promise<Pick<AgentHealthReport, 'checkedAt' | 'diagnostics' | 'status' | 'workload'>> }
-  github?: Pick<GitHubHost, 'access' | 'budget'>
+  github?: Pick<GitHubHost, 'access' | 'rateLimit'>
   console?: () => boolean
   diagnostics?: (signal: AbortSignal) => readonly AgentHealthDiagnostic[] | Promise<readonly AgentHealthDiagnostic[]>
   workload?: () => Record<string, number> | Promise<Record<string, number>>
@@ -74,11 +74,16 @@ export function createAgentHealth(options: AgentHealthOptions): () => Promise<Ag
       } catch {
         diagnostics.push({ label: 'GitHub', status: 'warning', value: 'Not connected', detail: 'Pull-request work is blocked' })
       }
-      const budget = options.github.budget()
+      const limit = options.github.rateLimit()
+      const limited = limit !== undefined && limit.remaining === 0 && limit.resetAt > Date.now()
       diagnostics.push({
-        label: 'GitHub budget', status: budget.limited ? 'warning' : 'ok', affectsHealth: false,
-        value: budget.limited ? 'Work queued' : 'Available',
-        detail: budget.limited ? `${budget.remaining} GraphQL points · resumes ${new Date(budget.resetAt).toISOString()}` : 'GraphQL admission reserve available',
+        label: 'Forge', status: limited ? 'warning' : limit ? 'ok' : 'neutral', affectsHealth: false,
+        value: limited ? 'Rate limited' : limit ? 'Available' : 'No requests yet',
+        detail: !limit
+          ? undefined
+          : limited
+            ? `GitHub ${limit.resource} requests resume ${new Date(limit.resetAt).toISOString()}`
+            : `${limit.remaining} of ${limit.limit} GitHub ${limit.resource} requests left`,
       })
     }
     if (options.console) {
