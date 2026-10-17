@@ -1247,6 +1247,30 @@ describe("agent channels", () => {
     }
   })
 
+  it("prefers explicit Teams adapter options over Server Env", async () => {
+    vi.resetModules()
+    const createTeamsAdapter = vi.fn(() => ({ name: "teams" }))
+    vi.doMock("@chat-adapter/teams", () => ({ createTeamsAdapter }))
+    try {
+      const { teams } = await import("../src/channels.ts")
+      const channel = teams({ adapter: { appId: "option-app", appPassword: { unseal: () => "option-password" }, appType: "SingleTenant" } })
+      if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Teams adapter resolver.")
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+      await channel.adapter({ cloudflare: { env: { TEAMS_APP_ID: "env-app", TEAMS_APP_TENANT_ID: "env-tenant" } } } as never)
+      expect(createTeamsAdapter).toHaveBeenCalledWith({ appId: "option-app", appPassword: "option-password", appTenantId: "env-tenant", appType: "SingleTenant" })
+    }
+    finally {
+      vi.doUnmock("@chat-adapter/teams")
+      vi.resetModules()
+    }
+  })
+
+  it("keeps a Teams adapter factory as given", async () => {
+    const { teams } = await import("../src/channels.ts")
+    const factory = () => ({ name: "teams" }) as never
+    expect(teams({ adapter: factory }).adapter).toBe(factory)
+  })
+
   it("uses polling Telegram channels without a webhook route", async () => {
     const { telegram } = await import("../src/channels.ts")
     expect(telegram({ mode: "polling" }).webhooks).toBe(false)

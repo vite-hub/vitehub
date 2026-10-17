@@ -37,6 +37,7 @@ import type {
   AgentWebChatChannelOptions,
   DiscordChannelOptions,
   GitHubChannelOptions,
+  TeamsChannelOptions,
   TelegramChannelOptions,
 } from "./channels.ts"
 
@@ -2529,6 +2530,7 @@ type AgentBuiltInChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   | AgentWebChatChannelOptions<TRuntimeConfig>
   | DiscordChannelOptions<TRuntimeConfig>
   | GitHubChannelOptions<TRuntimeConfig>
+  | TeamsChannelOptions<TRuntimeConfig>
   | TelegramChannelOptions<TRuntimeConfig>
 
 export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
@@ -2537,7 +2539,7 @@ export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = Agent
     github?: AgentChannelInput<TRuntimeConfig> | GitHubChannelOptions<TRuntimeConfig>
     http?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
     slack?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
-    teams?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
+    teams?: AgentChannelInput<TRuntimeConfig> | TeamsChannelOptions<TRuntimeConfig>
     telegram?: AgentChannelInput<TRuntimeConfig> | TelegramChannelOptions<TRuntimeConfig>
     webChat?: AgentChannelInput<TRuntimeConfig> | AgentWebChatChannelOptions<TRuntimeConfig>
   }

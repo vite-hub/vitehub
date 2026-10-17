@@ -322,6 +322,7 @@
     "advocaat": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
+    "@chat-adapter/teams": "catalog:chat",
     "@github-tools/eve-extension": "0.8.0",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
@@ -353,6 +354,7 @@
     "@agntn/web": "catalog:ai",
     "advocaat": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
+    "@chat-adapter/teams": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
@@ -377,6 +379,9 @@
       "optional": true
     },
     "@chat-adapter/discord": {
+      "optional": true
+    },
+    "@chat-adapter/teams": {
       "optional": true
     },
     "@vercel/functions": {

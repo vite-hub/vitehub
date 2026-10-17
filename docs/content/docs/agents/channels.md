@@ -464,6 +464,12 @@ Built-in Channels read credentials from Server Env under `env.server.<channel>`.
 
 Each field first reads its canonical name, `VITEHUB_` and the path in upper snake case, then its vendor names. `telegram()` reads `VITEHUB_TELEGRAM_BOT_TOKEN`, then `TELEGRAM_BOT_TOKEN`. `github()`, `gitlab()` and `forgejo()` read the `VITEHUB_` name, then the `FORGES_` name of the [`forges`](https://forges.link/reference/environment-variables) library: `github()` reads `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. They do not read `GH_TOKEN` or `GITHUB_TOKEN`. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. See [Server Env variable names](/docs/env/configure).
 
+`teams()` always builds its adapter. It reads `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL` from `env.server.teams`, so `teams()` needs no credential options. Pass `adapter` options such as `userName` or `appType` to set other adapter values, or pass your own adapter or factory. Install `@chat-adapter/teams` in the application.
+
+```ts [server/agents/support.ts]
+teams({ adapter: { userName: 'Support' } })
+```
+
 Use [Server Env](/docs/env) to inspect the discovered fields and their required or secret status. When a Channel is defined outside a discovered Agent file, declare its Env fields explicitly.
 
 For Telegram, ViteHub can own the verified webhook route and synchronize it after deployment:

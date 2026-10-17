@@ -677,6 +677,25 @@ export interface DiscordChannelOptions<TRuntimeConfig extends AgentRuntimeConfig
   adapter?: true | DiscordAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
 }
 
+/**
+ * Options for the Microsoft Teams adapter. A credential that you omit is read from
+ * `env.server.teams`: TEAMS_APP_ID, TEAMS_APP_PASSWORD, TEAMS_APP_TENANT_ID, and TEAMS_API_URL.
+ */
+export interface TeamsAdapterOptions {
+  apiUrl?: string
+  appId?: string
+  appPassword?: string | { unseal: () => string }
+  appTenantId?: string
+  appType?: "MultiTenant" | "SingleTenant"
+  userName?: string
+}
+
+export interface TeamsChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>
+  extends Omit<AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>, "adapter"> {
+  /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.teams`. */
+  adapter?: TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
+}
+
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
   MaybeResolvable<T, AgentCallbackContext<TRuntimeConfig>>
 type TelegramSecret = string | { unseal: () => string }
@@ -2664,6 +2683,34 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
+function teamsAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
+  input: TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined,
+): AgentChannelOptions<TRuntimeConfig>["adapter"] {
+  if (input !== undefined && (hasRuntimeType(input, "function") || isAdapter(input) || isResolver(input))) {
+    // SAFETY: The runtime guards above establish every supported adapter option variant.
+    return input as AgentChannelOptions<TRuntimeConfig>["adapter"]
+  }
+  // SAFETY: The guards above leave only the plain Teams adapter options.
+  const options = (input ?? {}) as TeamsAdapterOptions
+  return async (context) => {
+    let createTeamsAdapter: (options?: Record<string, unknown>) => Adapter
+    try {
+      ({ createTeamsAdapter } = await import("@chat-adapter/teams"))
+    }
+    catch (error) {
+      throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams() requires @chat-adapter/teams to be installed.", cause: error })
+    }
+    const env = await channelEnv("teams", context)
+    const adapterConfig: Record<string, unknown> = { ...options }
+    for (const field of ["apiUrl", "appId", "appPassword", "appTenantId"] as const) {
+      const value = cleanSecret(options[field] ?? env[field])
+      if (value) adapterConfig[field] = value
+      else delete adapterConfig[field]
+    }
+    return createTeamsAdapter(adapterConfig)
+  }
+}
+
 const discordApiBaseUrl = "https://discord.com/api/v10"
 
 function discordThreadIdFromAgentThreadId(threadId: string): string | undefined {
@@ -3677,10 +3724,10 @@ export function slack<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   return defineChannel("slack", options)
 }
 
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
-export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods> {
-  return defineMessageChannelInstructions(defineChannel("teams", options), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link.")
+export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
+export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
+export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods> {
+  return defineMessageChannelInstructions(defineChannel("teams", { ...options, adapter: teamsAdapterResolver(options.adapter) }), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link.")
 }
 
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
