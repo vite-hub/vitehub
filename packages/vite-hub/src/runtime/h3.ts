@@ -39,6 +39,18 @@ function isRequest(value: unknown): value is Request {
   try {
     if (value instanceof Request) return true
     if (value === null || typeof value !== "object") return false
+    // Do not invoke the current realm's Request tag accessor for an object
+    // layered over this realm's prototype. Its private-state check throws
+    // before we can safely classify the value, and copied native methods on
+    // that chain must never be treated as foreign-realm evidence.
+    const seen = new Set<object>()
+    let prototype: object | null = value
+    while (prototype !== null) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      if (prototype === Request.prototype) return false
+      prototype = Object.getPrototypeOf(prototype)
+    }
     if (Object.prototype.toString.call(value) !== "[object Request]") return false
     // A native accessor performs the Request internal-slot check without
     // consulting properties supplied by the candidate. This covers the
@@ -53,18 +65,11 @@ function isRequest(value: unknown): value is Request {
       // Locate that realm's genuine Request prototype and use its native
       // bodyUsed getter; copied methods on a forged prototype still fail the
       // internal-slot check.
-      const seen = new Set<object>()
       let branded = false
       let valid = true
       let reachedObjectPrototype = false
-      let prototype: object | null = value
+      prototype = value
       while (prototype !== null) {
-        if (seen.has(prototype)) return false
-        seen.add(prototype)
-        // A foreign Request prototype must not be layered over this realm's
-        // Request prototype. Such a chain can copy native methods onto a
-        // forged object while the receiver still lacks the foreign slots.
-        if (prototype === Request.prototype) return false
         const objectConstructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
         if (typeof objectConstructor === "function" && objectConstructor.name === "Object" && objectConstructor.prototype === prototype) {
           reachedObjectPrototype = true
