@@ -75,7 +75,7 @@ export function createEntrySource(definitionPath: string, execution: 'definition
     `    const headersSymbol = enumerableSymbols.find(symbol => symbol.description === 'headers')`,
     `    const state = stateSymbol && value[stateSymbol]`,
     `    const headers = headersSymbol && value[headersSymbol]`,
-    `    if (stateSymbol && headersSymbol && state && typeof state === 'object' && Number.isInteger(state.status) && 'body' in state && headers && typeof headers.get === 'function') return false`,
+    `    if (stateSymbol && headersSymbol && state && typeof state === 'object' && Number.isInteger(state.status) && 'body' in state && headers && Object.prototype.hasOwnProperty.call(headers, 'get') && typeof headers.get === 'function') return false`,
     `  }`,
     `  return true`,
     `}`,
