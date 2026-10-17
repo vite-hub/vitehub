@@ -75,6 +75,7 @@ const CANCELLATION_VERIFICATION_INTERVAL_MS = 100
 const STORE_OPERATION_TIMEOUT_MS = 1_000
 const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
 const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
+const brandedErrorValues = new WeakSet<object>()
 const intrinsicFunctionToString = Function.prototype.toString
 const nativeErrorConstructorSource = intrinsicFunctionToString.call(Error)
 const nativeAggregateErrorConstructorSource = intrinsicFunctionToString.call(AggregateError)
@@ -588,6 +589,7 @@ function isArrayBufferView(value: unknown): value is ArrayBufferView {
 
 function isErrorValue(value: unknown): value is Error {
   if (!value || !hasRuntimeType(value, "object")) return false
+  if (brandedErrorValues.has(value)) return true
   try {
     // Probe the intrinsic Error slot before reading `stack`. A foreign realm
     // can cache a non-string formatter result (including `undefined`) on the
@@ -617,6 +619,7 @@ function isErrorValue(value: unknown): value is Error {
               writable: true,
             })
             if (errorStackGetter.call(value) === sentinel) {
+              brandedErrorValues.add(value)
               return true
             }
           }
@@ -627,13 +630,6 @@ function isErrorValue(value: unknown): value is Error {
             try {
               if (prepareDescriptor) Object.defineProperty(constructor, "prepareStackTrace", prepareDescriptor)
               else delete constructor.prepareStackTrace
-              if (stackDescriptor?.get && errorStackGetter) {
-                // Refresh a foreign lazy stack accessor after restoring its
-                // formatter. Otherwise it keeps the temporary sentinel and
-                // a repeated brand check can fail.
-                delete (value as object & { stack?: unknown }).stack
-                try { errorStackGetter.call(value) } catch { /* ignore */ }
-              }
               if (stackDescriptor) Object.defineProperty(value, "stack", stackDescriptor)
               else delete (value as object & { stack?: unknown }).stack
             }
