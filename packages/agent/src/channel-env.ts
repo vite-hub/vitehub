@@ -2,7 +2,7 @@ import { readBuiltInEnv } from "./internal/builtin-env.ts"
 
 import { forgeEnv } from "@vite-hub/forge"
 
-import type { BuiltInEnvField } from "./internal/builtin-env.ts"
+import type { BuiltInEnvContext, BuiltInEnvField } from "./internal/builtin-env.ts"
 import type { AgentCallbackContext, AgentRuntimeConfig } from "./types.ts"
 
 /** One Server Env value that a built-in Channel reads when its options omit the value. */
@@ -42,10 +42,10 @@ export type BuiltInChannelEnv = typeof builtInChannelEnv
 
 const channelEnvFields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInChannelEnv
 
-async function readChannelEnv<TRuntimeConfig extends AgentRuntimeConfig>(
+async function readChannelEnv(
   channel: string,
   fields: readonly string[],
-  context: AgentCallbackContext<TRuntimeConfig>,
+  context: BuiltInEnvContext,
 ): Promise<Partial<Record<string, unknown>>> {
   return await readBuiltInEnv(channel, channelEnvFields[channel] ?? {}, fields, context)
 }
@@ -56,12 +56,9 @@ async function readChannelEnv<TRuntimeConfig extends AgentRuntimeConfig>(
  * example without hubEnv(), is read from its host variable names.
  * Explicit Channel options take precedence; callers read Env only when an option is omitted.
  */
-export async function channelEnv<
-  TChannel extends keyof BuiltInChannelEnv,
-  TRuntimeConfig extends AgentRuntimeConfig,
->(
+export async function channelEnv<TChannel extends keyof BuiltInChannelEnv>(
   channel: TChannel,
-  context: AgentCallbackContext<TRuntimeConfig>,
+  context: BuiltInEnvContext,
 ): Promise<Partial<Record<keyof BuiltInChannelEnv[TChannel] & string, unknown>>> {
   return await readChannelEnv(channel, Object.keys(builtInChannelEnv[channel]), context)
 }
