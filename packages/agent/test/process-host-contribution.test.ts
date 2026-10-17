@@ -1,11 +1,9 @@
-import { createHmac } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { defineAgent, resolveAgentTriggerInvocation } from "../src/index.ts"
-import { babysitter } from "../src/presets/babysitter.ts"
-import { getAgentProcessHostContribution, registerAgentProcessHostIntake, withAgentProcessHost, type AgentProcessHostInstance } from "../src/process-host.ts"
+import { defineAgent } from "../src/index.ts"
+import { withAgentProcessHost, type AgentProcessHostInstance } from "../src/process-host.ts"
 import { usesProcessHostPreset } from "../src/discovery.ts"
 import { createAgentProcessHosts } from "../src/runtime/process.ts"
 import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
@@ -13,29 +11,29 @@ import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 const roots: string[] = []
 afterEach(async () => {
   vi.unstubAllEnvs()
-  registerAgentProcessHostIntake("babysitter", undefined)
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
-const babysitterSource = `import { defineAgent } from "vite-hub/agent"\nimport { babysitter } from "vite-hub/agent/presets/babysitter"\nexport default defineAgent({ preset: "babysitter", presets: { babysitter }, options: { filter: { repository: { allow: ["acme/app"] } } } })\n`
+const workerSource = `import { defineAgent } from "vite-hub/agent"\nimport { worker } from "@acme/host/worker"\nexport default defineAgent({ preset: "worker", presets: { worker } })\n`
+
+/** A project with a package that declares `./worker` as a process host subpath in package.json. */
+async function hostPackageRoot(prefix: string) {
+  const root = await mkdtemp(join(tmpdir(), prefix))
+  roots.push(root)
+  await mkdir(join(root, "node_modules", "@acme", "host"), { recursive: true })
+  await writeFile(join(root, "node_modules", "@acme", "host", "package.json"), JSON.stringify({ name: "@acme/host", vitehub: { agent: { processHost: ["./worker"] } } }))
+  return root
+}
 
 describe("process host presets", () => {
-  it("detects a static import of a process host preset", () => {
-    expect(usesProcessHostPreset(babysitterSource)).toBe(true)
-    expect(usesProcessHostPreset(`import { babysitter } from '@vite-hub/agent/presets/babysitter'`)).toBe(true)
-    expect(usesProcessHostPreset(`// import { babysitter } from "vite-hub/agent/presets/babysitter"\nexport default {}`)).toBe(false)
-    expect(usesProcessHostPreset(`const preset = await import("vite-hub/agent/presets/babysitter")`)).toBe(false)
-    expect(usesProcessHostPreset(`import { workspace } from "vite-hub/agent/presets/workspace"`)).toBe(false)
-  })
-
-  it("keeps the Babysitter host contribution through extends and options", () => {
-    expect(getAgentProcessHostContribution(babysitter)).toBeDefined()
-    const configured = defineAgent({ extends: babysitter, options: { concurrency: 2, filter: { repository: { allow: ["acme/app"] } }, mentionAllowlist: ["stefina"] } })
-    expect(configured.options.mentionAllowlist).toEqual(["stefina"])
-    expect(getAgentProcessHostContribution(configured)).toBe(getAgentProcessHostContribution(babysitter))
-    expect(getAgentProcessHostContribution(defineAgent({ extends: configured, name: "child" }))).toBeDefined()
-    expect(getAgentProcessHostContribution(defineAgent({ name: "plain", driver: { run: () => "" } }))).toBeUndefined()
-    expect(() => defineAgent({ extends: babysitter, options: { concurrency: 0 } })).toThrow(/concurrency/)
+  it("detects a static import of a package subpath that declares a process host", async () => {
+    const file = join(await hostPackageRoot("vitehub-process-host-traits-"), "server", "agents", "worker.ts")
+    expect(usesProcessHostPreset(workerSource, file)).toBe(true)
+    expect(usesProcessHostPreset(`import { worker } from '@acme/host/worker'`, file)).toBe(true)
+    expect(usesProcessHostPreset(`// import { worker } from "@acme/host/worker"\nexport default {}`, file)).toBe(false)
+    expect(usesProcessHostPreset(`const preset = await import("@acme/host/worker")`, file)).toBe(false)
+    expect(usesProcessHostPreset(`import { other } from "@acme/host/other"`, file)).toBe(false)
+    expect(usesProcessHostPreset(`import { worker } from "@acme/missing/worker"`, file)).toBe(false)
   })
 })
 
@@ -96,83 +94,41 @@ describe("createAgentProcessHosts", () => {
   })
 })
 
-describe("Babysitter webhook intake", () => {
-  const payload = JSON.stringify({ action: "opened", repository: { full_name: "acme/app" } })
-  const request = (secret: string) => new Request("https://example.test/api/_vitehub/agents/babysitter/webhooks/github", {
-    method: "POST",
-    body: payload,
-    headers: {
-      "x-github-delivery": "delivery-1",
-      "x-github-event": "pull_request",
-      "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update(payload).digest("hex")}`,
-    },
-  })
-  const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn(), agentIdentity: { name: "babysitter" } }
-  const input = { body: payload, payload: JSON.parse(payload), github: { deliveryId: "delivery-1", event: "pull_request" } }
-  const agent = defineAgent({ extends: babysitter, name: "babysitter", options: { filter: { repository: { allow: ["acme/app"] } } } })
-
-  it("passes a signed delivery to the running host without starting the Agent", async () => {
-    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "webhook-secret")
-    const intake = vi.fn(async () => Response.json({ accepted: true }, { status: 202 }))
-    registerAgentProcessHostIntake("babysitter", intake)
-    const invocation = await resolveAgentTriggerInvocation(agent, { ...runtime, request: request("webhook-secret") }, "github.delivery", input)
-    expect("response" in invocation && invocation.response.status).toBe(202)
-    expect(intake).toHaveBeenCalledWith({ deliveryId: "delivery-1", event: "pull_request", payload: JSON.parse(payload) })
-  })
-
-  it("rejects a wrong signature and fails closed without a webhook secret", async () => {
-    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "webhook-secret")
-    const intake = vi.fn()
-    registerAgentProcessHostIntake("babysitter", intake)
-    await expect(resolveAgentTriggerInvocation(agent, { ...runtime, request: request("wrong") }, "github.delivery", input)).rejects.toMatchObject({ statusCode: 401 })
-    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "")
-    await expect(resolveAgentTriggerInvocation(agent, { ...runtime, request: request("") }, "github.delivery", input)).rejects.toThrow()
-    expect(intake).not.toHaveBeenCalled()
-  })
-
-  it("reports 503 while the host has not started", async () => {
-    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "webhook-secret")
-    const invocation = await resolveAgentTriggerInvocation(agent, { ...runtime, request: request("webhook-secret") }, "github.delivery", input)
-    expect("response" in invocation && invocation.response.status).toBe(503)
-  })
-})
-
 describe("generated process hosts", () => {
   async function project(source: string) {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-process-hosts-"))
-    roots.push(root)
-    await mkdir(join(root, "server", "agents", "babysitter"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "babysitter", "agent.ts"), source, "utf8")
+    const root = await hostPackageRoot("vitehub-process-hosts-")
+    await mkdir(join(root, "server", "agents", "worker"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "worker", "agent.ts"), source, "utf8")
     return root
   }
 
-  it("writes the host entry, plugin, and routes for a Babysitter Agent on Node", async () => {
+  it("writes the host entry, plugin, and routes for a process host Agent on Node", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await project(babysitterSource)
+    const root = await project(workerSource)
     const plugin = hubAgent({ providers: { state: { provider: "libsql", journalMode: "delete", url: "file:state.sqlite" } } })
     if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     await plugin.configResolved.call({} as never, { command: "build", root } as never)
     const entry = await readFile(join(root, ".vitehub/agent/process-hosts.ts"), "utf8")
     expect(entry).toContain('import registry from "#vitehub/agent/registry"')
-    expect(entry).toContain('createAgentProcessHosts({ names: ["babysitter"], registry, state: agentProcessHostState })')
+    expect(entry).toContain('createAgentProcessHosts({ names: ["worker"], registry, state: agentProcessHostState })')
     expect(await readFile(join(root, ".vitehub/agent/process-hosts-plugin.ts"), "utf8")).toContain("setTimeout(() => host.start(), 0)")
     expect(await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")).toContain("export const agentProcessHostState = () => chatStateFromLibsql()")
     expect(await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")).toContain('"journalMode":"delete"')
 
     // The extends form is discovered the same way.
-    await writeFile(join(root, "server", "agents", "babysitter", "agent.ts"), babysitterSource.replace('preset: "babysitter", presets: { babysitter }', "extends: babysitter"), "utf8")
+    await writeFile(join(root, "server", "agents", "worker", "agent.ts"), workerSource.replace('preset: "worker", presets: { worker }', "extends: worker"), "utf8")
     await plugin.configResolved.call({} as never, { command: "build", root } as never)
-    expect(await readFile(join(root, ".vitehub/agent/process-hosts.ts"), "utf8")).toContain('names: ["babysitter"]')
+    expect(await readFile(join(root, ".vitehub/agent/process-hosts.ts"), "utf8")).toContain('names: ["worker"]')
 
-    await writeFile(join(root, "server", "agents", "babysitter", "agent.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "worker", "agent.ts"), "export default {}", "utf8")
     await plugin.configResolved.call({} as never, { command: "build", root } as never)
     await expect(stat(join(root, ".vitehub/agent/process-hosts.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("registers the plugin and host routes, and rejects hosts that cannot run a process", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await project(babysitterSource)
+    const root = await project(workerSource)
     const config = (preset?: string) => {
       const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "libsql://state.example.test" } } })
       if (!isRuntimeFunction(plugin.config)) throw new TypeError("Expected Agent config hook.")

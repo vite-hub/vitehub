@@ -70,7 +70,6 @@
     "test": "vp run -t @vite-hub/presets#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/agent": "workspace:*",
     "@vite-hub/box": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
@@ -80,11 +79,15 @@
     "@libsql/client": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@types/node": "catalog:tooling",
+    "@vite-hub/agent": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "@vite-hub/agent": "workspace:*"
   },
   "engines": {
     "node": ">=24.15.0"

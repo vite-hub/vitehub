@@ -1725,9 +1725,6 @@ importers:
 
   packages/presets:
     dependencies:
-      '@vite-hub/agent':
-        specifier: workspace:*
-        version: link:../agent
       '@vite-hub/box':
         specifier: workspace:*
         version: link:../box
@@ -1750,6 +1747,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.2
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
