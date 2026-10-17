@@ -773,8 +773,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       includeBlocked: true,
       skip: snapshot => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot),
     });
-    // Admission limits model dispatch. Merges and stack retargets remain host work.
-    const regular = await pullRequestInbox.claim(Math.max(0, remainingCapacity - lane.length), { skip: snapshot => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot) });
+    // Admission limits model dispatch. Merges and stack retargets remain host work,
+    // also on a head whose no-progress budget is exhausted: the claim parks before
+    // any model work, so new evidence can still merge the PR.
+    const regular = await pullRequestInbox.claim(Math.max(0, remainingCapacity - lane.length), { includeBlocked: true, skip: snapshot => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot) });
     const jobs = [...lane, ...regular];
     if (!jobs.length) return; // tracking an already-resolved batch creates wake loops
     for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
@@ -1452,7 +1454,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           } else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && passResult?.wait?.kind === "external") {
             outcome = "waiting";
             await pullRequestInbox.setMeta(`review-assessment:${repository}#${number}`, null);
-            recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText,
+            // A blocker named without a push is not progress. New bot feedback can wake
+            // the same head again, so the budget bounds these passes.
+            recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" },
               wait: await externalWait(inboxClaim.snapshot, passResult.wait.wake, passResult.wait.reason) });
           } else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && (passResult?.wait?.kind === "checks" && passResult.wait.headSha === pullRequest.headRefOid
             || passResult?.waitForChecksHead === pullRequest.headRefOid || hasPendingChecks(inboxClaim.snapshot, waitPolicy))) {
@@ -1464,7 +1468,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
           } else if (assessed) {
             outcome = "waiting";
-            recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
+            recorded = await pullRequestInbox.finish(inboxClaim, { text: resultText, progress: { kind: "no-progress" }, wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), headSha: pullRequest.headRefOid, ...(assessed && merge.mode === "direct" ? { retryAt: Date.now() + 120_000 } : {}) } });
           } else {
             if (disposition === "park") schedulerEvent("babysitter.result.unqualified_park", { ...owner, head_sha: pullRequest.headRefOid });
             // A park that names no external gate still consumed a pass without progress.

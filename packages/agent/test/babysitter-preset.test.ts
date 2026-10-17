@@ -1374,6 +1374,41 @@ describe("Babysitter preset runtime", () => {
     }
   });
 
+  it.each([
+    ["an external blocker", { disposition: "park", text: "Needs a maintainer", wait: { kind: "external", reason: "Needs a maintainer" } }],
+    ["a reviewed head", { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) }],
+  ])("counts repeated parks on %s against the no-progress budget", async (_name, result) => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => "approval pending" }, result, options: { noProgressBudget: 2 } });
+    try {
+      for (let review = 1; review <= 4; review++) {
+        await f.reconcile();
+        await f.runtime.inbox.ingest(`bot-review-${review}`, "pull_request_review", {
+          repository: { full_name: "acme/app" }, action: "submitted", pull_request: f.pr(),
+          review: { id: 100 + review, body: `Finding ${review}`, user: { login: "review-bot[bot]", type: "Bot" }, state: "COMMENTED", commit_id: f.pr().head.sha },
+        });
+      }
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.progressBudget).toMatchObject({ head: f.pr().head.sha, count: 2, exhausted: true });
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("merges an exhausted head directly once its gate opens", async () => {
+    let ready = false;
+    const f = await fixture(false, false, { merge: { strategy: "direct", ready: () => ready || "approval pending" },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) }, options: { noProgressBudget: 1 } });
+    try {
+      await f.reconcile();
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.progressBudget?.exhausted).toBe(true);
+      ready = true;
+      const now = vi.spyOn(Date, "now").mockReturnValue(waiting!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.passes).toHaveLength(1);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("defers a pass while a review check runs, unless deferral is disabled", async () => {
     for (const deferWhilePending of [true, false]) {
       const f = await fixture(false, false, { options: { reviewChecks: ["review-bot"], deferWhilePending } });
