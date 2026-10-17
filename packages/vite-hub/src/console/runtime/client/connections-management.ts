@@ -2,7 +2,7 @@ import type { ConnectionApproval, ConnectionInspection } from "@vite-hub/connect
 import type { EnvActivity } from "@vite-hub/env/bridge"
 import * as v from "valibot"
 import { envActorSchema } from "./env-management"
-import { ConsoleRequestError } from "./request"
+import { ConsoleNetworkError, consoleResponseError } from "./request"
 
 /** An approval as the Console shows it. The Console never reads call inputs. */
 export type ConsoleConnectionApproval = Omit<ConnectionApproval, "input">
@@ -38,8 +38,6 @@ export const connectionApprovalsSchema: v.GenericSchema<unknown, { approvals: Co
 export const connectionApprovalCountsSchema: v.GenericSchema<unknown, { counts: Record<string, number> }> = v.object({ counts: v.record(v.string(), v.pipe(v.number(), v.integer(), v.minValue(0))) })
 export const connectionApprovalResultSchema: v.GenericSchema<unknown, { approval: ConsoleConnectionApproval }> = v.object({ approval: connectionApprovalSchema })
 
-const errorBodySchema = v.object({ error: v.object({ message: v.pipe(v.string(), v.minLength(1), v.maxLength(500)) }) })
-
 /** A short label for a Connection status. */
 export function connectionStatusLabel(status: ConnectionInspection["status"]): string {
   return { connected: "Connected", disconnected: "Not connected", reauth_required: "Reconnect required", revoked: "Revoked" }[status]
@@ -61,18 +59,19 @@ export function canSendConnectionKey(location: { hostname: string, protocol: str
   return location.protocol === "https:" || (location.protocol === "http:" && (host === "localhost" || host.endsWith(".localhost") || host === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(host)))
 }
 
-async function errorMessage(response: Response): Promise<string> {
-  if (response.status === 401) return "Sign in to manage Connections."
-  if (response.status === 403) return "You do not have access to this operation."
-  if (response.status === 404) return "Connections management is not available. Production builds need connections: { management: true }."
-  const body = v.safeParse(errorBodySchema, await response.json().catch(() => undefined))
-  return body.success ? body.output.error.message : "Could not complete the request. Try again."
-}
-
 /** Run one action on the Connections management API and validate the response. */
 export async function requestConnectionsManagement<T extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>>(endpoint: string, action: string, schema: T, input: Record<string, unknown> = {}, init: Pick<RequestInit, "redirect"> = {}): Promise<v.InferOutput<T>> {
-  const response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, action }), ...init })
-  if (!response.ok) throw new ConsoleRequestError(response.status, await errorMessage(response))
+  const body = JSON.stringify({ ...input, action })
+  let response: Response
+  try {
+    response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body, ...init })
+  }
+  catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error
+    throw new ConsoleNetworkError(error)
+  }
+  // A host 404 without a JSON body means that the management route is not mounted.
+  if (!response.ok) throw await consoleResponseError(response, response.status === 404 ? { code: "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE" } : {})
   return v.parse(schema, await response.json())
 }
 

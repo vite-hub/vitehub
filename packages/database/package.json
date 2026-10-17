@@ -144,6 +144,7 @@
     "@libsql/client": "catalog:database",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
+    "jiti": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },

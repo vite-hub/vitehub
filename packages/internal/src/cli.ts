@@ -81,7 +81,7 @@ const stdoutRedirectGlobal = globalThis as StdoutRedirectGlobal
  * Sends `process.stdout` writes to stderr while `run` loads project config.
  * Vite, Nitro, Nuxt, and their plugins log info lines to stdout. Those lines must not mix with JSON or raw command output.
  */
-export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteHubCliStreams["stderr"] = process.stderr as unknown as ViteHubCliStreams["stderr"]): Promise<T> {
+export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteHubCliStreams["stderr"] = process.stderr as ViteHubCliStreams["stderr"]): Promise<T> {
   // Capture a newly installed process writer before the redirect is active.
   // This keeps first-use payload writes on the invocation's real stdout.
   getStableStdoutWrite()
@@ -310,15 +310,16 @@ export async function fetchViteHubDevEndpoint(
   fetchImpl: typeof fetch,
   url: string,
   endpoint: Pick<ViteHubDevEndpoint, "header" | "headerValue">,
-  init: Omit<RequestInit, "headers"> & { headers?: Record<string, string> } = {},
+  init: RequestInit = {},
 ): Promise<Response> {
+  const headers = {
+    ...Object.fromEntries(new Headers(init.headers)),
+    [endpoint.header]: endpoint.headerValue,
+  }
   return await fetchImpl(url, {
     ...init,
     redirect: "manual",
-    headers: {
-      ...init.headers,
-      [endpoint.header]: endpoint.headerValue,
-    },
+    headers,
   })
 }
 

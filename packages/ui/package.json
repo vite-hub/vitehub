@@ -196,7 +196,8 @@
     "@vueuse/core": "catalog:ui",
     "katex": "^0.17.0",
     "@json-render/vue": "0.21.0",
-    "@json-render/core": "0.21.0"
+    "@json-render/core": "0.21.0",
+    "reka-ui": "catalog:ui"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",
