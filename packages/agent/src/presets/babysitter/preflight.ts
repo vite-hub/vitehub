@@ -29,7 +29,7 @@ export function createBabysitterPreflight(install: BabysitterInstall, checkComma
           await checkCommand(program);
           diagnostics.push({ label: `Host ${program}`, status: "ok", value: "Available" });
         } catch {
-          diagnostics.push({ label: `Host ${program}`, status: "warning", value: "Unavailable", detail: `Install ${program === "git" ? "Git" : "Corepack"} in the trusted host service PATH. Model passes wait until this check succeeds.` });
+          diagnostics.push({ label: `Host ${program}`, status: "warning", value: "Unavailable", detail: `Install ${program === "git" ? "Git" : program} in the trusted host service PATH. Model passes wait until this check succeeds.` });
         }
       }
       const failures = diagnostics.filter(item => item.status === "warning");

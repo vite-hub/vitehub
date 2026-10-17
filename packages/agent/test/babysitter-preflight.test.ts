@@ -32,4 +32,12 @@ describe("Babysitter host prerequisites", () => {
     expect((await createBabysitterPreflight({ command: "corepack", args: ["pnpm"] }, command)()).pause).toBeUndefined();
     expect(command.mock.calls).toEqual([["git"], ["corepack"]]);
   });
+
+  it("reports the configured installer when it is unavailable", async () => {
+    const command = vi.fn(async (program: string) => { if (program === "bun") throw new Error("missing"); });
+    const result = await createBabysitterPreflight({ command: "bun" }, command)();
+    expect(result.pause).toMatchObject({ detail: expect.stringContaining("Install bun") });
+    expect(result.pause?.detail).not.toContain("Install Corepack");
+    expect(command.mock.calls).toEqual([["git"], ["bun"]]);
+  });
 });
