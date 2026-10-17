@@ -141,6 +141,11 @@ function isRequestLike(value: AuthRequest): value is Request {
           }
           catch (error) {
             if (!isBrandCheckError(error)) return false
+            // The symbol layout below is only meaningful for the Undici
+            // implementation used by this runtime. Require its brand error
+            // to belong to this realm as well; a caller can otherwise throw
+            // a foreign Error with the same Web-IDL-looking fields.
+            if (!(error instanceof TypeError)) return false
             // A caller can manufacture an accessor that throws a convincing
             // cross-realm TypeError for both probe receivers.  Do not treat
             // that exception alone as a Request brand.  Undici exposes a
