@@ -126,6 +126,29 @@ describe("createMultipartUploader", () => {
     expect(fetch.mock.calls.filter(([url]) => String(url).includes("/api/multipart/abort/a.txt?uploadId=u-create-rejected"))).toHaveLength(1)
   })
 
+  it("cleans up when create rejects with a cross-realm response", async () => {
+    const fetch = vi.fn(async (url: FetchInput) => {
+      if (String(url).includes("/create/")) {
+        const response = {
+          ok: true,
+          status: 200,
+          json: async () => ({ pathname: "a.txt", uploadId: "u-cross-realm" }),
+          text: async () => "",
+        }
+        const error = new Error("transport failed") as Error & { response?: unknown }
+        error.response = response
+        throw error
+      }
+      return json({ action: "abort" })
+    })
+    const task = createMultipartUploader("/api/multipart", { fetch })(new File(["a"], "a.txt"))
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
+    await task.abort()
+    await expect(task.completed).resolves.toBeUndefined()
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes("/api/multipart/abort/a.txt?uploadId=u-cross-realm"))).toHaveLength(1)
+  })
+
   it("completes concurrent uploads with parts in part-number order", async () => {
     const { fetch } = multipartServer()
     let completeParts: BlobMultipartPart[] | undefined

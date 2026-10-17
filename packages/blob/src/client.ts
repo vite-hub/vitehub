@@ -76,6 +76,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
+function isResponseLike(value: unknown): value is Response {
+  return isRecord(value)
+    // Cross-realm Response instances do not pass an instanceof check, but
+    // expose the same fetch response contract.
+    && typeof value.ok === "boolean"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response methods cross an untrusted transport boundary.
+    && typeof value.json === "function"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response methods cross an untrusted transport boundary.
+    && typeof value.text === "function"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response properties cross an untrusted transport boundary.
+    && typeof value.status === "number"
+}
+
 function isString(value: unknown): value is string {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Upload responses cross an untrusted HTTP boundary.
   return typeof value === "string"
@@ -218,9 +231,9 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
         // Some transports reject after receiving a response (for example when
         // response processing fails). Recover the create identity when the
         // rejection exposes that response so an aborted task can still clean up.
-        const response = error instanceof Response
+        const response = isResponseLike(error)
           ? error
-          : isRecord(error) && error.response instanceof Response ? error.response : undefined
+          : isRecord(error) && isResponseLike(error.response) ? error.response : undefined
         if (response) {
           try {
             upload = parseMultipartCreate(await response.json())
