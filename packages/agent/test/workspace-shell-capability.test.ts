@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { createExecutionBudget, type ExecutionBudget } from "../../runtime/src/index.ts"
+
 import { workspaceShell } from "../src/capabilities.ts"
 import { setActiveAgentWorkspaceCommands } from "../src/agent-workspace-runtime.ts"
 
@@ -27,12 +29,14 @@ function workspaceSession(options: { exitCode?: number } = {}) {
 async function capabilityTools(
   capability: AgentCapabilityDefinition = workspaceShell({ commands: ["agent-browser"], mode: "write" }),
   session = workspaceSession(),
+  executionBudget?: ExecutionBudget,
 ): Promise<{ context: never, session: ReturnType<typeof workspaceSession>, startSession: ReturnType<typeof vi.fn>, tools: AgentToolSet }> {
   if (typeof capability.tools !== "function") throw new Error("workspaceShell capability must expose tool resolver")
   const startSession = vi.fn(async () => session)
   const context = new Map() as never
   const tools = await capability.tools({
     context,
+    executionBudget,
     driver: { kind: "provider" },
     workspace: { startSession, tools: { inspect: () => ({}) } },
     workspaceDefinition: { name: "test" },
@@ -41,6 +45,73 @@ async function capabilityTools(
 }
 
 describe("workspaceShell capability", () => {
+  it.each([false, true])("shares command budgets with active executor=%s", async (active) => {
+    const budget = createExecutionBudget({ maxToolCalls: 1, maxInputBytes: 20, maxOutputBytes: 3 })
+    const { context, session, tools } = await capabilityTools(undefined, undefined, budget)
+    const clear = active ? setActiveAgentWorkspaceCommands(context, session.exec) : () => {}
+    try {
+      await tools.workspace_exec!.execute?.({ command: "agent-browser", args: ["é"] })
+      expect(budget.snapshot().usage).toMatchObject({ toolCalls: 1, inputBytes: 16, outputBytes: 3 })
+      await expect(tools.workspace_exec!.execute?.({ command: "agent-browser" })).rejects.toThrow("toolCalls")
+      expect(session.exec).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      clear()
+    }
+  })
+
+  it.each(["input", "output"])("enforces command %s byte limits", async (kind) => {
+    const budget = createExecutionBudget(kind === "input" ? { maxInputBytes: 1 } : { maxOutputBytes: 1 })
+    const { tools, session } = await capabilityTools(undefined, undefined, budget)
+    await expect(tools.workspace_exec!.execute?.({ command: "agent-browser" })).rejects.toThrow(`${kind}Bytes`)
+    expect(session.commit).not.toHaveBeenCalled()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it.each([false, true])("propagates budget deadlines with active executor=%s", async (active) => {
+    const budget = createExecutionBudget({ deadlineAt: Date.now() + 30 })
+    const { context, session, tools } = await capabilityTools(undefined, undefined, budget)
+    session.exec.mockImplementation(async (_command, _args, options) => {
+      const signal = options.abortSignal as AbortSignal
+      signal.throwIfAborted()
+      return await new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))
+    })
+    const clear = active ? setActiveAgentWorkspaceCommands(context, session.exec) : () => {}
+    try {
+      await expect(tools.workspace_exec!.execute?.({ command: "agent-browser" }, { abortSignal: new AbortController().signal })).rejects.toThrow("deadline exceeded")
+    }
+    finally {
+      clear()
+    }
+  })
+
+  it("combines caller and budget cancellation", async () => {
+    const controller = new AbortController()
+    const budget = createExecutionBudget({ signal: controller.signal })
+    const { tools, session } = await capabilityTools(undefined, undefined, budget)
+    session.exec.mockImplementation(async (_command, _args, options) => {
+      controller.abort(new Error("budget cancelled"))
+      options.abortSignal.throwIfAborted()
+    })
+    await expect(tools.workspace_exec!.execute?.({ command: "agent-browser" }, { abortSignal: new AbortController().signal })).rejects.toThrow("budget cancelled")
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it.each(["read", "write"] as const)("forwards the capability budget to %s shell tools", async (mode) => {
+    const budget = createExecutionBudget()
+    const inspect = vi.fn(() => ({}))
+    const write = vi.fn(() => ({}))
+    const capability = workspaceShell({ mode })
+    if (typeof capability.tools !== "function") throw new Error("missing tool resolver")
+    await capability.tools({
+      context: new Map(),
+      executionBudget: budget,
+      driver: { kind: "model" },
+      workspace: { tools: { inspect, write } },
+    } as never)
+    expect(mode === "write" ? write : inspect).toHaveBeenCalledWith({ executionBudget: budget, sourceRequests: true })
+  })
+
   it("validates configured commands and records workspace requirements", () => {
     expect(workspaceShell({ commands: ["agent-browser", "/Users/maxi/quiver/agents/node_modules/.bin/agent-browser"], mode: "write" })).toMatchObject({
       id: "workspace-shell",

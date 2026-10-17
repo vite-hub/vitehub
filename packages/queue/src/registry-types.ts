@@ -3,7 +3,7 @@ import { dirname, relative, resolve } from "pathe"
 
 import type { DiscoveredQueueDefinition } from "./types.ts"
 
-export function createQueueTypes(file: string, definitions: DiscoveredQueueDefinition[], importBase = "@vite-hub/queue"): string {
+function createQueueTypes(file: string, definitions: DiscoveredQueueDefinition[], importBase = "@vite-hub/queue"): string {
   const entries = definitions.map((definition) => {
     const path = relative(dirname(file), definition.handler)
     const specifier = path.startsWith(".") ? path : `./${path}`

@@ -26,11 +26,24 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object'
 }
 
-function isBoxedJsonPrimitive(value: object) {
-  return value instanceof Boolean
-    || value instanceof Number
-    || value instanceof String
-    || Object.getPrototypeOf(value) === BigInt.prototype
+const typedArrayTag = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  Symbol.toStringTag,
+)?.get
+
+function isUint8Array(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value) || !typedArrayTag) return false
+  try { return typedArrayTag.call(value) === 'Uint8Array' }
+  catch { return false }
+}
+
+function unboxJsonPrimitive(value: unknown): { value: unknown } | undefined {
+  for (const unbox of [Boolean.prototype.valueOf, Number.prototype.valueOf, String.prototype.valueOf, BigInt.prototype.valueOf]) {
+    try { Reflect.apply(unbox, value, []) }
+    catch { continue }
+    return { value: Reflect.apply((value as { valueOf: unknown }).valueOf as (...args: []) => unknown, value, []) }
+  }
+  return undefined
 }
 
 function hasMarker(value: Record<string, unknown>) {
@@ -71,7 +84,7 @@ export async function encodeSandboxValue(
   async function encode(entry: unknown, ancestors: ReadonlySet<object>, key = '', applyToJSON = true): Promise<unknown> {
     const blob = typeof Blob !== 'undefined' && entry instanceof Blob
     const buffer = typeof Buffer !== 'undefined' && Buffer.isBuffer(entry)
-    if (blob || entry instanceof Uint8Array) {
+    if (blob || isUint8Array(entry)) {
       throwIfAborted()
       const id = state.nextId++
       state.directory ||= abortable(sandbox.files.mkdir(assetsDir, { recursive: true, signal }))
@@ -89,9 +102,11 @@ export async function encodeSandboxValue(
       })
     }
 
-    if (isObjectRecord(entry) && applyToJSON && typeof entry.toJSON === 'function') {
+    if (isObjectRecord(entry) && applyToJSON) {
       try {
-        return await encode(Reflect.apply(entry.toJSON, entry, [key]), ancestors, key, false)
+        const toJSON = entry.toJSON
+        if (typeof toJSON === 'function')
+          return await encode(Reflect.apply(toJSON, entry, [key]), ancestors, key, false)
       }
       catch (error) {
         if (isSandboxError(error)) throw error
@@ -107,7 +122,14 @@ export async function encodeSandboxValue(
     }
 
     if (!isObjectRecord(entry)) return entry
-    if (isBoxedJsonPrimitive(entry)) return await encode(entry.valueOf(), ancestors, key, false)
+    let boxed: { value: unknown } | undefined
+    try {
+      boxed = unboxJsonPrimitive(entry)
+    }
+    catch (error) {
+      throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label }, error)
+    }
+    if (boxed) return await encode(boxed.value, ancestors, key, false)
     if (ancestors.has(entry))
       throw serializationError(`Sandbox ${label} must be JSON-serializable.`, { label })
 

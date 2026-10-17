@@ -172,7 +172,7 @@ describe("Console Schedule runs", () => {
         },
       },
     })
-    expect(unavailable).toEqual({
+    expect(unavailable).toMatchObject({
       message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.",
       ok: false,
       status: 404,

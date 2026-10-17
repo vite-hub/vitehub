@@ -97,10 +97,6 @@ const cloudflare = await resolveBox({
   runtime: { kind: "cloudflare", namespace: env.SANDBOX },
 }, {});
 
-const computer = await resolveBox({
-  runtime: { kind: "cloudflare-computer", namespace: env.AGENT, backend: "container-shell" },
-}, {});
-
 const vercel = await resolveBox({
   runtime: { kind: "vercel", ports: [3000] },
 }, {});
@@ -108,29 +104,7 @@ const vercel = await resolveBox({
 
 Use `runtime: "vercel"` for the default Vercel Sandbox configuration. Cloudflare remains tag-only because its Durable Objects namespace is required.
 
-ASCII is selected through the same Box API. Install its optional control-plane SDK, then use either the default environment-backed selection or a tagged configuration:
-
-```sh
-pnpm add @vite-hub/box @asciidev/box-sdk ssh2
-```
-
-```ts
-const ascii = await resolveBox(
-  {
-    runtime: "ascii",
-    checkout: {
-      ref: "refs/pull/123/head",
-      remote: "https://github.com/acme/project.git",
-      sha: "0123456789abcdef0123456789abcdef01234567",
-    },
-  },
-  {},
-);
-```
-
-`runtime: "ascii"` reads `BOX_API_KEY` and uses a two-hour disposable TTL, which leaves room for an hour-long Agent Invocation plus preparation and cleanup. Use `{ kind: "ascii", apiKey, baseUrl, ttlSeconds }` for explicit server configuration. ViteHub creates the machine without account secrets, authorizes a session-only SSH key, materializes Home and the exact Git commit through the shared Box path, and deletes the Box when the session closes. It does not use caller-owned SSH keys or introduce a separate remote-Box abstraction.
-
-The Cloudflare runtime uses `@cloudflare/sandbox`, preserves Durable Object idle reuse, and bounds transient transport operations with retries and deadlines. The preview `cloudflare-computer` runtime uses `@cloudflare/computer`: its Durable Object owns the authoritative filesystem while the selected Computer shell backend executes against it. Closing a Box clears ViteHub's managed roots and disposes Computer RPC handles without deleting the Durable Object or unrelated files. The Vercel runtime exposes only the ports declared when the microVM is created. All three reject host `cwd`; materialize a Workspace into their working tree instead.
+The Cloudflare runtime uses `@cloudflare/sandbox`, preserves Durable Object idle reuse, and bounds transient transport operations with retries and deadlines. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
 
 If Cloudflare Sandbox or Vercel cleanup fails, retry `session.close()`. The session rejects new operations after the first close attempt. Concurrent close calls wait for the same cleanup.
 
@@ -211,7 +185,7 @@ The runtime provisions after it materializes the checkout and before requirement
 | --- | --- |
 | `trusted-host` | `<stateRoot>/toolchains`, or `$XDG_CACHE_HOME/vitehub/toolchains` without `stateRoot`. Shared by sessions and processes; a lock makes concurrent sessions download each version once. |
 | `crabbox` | The same layout on the target, under the target user's cache when `stateRoot` is not set. Archives travel through the Crabbox copy transport. |
-| `ascii`, `cloudflare`, `cloudflare-computer`, `vercel` | `$HOME/.cache/vitehub/toolchains` in the Box, for one session. An image `node` with the exact resolved version is used as is. |
+| `cloudflare`, `vercel` | `$HOME/.cache/vitehub/toolchains` in the Box, for one session. An image `node` with the exact resolved version is used as is. |
 
 Cache entries are content-addressed and read-only once published. Global installs such as `npm install -g` cannot write into them. To clear a cache, run `chmod -R u+w <cache> && rm -rf <cache>`. Installation uses `sh`, `tar` with gzip, `mktemp`, and `base64` on the target. The first boot of a version needs network access from the ViteHub process; an exact pin that is already cached boots without it. Custom runtimes do not provision toolchains, and boot fails with `BOX_R0156` when one declares `toolchain`. Windows hosts are not supported.
 
@@ -247,6 +221,10 @@ Crabbox requires either `cwd` or `checkout` and targets Linux/POSIX Static SSH h
 Commands must remain owned by their Box session. ViteHub adds the reserved `VITEHUB_BOX_SESSION` environment marker to commands and reclaims marked processes on the SSH target when the session closes, including children adopted by supervisors. Commands cannot override this marker through the `env` option. Supervisors that launch replacement processes must preserve it.
 
 The marker is read from each process's environment at launch. A process that starts with the marker remains owned by that Box, even if it later changes its environment. A process started without the marker is not owned by that Box, even if it references the Box directory. This cleanup does not add process isolation.
+
+## Bring a custom runtime
+
+A `runtime` can also be an object with `name`, `prepare(input)` and `open(input, options)`. Set `network: "direct"` only when its sessions reach the ViteHub process loopback services, for example through SSH reverse tunnels. Agents then pass host Capability tools into the Box. A session may implement `importWorkspace(checkout, signal)` and `refreshDependencies(checkout, signal)` to replace the generic working-tree copy and the publishing of host-installed dependencies. Use them when the runtime can transfer or install faster on its own host.
 
 ## Security boundary
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { createAuthClient } from "@vite-hub/auth/vue";
-import { PrimitiveIcon, PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
+import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail";
 import { defineShortcuts } from "@nuxt/ui/composables";
 import { computed, inject, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -11,8 +11,9 @@ import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
-import { consoleGoToKey, consoleOverviewShortcut, consoleSectionRailIcon, consoleSectionShortcut, groupConsoleSections } from "../sections";
+import { consoleGoToKey, consoleOverviewShortcut, consoleSectionShortcut, groupConsoleSections } from "../sections";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleSectionIcon from "./console-section-icon.vue";
 
 const props = defineProps<{
   /** Section that the current page shows. Leave it unset on the Overview. */
@@ -28,6 +29,7 @@ const signedIn = ref(false);
 const signingOut = ref(false);
 const signOutFailed = ref(false);
 const accessIdentity = ref<{ label?: string; signOutURL: string }>();
+const userIdentity = ref<{ email?: string; image?: string; name?: string }>();
 const authBase = props.sectionsBase.replace(/\/sections$/, "/auth");
 const authClientURL = props.sectionsBase.replace(/\/sections$/, "/client.js");
 const signInURL = props.sectionsBase.replace(/\/api\/_vitehub\/console\/sections$/, "/_vitehub/sign-in");
@@ -38,13 +40,11 @@ const projectName = computed(() => navigation.value?.projectName || "ViteHub");
 const sections = computed(() =>
   (navigation.value?.sections ?? []).flatMap((section) => {
     const details = resolveConsoleSectionDetails(navigation.value, section);
-    return details ? [{ id: section, ...details, railIcon: consoleSectionRailIcon(section), shortcut: consoleSectionShortcut(section) }] : [];
+    return details ? [{ id: section, ...details, shortcut: consoleSectionShortcut(section) }] : [];
   }),
 );
 // The standalone Console provides its appearance. A Nuxt host owns color mode, so the rail hides the control there.
 const appearance = inject(consoleAppearanceKey, undefined);
-const currentAppearance = computed(() => consoleAppearanceOptions[appearance?.preference.value ?? "system"]);
-const appearanceLabel = computed(() => `Appearance: ${currentAppearance.value.label}`);
 const appearanceItems = computed<DropdownMenuItem[]>(() => [
   { type: "label", label: "Appearance" },
   ...consoleAppearances.map((option): DropdownMenuItem => ({
@@ -56,7 +56,34 @@ const appearanceItems = computed<DropdownMenuItem[]>(() => [
   })),
 ]);
 const groups = computed(() => groupConsoleSections(sections.value));
-const signOutLabel = computed(() => (accessIdentity.value?.label ? `Sign out ${accessIdentity.value.label}` : "Sign out"));
+const userLabel = computed(() => userIdentity.value?.name || userIdentity.value?.email || accessIdentity.value?.label || "Account");
+const userEmail = computed(() => userIdentity.value?.email && userIdentity.value.email !== userLabel.value ? userIdentity.value.email : undefined);
+const userInitials = computed(() => {
+  if (!signedIn.value) return "";
+  const words = userLabel.value.split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+});
+const userMenuLabel = computed(() => signedIn.value ? userLabel.value : "Account");
+const userMenuItems = computed<DropdownMenuItem[]>(() => {
+  const items: DropdownMenuItem[] = [];
+  if (signedIn.value) {
+    items.push({ type: "label", label: userLabel.value });
+    if (userEmail.value) items.push({ type: "label", label: userEmail.value });
+  }
+  if (appearance) {
+    if (items.length > 0) items.push({ type: "separator" });
+    items.push(...appearanceItems.value);
+  }
+  if (signedIn.value) {
+    items.push({ type: "separator" }, {
+      icon: signingOut.value ? "i-lucide-loader-circle" : "i-lucide-log-out",
+      label: signOutFailed.value ? "Retry sign out" : "Sign out",
+      disabled: signingOut.value,
+      onSelect: () => void signOut(),
+    });
+  }
+  return items;
+});
 
 async function open(routeName: string): Promise<void> {
   const name = resolveConsoleRouteName(route.name, routeName);
@@ -121,9 +148,7 @@ async function loadAccessIdentity(): Promise<void> {
     if (!response.ok) throw new Error("Identity request failed");
     // SAFETY: Reading optional properties is safe for any JSON value; each value is validated below.
     const identity = (await response.json()) as { commonName?: unknown; email?: unknown; signOutURL?: unknown } | null;
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The identity response is untrusted JSON, so validate the same-origin sign-out path.
     if (typeof identity?.signOutURL !== "string" || !identity.signOutURL.startsWith("/") || identity.signOutURL.startsWith("//")) throw new Error("Invalid identity");
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The identity response is untrusted JSON, so validate each label before rendering it.
     const label = typeof identity.email === "string" ? identity.email : typeof identity.commonName === "string" ? identity.commonName : undefined;
     accessIdentity.value = { label, signOutURL: identity.signOutURL };
     signedIn.value = true;
@@ -148,8 +173,15 @@ async function loadAuthSession(): Promise<void> {
   try {
     const authClient = await consoleAuthClient();
     const { data } = await authClient.getSession();
-    signedIn.value = Boolean(data?.session);
+    const session = data as { session?: unknown; user?: unknown } | null | undefined;
+    const user = session?.user as { email?: unknown; image?: unknown; name?: unknown } | null | undefined;
+    const name = typeof user?.name === "string" && user.name.trim() ? user.name.trim() : undefined;
+    const email = typeof user?.email === "string" && user.email.trim() ? user.email.trim() : undefined;
+    const image = typeof user?.image === "string" && user.image.trim() ? user.image.trim() : undefined;
+    userIdentity.value = name || email || image ? { ...(email ? { email } : {}), ...(image ? { image } : {}), ...(name ? { name } : {}) } : undefined;
+    signedIn.value = Boolean(session?.session);
   } catch {
+    userIdentity.value = undefined;
     signedIn.value = false;
   }
 }
@@ -167,6 +199,7 @@ async function signOut(): Promise<void> {
     if (error) throw error;
     window.location.assign(signInURL);
   } catch {
+    userIdentity.value = undefined;
     signOutFailed.value = true;
     signingOut.value = false;
   }
@@ -228,9 +261,7 @@ onBeforeUnmount(() => {
             :label="section.label"
             @click="open(section.routeName)"
           >
-            <!-- Known primitives use the shared icon family. A contributed section keeps the icon of its descriptor. -->
-            <PrimitiveIcon v-if="section.railIcon" :name="section.railIcon" />
-            <UIcon v-else :name="section.icon" class="size-[1.125rem]" />
+            <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="size-[1.125rem]" />
           </PrimitiveRailItem>
         </UTooltip>
       </PrimitiveRailGroup>
@@ -252,26 +283,24 @@ onBeforeUnmount(() => {
         </UDashboardSearchButton>
       </UTooltip>
       <UDropdownMenu
-        v-if="appearance"
-        :items="appearanceItems"
+        v-if="appearance || signedIn"
+        :items="userMenuItems"
         :content="{ side: 'right', align: 'end', sideOffset: 8 }"
-        :ui="{ content: 'min-w-40' }"
+        :ui="{ content: 'min-w-52' }"
       >
-        <UTooltip :text="appearanceLabel" :content="{ side: 'right' }" :disabled="expanded">
-          <PrimitiveRailItem :label="appearanceLabel">
-            <UIcon :name="currentAppearance.icon" class="size-4" />
+        <UTooltip :text="userMenuLabel" :content="{ side: 'right' }" :disabled="expanded">
+          <PrimitiveRailItem :label="userMenuLabel">
+            <UAvatar
+              :src="userIdentity?.image"
+              :alt="userLabel"
+              :text="userInitials"
+              :icon="userInitials ? undefined : 'i-lucide-user-round'"
+              size="sm"
+              class="size-5"
+            />
           </PrimitiveRailItem>
         </UTooltip>
       </UDropdownMenu>
-      <UTooltip v-if="signedIn" :text="signOutFailed ? 'Could not sign out. Try again.' : signOutLabel" :content="{ side: 'right' }" :disabled="expanded">
-        <PrimitiveRailItem
-          :label="signOutFailed ? 'Retry sign out' : signOutLabel"
-          :disabled="signingOut"
-          @click="signOut"
-        >
-          <UIcon :name="signingOut ? 'i-lucide-loader-circle' : 'i-lucide-log-out'" class="size-4" :class="signingOut ? 'animate-spin' : ''" />
-        </PrimitiveRailItem>
-      </UTooltip>
     </template>
   </PrimitiveRail>
 </template>

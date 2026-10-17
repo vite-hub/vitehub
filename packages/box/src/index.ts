@@ -2,16 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, posix, relative, resolve } from "node:path";
 import { normalizeExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime";
-import type { AsciiBoxOptions } from "./ascii.ts";
 import type { CloudflareBoxOptions, CloudflareDurableObjectNamespace, CloudflareSandboxStub } from "./cloudflare.ts";
-import type {
-  CloudflareComputerBoxOptions,
-  CloudflareComputerDurableObjectNamespace,
-  CloudflareComputerExecHandle,
-  CloudflareComputerFileStat,
-  CloudflareComputerFilesystem,
-  CloudflareComputerWorkspace,
-} from "./cloudflare-computer.ts";
 import type { CrabboxOptions } from "./internal/crabbox.ts";
 import type { TrustedHostOptions } from "./internal/trusted-host.ts";
 import type {
@@ -27,14 +18,7 @@ import { hasDeclaredBoxRuntimeMember, isBuiltInBoxRuntime } from "./internal/run
 import { boxErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type {
-  AsciiBoxOptions,
   CloudflareBoxOptions,
-  CloudflareComputerBoxOptions,
-  CloudflareComputerDurableObjectNamespace,
-  CloudflareComputerExecHandle,
-  CloudflareComputerFileStat,
-  CloudflareComputerFilesystem,
-  CloudflareComputerWorkspace,
   CloudflareDurableObjectNamespace,
   CloudflareSandboxStub,
   CrabboxOptions,
@@ -156,21 +140,21 @@ export interface BoxDefinition<Context = unknown> {
   toolchain?: BoxToolchain;
 }
 
-export type BuiltInBoxRuntimeName = "ascii" | "crabbox" | "trusted-host" | "vercel";
+export type BuiltInBoxRuntimeName = "crabbox" | "trusted-host" | "vercel";
 
 export type BuiltInBoxRuntime =
   | BuiltInBoxRuntimeName
-  | ({ kind: "ascii" } & AsciiBoxOptions)
   | ({ kind: "crabbox" } & CrabboxOptions)
   | ({ kind: "trusted-host" } & TrustedHostOptions)
   | ({ kind: "cloudflare" } & CloudflareBoxOptions)
-  | ({ kind: "cloudflare-computer" } & CloudflareComputerBoxOptions)
   | ({ kind: "vercel" } & VercelBoxOptions);
 
 export type BoxRuntimeDefinition = BuiltInBoxRuntime | BoxRuntime;
 
 export interface BoxRuntime {
   readonly name: string;
+  /** Set when sessions reach loopback services of the ViteHub process, for example through SSH tunnels. */
+  readonly network?: "direct";
   open(input: BoxRuntimeInput, options: BoxRuntimeOpenOptions): Promise<BoxSession>;
   prepare(input: BoxRuntimeInput): Promise<BoxRuntimePlan>;
 }
@@ -270,6 +254,10 @@ export interface BoxSession {
     args?: readonly string[],
     options?: BoxExecOptions,
   ): Promise<BoxExecResult>;
+  /** Replace the session workspace with a host checkout's working tree, when the runtime has a faster transfer. */
+  importWorkspace?(checkout: string, signal?: AbortSignal): Promise<void>;
+  /** Install the workspace's dependencies inside the session instead of receiving the host's installed outputs. */
+  refreshDependencies?(checkout: string, signal?: AbortSignal): Promise<void>;
 }
 
 export interface ResolvedBoxFile {
@@ -360,9 +348,7 @@ export interface ResolveBoxOptions {
 }
 
 const reservedRuntimeNames = new Set([
-  "ascii",
   "cloudflare",
-  "cloudflare-computer",
   "crabbox",
   "trusted-host",
   "vercel",
@@ -376,10 +362,6 @@ async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
     return value;
   }
   if (typeof value === "string") {
-    if (value === "ascii") {
-      const { createAsciiRuntime } = await import("./ascii.ts");
-      return createAsciiRuntime();
-    }
     if (value === "crabbox") {
       const { createCrabboxRuntime } = await import("./internal/crabbox.ts");
       return createCrabboxRuntime();
@@ -392,17 +374,13 @@ async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
       const { createVercelRuntime } = await import("./vercel.ts");
       return createVercelRuntime();
     }
-    throw boxErrorDiagnostics.BOX_R0031({ message: `[vitehub] Unknown Box runtime "${value}". Expected "ascii", "crabbox", "trusted-host", "vercel", a tagged built-in configuration, or a custom runtime.` });
+    throw boxErrorDiagnostics.BOX_R0031({ message: `[vitehub] Unknown Box runtime "${value}". Expected "crabbox", "trusted-host", "vercel", a tagged built-in configuration, or a custom runtime.` });
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw boxErrorDiagnostics.BOX_R0032({ message: "[vitehub] Box requires an explicit built-in runtime value or custom runtime object." });
   }
 
   const { kind, ...options } = value as Record<string, unknown>;
-  if (kind === "ascii") {
-    const { createAsciiRuntime } = await import("./ascii.ts");
-    return createAsciiRuntime(options as AsciiBoxOptions);
-  }
   if (kind === "crabbox") {
     const { createCrabboxRuntime } = await import("./internal/crabbox.ts");
     return createCrabboxRuntime(options as CrabboxOptions);
@@ -415,15 +393,11 @@ async function resolveBoxRuntime(value: unknown): Promise<BoxRuntime> {
     const { createCloudflareRuntime } = await import("./cloudflare.ts");
     return createCloudflareRuntime(options as unknown as CloudflareBoxOptions);
   }
-  if (kind === "cloudflare-computer") {
-    const { createCloudflareComputerRuntime } = await import("./cloudflare-computer.ts");
-    return createCloudflareComputerRuntime(options as unknown as CloudflareComputerBoxOptions);
-  }
   if (kind === "vercel") {
     const { createVercelRuntime } = await import("./vercel.ts");
     return createVercelRuntime(options as VercelBoxOptions);
   }
-  throw boxErrorDiagnostics.BOX_R0033({ message: `[vitehub] Unknown Box runtime kind "${String(kind)}". Expected "ascii", "crabbox", "trusted-host", "cloudflare", "cloudflare-computer", or "vercel".` });
+  throw boxErrorDiagnostics.BOX_R0033({ message: `[vitehub] Unknown Box runtime kind "${String(kind)}". Expected "crabbox", "trusted-host", "cloudflare", or "vercel".` });
 }
 
 function isBoxRuntime(value: unknown): value is BoxRuntime {
@@ -432,7 +406,6 @@ function isBoxRuntime(value: unknown): value is BoxRuntime {
   return hasDeclaredBoxRuntimeMember(runtime, "name")
     && hasDeclaredBoxRuntimeMember(runtime, "open")
     && hasDeclaredBoxRuntimeMember(runtime, "prepare")
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Runtime detection validates the name and callable operations after checking their declaring prototypes.
     && typeof runtime.name === "string"
     && typeof runtime.open === "function"
     && typeof runtime.prepare === "function";
@@ -678,7 +651,7 @@ function normalizeFiles<Context>(
             const resolved = await resolveValue(value.contents, context);
             if (resolved === undefined) throw boxErrorDiagnostics.BOX_R0047({ message: `[vitehub] Box file ${path} is required.` });
             if (typeof resolved === "string") return new TextEncoder().encode(resolved);
-            if (resolved instanceof Uint8Array) return resolved;
+            if (isUint8ArrayValue(resolved)) return resolved;
             throw boxErrorDiagnostics.BOX_R0048({ message: `[vitehub] Box file ${path} must resolve to text or bytes.` });
           },
         },
@@ -696,6 +669,19 @@ function normalizeFiles<Context>(
       throw boxErrorDiagnostics.BOX_R0049({ message: `[vitehub] Box project file is unavailable: ${path}` });
     }
     return new Uint8Array(await readFile(source));
+  }
+}
+
+function isUint8ArrayValue(value: unknown): value is Uint8Array {
+  if (!ArrayBuffer.isView(value)) return false;
+  try {
+    const elementType = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(Uint8Array.prototype),
+      Symbol.toStringTag,
+    )?.get;
+    return !!elementType && Reflect.apply(elementType, value, []) === "Uint8Array";
+  } catch {
+    return false;
   }
 }
 
@@ -786,7 +772,10 @@ function normalizeRequirements(
     ) {
       throw boxErrorDiagnostics.BOX_R0058({ message: "[vitehub] Box requirements must be commands or direct command checks." });
     }
-    const args = value.args === undefined ? [] : [...value.args];
+    const rawArgs = value.args;
+    if (rawArgs !== undefined && !Array.isArray(rawArgs))
+      throw boxErrorDiagnostics.BOX_R0059({ message: "[vitehub] Box requirement arguments must be an array of strings." });
+    const args = rawArgs === undefined ? [] : [...rawArgs];
     if (args.some((argument) => typeof argument !== "string"))
       throw boxErrorDiagnostics.BOX_R0059({ message: "[vitehub] Box requirement arguments must be strings." });
     const command = value.command.trim();

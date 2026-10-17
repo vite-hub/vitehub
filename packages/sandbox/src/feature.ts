@@ -24,10 +24,6 @@ import { createSandboxTypeTemplateContents } from './type-template'
 import type { DiscoveredSandboxDefinition } from './discovery'
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
-export const sandboxRuntimeDependencies = [
-  '@cloudflare/sandbox',
-  '@vercel/sandbox',
-]
 export const sandboxRuntimeStateSpecifier = '@vite-hub/sandbox/runtime/state'
 export const sandboxRuntimeSpecifier = '@vite-hub/sandbox/_internal/runtime'
 export const sandboxRuntimeProviderSpecifiers = {
@@ -42,7 +38,7 @@ export const sandboxRuntimeDependencyByProvider = {
 
 type SandboxProvider = 'cloudflare' | 'vercel'
 
-export function resolveSandboxProviderLoaderTarget(
+function resolveSandboxProviderLoaderTarget(
   provider: SandboxProvider | undefined,
   deps: Record<string, string>,
 ) {
@@ -75,7 +71,7 @@ function createSandboxProviderLoaderAliases(defaultProviderName: SandboxProvider
   return keys.map(key => ({ key, value: providerLoaderPath }))
 }
 
-export function createSandboxManifest(aliasPath: string, typeTemplate: string): FeatureManifest {
+function createSandboxManifest(aliasPath: string, typeTemplate: string): FeatureManifest {
   return {
     alias: '@vite-hub/sandbox',
     aliasPath,
@@ -162,7 +158,7 @@ function createSandboxRegistryContents(
   ].join('\n')
 }
 
-export function createSandboxProviderLoaderContents(
+function createSandboxProviderLoaderContents(
   provider: SandboxProvider,
 ) {
   const providerExport = sandboxProviderRuntimeExport(provider)

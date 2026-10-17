@@ -3,7 +3,7 @@ import { $fetch } from "ofetch"
 import { computed, onScopeDispose, ref, toValue, watch } from "vue"
 
 import type { ComputedRef, MaybeRefOrGetter, Ref } from "vue"
-import type { AnyCollection, CollectionClientItem, CollectionPage, CollectionQuery } from "./core/collection.ts"
+import type { AnyCollection, CollectionClientItem, CollectionFacets, CollectionPage, CollectionQuery } from "./core/collection.ts"
 import { encodeCollectionRouteSegment } from "./internal/collection-route.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -34,8 +34,12 @@ export interface UseCollectionOptions<TCollection extends AnyCollection> {
 
 export interface UseCollectionReturn<TCollection extends AnyCollection> {
   error: Ref<unknown>
+  /** Facet counts from the latest page, when the Collection declares facets. */
+  facets: Ref<CollectionFacets | undefined>
   hasMore: ComputedRef<boolean>
   items: Ref<Array<CollectionClientItem<TCollection>>>
+  /** Matching items across every page, when the Collection counts them. */
+  total: Ref<number | undefined>
   loadMore: () => Promise<CollectionPage<CollectionClientItem<TCollection>> | undefined>
   pending: Ref<boolean>
   refresh: () => Promise<CollectionPage<CollectionClientItem<TCollection>> | undefined>
@@ -82,7 +86,29 @@ function parseCollectionPage(value: unknown): CollectionPage<unknown> {
   if (!Array.isArray(items) || !(nextCursor === null || String(nextCursor) === nextCursor)) {
     throw sourceErrorDiagnostics.SOURCE_R0002({ message: "[vitehub] Collection response must contain items and nextCursor." })
   }
-  return { items, nextCursor }
+  const page: CollectionPage<unknown> = { items, nextCursor }
+  const total: unknown = Reflect.get(Object(value), "total")
+  if (total !== undefined) {
+    if (!Number.isSafeInteger(total) || Number(total) < 0) {
+      throw sourceErrorDiagnostics.SOURCE_R0002({ message: "[vitehub] Collection response total must be a non-negative integer." })
+    }
+    page.total = Number(total)
+  }
+  const facets: unknown = Reflect.get(Object(value), "facets")
+  if (facets !== undefined) {
+    if (!isFacets(facets)) {
+      throw sourceErrorDiagnostics.SOURCE_R0002({ message: "[vitehub] Collection response facets must map fields to { value, count } lists." })
+    }
+    page.facets = facets
+  }
+  return page
+}
+
+function isFacets(value: unknown): value is CollectionFacets {
+  return Object(value) === value && !Array.isArray(value) && Object.values(Object(value)).every(entries =>
+    Array.isArray(entries) && entries.every(entry => Object(entry) === entry
+      && String(Reflect.get(entry, "value")) === Reflect.get(entry, "value")
+      && Number.isSafeInteger(Reflect.get(entry, "count"))))
 }
 
 function appBaseURL(): string {
@@ -113,6 +139,8 @@ export function useCollection<TName extends CollectionName>(
   // SAFETY: Vue unwraps array values but preserves the Collection item contract exposed by this Ref.
   const items = ref<TItem[]>([]) as Ref<TItem[]>
   const nextCursor = ref<string | null>(null)
+  const total = ref<number>()
+  const facets = ref<CollectionFacets>()
   const pending = ref(false)
   const error = ref<unknown>(null)
   const request = options.request || defaultRequester
@@ -137,6 +165,8 @@ export function useCollection<TName extends CollectionName>(
       const filter = options.filter ? toValue(options.filter) : {}
       let cursor = reset ? undefined : nextCursor.value || undefined
       let loadedItems = reset ? [] : [...items.value]
+      let loadedTotal = reset ? undefined : total.value
+      let loadedFacets = reset ? undefined : facets.value
       let response: TPage
       const seenCursors = new Set(cursors)
       if (cursor) seenCursors.add(cursor)
@@ -152,8 +182,10 @@ export function useCollection<TName extends CollectionName>(
           }),
         )
         // SAFETY: The generated endpoint derives its item contract from this registered Collection.
-        response = { items: parsed.items as TItem[], nextCursor: parsed.nextCursor }
+        response = { ...parsed, items: parsed.items as TItem[] }
         if (active !== controller) return
+        if (response.total !== undefined) loadedTotal = response.total
+        if (response.facets !== undefined) loadedFacets = response.facets
         loadedItems = [...loadedItems, ...response.items]
         cursor = response.nextCursor || undefined
         if (cursor && seenCursors.has(cursor)) {
@@ -165,8 +197,10 @@ export function useCollection<TName extends CollectionName>(
       items.value = loadedItems
       cursors = seenCursors
       nextCursor.value = response.nextCursor
+      total.value = response.total
+      facets.value = response.facets
       loaded = true
-      return { items: loadedItems, nextCursor: response.nextCursor }
+      return { ...response, items: loadedItems }
     } catch (cause) {
       if (active !== controller || isAbortError(cause)) return
       error.value = accessError(cause) ?? cause
@@ -197,10 +231,12 @@ export function useCollection<TName extends CollectionName>(
 
   return {
     error,
+    facets,
     hasMore: computed(() => Boolean(nextCursor.value)),
     items,
     loadMore: () => load(false),
     pending,
     refresh: () => load(true),
+    total,
   }
 }

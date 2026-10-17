@@ -2,7 +2,7 @@
 title: Workspaces and Sources
 description: Choose a writable file tree, read-only content, or a combination of both.
 navigation.title: Workspaces and Sources
-navigation.order: 2.5
+navigation.order: 8
 navigation.kind: Concepts
 icon: i-lucide-folder-git-2
 ---

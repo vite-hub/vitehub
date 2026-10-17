@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vite-plus";
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
@@ -25,8 +26,6 @@ export default defineConfig({
       "src/ai.ts",
       "src/blob-database.ts",
       "src/cloudflare.ts",
-      "src/collections.ts",
-      "src/collections/client.ts",
       "src/hosted.ts",
       "src/hosted-vercel-blob.ts",
       "src/index.ts",
@@ -34,9 +33,10 @@ export default defineConfig({
       "src/mountx.ts",
       "src/nitro.ts",
       "src/nuxt.ts",
-      "src/publish.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
+      "src/internal/path.ts",
+      "src/runtime/history-dev.ts",
       "src/source-metadata.ts",
       "src/runtime/empty-assets-registry.ts",
       "src/runtime/empty-registry.ts",
@@ -56,17 +56,19 @@ export default defineConfig({
         "runtime/empty-registry",
         "runtime/state",
         "runtime/workspace",
+        "runtime/history-dev",
         "providers/github/store",
       ],
       customExports(exports) {
         exports["./internal/runtime/assets"] = "./dist/runtime/assets.js";
         exports["./internal/runtime/hosted"] = "./dist/hosted.js";
         exports["./internal/runtime/hosted-vercel-blob"] = "./dist/hosted-vercel-blob.js";
+        exports["./internal/runtime/history-dev"] = "./dist/runtime/history-dev.js";
         exports["./internal/runtime/state"] = "./dist/runtime/state.js";
         exports["./internal/runtime/workspace"] = "./dist/runtime/workspace.js";
         exports["./internal/stores/github"] = "./dist/providers/github/store.js";
 
-        return Object.fromEntries(
+        return normalizePackageExports(Object.fromEntries(
           Object.entries(exports).map(([key, value]) => {
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [key, value];
@@ -79,7 +81,7 @@ export default defineConfig({
               },
             ];
           }),
-        );
+        ));
       },
       inlinedDependencies: false,
     },

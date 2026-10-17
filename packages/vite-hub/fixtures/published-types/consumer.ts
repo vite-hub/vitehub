@@ -22,13 +22,10 @@ import { defineEnvProvider } from "vite-hub/env/provider"
 import type { SecretEnv } from "vite-hub/env/secret"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import viteHubNuxtModule from "vite-hub/nuxt"
-import * as scheduleDriver from "vite-hub/schedule/runtime/driver"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
-import * as cloudflareShell from "vite-hub/shell/providers/cloudflare"
 import * as justBashShell from "vite-hub/shell/providers/just-bash"
 import * as cloudflareWorkspace from "vite-hub/workspace/cloudflare"
 import * as workspaceLoader from "vite-hub/workspace/loader"
-import * as workspacePublisher from "vite-hub/workspace/publish"
 import * as workspaceServer from "vite-hub/workspace/server"
 
 declare module "vite-hub/database/drizzle" {
@@ -46,13 +43,10 @@ export const appFacingModules = [
   agentSqliteState,
   authAgent,
   markdownTemplate,
-  scheduleDriver,
   scheduleProcess,
-  cloudflareShell,
   justBashShell,
   cloudflareWorkspace,
   workspaceLoader,
-  workspacePublisher,
   workspaceServer,
 ]
 

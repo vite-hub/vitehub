@@ -1,5 +1,6 @@
 import { defineConfig } from "vite-plus";
 import { fileURLToPath } from "node:url";
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 import { agentBuildRevision } from "./src/internal/build-revision.ts";
 
 // These entries resolve only through the "#vitehub/agent/provider-agent" package import, so they are not public exports.
@@ -66,6 +67,7 @@ export default defineConfig({
       "src/runtime/workflow.ts",
       "src/server.ts",
       "src/presets/babysitter.ts",
+      "src/presets/labeller.ts",
       "src/presets/babysitter/server.ts",
       "src/server/github.ts",
       "src/server/github-inbox.ts",
@@ -78,7 +80,7 @@ export default defineConfig({
     ],
     exports: {
       customExports(exports) {
-        return Object.fromEntries(
+        return normalizePackageExports(Object.fromEntries(
           Object.entries(exports).filter(([key]) => !privateEntryExports.has(key)).map(([key, value]) => {
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [key, value];
@@ -91,7 +93,7 @@ export default defineConfig({
               },
             ];
           }),
-        );
+        ));
       },
       inlinedDependencies: false,
     },
