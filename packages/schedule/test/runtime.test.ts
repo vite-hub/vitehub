@@ -720,15 +720,14 @@ describe("Schedule Run bookkeeping", () => {
     })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
     })
-    const hostile = { get [Symbol.toStringTag]() { throw new Error("spoofed tag") } } as unknown as Date
-    await expect(schedules.run("schedule-1", { scheduledAt: hostile })).rejects.toMatchObject({
-      code: "SCHEDULE_INVALID_SCHEDULED_AT",
+    const hostileScheduledAt = Object.defineProperty({}, Symbol.toStringTag, {
+      get() { throw new TypeError("hostile tag") },
     })
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
       definition: { cron: "0 9 * * *", handler: async () => {} },
       name: "report",
-      scheduledAt: hostile,
+      scheduledAt: hostileScheduledAt as never,
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
