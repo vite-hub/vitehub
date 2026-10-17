@@ -302,37 +302,7 @@ async function runAccessAuthorize(
 }
 
 function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
-  try {
-    const response = value as Response
-    // Use the response's own realm intrinsics so native responses from another
-    // realm pass the brand checks without touching their body state.
-    let responsePrototype: object | null = Object.getPrototypeOf(response)
-    let body: (() => unknown) | undefined
-    let statusGetter: (() => unknown) | undefined
-    let statusTextGetter: (() => unknown) | undefined
-    let headersGetter: (() => unknown) | undefined
-    while (responsePrototype) {
-      body ??= Object.getOwnPropertyDescriptor(responsePrototype, "body")?.get
-      statusGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "status")?.get
-      statusTextGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "statusText")?.get
-      headersGetter ??= Object.getOwnPropertyDescriptor(responsePrototype, "headers")?.get
-      responsePrototype = Object.getPrototypeOf(responsePrototype)
-    }
-    if (!body || !statusGetter || !statusTextGetter || !headersGetter) return false
-    body.call(response)
-    const status = statusGetter.call(response)
-    const statusText = statusTextGetter.call(response)
-    const headers = headersGetter.call(response)
-    const headersPrototype = Object.getPrototypeOf(headers)
-    const has = Object.getOwnPropertyDescriptor(headersPrototype, "has")?.value
-    if (typeof has !== "function") return false
-    has.call(headers, "content-type")
-    return Number.isInteger(status) && status >= 0 && status <= 599 && typeof statusText === "string"
-  }
-  catch {
-    return false
-  }
+  return isRuntimeResponse(value)
 }
 
 async function checkAuthRequest(
