@@ -1054,7 +1054,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
       runtimeCapabilityImports,
-      scheduleRuntimeImport: `${generatedImportBase}/schedule/runtime`,
       workflowImportBase: `${generatedImportBase}/workflow`,
       workspaceDependencyRuntimeImports,
       workspaceImportBase: `${generatedImportBase}/workspace`,
@@ -1128,7 +1127,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
       ...(plan.preset === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
       importBase: `${generatedImportBase}/schedule`,
-      typesImportBase: "vite-hub/schedule",
       providerImportAliases,
       runtimeImport: `${generatedImportBase}/schedule/runtime/static`,
     } as ScheduleVitePluginOptions))

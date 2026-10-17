@@ -350,7 +350,6 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
-    "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
@@ -382,9 +381,6 @@
       "optional": true
     },
     "@vite-hub/email": {
-      "optional": true
-    },
-    "@vite-hub/schedule": {
       "optional": true
     },
     "@vite-hub/workflow": {

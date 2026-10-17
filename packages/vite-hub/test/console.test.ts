@@ -1176,12 +1176,8 @@ describe("Agent invocation console", () => {
       await mkdir(join(root, "server/schedules"), { recursive: true })
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(
-        join(root, "server/schedules/adhoc.ts"),
-        `export default defineScheduleTarget({ handler() { throw new Error("The Console must not evaluate Schedule Definitions during discovery.") } })\n`,
-      )
-      await writeFile(
         join(root, "server/schedules/daily.ts"),
-        `export default defineSchedule({ cron: "0 0 1 * 1", allowRuntimeSchedules: true, handler() { throw new Error("The Console must not evaluate Schedule Definitions during discovery.") } })\n`,
+        `export default defineSchedule({ cron: "0 0 1 * 1", manual: true, handler() { throw new Error("The Console must not evaluate Schedule Definitions during discovery.") } })\n`,
       )
       await writeFile(
         join(root, "server/schedules/dynamic.ts"),
@@ -1218,10 +1214,9 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
-      expect(generated).toContain(`import { readScheduleConsoleRecords as vitehubConsoleRuntimeReader0 } from "vite-hub/_internal/schedule/runtime/console"`)
-      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":{"kind":"record-table","records":[{"cells":{"enabled":"-","kind":"Target","lastRun":"-","nextRun":"-","schedule":"adhoc","target":"adhoc","timing":"-"},"fields":[{"label":"Kind","value":"Runtime target"},{"label":"Runtime schedules","value":"Allowed"},{"label":"File","value":"server/schedules/adhoc.ts"},{"label":"Source","value":"server-schedules"},{"label":"Runs","value":"A Runtime Schedule that uses this target shows its runs in its own row."}],"id":"definition:adhoc","runnable":false},{"cells":{"enabled":"Provider","kind":"Definition","lastRun":"Not in this table","nextRun":"Set by the provider","schedule":"daily","target":"-","timing":"0 0 1 * 1"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 0 1 * 1"},{"label":"Time zone","value":"UTC"},{"label":"Runtime schedules","value":"Allowed"},{"label":"File","value":"server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
+      expect(generated).not.toContain("vitehubConsoleRuntimeReader")
+      expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":{"kind":"record-table","records":[{"cells":{"manual":"Yes","schedule":"daily","timing":"0 0 1 * 1"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 0 1 * 1"},{"label":"Time zone","value":"UTC"},{"label":"Manual","value":"Enabled"},{"label":"File","value":"server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
       expect(generated).toContain(`{"label":"File","value":"server/schedules/dynamic.ts"},{"label":"Source","value":"server-schedules"}`)
-      expect(generated).toContain(`], { "schedules": vitehubConsoleRuntimeReader0 })`)
       expect(generated).not.toContain(`"Cron","value":"0 10 * * *"`)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -1242,7 +1237,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "packages/database/server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
       await writeFile(join(root, "packages/rate-limit/policies/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
       await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { provider: 'memory' } })\n")
-      await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineScheduleTarget({ handler() {} })\n")
+      await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugins = vitehub({
         console: { auth: false, authorize: hostManagedAuthorize },
         database: { projectRoot: "packages/database" },
@@ -1265,7 +1260,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain('"file":"packages/rate-limit/policies/api.ts","name":"api","source":"require-rate-limit"')
       expect(generated).toContain('"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"}')
       expect(generated).toContain('"file":"packages/workspace/server/workspaces/docs/config.ts","name":"docs"')
-      expect(generated).toContain('"schedules":{"kind":"record-table","records":[{"cells":{"enabled":"-","kind":"Target"')
+      expect(generated).toContain('"schedules":{"kind":"record-table","records":[{"cells":{"manual":"No","schedule":"adhoc","timing":"0 9 * * *"}')
       expect(generated).toContain('{"label":"File","value":"packages/schedule/server/schedules/adhoc.ts"}')
     }
     finally {
@@ -1417,7 +1412,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(projectRoot, "src/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
       await writeFile(join(projectRoot, "src/unrelated.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
       await writeFile(join(viteRoot, "src/preview.sandbox.ts"), "export default defineSandbox({ run: async () => undefined })\n")
-      await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineScheduleTarget({ handler() {} })\n")
+      await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",

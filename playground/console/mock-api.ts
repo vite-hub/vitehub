@@ -183,7 +183,7 @@ const kvStores = {
 
 const scheduleRecords = [
   {
-    cells: { enabled: "Provider", kind: "Definition", lastRun: "Not in this table", nextRun: "Set by the provider", schedule: "nightly-digest", target: "-", timing: "0 6 * * *" },
+    cells: { manual: "Yes", schedule: "nightly-digest", timing: "0 6 * * *" },
     fields: [
       { label: "Kind", value: "Static schedule" },
       { label: "Cron", value: "0 6 * * *" },
@@ -195,36 +195,6 @@ const scheduleRecords = [
     ],
     id: "definition:nightly-digest",
     runnable: true,
-  },
-  {
-    cells: { enabled: "-", kind: "Target", lastRun: "-", nextRun: "-", schedule: "reindex-console", target: "reindex-console", timing: "-" },
-    fields: [
-      { label: "Kind", value: "Runtime target" },
-      { label: "Runtime schedules", value: "Allowed" },
-      { label: "File", value: "server/schedules/reindex-console.ts" },
-      { label: "Source", value: "schedule" },
-      { label: "Runs", value: "A Runtime Schedule that uses this target shows its runs in its own row." },
-    ],
-    id: "definition:reindex-console",
-  },
-  {
-    cells: { enabled: "Enabled", kind: "Runtime", lastRun: "succeeded at 2026-08-30T15:00:00.000Z", nextRun: "2026-08-30T19:00:00.000Z", schedule: "sched_console_reindex", target: "reindex-console", timing: "0 */4 * * *" },
-    fields: [
-      { label: "Target", value: "reindex-console" },
-      { label: "Cron", value: "0 */4 * * *" },
-      { label: "Time zone", value: "UTC" },
-      { label: "State", value: "Enabled" },
-      { label: "Next due time", value: "2026-08-30T19:00:00.000Z" },
-      { label: "Automatic runs", value: "A wake driver runs due Schedules in this runtime." },
-      { label: "Console dispatch", value: "Allowed by the record. The Console is read-only. Use `vitehub schedule run` in development." },
-      { label: "Input", value: "{\"sections\":[\"agents\",\"kv\"]}" },
-      { label: "Created", value: "2026-08-28T09:12:00.000Z" },
-      { label: "Updated", value: "2026-08-30T15:00:04.000Z" },
-      { label: "Run 1", value: "2026-08-30T15:00:00.000Z, succeeded, 1 attempt, run_01J6R8" },
-      { label: "Run 2", value: "2026-08-30T11:00:00.000Z, failed, 2 attempts, Console index store was locked., run_01J6QZ" },
-      { label: "Run 3", value: "2026-08-30T07:00:00.000Z, succeeded, 1 attempt, run_01J6QM" },
-    ],
-    id: "runtime:sched_console_reindex",
   },
 ]
 let scheduleRunCount = 0

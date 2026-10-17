@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
 import { glob, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { runInNewContext } from "node:vm"
@@ -641,9 +642,9 @@ describe("agent Vite plugin", () => {
     expect(result).toMatchObject({ agent: { routes: { discordGateway: true } } })
   })
 
-  it("adds discovered Agents to runtime Schedule registry and target names", async () => {
+  it("imports generated runtime Capabilities in hosted Agent routes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-targets-"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-route-capabilities-"))
     try {
       await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
       await mkdir(join(root, "server", "agents", "digest"), { recursive: true })
@@ -661,8 +662,6 @@ describe("agent Vite plugin", () => {
         plugins: Array<{ name: string }>
         root: string
       }) => Promise<void>
-      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({
         command: "serve",
         createResolver: () => async (id) => `/app/node_modules/${id}`,
@@ -670,33 +669,17 @@ describe("agent Vite plugin", () => {
         root,
       })
 
-      const registry = await transform("const registry = { reports: async () => ({}) }\nexport default registry\n", "\0#vitehub/schedule/registry")
-      const targets = await transform('export const scheduleTargetNames = ["reports"];\n', "\0#vitehub/schedule/targets")
+      const route = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
-      expect(registry).toContain("defineScheduledAgentTarget")
-      expect(registry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
-      expect(registry).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-      expect(registry).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
-      expect(registry).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
-      expect(registry).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
-      expect(registry).toContain('import { schedules as vitehubSchedules } from "@vite-hub/schedule/runtime"')
-      expect(registry).toContain(
-        '{ agentIdentity: {"name":"digest"}, capabilities: { blob: vitehubBlob, connections: vitehubConnections, db: vitehubDb, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }',
+      expect(route).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(route).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
+      expect(route).toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
+      expect(route).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
+      expect(route).toContain(
+        "const vitehubAgentRouteCapabilities = { blob: vitehubBlob, connections: vitehubConnections, db: vitehubDb, email: vitehubEmail, kv: vitehubKv }",
       )
-      expect(registry).toContain('registry["agent/digest"]')
-      expect(registry).toContain('vitehubAgentWithColocatedInstructions(vitehubResolveScheduledAgentModule(module), "Use digest instructions.\\n")')
-      expect(registry).not.toContain("withAgentDefaults")
-      expect(registry).toContain('registry["agent/support"]')
-      expect(registry).toContain('agentIdentity: {"name":"support","workspace":"support"}')
-      expect(registry).toContain("vitehubWithWorkspaceSourceRoot")
-      expect(registry).toContain("vitehubWorkspaceDefinitionFromOptions")
-      expect(registry).toContain(JSON.stringify(join(root, "server", "agents", "support", "workspace")))
-      expect(registry).toContain(JSON.stringify("Use support instructions.\n"))
-      expect(registry).toContain("__vitehubAgentInstructions")
-      expect(registry).not.toContain("cron:")
-      expect(registry).not.toContain("setAgentWorkflowRuntimeLoaders")
-      expect(targets).toContain('scheduleTargetNames.push("agent/digest")')
-      expect(targets).toContain('scheduleTargetNames.push("agent/support")')
+      expect(route).not.toContain("@vite-hub/schedule")
 
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const filteredPlugin = hubAgent({
@@ -717,30 +700,25 @@ describe("agent Vite plugin", () => {
       const filteredConfigResolvedHook: unknown = filteredPlugin.configResolved
       // SAFETY: hubAgent installs the same configResolved hook contract for filtered plugins.
       const filteredConfigResolved = filteredConfigResolvedHook as typeof configResolved
-      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-      const filteredTransform = filteredPlugin.transform as typeof transform
       await filteredConfigResolved({
         command: "serve",
         createResolver: () => async (id) => (id === "vite-hub/email/server" || id === "vite-hub/_internal/kv" ? `/app/node_modules/${id}` : undefined),
         plugins: [{ name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
         root,
       })
-      const filteredRegistry = await filteredTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
-      expect(filteredRegistry).not.toContain("vite-hub/_internal/blob")
-      expect(filteredRegistry).toContain("blob: false")
-      expect(filteredRegistry).toContain('import { email as vitehubEmail } from "vite-hub/email/server"')
-      expect(filteredRegistry).toContain('import { kv as vitehubKv } from "vite-hub/_internal/kv"')
-      expect(filteredRegistry).toContain(
-        '{ agentIdentity: {"name":"digest"}, capabilities: { blob: false, email: vitehubEmail, kv: vitehubKv, schedule: { schedules: vitehubSchedules } } }',
-      )
-      expect(filteredRegistry).toContain(
+      const filteredRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+      expect(filteredRoute).not.toContain("vite-hub/_internal/blob")
+      expect(filteredRoute).toContain('import { email as vitehubEmail } from "vite-hub/email/server"')
+      expect(filteredRoute).toContain('import { kv as vitehubKv } from "vite-hub/_internal/kv"')
+      expect(filteredRoute).toContain("const vitehubAgentRouteCapabilities = { blob: false, email: vitehubEmail, kv: vitehubKv }")
+      expect(filteredRoute).toContain(
         'import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from "vite-hub/_internal/agent/server/internal"',
       )
-      expect(filteredRegistry).toContain('workflow: () => import("vite-hub/_internal/workflow")')
-      expect(filteredRegistry).toContain(
+      expect(filteredRoute).toContain('workflow: () => import("vite-hub/_internal/workflow")')
+      expect(filteredRoute).toContain(
         'import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"',
       )
-      expect(filteredRegistry).toContain('sandbox: () => import("@vite-hub/sandbox")')
+      expect(filteredRoute).toContain('sandbox: () => import("@vite-hub/sandbox")')
 
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const composedBlobPlugin = hubAgent({
@@ -749,18 +727,16 @@ describe("agent Vite plugin", () => {
       const composedBlobConfigResolvedHook: unknown = composedBlobPlugin.configResolved
       // SAFETY: hubAgent installs the same configResolved hook contract for composed plugins.
       const composedBlobConfigResolved = composedBlobConfigResolvedHook as typeof configResolved
-      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-      const composedBlobTransform = composedBlobPlugin.transform as typeof transform
       await composedBlobConfigResolved({
         command: "serve",
         createResolver: () => async (id) => (id === "@vite-hub/blob" ? `/app/node_modules/${id}` : undefined),
         plugins: [{ name: "@vite-hub/blob/vite" }],
         root,
       })
-      const composedBlobRegistry = await composedBlobTransform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")
-      expect(composedBlobRegistry).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
-      expect(composedBlobRegistry).toContain("blob: vitehubBlob")
-      expect(composedBlobRegistry).not.toContain("blob: false")
+      const composedBlobRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+      expect(composedBlobRoute).toContain('import { blob as vitehubBlob } from "@vite-hub/blob"')
+      expect(composedBlobRoute).toContain("blob: vitehubBlob")
+      expect(composedBlobRoute).not.toContain("blob: false")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -906,32 +882,11 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("leaves Schedule virtual modules unchanged without discovered Agents", async () => {
+  it("invalidates generated Agent modules when an Agent changes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-empty-schedule-targets-"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invalidation-"))
     try {
       const plugin = hubAgent()
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const configResolved = plugin.configResolved as (config: { agent?: unknown; command: "serve"; root: string }) => Promise<void>
-      // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
-      await configResolved({ command: "serve", root })
-
-      await expect(transform("const registry = {}\nexport default registry\n", "\0#vitehub/schedule/registry")).resolves.toBeUndefined()
-      await expect(transform("export const scheduleTargetNames = [];\n", "\0#vitehub/schedule/targets")).resolves.toBeUndefined()
-    } finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it("invalidates runtime Schedule modules when an Agent changes", async () => {
-    const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-invalidation-"))
-    try {
-      const plugin = hubAgent()
-      const registryModule = { id: "registry" }
-      const targetsModule = { id: "targets" }
-      const nitroRegistryModule = { id: "nitro-registry" }
       const generatedRouteModule = { id: "generated-route" }
       const configResolvedHook: unknown = plugin.configResolved
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
@@ -942,9 +897,6 @@ describe("agent Vite plugin", () => {
       config({ __vitehubServerDirs: [join(root, "backend")] })
       await configResolved({ command: "serve", plugins: [], root })
       const modules = new Map<string, object>([
-        ["\0#vitehub/schedule/registry", registryModule],
-        ["\0#vitehub/schedule/targets", targetsModule],
-        [join(root, ".vitehub/nitro/schedule/runtime-registry.js"), nitroRegistryModule],
         [join(root, ".vitehub/agent/chat-webhook-route.ts"), generatedRouteModule],
       ])
       const nitroAgentRegistry = { id: join(root, ".vitehub/agent/registry.mjs") }
@@ -964,9 +916,6 @@ describe("agent Vite plugin", () => {
 
       expect(invalidateNitroModule).toHaveBeenCalledWith(nitroAgentRegistry)
       expect(reloadNitro).toHaveBeenCalledWith({ type: "full-reload" })
-      expect(invalidateModule).toHaveBeenCalledWith(registryModule)
-      expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
-      expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
 
       invalidateModule.mockClear()
       await handleHotUpdate({
@@ -974,9 +923,6 @@ describe("agent Vite plugin", () => {
         server: { environments, config: { root }, moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
       })
 
-      expect(invalidateModule).toHaveBeenCalledWith(registryModule)
-      expect(invalidateModule).toHaveBeenCalledWith(targetsModule)
-      expect(invalidateModule).toHaveBeenCalledWith(nitroRegistryModule)
       expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -1232,7 +1178,6 @@ describe("agent Vite plugin", () => {
   })
 
   it("keeps parent instruction references literal in Netlify provider output", async () => {
-    const { hubSchedule } = await import("../../schedule/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const previousHosting = process.env.VITEHUB_HOSTING
     process.env.VITEHUB_HOSTING = "netlify"
@@ -1252,7 +1197,6 @@ describe("agent Vite plugin", () => {
         writeFile(policy, "Follow the shared parent policy.\n", "utf8"),
       ])
       const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
-      const schedulePlugin = hubSchedule({ providerOutput: false })
       const configResolvedHook: unknown = plugin.configResolved
       // SAFETY: This test invokes hubAgent's configResolved hook with the Vite fields used by this fixture.
       const configResolved = configResolvedHook as (config: {
@@ -1265,27 +1209,19 @@ describe("agent Vite plugin", () => {
       await configResolved({
         build: { outDir: "dist/client" },
         command: "build",
-        plugins: [schedulePlugin],
-        resolve: {
-          alias: agentProviderOutputAliases([
-            { find: "@vite-hub/schedule/runtime", replacement: resolve(import.meta.dirname, "../../schedule/src/runtime.ts") },
-          ]),
-        },
+        plugins: [],
+        resolve: { alias: agentProviderOutputAliases() },
         root,
       })
 
       await runProviderOutputHooks(plugin)
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      const scheduleRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
       expect(wrapper).not.toContain("Follow the shared parent policy.")
       expect(wrapper).toContain(`@${relative(agentRoot, policy)}`)
       expect(wrapper).toContain("Handle support requests.")
-      expect(scheduleRegistry).not.toContain("Follow the shared parent policy.")
-      expect(scheduleRegistry).toContain(`@${relative(agentRoot, policy)}`)
-      expect(scheduleRegistry).toContain("Handle support requests.")
-      expect(scheduleRegistry).toContain(".vitehub/agent/sources")
-      expect(scheduleRegistry).not.toContain("agent-generations")
+      expect(wrapper).not.toContain("agent-generations")
+      expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
       else delete process.env.VITEHUB_HOSTING
@@ -1653,9 +1589,9 @@ describe("agent Vite plugin", () => {
     }
   }, 15_000)
 
-  it("packages provider runtimes for suffix-only scheduled Agents", async () => {
+  it("packages provider runtimes for suffix-only Agents", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-scheduled-output-"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-suffix-output-"))
     try {
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = hubAgent()
@@ -1974,8 +1910,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("injects the canonical Schedule runtime into generated hosted Agent routes", async () => {
-    const { hubSchedule } = await import("../../schedule/src/vite.ts")
+  it("keeps the Schedule runtime out of generated hosted Agent routes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-routes-"))
     const previousHosting = process.env.VITEHUB_HOSTING
@@ -1983,7 +1918,7 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ routes: { discordGateway: true } })
-      const schedulePlugin = hubSchedule({ providerOutput: false })
+      const schedulePlugin = { name: "@vite-hub/schedule/vite" }
       if (isRuntimeFunction(plugin.configResolved)) {
         await plugin.configResolved.call(
           // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
@@ -2002,11 +1937,10 @@ describe("agent Vite plugin", () => {
       const gatewayRoute = await readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")
 
       for (const route of [webhookRoute, gatewayRoute]) {
-        expect(route).toContain('import vitehubAgentScheduleRegistry from "#vitehub/schedule/registry"')
-        expect(route).toContain('setScheduleRuntimeRegistry as vitehubSetScheduleRuntimeRegistry } from "@vite-hub/schedule/runtime"')
-        expect(route).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
+        expect(route).not.toContain("#vitehub/schedule/registry")
+        expect(route).not.toContain("@vite-hub/schedule/runtime")
         expect(route).toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-        expect(route).toContain("const vitehubAgentRouteCapabilities = { connections: vitehubConnections, schedule: { schedules: vitehubSchedules } }")
+        expect(route).toContain("const vitehubAgentRouteCapabilities = { connections: vitehubConnections }")
         expect(route).toContain("capabilities: vitehubAgentRouteCapabilities")
       }
 
@@ -2024,15 +1958,11 @@ describe("agent Vite plugin", () => {
         )
       }
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
-      expect(denoServer).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
-      expect(denoServer).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
-      expect(denoServer).toContain("capabilities: vitehubAgentRouteCapabilities")
-      const standaloneRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
-      expect(standaloneRegistry).toContain('registry["agent/support"]')
-      expect(standaloneRegistry).toContain('import("../../server/agents/support.ts")')
-      expect(standaloneRegistry).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
-      expect(standaloneRegistry).toContain("capabilities: { schedule: { schedules: vitehubSchedules } }")
-      expect(standaloneRegistry).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(denoServer).not.toContain("schedule-registry.js")
+      expect(denoServer).not.toContain("@vite-hub/schedule/runtime")
+      expect(denoServer).not.toContain('import { connections as vitehubConnections } from "@vite-hub/connections/server"')
+      expect(denoServer).not.toContain('import { agentDb as vitehubDb } from "@vite-hub/database/drizzle"')
+      expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
 
       process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
@@ -2046,11 +1976,7 @@ describe("agent Vite plugin", () => {
             build: { outDir: "dist/client" },
             command: "build",
             plugins: [schedulePlugin],
-            resolve: {
-              alias: agentProviderOutputAliases([
-                { find: "@vite-hub/schedule/runtime", replacement: resolve(import.meta.dirname, "../../schedule/src/runtime.ts") },
-              ]),
-            },
+            resolve: { alias: agentProviderOutputAliases() },
             root,
           } as never,
         )
@@ -2061,9 +1987,8 @@ describe("agent Vite plugin", () => {
         await netlifyPlugin.closeBundle.handler.call({} as never)
       }
       const netlifyFunction = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(netlifyFunction).toContain('import vitehubAgentScheduleRegistry from "./schedule-registry.js"')
-      expect(netlifyFunction).toContain("vitehubSetScheduleRuntimeRegistry(vitehubAgentScheduleRegistry)")
-      expect(netlifyFunction).toContain("capabilities: vitehubAgentRouteCapabilities")
+      expect(netlifyFunction).not.toContain("schedule-registry.js")
+      expect(netlifyFunction).not.toContain("@vite-hub/schedule/runtime")
       expect(netlifyFunction).toContain("Object.hasOwn(values, key)")
     } finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
@@ -3249,24 +3174,6 @@ export default defineAgent({
     expect(pkg.dependencies?.esbuild).toBe("catalog:tooling")
   })
 
-  it("publishes Schedule as an optional Agent integration peer", async () => {
-    const pkg: unknown = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
-    if (
-      !isTestRecord(pkg) ||
-      !isTestRecord(pkg.dependencies) ||
-      !isTestRecord(pkg.devDependencies) ||
-      !isTestRecord(pkg.peerDependencies) ||
-      !isTestRecord(pkg.peerDependenciesMeta)
-    )
-      throw new Error("Expected package dependency metadata.")
-
-    expect(pkg.version).toEqual(expect.any(String))
-    expect(pkg.dependencies?.["@vite-hub/schedule"]).toBeUndefined()
-    expect(["workspace:*", pkg.version]).toContain(pkg.devDependencies?.["@vite-hub/schedule"])
-    expect(["workspace:*", pkg.version]).toContain(pkg.peerDependencies?.["@vite-hub/schedule"])
-    expect(pkg.peerDependenciesMeta?.["@vite-hub/schedule"]).toEqual({ optional: true })
-  })
-
   it("publishes the Agent output helper subpath", async () => {
     const pkg: unknown = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     if (!isTestRecord(pkg) || !isTestRecord(pkg.exports)) throw new Error("Expected package exports metadata.")
@@ -3860,80 +3767,6 @@ describe("server helpers", () => {
     }
   })
 
-  it("uses an explicit Runtime Schedule primitive through chat route contexts", async () => {
-    const createdAt = new Date("2026-07-12T00:00:00.000Z")
-    const schedules = {
-      create: vi.fn(async (input) => ({
-        ...input,
-        createdAt,
-        enabled: input.enabled ?? true,
-        id: input.id || "created",
-        updatedAt: createdAt,
-      })),
-      delete: vi.fn(),
-      disable: vi.fn(),
-      enable: vi.fn(),
-      get: vi.fn(),
-      list: vi.fn(async () => []),
-      run: vi.fn(),
-      update: vi.fn(),
-    }
-    const { defineAgent } = await import("../src/index.ts")
-    const { schedule } = await import("../src/capabilities.ts")
-    const { defineChatCapability } = await import("../src/chat-trigger.ts")
-    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
-    const agent = defineAgent({
-      capabilities: [
-        defineChatCapability(),
-        schedule({
-          allowSelfTarget: true,
-          delivery: "origin",
-          mode: "write",
-          timeZone: "Asia/Bangkok",
-        }),
-      ],
-      driver: {
-        async run({ tools }) {
-          // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-          const record = (await tools!.cronjob!.execute?.({
-            cron: "0 9 * * *",
-            id: "daily-0900",
-            operation: "create",
-            prompt: "Send my daily report.",
-          })) as { id: string }
-          return `scheduled ${record.id}`
-        },
-      },
-    })
-    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-    const handler = createChannelChatRouteHandler(agent as never)
-
-    const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/mini/chat", {
-        body: JSON.stringify({
-          id: "daily-thread",
-          messages: [
-            {
-              id: "user-1",
-              parts: [{ text: "remind me every day", type: "text" }],
-              role: "user",
-            },
-          ],
-        }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      }),
-      { agentIdentity: { name: "mini" }, capabilities: { schedule: { schedules } } },
-    )
-
-    expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toEqual({
-      code: "INTERNAL",
-      error: "Agent request failed.",
-    })
-    expect(schedules.create).not.toHaveBeenCalled()
-  })
-
   it("returns HTTP 400 for conflicting Claude prompt file arguments", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
@@ -3964,43 +3797,6 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
-  })
-
-  it("keeps manual chat route Schedule primitives explicit", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { schedule } = await import("../src/capabilities.ts")
-    const { defineChatCapability } = await import("../src/chat-trigger.ts")
-    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
-    const handler = createChannelChatRouteHandler(
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      defineAgent({
-        capabilities: [defineChatCapability(), schedule({ mode: "read" })],
-        driver: { run: () => "unused" },
-      }) as never,
-    )
-
-    const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/mini/chat", {
-        body: JSON.stringify({
-          messages: [
-            {
-              id: "user-1",
-              parts: [{ text: "list reminders", type: "text" }],
-              role: "user",
-            },
-          ],
-        }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      }),
-      { agentName: "mini" },
-    )
-
-    expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toEqual({
-      code: "INTERNAL",
-      error: "Agent request failed.",
-    })
   })
 
   it("leaves custom text/event-stream chat Response bodies unchanged", async () => {

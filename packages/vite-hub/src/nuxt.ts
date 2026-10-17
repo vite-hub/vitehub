@@ -954,7 +954,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const generatedTypes = [
     relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/types.d.ts")),
     ...(effectiveQueue ? [relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/queue.d.ts"))] : []),
-    ...(options.schedule ? [relative(nuxt.options.buildDir, join(projectRoot, ".vitehub/schedule.d.ts"))] : []),
     ...secondaryProjectRoots
       .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/**/*.d.ts"))),
   ]

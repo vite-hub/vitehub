@@ -15,7 +15,6 @@ import { resolveBox } from "vite-hub/box"
 import { env } from "vite-hub/env"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import { requireRateLimit } from "vite-hub/rate-limit"
-import * as scheduleDriver from "vite-hub/schedule/runtime/driver"
 import * as scheduleProcess from "vite-hub/schedule/runtime/process"
 import * as justBashShell from "vite-hub/shell/providers/just-bash"
 import { defineWorkflow } from "vite-hub/workflow"
@@ -39,7 +38,6 @@ export const contract = {
     agentSqliteState,
     authAgent,
     markdownTemplate,
-    scheduleDriver,
     scheduleProcess,
     justBashShell,
     cloudflareWorkspace,
