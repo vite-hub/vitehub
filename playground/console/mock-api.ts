@@ -706,8 +706,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       json(response, { message: "Schedule run requires a Schedule Definition name." }, 400)
       return true
     }
-    const runnable = scheduleRecords.some(record => record.cells.kind === "Definition"
-      && record.cells.schedule === name
+    const runnable = scheduleRecords.some(record => record.cells.schedule === name
       && record.fields.some(field => field.label === "Manual" && field.value === "Enabled"))
     if (!runnable) {
       json(response, { message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation." }, 404)

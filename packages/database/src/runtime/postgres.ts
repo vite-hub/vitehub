@@ -45,7 +45,7 @@ export function createPostgresDatabase<TSchema extends Record<string, unknown>>(
     if (hyperdriveUrl) return hyperdriveUrl
     const url = resolveConfigValue(definition.connection?.url ?? defaults.url)?.trim()
     if (url) return url
-    throw databaseErrorDiagnostics.DATABASE_R0017({ message: `[vitehub] Postgres database "${definition.name}" requires the Cloudflare Hyperdrive binding "${bindingName}" or connection.url.` })
+    throw databaseErrorDiagnostics.DATABASE_MISSING_CONNECTION({ database: definition.name, needs: `the Cloudflare Hyperdrive binding "${bindingName}" or \`connection.url\`` })
   }
 
   function createInstance(url: string, requestScoped: boolean): PostgresInstance<TSchema> {

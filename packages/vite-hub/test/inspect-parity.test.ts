@@ -101,7 +101,8 @@ describe("Definition inspection parity", () => {
     const listed = await inspector!.list()
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, plugins: config.plugins, projectRoot: root, sections: ["databases"] })
 
-    expect(listed[0]?.fields).toContainEqual({ label: "Contributed tables", value: `history: historySchema from ${tables} (contributed by "history-owner/vite")` })
+    // The Database package owns this field. The contributed schema holds no Drizzle table.
+    expect(listed[0]?.fields).toContainEqual({ label: "Contributed tables", value: `No tables from "history" (${tables}#historySchema from plugin "history-owner/vite")` })
     expect(catalog.content.databases).toEqual({ definitions: listed, kind: "definition-catalog" })
   }, 60_000)
 

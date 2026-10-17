@@ -27,8 +27,6 @@ type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
 const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUsage>>>([
   ["@vite-hub/agent", { "@vite-hub/workflow": "declaration" }],
-  ["@vite-hub/agent/evlog", { "evlog": "both" }],
-  ["@vite-hub/agent/evlog/posthog", { "evlog": "both", "posthog-node": "both" }],
   ["@vite-hub/agent/observability", { "evlog": "both" }],
   ["@vite-hub/agent/observability/host", { "evlog": "both" }],
   ["@vite-hub/agent/observability/posthog", { "evlog": "both", "posthog-node": "both" }],
@@ -51,8 +49,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/workflow/runtime/openworkflow", { "openworkflow": "declaration" }],
   ["@vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "declaration" }],
   ["vite-hub", { "vite": "both" }],
-  ["vite-hub/agent/evlog", { "evlog": "both" }],
-  ["vite-hub/agent/evlog/posthog", { "evlog": "both", "posthog-node": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
   ["vite-hub/agent/eval", { "evalite": "both", "vitest": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],

@@ -228,14 +228,13 @@ app.post("/api/queues/welcome", async (event) => {
   const marker = resolveMarker(body, event)
   const callbackUrl = marker ? resolveTrustedMarkerCallbackUrl(getRequestURL(event), body?.callbackUrl) : undefined
 
-  return {
-    ok: true,
-    result: await runQueue(queueName, {
-      email: body?.email || "ava@example.com",
-      callbackUrl,
-      marker,
-    }),
-  }
+  const [error, result] = await runQueue(queueName, {
+    email: body?.email || "ava@example.com",
+    callbackUrl,
+    marker,
+  })
+  if (error) throw error
+  return { ok: true, result }
 })
 
 app.post("/api/queues/welcome-defer", async (event) => {

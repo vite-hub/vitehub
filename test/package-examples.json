@@ -19,7 +19,7 @@
       "framework": "vite",
       "id": "database",
       "mode": "build",
-      "outputs": ["dist/server.js", "dist/vite/wrangler.json", ".vercel/output/config.json"]
+      "outputs": [".output/server/index.mjs", ".output/server/wrangler.json"]
     },
     {
       "artifact": "server-bundle",
@@ -40,7 +40,7 @@
       "framework": "vite",
       "id": "queue",
       "mode": "build",
-      "outputs": ["dist/server.js", ".vercel/output/config.json"]
+      "outputs": [".vercel/output/config.json", ".vercel/output/functions/api/vitehub/queues/vercel/welcome-email.func/.vc-config.json"]
     },
     {
       "artifact": "provider-output",

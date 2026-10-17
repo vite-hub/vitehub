@@ -488,6 +488,7 @@ export type {
   AgentRegistry,
   AgentRegistryModule,
   AgentRunContext,
+  AgentRunActivity,
   AgentRunCallbackContext,
   AgentRunDriver,
   AgentRunHandler,

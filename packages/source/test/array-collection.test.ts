@@ -154,6 +154,14 @@ describe("array()", () => {
     expect(() => array(records, { filters: ["limit"] })).toThrow("reserved query key")
   })
 
+  it("preserves a declared __proto__ filter", async () => {
+    const collection = defineCollection({
+      source: array([{ ["__proto__"]: "secret" }, { ["__proto__"]: "other" }], { filters: ["__proto__"] }),
+    })
+    const query = await collection.parseQuery({ ["__proto__"]: "secret" })
+    expect((await collection.page({ query })).items).toEqual([{ ["__proto__"]: "secret" }])
+  })
+
   it("validates and parses items with a schema", async () => {
     const collection = defineCollection({
       source: array(async () => [{ rank: "2" }, { rank: "1" }], {
@@ -208,6 +216,12 @@ describe("array()", () => {
       const collection = articles(records, { sort: { field: "slug" } })
       const first = await query(collection, { category: "Guide" }, undefined, 1)
       await expect(query(collection, { category: ["guide"] }, first.nextCursor!, 2)).resolves.toMatchObject({ items: [{ slug: "gamma" }] })
+    })
+
+    it("accepts cursors when equivalent filters use a different property order", async () => {
+      const collection = articles(records, { sort: { field: "slug" } })
+      const first = await query(collection, { category: "guide", "authors.name": "Ada" }, undefined, 1)
+      await expect(query(collection, { "authors.name": "ada", category: "GUIDE" }, first.nextCursor!, 2)).resolves.toMatchObject({ items: [{ slug: "gamma" }] })
     })
 
     it("rejects cursors after the data changes, by digest or by content hash", async () => {

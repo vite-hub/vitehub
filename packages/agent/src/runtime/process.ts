@@ -304,7 +304,7 @@ export { createProcessAgentHost } from './process-host.ts'
 export type { ProcessAgentHost, ProcessAgentHostOptions } from './process-host.ts'
 
 /**
- * Starts the process hosts that discovered Agents contribute, for example through the Babysitter
+ * Starts the process hosts that discovered Agents contribute, for example through a process host
  * preset. The generated Nitro plugin owns one instance per server process.
  */
 export function createAgentProcessHosts(options: {
@@ -323,7 +323,7 @@ export function createAgentProcessHosts(options: {
   status(): "starting" | "accepting" | "draining" | "drained" | "failed"
   health(): Promise<{ status: "healthy" | "degraded", agents: Record<string, unknown> }>
 } {
-  const hosts = new Map<string, import("../agent-process-host.ts").AgentProcessHostInstance>()
+  const hosts = new Map<string, import("../process-host.ts").AgentProcessHostInstance>()
   const failures = new Map<string, string>()
   let starting: Promise<void> | undefined
   let closed = false
@@ -335,7 +335,7 @@ export function createAgentProcessHosts(options: {
     retries.delete(agentName)
     if (closed) return
     const { getAgentFromRegistry } = await import("../index.ts")
-    const { getAgentProcessHostContribution } = await import("../agent-process-host.ts")
+    const { getAgentProcessHostContribution } = await import("../process-host.ts")
     const { join } = await import("node:path")
     try {
       const agent = await getAgentFromRegistry(agentName, options.registry)

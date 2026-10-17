@@ -17,7 +17,6 @@ Select the `node` preset and enable the features the application uses. This
 example stores KV values in local files.
 
 ```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
@@ -30,8 +29,6 @@ export default defineConfig({
         base: '.vitehub/data/kv',
       },
     }),
-    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
-    nitro() as never,
   ],
 })
 ```
