@@ -125,10 +125,10 @@ function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret
 function validateEmailRuntimeOptions(value: unknown, path = "email.options"): void {
   if (isRuntimeEnvEntry(value)) {
     if (value.source.kind === "provider") {
-      throw emailErrorDiagnostics.EMAIL_B0001({ message: `[vitehub] Email declaration ${path} cannot use env.provider() because Email options are resolved synchronously.` })
+      throw emailErrorDiagnostics.EMAIL_SYNC_OPTION_REQUIRED({ path })
     }
     if (value.secret && value.default !== undefined) {
-      throw emailErrorDiagnostics.EMAIL_B0002({ message: `[vitehub] Secret Email declaration ${path} cannot have a default because defaults are included in build output.` })
+      throw emailErrorDiagnostics.EMAIL_SECRET_DEFAULT({ path })
     }
     return
   }
@@ -148,7 +148,7 @@ function renderResolvedOptions(value: unknown, reference: string): string {
 
 function resolveDriverImport(driver: string): string {
   if (driver !== "resend" && driver !== "cloudflare-email") {
-    throw emailErrorDiagnostics.EMAIL_B0003({ message: '[vitehub] Email driver must be "resend" or "cloudflare-email".' })
+    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
   }
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
   return fileURLToPath(new URL(`./drivers/${driver}.${extension}`, import.meta.url))
@@ -168,15 +168,15 @@ interface ResolvedEmailOutboxOptions {
 function resolveOutboxOptions(value: unknown): ResolvedEmailOutboxOptions | undefined {
   if (value === false) return
   if (value !== undefined && !isRecord(value)) {
-    throw emailErrorDiagnostics.EMAIL_B0008({ message: "[vitehub] email.outbox must be false or an object." })
+    throw emailErrorDiagnostics.EMAIL_INVALID_OUTBOX({ problem: "type" })
   }
   const deliver = value?.deliver ?? true
   const limit = value?.limit ?? 50
   if (!v.is(v.boolean(), deliver)) {
-    throw emailErrorDiagnostics.EMAIL_B0008({ message: "[vitehub] email.outbox.deliver must be a boolean." })
+    throw emailErrorDiagnostics.EMAIL_INVALID_OUTBOX({ problem: "deliver" })
   }
   if (!v.is(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000)), limit)) {
-    throw emailErrorDiagnostics.EMAIL_B0008({ message: "[vitehub] email.outbox.limit must be an integer from 1 to 1000." })
+    throw emailErrorDiagnostics.EMAIL_INVALID_OUTBOX({ problem: "limit" })
   }
   return { deliver, limit }
 }
@@ -310,7 +310,7 @@ function emailTemplateName(id: string): string | undefined {
   const name = id.slice(emailTemplatePrefix.length)
   const segments = name.split("/")
   if (!name || name.includes("\\") || name.includes("?") || name.includes("#") || name.endsWith(".md") || segments.some(segment => !segment || segment === "." || segment === "..")) {
-    throw emailErrorDiagnostics.EMAIL_B0004({ message: `[vitehub] Invalid Email template ${JSON.stringify(id)}.` })
+    throw emailErrorDiagnostics.EMAIL_INVALID_TEMPLATE({ id })
   }
   return name
 }
@@ -375,7 +375,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
 
 export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
-    throw emailErrorDiagnostics.EMAIL_B0006({ message: '[vitehub] Email requires driver: "resend" or driver: "cloudflare-email".' })
+    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
   }
   const internalOptions = options as EmailVitePluginOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
@@ -462,7 +462,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       const hosting = getHostingProvider(resolveHosting(internalOptions, configRecord))
       cloudflare = hosting === "cloudflare"
       if (cloudflareEmail && !cloudflare) {
-        throw emailErrorDiagnostics.EMAIL_B0007({ message: '[vitehub] Email driver "cloudflare-email" requires a Cloudflare hosting provider.' })
+        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED()
       }
       vercel = hosting === "vercel"
         || internalOptions.workflowProvider === "vercel"

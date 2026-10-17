@@ -6,11 +6,35 @@ navigation.group: Runtime and output
 icon: i-lucide-circle-alert
 ---
 
-Each package owns the errors from its public API, configuration, build integration, generated output, and runtime boundary. ViteHub-owned developer defects use [Nostics](https://github.com/vercel-labs/nostics). A diagnostic is an `Error` with a stable `code`, a message, and optional repair guidance, source locations, and documentation.
+Each package owns the errors from its public API, configuration, build integration, generated output, and runtime boundary. ViteHub errors use [Nostics](https://github.com/vercel-labs/nostics). A diagnostic is an `Error` with a stable `code`, a `why`, a `fix`, and a `docs` link.
+
+## The error contract
+
+All ViteHub primitives move to one contract. KV and Email follow it today.
+
+- A runtime operation returns `[error, data]`. It does not throw for a failure that the caller can handle.
+- `error` has `code`, `why`, `fix`, `docs`, and `cause`. The type of `error.code` is the union of the codes that the operation can return.
+- Definition and configuration errors throw, at build time, at define time, or when an operation starts. A retry cannot help, because the code or the deployment must change.
+- An error before a stream starts is in the tuple. An error after the stream starts goes into the stream.
+- `JSON.stringify(error)` includes only `name`, `code`, `why`, `fix`, and `docs`. It never includes `cause` or `stack`.
+
+```ts
+import { kv } from 'vite-hub/kv'
+
+const [error, settings] = await kv.get('settings')
+if (error) {
+  error.code // 'KV_OPERATION_FAILED'
+  error.why // 'kv.get() failed on the "default" store.'
+  error.fix // 'Read `error.cause` for the provider error. ...'
+  error.docs // 'https://vitehub.dev/docs/kv/limits-and-errors#kv_operation_failed'
+}
+```
+
+`Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `@vite-hub/runtime`. Each code has a `why` and a `fix`, and a heading on the `limits-and-errors` page of the package, so `error.docs` opens the right section. See [KV errors](/docs/kv/limits-and-errors) and [Email errors](/docs/email/limits-and-errors).
 
 ## Diagnostic codes
 
-Diagnostic codes use this format:
+Named codes use the format `<PACKAGE>_<NAME>`, for example `KV_INVALID_CURSOR` or `EMAIL_RATE_LIMITED`. KV and Email use named codes. The other packages still use numbered codes in this format:
 
 | Format | Catalog group |
 | --- | --- |
@@ -40,7 +64,7 @@ Some code runs where the Nostics package cannot load. Browser page evaluation, u
 
 ## Operational errors
 
-Expected portable failures keep the `ViteHubError` contract from `@vite-hub/runtime`. Examples include authentication requirements, provider operation failures, missing Blob values, Queue delivery failures, and policy rejections. These semantic codes describe an application result instead of a developer defect.
+Packages that do not follow the error contract yet keep the `ViteHubError` contract from `@vite-hub/runtime` for expected portable failures. HTTP boundaries, such as Agent public errors, also keep it. Examples include authentication requirements, provider operation failures, missing Blob values, Queue delivery failures, and policy rejections. These semantic codes describe an application result instead of a developer defect.
 
 `ViteHubError` snapshots its public `name`, `code`, `message`, `details`, and `requestId` fields at construction. The snapshot and its details are frozen. Its `cause` stays on the in-memory error and `toJSON()` omits it. Public details must be bounded JSON data.
 
@@ -166,7 +190,7 @@ message instead of copying `error.message`.
 
 ## Local response
 
-Start with the error's `code`. A numeric Nostics code identifies the owning package and failure site. A semantic operational code can be read with `getViteHubErrorShape(error)?.code`. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges distinguish `AUTHENTICATION_REQUIRED` from `AUTH_PROVIDER_OPERATION_FAILED`; use `details.operation` for safe diagnostics and `cause` only in protected server-side diagnostics. Email emits no Provider Output; inspect the `EMAIL_*` code and `details.driver`.
+Start with the error's `code`. A numeric Nostics code identifies the owning package and failure site. A semantic operational code can be read with `getViteHubErrorShape(error)?.code`. For packages that generate Provider Output, inspect that output before changing runtime code. Authenticated Agent bridges distinguish `AUTHENTICATION_REQUIRED` from `AUTH_PROVIDER_OPERATION_FAILED`; use `details.operation` for safe diagnostics and `cause` only in protected server-side diagnostics. Email emits no Provider Output; inspect the `EMAIL_*` code. Its `why` names the driver.
 
 For Env, inspect the `ENV_*` code first. Its code set and public messages are fixed. `ENV_DECLARATION_INVALID` can include `details.path`, `ENV_REQUIRED_MISSING` and `ENV_RUNTIME_VALUE_INVALID` can include a bounded source identifier and declaration path, and `ENV_SOURCE_FAILED` can include a bounded source identifier such as `env`, `git:branch`, `package.json`, or `custom`. `ENV_RUNTIME_VALUE_INVALID` never includes the rejected value. Raw labels and diagnostics remain in `cause`, which the serialized shape omits. Custom source resolvers keep application-owned errors unchanged.
 
