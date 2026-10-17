@@ -6,7 +6,8 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/],
+      // forges is only on pkg.pr.new, so the published manifest must not name it.
+      alwaysBundle: [/^@vite-hub\/internal/, /^forges(?:\/|$)/],
       onlyBundle: false,
     },
     entry: [

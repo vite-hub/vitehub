@@ -41,12 +41,12 @@
     "test": "vp run -t @vite-hub/forge#build && vp test"
   },
   "dependencies": {
-    "forges": "catalog:",
     "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "forges": "catalog:",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
