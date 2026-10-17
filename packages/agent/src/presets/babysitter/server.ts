@@ -219,7 +219,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return async (query, variables) => {
       const { provider } = await forge(repository, signal);
       const operationName = /\b(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(query)?.[1];
-      return (await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal })).data;
+      // Keep the GraphQL envelope intact. Snapshot readers validate `errors`
+      // before consuming `data`, and partial responses must not become state.
+      return await provider.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) }, signal }).then(response => response.data);
     };
   }
 
