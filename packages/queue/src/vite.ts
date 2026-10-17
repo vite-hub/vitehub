@@ -2,7 +2,7 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
 import { normalizeQueueOptions } from "./config.ts"
@@ -78,18 +78,11 @@ function mergeNitroExternal(value: unknown, addition: string): unknown {
 }
 
 function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Record<string, unknown>): string {
-  const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  return getHostingProvider(preset) || (queue !== false && queue?.provider) || "vercel"
-}
-
-function resolveNitroHosting(nitro: Record<string, unknown>): string | undefined {
-  const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  return getHostingProvider(preset)
+  return getHostingProvider(resolveHost({ nitro })) || (queue !== false && queue?.provider) || "vercel"
 }
 
 function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {
-  const preset = typeof nitro.preset === "string" ? nitro.preset : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING || ""
-  return !preset.replaceAll("-", "_").includes("cloudflare_pages")
+  return !(resolveHostPreset({ nitro }) ?? "").replaceAll("-", "_").includes("cloudflare_pages")
 }
 
 function isGeneratedNitroRegistration(value: unknown, generatedPath: string): boolean {
@@ -103,7 +96,7 @@ function isGeneratedVercelConsumer(value: unknown): boolean {
 
 /** Vercel delivers Queue messages to Nitro routes that have a queue trigger in `vercel.functionRules`. */
 function hostsVercelQueueConsumers(nitro: Record<string, unknown>): boolean {
-  const hosting = resolveNitroHosting(nitro)
+  const hosting = getHostingProvider(resolveHost({ nitro }))
   return hosting === "vercel" || (hosting === undefined && Boolean(process.env.VERCEL))
 }
 
@@ -123,7 +116,7 @@ function addVercelQueueConsumers(kit: ReturnType<typeof createNitroServerKit>, d
 function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOptions | undefined, root: string, definitions = discoverQueueDefinitions({ rootDir: root })): Record<string, unknown> {
   const providerOutput = useProviderOutputCatalog(config)
   const nitro = cloneNitroConfig(value)
-  const nitroHosting = resolveNitroHosting(nitro)
+  const nitroHosting = getHostingProvider(resolveHost({ nitro }))
   const providerMismatch = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting
   const runtimeEnabled = queue !== false && !providerMismatch
   const nitroOwnsPaths = hasNitroConfigContext(config)
@@ -260,7 +253,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           nuxtConfiguredDefinitions = definitions
           const configuredNitro = mergeNitroConfig(config, nitro, projectQueue, projectRoot, definitions)
           hosting = resolveQueueHosting(projectQueue, configuredNitro)
-          const nitroHosting = resolveNitroHosting(configuredNitro)
+          const nitroHosting = getHostingProvider(resolveHost({ nitro: configuredNitro }))
           nitroQueue = projectQueue !== false && projectQueue?.provider && nitroHosting && projectQueue.provider !== nitroHosting ? false : projectQueue
           cloudflareQueues = supportsCloudflareQueues(configuredNitro)
           localDevelopment = development
@@ -296,7 +289,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
       ;(config as { nitro?: unknown }).nitro = nitro
       hosting = resolveQueueHosting(queue, nitro)
       cloudflareQueues = supportsCloudflareQueues(nitro)
-      const nitroHosting = resolveNitroHosting(nitro)
+      const nitroHosting = getHostingProvider(resolveHost({ nitro }))
       nitroQueue = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting ? false : queue
       validatesNitroDefinitions = hasNitroConfigContext(config) && nitroQueue !== false
       localDevelopment = config.command === "serve"

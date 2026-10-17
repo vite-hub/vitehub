@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { resolveNuxtServerDirs, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { resolveRuntimeModule } from "@vite-hub/internal/build/paths"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
@@ -552,12 +552,8 @@ function mergeNitroDatabaseRuntimeAlias(
 }
 
 function resolveNitroHostingProvider(config: Record<string, unknown>, nuxtOptions: NuxtLike["options"]) {
-  const preset = typeof config.preset === "string"
-    ? config.preset
-    : typeof nuxtOptions.nitro?.preset === "string"
-      ? nuxtOptions.nitro.preset
-      : process.env.NITRO_PRESET || process.env.SERVER_PRESET || process.env.VITEHUB_HOSTING
-  return getHostingProvider(preset) ?? (typeof preset === "string" && /^deno(?:-|$)/.test(preset) ? "deno" : undefined)
+  const host = resolveHost({ hosting: nuxtOptions.nitro?.preset, nitro: config })
+  return host === "node" ? undefined : host
 }
 
 async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, root: string) {

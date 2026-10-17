@@ -9,7 +9,7 @@ import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { resolveViteHubBundleDefines, bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 
@@ -261,12 +261,6 @@ function renderConfiguredEmailDefinitionModule(
   ].join("\n")
 }
 
-function resolveHosting(options: InternalEmailVitePluginOptions, config: Record<string, unknown>): string | undefined {
-  const nitro = isRecord(config.nitro) ? config.nitro : {}
-  const preset = typeof nitro.preset === "string" ? nitro.preset : undefined
-  return preset ?? options.hosting ?? process.env.NITRO_PRESET ?? process.env.SERVER_PRESET ?? process.env.VITEHUB_HOSTING
-}
-
 function mergeNitroExternal(value: unknown, addition: string): unknown {
   if (typeof value === "undefined") return [addition]
   if (Array.isArray(value)) return value.includes(addition) ? [...value] : [...value, addition]
@@ -459,7 +453,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       command = env?.command
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const configRecord = config as Record<string, unknown>
-      const hosting = getHostingProvider(resolveHosting(internalOptions, configRecord))
+      const hosting = resolveHost({ hosting: internalOptions.hosting, nitro: configRecord.nitro })
       cloudflare = hosting === "cloudflare"
       if (cloudflareEmail && !cloudflare) {
         throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED()

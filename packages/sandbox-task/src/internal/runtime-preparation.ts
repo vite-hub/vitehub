@@ -4,7 +4,7 @@ import { builtinModules } from 'node:module'
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
 import { VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
-import { detectHosting } from '@vite-hub/internal/hosting'
+import { normalizeHosting, resolveHostPreset } from '@vite-hub/internal/hosting'
 import { isPlainObject } from '@vite-hub/internal/object'
 import { basename, dirname, resolve } from 'pathe'
 
@@ -101,12 +101,7 @@ async function resolveSandboxTaskViteContext(
     typeof configOptions === 'undefined' ? integrationOptions ?? {} : configOptions,
   )
   const nitro = isPlainObject(userConfig.nitro) ? userConfig.nitro : {}
-  const preset = typeof userConfig.preset === 'string'
-    ? userConfig.preset
-    : typeof nitro.preset === 'string'
-      ? nitro.preset
-      : process.env.NITRO_PRESET || process.env.SERVER_PRESET
-  const hosting = detectHosting({ options: { preset } }) || undefined
+  const hosting = normalizeHosting(resolveHostPreset({ hosting: userConfig.preset, nitro })) || undefined
   const config = options === false
     ? false
     : hasDefinitions
