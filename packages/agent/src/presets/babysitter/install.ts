@@ -117,18 +117,20 @@ function resolveCache(install: BabysitterInstall, env: Record<string, string | u
  * Without reflinks, a restore and a save each write the full node_modules trees again. On ext4 that
  * cost more than a frozen install from the pnpm store, so the default cache needs reflinks.
  */
-async function supportsReflinks(directory: string): Promise<boolean> {
+async function supportsReflinks(directory: string, destination: string): Promise<boolean> {
   const probe = join(directory, `.reflink-probe-${process.pid}-${Date.now()}`);
+  const copy = join(destination, `.reflink-probe-${process.pid}-${Date.now()}.copy`);
   try {
     await mkdir(directory, { recursive: true });
+    await mkdir(destination, { recursive: true });
     await writeFile(probe, "probe");
-    await execFileAsync("cp", ["--reflink=always", probe, `${probe}.copy`]);
+    await execFileAsync("cp", ["--reflink=always", probe, copy]);
     return true;
   } catch {
     return false;
   } finally {
     await rm(probe, { force: true }).catch(() => {});
-    await rm(`${probe}.copy`, { force: true }).catch(() => {});
+    await rm(copy, { force: true }).catch(() => {});
   }
 }
 
@@ -145,7 +147,7 @@ export function createBabysitterInstaller(install: BabysitterInstall, env: Recor
   const inFlight = new Map<string, Promise<void>>();
   // A configured directory opts in on any filesystem. The default cache probes once.
   let cacheUsable: Promise<boolean> | undefined;
-  const useCache = () => cache ? (cacheUsable ??= cache.configured ? Promise.resolve(true) : supportsReflinks(cache.directory)) : Promise.resolve(false);
+  const useCache = (cwd: string) => cache ? (cacheUsable ??= cache.configured ? Promise.resolve(true) : supportsReflinks(cache.directory, cwd)) : Promise.resolve(false);
 
   async function restore(key: string, cwd: string, signal: AbortSignal): Promise<boolean> {
     if (!cache) return false;
@@ -203,7 +205,7 @@ export function createBabysitterInstaller(install: BabysitterInstall, env: Recor
       ["CI", "1"],
       ...custom ? [] : [["npm_config_ignore_scripts", "true"], ["YARN_ENABLE_SCRIPTS", "false"]],
     ]);
-    const key = cache && (program === "pnpm" || program === "corepack" && command[1]?.startsWith("pnpm@")) && await useCache() ? await pnpmInstallKey(cwd, prepared ? `${repositoryIdentity}:${prepared.fingerprint}` : repositoryIdentity).catch(() => undefined) : undefined;
+    const key = cache && (program === "pnpm" || program === "corepack" && command[1]?.startsWith("pnpm@")) && await useCache(cwd) ? await pnpmInstallKey(cwd, prepared ? `${repositoryIdentity}:${prepared.fingerprint}` : repositoryIdentity).catch(() => undefined) : undefined;
     let finishFlight: (() => void) | undefined;
     const releaseFlight = () => {
       if (!finishFlight || !key) return;
