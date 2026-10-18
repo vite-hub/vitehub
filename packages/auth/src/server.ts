@@ -643,7 +643,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
           controller.close()
         }
         else {
-          if (!(result.value instanceof Uint8Array)) throw new TypeError("Authorization response body yielded a non-byte chunk")
+          if (!ArrayBuffer.isView(result.value) || Object.prototype.toString.call(result.value) !== "[object Uint8Array]") throw new TypeError("Authorization response body yielded a non-byte chunk")
           controller.enqueue(result.value)
         }
       }
@@ -717,6 +717,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
+    if (value instanceof Response && status === 0 && statusText === "" && body === null
+      && headers instanceof Headers
+      && authorizationResponseProperties.every(key =>
+        responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+      && !authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))) return value
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     let nativeProperties = false
@@ -965,7 +970,7 @@ export function createAuthAccessHandler(
     const pathname = new URL(request.url).pathname
     const method = request.method.toUpperCase()
     const matched = rules.filter(rule => (!rule.method || rule.method === method)
-      && (pathname === rule.path || (rule.recursive && pathname.startsWith(`${rule.path}/`))))
+      && (pathname === rule.path || (rule.recursive && (rule.path === "/" ? pathname.startsWith("/") : pathname.startsWith(`${rule.path}/`)))))
     if (matched.length === 0) return
 
     const { response } = await checkAuthRequest(
