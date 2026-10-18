@@ -91,6 +91,14 @@ describe("Connection request policy", () => {
       .toThrow('Connections sharing request bucket "base" must use the same rate interval.')
   })
 
+  it("accepts equivalent intervals expressed with different rate forms", () => {
+    const scheduler = createRequestScheduler()
+    const provider = fakeFetch()
+    transport(provider.request, { bucket: "base", rate: { intervalMs: 0.1 } }, { name: "decimal", scheduler })
+    expect(() => transport(provider.request, { bucket: "base", rate: { limit: 7, perMs: 0.7 } }, { name: "ratio", scheduler }))
+      .not.toThrow()
+  })
+
   it("pauses the whole bucket after a 429 and retries every method after Retry-After", async () => {
     const scheduler = createRequestScheduler()
     const provider = fakeFetch([status(429, { "retry-after": "2" })])

@@ -71,7 +71,7 @@ export function createRequestScheduler() {
     if (!bucket) buckets.set(key, bucket = { nextAt: 0, pausedUntil: 0 })
     const intervalMs = !requests.rate ? 0 : "intervalMs" in requests.rate ? requests.rate.intervalMs : requests.rate.perMs / requests.rate.limit
     if (bucket.intervalMs === undefined) bucket.intervalMs = intervalMs
-    else if (bucket.intervalMs !== intervalMs) {
+    else if (Math.abs(bucket.intervalMs - intervalMs) > Number.EPSILON * Math.max(1, Math.abs(bucket.intervalMs), Math.abs(intervalMs)) * 8) {
       throw new Error(`Connections sharing request bucket "${key}" must use the same rate interval.`)
     }
     const retry = requests.retry
@@ -79,7 +79,7 @@ export function createRequestScheduler() {
       attempts: retry ? retry.attempts ?? DEFAULT_ATTEMPTS : 1,
       bucket,
       delayMs: retry?.delayMs ?? DEFAULT_DELAY_MS,
-      intervalMs,
+      intervalMs: bucket.intervalMs,
       methods: (retry?.methods ?? DEFAULT_METHODS).map(method => method.toUpperCase()),
       minPauseMs: retry?.on429?.minDelayMs ?? 0,
       retry: retry !== undefined,
