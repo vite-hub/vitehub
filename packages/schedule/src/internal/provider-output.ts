@@ -192,6 +192,23 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
   return cron
 }
 
+/**
+ * Reads the `timeZone` option of a `defineSchedule()` call. Returns `undefined` when the call does not declare it,
+ * the string when it is a static string, and `null` when it is not a static string.
+ */
+export function readStaticScheduleTimeZone(file: string): string | null | undefined {
+  const { findDefaultExportCall, readObjectProperty, readObjectPropertyNames } = createSourceScanner(file)
+  const definition = findDefaultExportCall(readFileSync(file, "utf8"), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  if (!definition || !readObjectPropertyNames(definition.argument).includes("timeZone")) return undefined
+  return readStaticString(readObjectProperty(definition.argument, "timeZone")) ?? null
+}
+
+function assertProviderTimeZone(file: string, scheduleName: string): void {
+  const timeZone = readStaticScheduleTimeZone(file)
+  if (timeZone === undefined || timeZone === "UTC") return
+  throw scheduleErrorDiagnostics.SCHEDULE_R0003({ message: `Schedule "${scheduleName}" declares timeZone ${timeZone === null ? "with a value that is not a static string" : JSON.stringify(timeZone)}, but provider cron output supports only UTC. Remove timeZone and write the cron in UTC, or run Schedules with the process driver (\`runtime: { driver: "process" }\`).` })
+}
+
 function readStaticString(source: string | undefined): string | undefined {
   if (!source || !/^["'`]/.test(source)) return
   const quote = source[0]
@@ -394,6 +411,7 @@ async function writeProviderEntries(
 export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
   const crons = await readRuntimeDefinitionCrons(definitions)
   for (const [name, cron] of crons) validateProviderCron(cron, name)
+  for (const definition of staticScheduleDefinitions(definitions)) assertProviderTimeZone(definition.handler, definition.name)
   return crons
 }
 
