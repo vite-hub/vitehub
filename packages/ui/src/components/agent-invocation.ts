@@ -781,7 +781,8 @@ function renderCommandError(value: unknown) {
     try {
       text = Object.prototype.toString.call(value) === "[object String]" ? String(value) : payloadText(value);
     } catch {
-      text = payloadText(value);
+      try { text = payloadText(value); }
+      catch { text = "[Unable to display payload]"; }
     }
   }
   return h("section", { class: "vh-invocation-event__payload" }, [
@@ -1646,8 +1647,8 @@ export const AgentInvocationInspector = defineComponent({
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
     showCapabilities: { default: true, type: Boolean },
-    showSources: { default: true, type: Boolean },
     showTimeline: { default: true, type: Boolean },
+    showSources: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
   },
   setup(props, { emit, slots }) {
