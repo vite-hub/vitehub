@@ -387,6 +387,13 @@ type AuthorizationStreamIntrinsics = {
 
 const validatedAuthorizationReaders = new WeakMap<object, AuthorizationStreamIntrinsics>()
 
+function releaseValidatedAuthorizationReader(body: object) {
+  const validated = validatedAuthorizationReaders.get(body)
+  if (!validated) return
+  validatedAuthorizationReaders.delete(body)
+  try { Reflect.apply(validated.releaseLock, validated.reader, []) } catch {}
+}
+
 function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefined {
   let prototype: object | null = Object.getPrototypeOf(body)
   let locked: ((this: object) => boolean) | undefined
@@ -602,11 +609,13 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
     if (!isSerializableAuthorizationBody(body)) return
-    const forEach = Reflect.get(headerCarrier, "forEach")
-    const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
+    let bridgeOwned = false
+    try {
+      const forEach = Reflect.get(headerCarrier, "forEach")
+      const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
-    if (!Array.isArray(cookies)) return
+      if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
     let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
@@ -620,27 +629,32 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // followed by another cookie assignment at the cookie-pair boundary proves that
     // multiple values were merged. Assignment-like text after an extension attribute
     // can still be part of that attribute's value, so do not reject it as a merge.
-    if (combinedCookies !== undefined) {
-      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
-      normalizedHeaders.append("set-cookie", combinedCookies)
-    }
-    for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
+      if (combinedCookies !== undefined) {
+        if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+        normalizedHeaders.append("set-cookie", combinedCookies)
+      }
+      for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
     // Validate status and native body state before acquiring reader ownership.
-    if (body === null) {
-      return status === 0 && statusText === "" && [...normalizedHeaders].length === 0
-        ? Response.error()
-        : new Response(null, { status, statusText, headers: normalizedHeaders })
+      if (body === null) {
+        return status === 0 && statusText === "" && [...normalizedHeaders].length === 0
+          ? Response.error()
+          : new Response(null, { status, statusText, headers: normalizedHeaders })
+      }
+      const getReader = authorizationBodyReader(body)
+      if (!getReader) return
+      const bridgedBody = bridgeAuthorizationBody(body, getReader)
+      bridgeOwned = true
+      try {
+        return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
+      }
+      catch (error) {
+        bridgedBody.release()
+        throw error
+      }
     }
-    const getReader = authorizationBodyReader(body)
-    if (!getReader) return
-    const bridgedBody = bridgeAuthorizationBody(body, getReader)
-    try {
-      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
-    }
-    catch (error) {
-      bridgedBody.release()
-      throw error
+    finally {
+      if (!bridgeOwned) releaseValidatedAuthorizationReader(Object(body))
     }
   }
   catch {
