@@ -455,37 +455,6 @@ function isNativeUint8ArrayChunk(value: unknown): value is Uint8Array {
   }
 }
 
-function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (this: object) => ReadableStreamDefaultReader<Uint8Array>) {
-  // Invoke the source stream's native operations so separate realms retain their brand.
-  const reader = Reflect.apply(getReader, body, [])
-  const nativeReaderMethod = (key: "read" | "cancel" | "releaseLock") => {
-    if (Object.prototype.hasOwnProperty.call(reader, key)) throw new Error("Malformed authorization response reader")
-    let prototype: object | null = Object.getPrototypeOf(reader)
-    const seen = new Set<object>()
-    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-      if (seen.has(prototype)) throw new Error("Malformed authorization response reader")
-      seen.add(prototype)
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, key)
-      if (descriptor) {
-        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        const expected = foreignReaderMethods.get(Object.getOwnPropertyDescriptor(Object.getPrototypeOf(reader), "constructor")?.value as Function)?.[key]
-        if ((expected ? descriptor.value !== expected : !isNativeReaderMethod(descriptor.value, key))
-          || constructor?.name !== "ReadableStreamDefaultReader") {
-          throw new Error("Malformed authorization response reader")
-        }
-        let parent = Object.getPrototypeOf(prototype)
-        for (let parentDepth = 0; parent && parentDepth < authorizationResponsePrototypeLimit; parentDepth++) {
-          if (Object.getOwnPropertyDescriptor(parent, key)) throw new Error("Malformed authorization response reader")
-          parent = Object.getPrototypeOf(parent)
-        }
-        return descriptor.value as (...args: unknown[]) => unknown
-      }
-      prototype = Object.getPrototypeOf(prototype)
-    }
-    throw new Error("Malformed authorization response reader")
-  }
-}
-
 function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
 
@@ -644,15 +613,16 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
-    const nativeHeaderMethods = ["get", "forEach"].every(key =>
-      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    const headerPrototype = Object.getPrototypeOf(headerCarrier)
+    const nativeHeaderMethods = headerPrototype !== null && ["get", "forEach"].every(key =>
+      responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(headerPrototype, key)?.value)
     // A foreign implementation must carry its own native Headers methods.
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
     // a genuine cross-runtime response.
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
-      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(headerPrototype, "getSetCookie")?.value)
 
     const nativeBodyReader = body === null ? true : getNativeAuthorizationBodyReader(body)
     if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
