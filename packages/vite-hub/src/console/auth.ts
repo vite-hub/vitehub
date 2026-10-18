@@ -1,3 +1,4 @@
+import type { AccessAuthorizationContext } from "@vite-hub/runtime"
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import * as v from "valibot"
@@ -147,7 +148,6 @@ export interface ConsoleAuthDefinition {
 }
 
 function isConsoleAuthResolver<T>(option: T | ((context: AuthRuntimeContext) => T)): option is (context: AuthRuntimeContext) => T {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Auth Definitions may be static objects or request-scoped resolvers, and this is the documented discriminant.
   return typeof option === "function"
 }
 
@@ -174,7 +174,6 @@ export async function prepareConsoleAuth(
 }
 
 export function defineConsoleAuth(definition: ConsoleAuthDefinition): ConsoleAuthDefinition {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A user-owned definition crosses the runtime module boundary, so reject a missing authorization callback.
   if (!definition || typeof definition.authorize !== "function" || !definition.auth || !definition.signIn?.provider) {
     throw new TypeError("[vitehub] Console Auth requires an Auth Definition, an authorize callback, and a sign-in provider.")
   }
@@ -193,7 +192,6 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
       const resolvedRuntime = isConsoleAuthResolver(runtime) ? runtime(context) : runtime
       const resolved = { ...options, ...resolvedRuntime }
       const database = resolved.database
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Better Auth accepts adapter objects, while ViteHub Auth also accepts metadata objects that do not create a database.
       const databaseMetadata = database === true
         || (database !== null && typeof database === "object" && "name" in database && Object.keys(database).every(key => key === "name" || key === "dedicated"))
       if (!database || databaseMetadata) {
@@ -226,24 +224,34 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
   } as AuthDefinition<AuthDefinitionInput>
 }
 
-/** The request that a `host-managed` Console authorize function checks. */
+/** The signed-in user that the Console gives `console.authorize`. */
+export type ConsoleUser = AccessAuthorizationContext["user"]
+
+/** The request that `console.authorize` checks. */
 export interface ConsoleAuthorizeContext {
   request: Request
+  /** The signed-in user with `auth: "app"` or a session-based Console Auth. Not set with `auth: false` or Cloudflare Access. */
+  user?: ConsoleUser
 }
 
 /**
- * Decides whether one Console request may continue with `exposure: "host-managed"`.
- * Return `true` to allow it, `false` for `403`, or a custom `Response`.
+ * What `console.authorize` returns for one request.
+ * - `true` allows every Console section.
+ * - `{ sections }` allows only these section ids, for example `["content"]`. An empty list is `403`.
+ * - `false` is `403`. A `Response` is returned as-is.
  */
-export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => boolean | Response | Promise<boolean | Response>
+export type ConsoleAuthorizeResult = boolean | Response | { sections: readonly string[] }
 
-/** Define the function that every Console data route calls with `exposure: "host-managed"`. */
+/** Decides whether one Console request may continue, and which Console sections it may use. */
+export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => ConsoleAuthorizeResult | Promise<ConsoleAuthorizeResult>
+
+/** Define the function that every Console data route calls. Set its file path as `console.authorize`. */
 export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuthorize {
   if (!(authorize instanceof Function)) throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
   return authorize
 }
 
-const consoleSessionSchema =v.object({ user: v.object({ id: v.pipe(v.string(), v.minLength(1)) }) })
+const consoleSessionSchema = v.looseObject({ user: v.looseObject({ id: v.pipe(v.string(), v.minLength(1)) }) })
 
 /** The part of a ViteHub Auth instance that reads the signed-in session. */
 export interface ConsoleSessionReader {
@@ -251,10 +259,10 @@ export interface ConsoleSessionReader {
 }
 
 /**
- * Identify the signed-in Console user as `user:<id>`, for example for Connections management activity.
- * Returns `undefined` when the request has no session. Session lookup errors propagate so that an action is never recorded for the wrong user.
+ * Read the signed-in Console user from a ViteHub Auth instance. Returns `undefined` when the request has no session.
+ * Session lookup errors propagate, so an action is never recorded for the wrong user.
  */
-export async function consoleSessionActor(auth: ConsoleSessionReader, request: Pick<Request, "headers">): Promise<string | undefined> {
+export async function readConsoleSessionUser(auth: ConsoleSessionReader, request: Pick<Request, "headers">): Promise<ConsoleUser | undefined> {
   const session = v.safeParse(consoleSessionSchema, await auth.api.getSession({ headers: request.headers }))
-  return session.success ? `user:${session.output.user.id}` : undefined
+  return session.success ? session.output.user : undefined
 }

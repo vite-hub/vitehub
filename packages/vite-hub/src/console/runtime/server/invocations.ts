@@ -191,10 +191,8 @@ interface ConsoleD1Database extends AgentInvocationD1Database {
 }
 
 function isD1Database(value: unknown): value is ConsoleD1Database {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The Worker env is untyped, so check the D1 methods that the journal calls.
   if (typeof value !== "object" || value === null || !("prepare" in value) || typeof value.prepare !== "function" || !("batch" in value) || typeof value.batch !== "function") return false
   const statement: unknown = value.prepare("SELECT 1")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console Drizzle reads positional rows through D1's raw statement operation.
   return typeof statement === "object" && statement !== null && "raw" in statement && typeof statement.raw === "function"
 }
 

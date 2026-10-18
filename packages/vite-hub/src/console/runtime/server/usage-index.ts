@@ -7,7 +7,7 @@ import {
   publicTotals,
   compareUsageModels,
   stringValue,
-  usageNode,
+  finishUsage,
   usageSession,
   usageCursor,
   usageQueryWindow,
@@ -95,6 +95,11 @@ export function createConsoleUsageIndex(
           `INSERT OR IGNORE INTO ${dirty}(id)
         SELECT s.id FROM ${source} s LEFT JOIN ${table} p ON p.id = s.id AND p.model_key = ''
         WHERE s.status IN (${terminalStatusList}) AND (p.id IS NULL OR p.revision != s.updated_at)`,
+          // Earlier projections dropped the usage of every truncated finish observation. Project those rows again.
+          `INSERT OR IGNORE INTO ${dirty}(id)
+        SELECT p.id FROM ${table} p JOIN ${source} s ON s.id = p.id
+        WHERE p.model_key = '' AND p.incomplete = 1 AND p.usage IS NULL
+        AND s.status IN (${terminalStatusList}) AND instr(s.record, '"usage.record"') > 0`,
         ].map((sql) => ({ sql })),
         "write",
       );
@@ -128,9 +133,7 @@ export function createConsoleUsageIndex(
       const finish = finishValue === undefined ? undefined : JSON.parse(finishValue);
       const incomplete = finish?.attributes?.["vitehub.observation.truncated"] === true;
       const configuredModel = stringValue(row.model)?.trim() || undefined;
-      const usage = incomplete
-        ? undefined
-        : usageNode(finish?.attributes?.["usage.record"], true, configuredModel);
+      const usage = finishUsage(finish?.attributes?.["usage.record"], incomplete, configuredModel);
       const entries: Array<[string, ConsoleInvocationUsage | undefined]> = terminalStatuses.has(
         String(row.status),
       )
@@ -376,6 +379,7 @@ export function createConsoleUsageIndex(
               updatedAt: String(row.revision),
             },
             row.usage ? JSON.parse(String(row.usage)) : undefined,
+            Number(row.incomplete) === 1,
           ),
           models: JSON.parse(String(row.model_names)),
         })),

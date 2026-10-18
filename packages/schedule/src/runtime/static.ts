@@ -1,7 +1,10 @@
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunContext } from "../types.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
+import { createScheduleError, invalidScheduleValueDetails } from "../errors.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
+import { isScheduleDate, validateScheduledAt } from "./date.ts"
+import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -33,6 +36,28 @@ interface CloudflareScheduledEventLike {
   scheduledTime?: number | string | Date
 }
 
+const intrinsicErrorIsError = (Error as ErrorConstructor & { isError?: (value: unknown) => boolean }).isError
+const intrinsicNativeErrorIsError = (() => {
+  try {
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Node's optional process bridge is inspected at runtime to avoid importing Node-only modules in provider bundles.
+    const process = (globalThis as typeof globalThis & {
+      process?: { getBuiltinModule?: (name: string) => unknown }
+    }).process
+    const getBuiltinModule = process?.getBuiltinModule
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before invocation.
+    if (typeof getBuiltinModule !== "function") return undefined
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- getBuiltinModule returns an unknown namespace that is narrowed by the guarded predicate below.
+    const util = getBuiltinModule.call(process, "util") as {
+      types?: { isNativeError?: (value: unknown) => boolean }
+    } | undefined
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before capture.
+    return typeof util?.types?.isNativeError === "function" ? util.types.isNativeError : undefined
+  }
+  catch {
+    return undefined
+  }
+})()
+
 export interface StaticScheduleRun extends ScheduleRunContext {
   cron: string
   scheduleId: string
@@ -49,15 +74,59 @@ export function isScheduleCronAuthorized(authorization: string | null | undefine
   return isViteHubBearerSecretEqual(authorization, cronSecret)
 }
 
+export function normalizeCron(cron: string): string {
+  return cron.trim().split(/\s+/).join(" ")
+}
+
 export function normalizeScheduleRuntimeError(error: unknown): Error {
-  if (error instanceof Error) return error
-  return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message: String(error) })
+  if (isScheduleRuntimeError(error)) return error
+  let message: string | undefined
+  try {
+    message = String(error)
+  }
+  catch {
+    message = "[unprintable thrown value]"
+  }
+  try {
+    return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message })
+  }
+  catch {
+    const fallback = new Error(message)
+    Object.defineProperty(fallback, "code", { value: "SCHEDULE_R0035", enumerable: true })
+    Object.defineProperty(fallback, "cause", { value: error })
+    return fallback
+  }
+}
+
+function isScheduleRuntimeError(error: unknown): error is Error {
+  try {
+    if (error instanceof Error) return true
+  }
+  catch {
+    return false
+  }
+  if (error === null || typeof error !== "object") return false
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional intrinsic predicate is captured from the host at module load.
+  if (typeof intrinsicNativeErrorIsError === "function") {
+    try {
+      return intrinsicNativeErrorIsError(error)
+    }
+    catch {
+      // Continue with the captured Error.isError predicate when the host utility rejects the value.
+    }
+  }
+  try {
+    return typeof intrinsicErrorIsError === "function" && intrinsicErrorIsError(error) === true
+  }
+  catch {
+    return false
+  }
 }
 
 export function createStaticScheduleRun(
   options: Omit<ExecuteStaticScheduleOptions, "definition" | "waitUntil"> & { waitUntil: NonNullable<ExecuteStaticScheduleOptions["waitUntil"]> },
 ): StaticScheduleRun {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
   return {
     cron: options.cron,
     id: `run_${options.name}_${scheduledAt.toISOString()}`,
@@ -75,11 +144,17 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
-  const scheduledAt = options.scheduledAt ?? new Date()
+  if (!hasRuntimeType(options.cron, "string") || !options.cron.trim()) {
+    throw createScheduleError("SCHEDULE_INVALID_CRON", {
+      details: invalidScheduleValueDetails("cron", options.cron),
+    })
+  }
+  const cron = normalizeCron(options.cron)
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
   const runs: Array<Promise<unknown>> = []
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
-    if (!definition || definition.cron !== options.cron) continue
+    if (!definition || normalizeCron(definition.cron) !== cron) continue
     runs.push(executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }))
   }
   return await Promise.all(runs)
@@ -103,12 +178,12 @@ export async function executeCloudflareStaticSchedules(
 
 function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cron: string, scheduledAt: Date } {
   const cron = event.controller?.cron ?? event.cron
-  if (!cron) {
+  if (!hasRuntimeType(cron, "string") || !cron.trim()) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0027({ message: "[vitehub:schedule] Cloudflare scheduled event is missing a cron string." })
   }
   const scheduledTime = event.controller?.scheduledTime ?? event.scheduledTime
-  const scheduledAt = scheduledTime instanceof Date
-    ? scheduledTime
+  const scheduledAt = isScheduleDate(scheduledTime)
+    ? new Date(Date.prototype.getTime.call(scheduledTime))
     : scheduledTime === undefined
       ? new Date()
       : new Date(scheduledTime)
@@ -236,6 +311,7 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
   return isObjectRecord(value)
     && Object.hasOwn(value, "cron")
+    && hasRuntimeType(value.cron, "string")
     && Object.hasOwn(value, "handler")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry handlers cross module and JavaScript realm boundaries; validate callability without realm-sensitive instanceof.
     && typeof value.handler === "function"

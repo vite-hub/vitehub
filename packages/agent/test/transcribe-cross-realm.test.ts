@@ -1,4 +1,5 @@
 import { runInNewContext } from "node:vm"
+import { Worker } from "node:worker_threads"
 
 import { describe, expect, it } from "vitest"
 
@@ -6,7 +7,11 @@ import { audioBytes } from "../src/capabilities/transcribe.ts"
 
 describe("Transcribe attachment portability", () => {
   it("reads native Blobs constructed in a VM context", async () => {
-    const blob = runInNewContext(`new Blob([new Uint8Array([1, 2, 3])], { type: "audio/ogg" })`, { Blob }) as Blob
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      const worker = new Worker(`const { parentPort } = require("node:worker_threads"); const { Blob } = require("node:buffer"); parentPort.postMessage(new Blob([new Uint8Array([1, 2, 3])], { type: "audio/ogg" }))`, { eval: true })
+      worker.once("message", (value: Blob) => { resolve(value); void worker.terminate() })
+      worker.once("error", reject)
+    })
 
     await expect(audioBytes({ data: blob, mediaType: "audio/ogg", type: "audio" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
   })

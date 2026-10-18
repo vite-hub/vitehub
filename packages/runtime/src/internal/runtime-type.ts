@@ -26,7 +26,6 @@ export function hasRuntimeType<TType extends keyof RuntimeTypeMap>(
     case "string":
     case "symbol":
     case "undefined": {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This shared guard classifies opaque JavaScript inputs without coercion or exceptions.
       const representation = typeof value
       // Callable HTMLDDA browser values report undefined without being undefined.
       return (representation === "undefined" && value !== undefined ? "function" : representation) === expected

@@ -36,5 +36,5 @@ async function statusHandler(event: ConsoleRequestEvent): Promise<{ agents: Agen
   return { agents, observability: observabilityStatus() }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof statusHandler> = withConsoleAccess(statusHandler)
+const guardedHandler: ConsoleAccessRoute<typeof statusHandler> = withConsoleAccess(statusHandler, { section: "agents" })
 export default guardedHandler
