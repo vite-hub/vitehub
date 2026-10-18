@@ -287,7 +287,7 @@ describe("Database Nuxt integration", () => {
         },
       })
       const runtime = await readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")
-      expect(runtime).toContain("createPostgresDatabase(definition_0, {\"binding\":\"HYPERDRIVE\"")
+      expect(runtime).toContain("createPostgresDatabase({ ...definition_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\"")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -544,7 +544,7 @@ describe("Database Nuxt integration", () => {
 
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       expect(code).toMatch(/import \{ createPostgresDatabase \} from "file:.+\/runtime\/postgres\.js"/)
-      expect(code).toContain("db: createPostgresDatabase(definition_0, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
+      expect(code).toContain("db: createPostgresDatabase({ ...definition_0, schema: definition_0.schema }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

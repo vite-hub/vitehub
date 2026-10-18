@@ -174,26 +174,36 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
   return kit.config
 }
 
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): string {
+/**
+ * `workersModule` is false in `vite dev`. The Nitro dev runner can be Node (`node-worker`), where `cloudflare:workers`
+ * does not exist. The workerd runner gives each request its bindings, so dev code reads them from the event.
+ */
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true): string {
+  const cloudflareGlobals = cloudflare && workersModule
   return [
-    cloudflare ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
+    cloudflareGlobals ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
     cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
-    `import { ${cloudflare ? "setActiveCloudflareEnv, " : ""}setBlobRuntimeConfig } from '${importBase}/runtime/state'`,
+    `import { ${cloudflareGlobals ? "setActiveCloudflareEnv, " : ""}setBlobRuntimeConfig } from '${importBase}/runtime/state'`,
     "",
     cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
-    cloudflare ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
+    cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
     "}",
     "",
   ].filter(line => typeof line === "string").join("\n")
 }
 
-function renderNitroBlobMiddleware(importBase = blobPackageName): string {
+function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule = true): string {
+  const requestEnv = "target.env ?? target.context?.cloudflare?.env ?? target.context?._platform?.cloudflare?.env ?? target.req?.runtime?.cloudflare?.env ?? target.node?.req?.runtime?.cloudflare?.env"
   return [
-    "// @ts-ignore Cloudflare provides this virtual module at runtime.",
-    "import { env as vitehubEnv } from 'cloudflare:workers'",
+    ...(workersModule
+      ? [
+          "// @ts-ignore Cloudflare provides this virtual module at runtime.",
+          "import { env as vitehubEnv } from 'cloudflare:workers'",
+        ]
+      : []),
     "import { defineMiddleware } from 'nitro'",
     `import { setActiveCloudflareEnv } from '${importBase}/runtime/state'`,
     "",
@@ -207,8 +217,13 @@ function renderNitroBlobMiddleware(importBase = blobPackageName): string {
     "",
     "export default defineMiddleware((event) => {",
     "  const target = event as unknown as CloudflareEvent",
-    "  const env = target.env ?? target.context?.cloudflare?.env ?? target.context?._platform?.cloudflare?.env ?? target.req?.runtime?.cloudflare?.env ?? target.node?.req?.runtime?.cloudflare?.env ?? (vitehubEnv as unknown as CloudflareEnv)",
-    "  setActiveCloudflareEnv(env)",
+    ...(workersModule
+      ? [`  const env = ${requestEnv} ?? (vitehubEnv as unknown as CloudflareEnv)`, "  setActiveCloudflareEnv(env)"]
+      : [
+          "  // A Node dev runner has no Cloudflare env. Keep the active env as it is.",
+          `  const env = ${requestEnv}`,
+          "  if (env) setActiveCloudflareEnv(env)",
+        ]),
     "})",
     "",
   ].join("\n")
@@ -347,12 +362,12 @@ function isAuthDefinitionPath(file: string, rootDir: string, serverDirs: string[
   })
 }
 
-async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string): Promise<void> {
+async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false): Promise<void> {
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   await Promise.all([
     writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase)),
+    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development)),
+    writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase, !development)),
   ])
   const serve = blob ? blob.serve : undefined
   if (!serve) return
@@ -386,6 +401,8 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   let devTokenServerId: string | undefined
+  // Nuxt replays `config` with the host command, but its replayed resolved config has no `command`.
+  let command: string | undefined
   let resolved: ResolvedConfig | undefined
   let siblingRuntime: BlobRuntimeContribution | undefined
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
@@ -404,6 +421,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       },
     },
     config(config, env) {
+      command = env.command
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const cloudflare = isNitroCloudflareHost(configuredNitro)
@@ -451,6 +469,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         importBase,
         provider,
         await resolveBlobServeAuthorizeModule(config, rootDir, runtimeConfig.blob ? runtimeConfig.blob.serve : undefined),
+        (config.command ?? command) === "serve",
       )
       if (devHandler) {
         devTokenServerId = (await createViteHubDevToken(rootDir, blobDevTokenNamespace)).serverId
