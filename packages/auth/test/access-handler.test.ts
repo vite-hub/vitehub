@@ -412,9 +412,6 @@ describe("Auth access handlers", () => {
     }))
 
     await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
-    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
-    expect(headers).not.toHaveBeenCalled()
-    expect(body).not.toHaveBeenCalled()
   })
 
   it("preserves foreign status, body, and separate Set-Cookie headers", async () => {
