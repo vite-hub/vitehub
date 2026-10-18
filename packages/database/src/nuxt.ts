@@ -26,7 +26,7 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
-import type { CollectedDatabaseContribution } from "./contributions.ts"
+import type { CollectedDatabaseContribution, CollectedDatabaseContributions } from "./contributions.ts"
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions, NuxtDatabaseViteOptions } from "./types.ts"
 import type { Plugin } from "vite"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -169,7 +169,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       let localNitroConfig: Record<string, unknown> | undefined
       let localRuntimeRefresh = Promise.resolve()
       let closed = false
-      let contributions: CollectedDatabaseContribution[] = []
+      let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
       const contributionWatchers = new Map<string, FSWatcher>()
@@ -181,14 +181,14 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       const refreshLocalRuntime = () => {
         const refresh = async () => {
           if (!localNitroConfig || closed) return
-          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
+          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions.tables)
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
           }
-          for (const contribution of contributions) {
+          for (const contribution of contributions.definitions) {
             try {
-              const { module } = contribution.definition
+              const { definition: module } = contribution
               const file = isAbsolute(module) ? resolve(module) : require.resolve(module)
               await collectWatchedModuleFiles(file, require, contributionFiles)
             }

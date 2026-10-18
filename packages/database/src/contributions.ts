@@ -43,8 +43,12 @@ export type DatabaseContributionEntry = DatabaseContribution | DatabaseDefinitio
 export interface DatabaseContributionContext {
   /** Root that Database Definitions are discovered from, after `database.projectRoot`. */
   rootDir: string
+  /** Project root for host integrations. */
+  projectRoot?: string
   /** Server directories that Database Definitions are discovered from, for example Nuxt's `serverDir`. */
   serverDirs?: string[]
+  /** Plugins available when a contribution factory needs to inspect siblings. */
+  plugins?: readonly unknown[]
 }
 
 export type DatabaseContributionFactory = (context: DatabaseContributionContext) =>
@@ -216,6 +220,7 @@ export async function collectDatabaseContributions(
 export function resolveDatabaseContributionTargets(
   databaseNames: readonly string[],
   contributions: readonly CollectedDatabaseContribution[],
+  dialects?: Record<string, string>,
 ): Record<string, ResolvedDatabaseContribution[]> {
   const byDatabase: Record<string, ResolvedDatabaseContribution[]> = Object.create(null)
   const choices = databaseNames.length ? [...databaseNames].sort().map(name => JSON.stringify(name)).join(", ") : "none"

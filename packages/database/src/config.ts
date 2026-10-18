@@ -34,7 +34,7 @@ import type {
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveDatabaseContributionTargets } from "./contributions.ts"
 
-import type { CollectedDatabaseContribution, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
+import type { CollectedDatabaseContribution, CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
@@ -479,6 +479,7 @@ export interface DatabaseDiscoveryOptions {
    * database always has a default Database.
    */
   implicitDefault?: boolean
+  definitions?: readonly CollectedDatabaseDefinitionContribution[]
   serverDirs?: string[]
 }
 
@@ -610,7 +611,7 @@ export function resolveDBViteConfig(
   rootDir = process.cwd(),
   context: {
     /** Tables that Vite plugins contribute. See `collectDatabaseContributions()`. */
-    contributions?: readonly CollectedDatabaseContribution[]
+    contributions?: CollectedDatabaseContributions
     /** Without a Database Definition, resolve the implicit default Database. See `discoverDatabaseDefinitions()`. */
     implicitDefault?: boolean
     provisionRoot?: string
@@ -620,7 +621,6 @@ export function resolveDBViteConfig(
   if (options === false) return
 
   const definitions = discoverDatabaseDefinitions(rootDir, { definitions: context.contributions?.definitions, serverDirs: context.serverDirs })
-  const tableContributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.tables ?? [])
   if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)
@@ -679,7 +679,7 @@ export function resolveDBViteConfig(
 
   const tableContributionsByDatabase = resolveDatabaseContributionTargets(
     definitions.map(definition => definition.name),
-    context.contributions ?? [],
+    context.contributions?.tables ?? [],
     Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect])),
   )
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
