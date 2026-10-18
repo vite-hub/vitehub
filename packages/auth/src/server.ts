@@ -678,7 +678,10 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
       }
     },
   }, { highWaterMark: 0 })
-  return { stream, release, ready: getReader === ReadableStream.prototype.getReader ? undefined : acquire() }
+  // The source reader is acquired synchronously above.  Do not invoke an
+  // undefined helper here (or acquire a second reader); the bridge owns this
+  // reader until it is released after the host stream finishes.
+  return { stream, release }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
