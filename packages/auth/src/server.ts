@@ -461,6 +461,7 @@ async function validateAuthorizationBody(
         await cleanupReader().catch(() => {});
         controller.error(error);
       }
+
     },
     async cancel(reason) {
       await cleanupReader(reason);
@@ -478,14 +479,11 @@ function isUint8ArrayChunk(value: unknown): value is Uint8Array {
 
 function hasNativeStreamBrand(body: object): boolean {
   try {
-    // A stream's reader acquisition is an internal capability. An own
-    // property shadows the native operation and must fail closed; native
-    // tee() can otherwise accept the stream without ever exercising it.
     if (Object.prototype.hasOwnProperty.call(body, "getReader")) return false;
-    // Response's BodyInit conversion performs the platform ReadableStream brand
-    // check, including for streams created in another realm. A spoofed object is
-    // converted to a new stream, so identity distinguishes it from a real stream.
-    return new Response(body as ReadableStream).body === body;
+    const getter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get;
+    if (!getter) return false;
+    Reflect.apply(getter, body, []);
+    return true;
   } catch {
     return false;
   }
