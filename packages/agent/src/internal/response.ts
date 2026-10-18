@@ -48,6 +48,24 @@ export function isResponse(value: unknown): value is Response {
       const ownHeaders = Object.getOwnPropertyDescriptor(value as object, "headers")
       if (ownHeaders && !ownHeaders.get && "value" in ownHeaders) {
         if (!ownHeaders.value || (typeof ownHeaders.value !== "object" && typeof ownHeaders.value !== "function")) return false
+        // Implementations with own `headers` fields do not expose a headers
+        // accessor we can brand-check. Use their inherited body accessor,
+        // which reaches the implementation's internal body state and throws
+        // for objects fabricated solely from the registered prototype.
+        let body: (() => unknown) | undefined
+        let bodyPrototype: object | null = registeredConstructor.prototype
+        const visitedBodyPrototypes = new Set<object>()
+        while (bodyPrototype && !visitedBodyPrototypes.has(bodyPrototype)) {
+          visitedBodyPrototypes.add(bodyPrototype)
+          const descriptor = Object.getOwnPropertyDescriptor(bodyPrototype, "body")
+          if (descriptor) {
+            body = descriptor.get
+            break
+          }
+          bodyPrototype = Object.getPrototypeOf(bodyPrototype) as object | null
+        }
+        if (typeof body !== "function") return false
+        body.call(value)
         return true
       }
       // A subclass may inherit the implementation's intrinsic accessor from
