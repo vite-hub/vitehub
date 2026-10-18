@@ -15,7 +15,7 @@ const hasPanel = computed(
 
 <template>
   <UMain class="vh-docs-shell">
-    <DocsSidebars class="vh-docs-desktop-nav" :panel="hasPanel" />
+    <DocsSidebars v-if="!isSupportMatrix" class="vh-docs-desktop-nav" :panel="hasPanel" />
 
     <div class="vh-docs-content">
       <UContainer v-if="isSupportMatrix">
@@ -60,6 +60,7 @@ const hasPanel = computed(
 @media (min-width: 64rem) {
   .vh-docs-shell {
     display: flex;
+    --ui-header-height: 0px;
     overflow-x: clip;
   }
 
