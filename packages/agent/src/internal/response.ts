@@ -23,7 +23,14 @@ export function isResponse(value: unknown): value is Response {
   catch {
     try {
       const constructor = (value as { constructor?: unknown }).constructor
-      return isTrustedResponseConstructor(constructor) && value instanceof (constructor as Function)
+      if (!isTrustedResponseConstructor(constructor)) return false
+      // Use the registered implementation's intrinsic headers accessor as the
+      // brand check. `instanceof` alone accepts Object.create(Response.prototype)
+      // even though it has none of the implementation's internal state.
+      const headers = Object.getOwnPropertyDescriptor(constructor.prototype, "headers")?.get
+      if (typeof headers !== "function") return false
+      headers.call(value)
+      return true
     }
     catch {
       return false
