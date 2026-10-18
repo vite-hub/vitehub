@@ -1,9 +1,6 @@
 <script setup lang="ts">
-import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
-
 import {
   docsManifest,
-  getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
@@ -11,26 +8,22 @@ import {
   getDocsRelatedSections,
   getDocsSectionForPath,
   getDocsSidebarGroups,
+  docsRootSectionId,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
-const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
-const platformSections = docsManifest.sections.filter(candidate => candidate.category === "Platform");
-const pageGroups = computed(() => {
-  if (!section.value) return [];
-  const groups = getDocsSidebarGroups(section.value);
-  const perspective = getDocsPageByPath("/docs/getting-started/built-for-vue");
-  if (section.value.id !== "ui" || !perspective) return groups;
-  return groups.map((group) =>
-    group.label === "Start" ? { ...group, pages: [...group.pages, perspective] } : group,
-  );
-});
+const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path)
+  ?? (['/tutorials', '/projects', '/templates'].some(path => normalizeDocsPath(route.path) === path)
+    ? docsManifest.sections.find(candidate => candidate.id === docsRootSectionId) ?? null
+    : null));
+const pageGroups = computed(() => section.value ? getDocsSidebarGroups(section.value) : []);
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
 );
 // Outside every section, for example on the catalog, the sidebar lists every product by category.
 const catalog = getDocsCatalog(docsManifest.sections);
+const platformSections = computed(() => catalog.find(group => group.category === "Platform")?.sections ?? []);
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path);
@@ -39,7 +32,10 @@ function isActive(path: string) {
 
 <template>
   <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
-    <template v-for="(pageGroup, groupIndex) in pageGroups" :key="groupIndex">
+    <template
+      v-for="(pageGroup, pageGroupIndex) in pageGroups"
+      :key="pageGroup.label || `pages-${pageGroupIndex}`"
+    >
       <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
         <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink
@@ -76,28 +72,10 @@ function isActive(path: string) {
         :to="relatedSection.path"
         class="vh-docs-sidebar-link"
       >
-        <PrimitiveIcon :name="railSectionIcon(relatedSection)" class="vh-docs-sidebar-icon" />
+        <UIcon :name="sidebarSectionIcon(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ relatedSection.title }}</span>
       </NuxtLink>
     </section>
-
-    <section v-if="section.id === 'getting-started' || section.category === 'Platform'" class="vh-docs-sidebar-related" aria-label="Build and deploy">
-      <h2 class="vh-docs-sidebar-heading">Build and deploy</h2>
-      <NuxtLink
-        v-for="platformSection in platformSections"
-        :key="platformSection.id"
-        :to="platformSection.path"
-        class="vh-docs-sidebar-link"
-      >
-        <UIcon :name="sidebarSectionIcon(platformSection)" class="size-4 shrink-0" />
-        <span class="min-w-0 truncate">{{ platformSection.title }}</span>
-      </NuxtLink>
-    </section>
-
-    <NuxtLink v-if="section.id !== 'getting-started'" to="/docs/getting-started" class="vh-docs-sidebar-link vh-docs-sidebar-catalog-link">
-      <UIcon name="i-lucide-book-open" class="size-4 shrink-0" />
-      <span class="min-w-0 truncate">Get started</span>
-    </NuxtLink>
 
     <NuxtLink to="/docs" class="vh-docs-sidebar-link vh-docs-sidebar-catalog-link">
       <UIcon name="i-ph-squares-four-light" class="size-4 shrink-0" />
@@ -114,7 +92,7 @@ function isActive(path: string) {
         :to="catalogSection.path"
         class="vh-docs-sidebar-link"
       >
-        <PrimitiveIcon :name="railSectionIcon(catalogSection)" class="vh-docs-sidebar-icon" />
+        <UIcon :name="sidebarSectionIcon(catalogSection)" class="size-4 shrink-0" />
         <span class="min-w-0 truncate">{{ catalogSection.title }}</span>
       </NuxtLink>
     </section>
@@ -135,11 +113,17 @@ function isActive(path: string) {
 }
 
 .vh-docs-sidebar-page-group,
-.vh-docs-sidebar-category,
-.vh-docs-sidebar-related {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
+.vh-docs-sidebar-category {
+  border-top: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent);
+}
+
+.vh-docs-sidebar-page-group:first-child,
+.vh-docs-sidebar-category:first-child {
+  border-top: 0;
+}
+
+.vh-docs-sidebar-category {
+  padding-bottom: 0.25rem;
 }
 
 .vh-docs-sidebar-page-group-heading,
@@ -177,25 +161,18 @@ function isActive(path: string) {
   color: var(--ui-text-highlighted);
 }
 
-@media (hover: hover) {
-  .vh-docs-sidebar-link:hover {
-    background: var(--ui-bg-elevated);
-    color: var(--ui-text-highlighted);
-  }
-
-  .vh-docs-sidebar-link.is-active:hover {
-    background: var(--ui-bg-accented);
-  }
+.vh-docs-sidebar-related {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--ui-border);
+  padding-bottom: 0.25rem;
 }
 
-.vh-docs-sidebar-icon {
-  width: 1rem;
-  height: 1rem;
-}
-
-@media (pointer: coarse) {
-  .vh-docs-sidebar-link {
-    min-height: 2.5rem;
-  }
+.vh-docs-sidebar-catalog-link {
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--ui-border);
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+  color: var(--ui-text-dimmed);
+  font-size: 0.8125rem;
 }
 </style>
