@@ -187,7 +187,7 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
-    cloudflare ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
+    cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
     sharp ? "  setBlobSharpModule(vitehubSharp)" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
     "}",
