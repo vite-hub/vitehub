@@ -30,8 +30,20 @@ export interface GitHubInstallRunner {
  * so a timer retry only repeats the checkout and the install.
  */
 export function isGitHubLockfileDefect(error: unknown): boolean {
-  const parts = [error, error instanceof Error ? error.cause : undefined, isRecord(error) ? error.stderr : undefined]
-  const text = parts.map(value => value instanceof Error ? value.message : String(value ?? "")).join("\n");
+  const parts: unknown[] = [];
+  const seen = new Set<unknown>();
+  const collect = (value: unknown): void => {
+    if (value === null || value === undefined || seen.has(value)) return;
+    if (typeof value === "object" || typeof value === "function") seen.add(value);
+    parts.push(value instanceof Error ? value.message : isRecord(value) && typeof value.message === "string" ? value.message : String(value));
+    if (value instanceof Error) collect(value.cause);
+    if (isRecord(value)) {
+      collect(value.cause);
+      collect(value.stderr);
+    }
+  };
+  collect(error);
+  const text = parts.join("\n");
   return /ERR_PNPM_(?:BROKEN_LOCKFILE|OUTDATED_LOCKFILE|LOCKFILE_\w+|MISSING_TARBALL_INTEGRITY)|Map keys must be unique/.test(text);
 }
 
