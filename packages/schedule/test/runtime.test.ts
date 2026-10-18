@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
 import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage } from "../src/index.ts"
-import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
+import { schedules, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {
@@ -226,6 +226,80 @@ describe("Schedule Run bookkeeping", () => {
       definition: { cron: "0 9 * * *", handler: async () => {} },
       name: "revoked-date",
       scheduledAt: revoked.proxy,
+    })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+  })
+
+  it("blocks execution when a persisted Runtime Schedule target opts out", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+      }),
+    })
+
+    await expect(schedules.run("schedule-1")).rejects.toMatchObject({
+      code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
+    })
+  })
+
+  it("blocks execution when a persisted Runtime Schedule is disabled", async () => {
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {},
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.disable("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toMatchObject({
+      code: "SCHEDULE_DISABLED",
+    })
+    await schedules.enable("schedule-1")
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+  })
+
+  it("returns an existing run before revalidating a Runtime Schedule", async () => {
+    const calls: string[] = []
+    setScheduleRuntimeRegistry({
+      report: async () => ({
+        cron: "0 9 * * *",
+        handler: async () => {
+          calls.push("run")
+        },
+        options: { allowRuntimeSchedules: true },
+      }),
+    })
+
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
+    const first = await schedules.run("schedule-1", { scheduledAt })
+    await schedules.delete("schedule-1")
+
+    await expect(schedules.run("schedule-1", { scheduledAt })).resolves.toEqual(first)
+    expect(calls).toEqual(["run"])
+  })
+
+  it("fails clearly for revoked scheduledAt values", async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {})
+    revoke()
+    await expect(executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: async () => {} },
+      name: "revoked-date",
+      scheduledAt: proxy as Date,
     })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
   })
 
