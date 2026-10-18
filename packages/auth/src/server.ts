@@ -356,10 +356,21 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
       const descriptor = Object.getOwnPropertyDescriptor(current, "status")
       if (descriptor) {
         if (typeof descriptor.get !== "function") return false
-        const constructor = Object.getOwnPropertyDescriptor(current, "constructor")?.value
-        if (typeof constructor !== "function" || constructor.name !== "Response" || constructor.prototype !== current) return false
         const bodyUsed = Object.getOwnPropertyDescriptor(current, "bodyUsed")
         if (typeof bodyUsed?.get !== "function") return false
+        // Fetch accessors perform an internal-slot check on an unrelated
+        // object. Probe that behavior before applying them to the candidate;
+        // a caller-defined getter can otherwise imitate the Response shape.
+        for (const getter of [descriptor.get, bodyUsed.get]) {
+          let rejected = false
+          try {
+            Reflect.apply(getter, {}, [])
+          }
+          catch {
+            rejected = true
+          }
+          if (!rejected) return false
+        }
         Reflect.apply(descriptor.get, value, [])
         Reflect.apply(bodyUsed.get, value, [])
         return true

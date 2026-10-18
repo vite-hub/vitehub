@@ -126,12 +126,18 @@ describe("Auth access handlers", () => {
   })
 
   it("rejects forged authorization responses from another realm", async () => {
-    const foreignResponse = runInNewContext(`new (class {
-      get status() { return 409 }
-      get statusText() { return "Conflict" }
-      get headers() { return { get() { return null } } }
-      get body() { return null }
-      get [Symbol.toStringTag]() { return "Response" }
+    const foreignResponse = runInNewContext(`(() => {
+      const prototype = {
+        get status() { return 409 },
+        get statusText() { return "Conflict" },
+        get headers() { return { get() { return null }, forEach() {} } },
+        get body() { return null },
+        get bodyUsed() { return false },
+      }
+      function Response() {}
+      Response.prototype = prototype
+      Object.defineProperty(prototype, "constructor", { value: Response })
+      return Object.create(prototype)
     })()`)
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
