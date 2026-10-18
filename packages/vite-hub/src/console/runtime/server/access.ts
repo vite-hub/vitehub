@@ -61,7 +61,18 @@ function isRuntimeResponse(value: ConsoleAccess | Response): value is Response {
 
 async function authorizationResponse(value: unknown): Promise<Response | typeof invalidAuthorizationResponse | undefined> {
   try {
-    if (value instanceof Response) return value
+    if (value instanceof Response) {
+      // `instanceof` also accepts proxies, but Fetch internal-slot accessors
+      // reject proxied Responses. Probe the native clone algorithm so a proxy
+      // cannot escape as a valid authorization result.
+      try {
+        Response.prototype.clone.call(value)
+      }
+      catch {
+        return invalidAuthorizationResponse
+      }
+      return value
+    }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates foreign Fetch fields before constructing a local Response.
     if (!value || typeof value !== "object") return undefined
     if (objectToString.call(value) !== "[object Response]") return undefined
@@ -429,7 +440,11 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     authorizeResult = await policy.authorize({ request: consoleRequest(event) })
     authorizeResultReady = true
   } else if (policy.mode === "auth" || policy.mode === "cloudflare-access") {
-    if (!policy.check) return rejection(500, "CONSOLE_AUTH_NOT_CONFIGURED")
+    if (!policy.check) {
+      return rejection(500, "CONSOLE_AUTH_NOT_CONFIGURED", policy.mode === "auth"
+        ? "console: { auth: \"app\" } requires a discovered ViteHub Auth Definition."
+        : "Cloudflare Access Console Auth is not configured.")
+    }
     const response = await policy.check(event)
     if (response) {
       const normalized = await authorizationResponse(response)
