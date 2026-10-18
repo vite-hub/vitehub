@@ -421,7 +421,9 @@ function isSerializableAuthorizationBody(
     }
     if (!readerVerified) return false
     const locked = Reflect.get(body, "locked")
-    if (locked !== false) return false
+    // The ownership probe intentionally retains the validated reader for the
+    // bridge, so this stream is expected to remain locked until consumption.
+    if (locked !== false && !validatedAuthorizationReaders.has(body)) return false
     // Do not construct a Response here. The constructor acquires the source
     // stream's reader lock, and the bridge must acquire that same stream below.
     // The locked check above rejects streams that are already owned; native
@@ -694,7 +696,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
           if (result.done) {
             release()
             controller.close()
-          } else if (!result.value || !ArrayBuffer.isView(result.value) || result.value.BYTES_PER_ELEMENT !== 1) {
+          } else if (!isIntrinsicUint8Array(result.value)) {
             throw new Error("Malformed authorization response reader chunk")
           } else controller.enqueue(result.value)
         }
@@ -817,7 +819,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // performs the source-runtime brand check and creates a host stream whose
     // captured intrinsics can be bridged without executing foreign methods.
     if (!nativeBodyReader && body !== null) {
-      const converted = new Response(body as ReadableStream<Uint8Array>)
+      // Only bridge genuine ReadableStreams. A Response constructor would
+      // otherwise coerce strings and arbitrary objects into a new local body,
+      // accepting malformed authorization results.
+      const sourceResponse = new Response(body as ReadableStream<Uint8Array>)
+      if (sourceResponse.body !== body) return
+      const converted = sourceResponse
       body = converted.body
       nativeBodyReader = nativeStreamGetReader
     }
