@@ -6,6 +6,6 @@ export { createDatabaseConnectionStore } from "./store.ts"
 
 export type { ConnectionsAccessPolicy, ConnectionsActor, ConnectionsHandlerOptions } from "./http.ts"
 export type { ConnectionRuntimeClient, ConnectionsRuntime, ConnectionsRuntimeOptions } from "./runtime.ts"
-export type { ConnectionFetchInit } from "./types.ts"
+export type { ConnectionActivityRetention, ConnectionFetchInit } from "./types.ts"
 export type { ConnectionAuthorization, ConnectionState, ConnectionStore } from "./store.ts"
 export type { ConnectionDefinitionName, ConnectionRegistryClient } from "./registry-types.ts"

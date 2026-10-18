@@ -2,7 +2,7 @@
 
 `@vite-hub/rate-limit` gives server code one atomic consume-and-decide operation for fixed-window request budgets. It keeps policy separate from the driver that stores and updates each counter.
 
-Install this owner package when you need a direct Rate Limiter, a custom driver, or the standalone Vite integration. If your application already uses the `vite-hub` framework distribution, enable Rate Limit there and import from `vite-hub/rate-limit` instead. See the [Rate Limit guide](https://vitehub.dev/docs/rate-limit) for that application setup.
+Install this owner package when you need a direct Rate Limiter, a custom driver, or the Vite integration without the full framework. If your application already uses the `vite-hub` framework distribution, enable Rate Limit there and import from `vite-hub/rate-limit` instead. See the [Rate Limit guide](https://vitehub.dev/docs/rate-limit) for that application setup.
 
 ## Install the owner package
 
@@ -58,21 +58,22 @@ Direct Rate Limiters return a decision. Your code must stop the operation when `
 
 | Need                                                                                   | Use                                        |
 | -------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Enforce a discovered Rate Limit in an H3 handler and let Vite generate provider output | `requireRateLimit()` with `hubRateLimit()` |
+| Enforce a discovered Rate Limit in an H3 handler and let Nitro generate host bindings  | `requireRateLimit()` with `hubRateLimit()` |
 | Return a custom response, use another transport, or supply storage yourself            | `createRateLimiter()` with a direct driver |
 
 The managed path selects and configures a driver. The direct path gives your code the decision and leaves deployment integration to the application.
 
 ## Let Vite manage an H3 guard
 
-Register the standalone integration:
+Register the integration with the Nitro Vite plugin. Nitro is the only host output:
 
 ```ts
 import { hubRateLimit } from "@vite-hub/rate-limit/vite";
+import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubRateLimit({ namespace: "acme-image-service-production" })],
+  plugins: [hubRateLimit({ namespace: "acme-image-service-production" }), nitro()],
 });
 ```
 
@@ -126,7 +127,7 @@ For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use t
 | `@vite-hub/rate-limit`                    | `requireRateLimit()`, `createRateLimiter()`, `peekRateLimit()`, `resetRateLimit()`, and public contract types |
 | `@vite-hub/rate-limit/drivers/memory`     | Process-local fixed-window driver                                         |
 | `@vite-hub/rate-limit/drivers/cloudflare` | Direct adapter for a request-scoped Cloudflare Rate Limiting binding      |
-| `@vite-hub/rate-limit/vite`               | Source discovery, runtime setup, manifest generation, and provider output |
+| `@vite-hub/rate-limit/vite`               | Source discovery, Nitro runtime setup, manifest generation, and Cloudflare bindings |
 
 `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/runtime/console`, and `@vite-hub/rate-limit/cli` are reserved for framework integrations. Application code should use the guard or a direct Rate Limiter.
 

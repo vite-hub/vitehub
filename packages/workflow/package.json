@@ -28,17 +28,72 @@
   "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./runtime/cloudflare-runner": "./dist/runtime/cloudflare-runner.js",
-    "./runtime/cloudflare-shared": "./dist/runtime/cloudflare-shared.js",
-    "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
-    "./runtime/dev": "./dist/runtime/dev.js",
-    "./runtime/execute": "./dist/runtime/execute.js",
-    "./runtime/openworkflow": "./dist/runtime/openworkflow.js",
-    "./runtime/openworkflow-worker": "./dist/runtime/openworkflow-worker.js",
-    "./runtime/state": "./dist/runtime/state.js",
-    "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
-    "./vite": "./dist/vite.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./runtime/cloudflare-runner": {
+      "types": "./dist/runtime/cloudflare-runner.d.ts",
+      "import": "./dist/runtime/cloudflare-runner.js",
+      "require": "./dist/runtime/cloudflare-runner.js",
+      "default": "./dist/runtime/cloudflare-runner.js"
+    },
+    "./runtime/cloudflare-shared": {
+      "types": "./dist/runtime/cloudflare-shared.d.ts",
+      "import": "./dist/runtime/cloudflare-shared.js",
+      "require": "./dist/runtime/cloudflare-shared.js",
+      "default": "./dist/runtime/cloudflare-shared.js"
+    },
+    "./runtime/cloudflare-vite": {
+      "types": "./dist/runtime/cloudflare-vite.d.ts",
+      "import": "./dist/runtime/cloudflare-vite.js",
+      "require": "./dist/runtime/cloudflare-vite.js",
+      "default": "./dist/runtime/cloudflare-vite.js"
+    },
+    "./runtime/dev": {
+      "types": "./dist/runtime/dev.d.ts",
+      "import": "./dist/runtime/dev.js",
+      "require": "./dist/runtime/dev.js",
+      "default": "./dist/runtime/dev.js"
+    },
+    "./runtime/execute": {
+      "types": "./dist/runtime/execute.d.ts",
+      "import": "./dist/runtime/execute.js",
+      "require": "./dist/runtime/execute.js",
+      "default": "./dist/runtime/execute.js"
+    },
+    "./runtime/openworkflow": {
+      "types": "./dist/runtime/openworkflow.d.ts",
+      "import": "./dist/runtime/openworkflow.js",
+      "require": "./dist/runtime/openworkflow.js",
+      "default": "./dist/runtime/openworkflow.js"
+    },
+    "./runtime/openworkflow-worker": {
+      "types": "./dist/runtime/openworkflow-worker.d.ts",
+      "import": "./dist/runtime/openworkflow-worker.js",
+      "require": "./dist/runtime/openworkflow-worker.js",
+      "default": "./dist/runtime/openworkflow-worker.js"
+    },
+    "./runtime/state": {
+      "types": "./dist/runtime/state.d.ts",
+      "import": "./dist/runtime/state.js",
+      "require": "./dist/runtime/state.js",
+      "default": "./dist/runtime/state.js"
+    },
+    "./runtime/vercel-vite": {
+      "types": "./dist/runtime/vercel-vite.d.ts",
+      "import": "./dist/runtime/vercel-vite.js",
+      "require": "./dist/runtime/vercel-vite.js",
+      "default": "./dist/runtime/vercel-vite.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

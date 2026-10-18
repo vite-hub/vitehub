@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { Plugin } from "vite"
 
-import { consoleSessionActor } from "../src/console/auth.ts"
+import { readConsoleSessionUser } from "../src/console/auth.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor } from "../src/console/auth-build.ts"
 import {
   canSendConnectionKey,
@@ -15,6 +15,7 @@ import {
   connectionApprovalCountsSchema,
   connectionConnectURL,
   connectionListSchema,
+  connectionNextStep,
   loadConnectionApprovals,
   requestConnectionsManagement,
 } from "../src/console/runtime/client/connections-management.ts"
@@ -104,26 +105,43 @@ describe("Connections management client", () => {
     expect(result.approvals[0]).toMatchObject({ actor: "agent:mail", id: "a1", status: "pending" })
   })
 
-  it.each([
-    [401, "Sign in to manage Connections."],
-    [403, "You do not have access to this operation."],
-    [404, "Connections management is not available. Production builds need connections: { management: true }."],
-  ])("maps status %i to a fixed message", async (status, message) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: { code: "X", message: "server text" } }, { status })))
+  it("keeps the code, why, fix, and docs of a management error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      error: {
+        code: "CONNECTION_FORBIDDEN",
+        docs: "https://vitehub.dev/docs/connections/server-api#management-routes",
+        fix: "Sign in again.",
+        message: "The management route found no signed-in manager for this request.",
+      },
+    }, { status: 403 })))
 
     const error = await requestConnectionsManagement("/_vitehub/connections", "list", connectionListSchema).catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(ConsoleRequestError)
-    expect(error).toMatchObject({ status, message })
+    expect(error).toMatchObject({
+      code: "CONNECTION_FORBIDDEN",
+      docs: "https://vitehub.dev/docs/connections/server-api#management-routes",
+      fix: "Sign in again.",
+      message: "The management route found no signed-in manager for this request.",
+      status: 403,
+    })
   })
 
-  it("shows the server message for other failures and a generic message without one", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: { code: "CONNECTION_PROVIDER", message: "Provider \"google\" rejected the call." } }, { status: 502 })))
-    await expect(requestConnectionsManagement("/_vitehub/connections", "approve", connectionListSchema, { id: "a1" }))
-      .rejects.toMatchObject({ status: 502, message: "Provider \"google\" rejected the call." })
+  it.each([
+    [401, "text/plain", "Sign in first.", "CONSOLE_SIGN_IN_REQUIRED", "Sign in first."],
+    [403, "text/html", "<html>denied</html>", "CONSOLE_ACCESS_DENIED", "The Console access policy rejected this account."],
+    [404, "text/html", "<html>Not found</html>", "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE", "The Connections management route is not mounted."],
+    [500, "text/plain", "upstream", "CONSOLE_REQUEST_FAILED", "upstream"],
+  ])("uses the Console code for a %i response without a JSON error", async (status, type, body, code, message) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { headers: { "content-type": type }, status })))
 
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("upstream", { status: 500 })))
-    await expect(requestConnectionsManagement("/_vitehub/connections", "list", connectionListSchema))
-      .rejects.toMatchObject({ status: 500, message: "Could not complete the request. Try again." })
+    const error = await requestConnectionsManagement("/_vitehub/connections", "list", connectionListSchema).catch((cause: unknown) => cause)
+    expect(error).toMatchObject({ code, message, status, fix: expect.any(String), docs: expect.stringMatching(/^https:\/\/vitehub\.dev\/docs\//) })
+  })
+
+  it("ignores a docs link that is not HTTPS", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: { code: "CONNECTION_PROVIDER", docs: "javascript:alert(1)", message: "Provider \"google\" rejected the call." } }, { status: 502 })))
+    const error = await requestConnectionsManagement("/_vitehub/connections", "approve", connectionListSchema, { id: "a1" }).catch((cause: unknown) => cause)
+    expect(error).toMatchObject({ code: "CONNECTION_PROVIDER", docs: undefined, message: "Provider \"google\" rejected the call.", status: 502 })
   })
 
   it("rejects responses that do not match the schema", async () => {
@@ -153,46 +171,53 @@ describe("Connections management client", () => {
     expect(connectionConnectURL("/_vitehub/connections", "gmail")).toBe("/_vitehub/connections/connect/gmail")
     expect(connectionConnectURL("/app/_vitehub/connections/", "team.mail")).toBe("/app/_vitehub/connections/connect/team.mail")
     expect(connectionConnectURL("/_vitehub/connections", "a b")).toBe("/_vitehub/connections/connect/a%20b")
+    expect(connectionConnectURL("/app/_vitehub/connections", "gmail", "/app/_vitehub/connections"))
+      .toBe("/app/_vitehub/connections/connect/gmail?return=%2Fapp%2F_vitehub%2Fconnections")
+  })
+
+  it.each([
+    ["oauth2", "disconnected", [], { kind: "connect", label: "Connect" }],
+    ["oauth2", "revoked", [], { kind: "connect", label: "Connect" }],
+    ["oauth2", "reauth_required", [], { kind: "connect", label: "Reconnect" }],
+    ["oauth2", "connected", ["mail.send"], { kind: "connect", label: "Reconnect" }],
+    ["oauth2", "connected", [], undefined],
+    ["api-key", "disconnected", [], { kind: "key", label: "Set key" }],
+    ["api-key", "revoked", [], { kind: "key", label: "Set key" }],
+    ["api-key", "reauth_required", [], { kind: "key", label: "Replace key" }],
+    ["api-key", "connected", [], undefined],
+  ] as const)("names the next step of a %s Connection that is %s (missing %o)", (credential, status, missing, expected) => {
+    expect(connectionNextStep({ credential, scopes: { declared: [], granted: [], missing: [...missing] }, status })).toEqual(expected)
   })
 })
 
-describe("Connections actor", () => {
-  it("returns the signed-in user as user:<id>", async () => {
+describe("Console session user", () => {
+  it("reads the signed-in user with every user field", async () => {
     const getSession = vi.fn().mockResolvedValue({ session: { id: "s1" }, user: { email: "ada@example.com", id: "u1" } })
     const request = new Request("http://localhost/_vitehub/connections", { headers: { cookie: "vitehub_console.session_token=t" } })
 
-    await expect(consoleSessionActor({ api: { getSession } }, request)).resolves.toBe("user:u1")
+    await expect(readConsoleSessionUser({ api: { getSession } }, request)).resolves.toEqual({ email: "ada@example.com", id: "u1" })
     expect(getSession).toHaveBeenCalledWith({ headers: request.headers })
   })
 
   it("returns undefined without a session and propagates lookup errors", async () => {
     const request = new Request("http://localhost/_vitehub/connections")
-    await expect(consoleSessionActor({ api: { getSession: async () => null } }, request)).resolves.toBeUndefined()
-    await expect(consoleSessionActor({ api: { getSession: async () => ({ user: { id: "" } }) } }, request)).resolves.toBeUndefined()
-    await expect(consoleSessionActor({ api: { getSession: async () => { throw new Error("database down") } } }, request)).rejects.toThrow("database down")
+    await expect(readConsoleSessionUser({ api: { getSession: async () => null } }, request)).resolves.toBeUndefined()
+    await expect(readConsoleSessionUser({ api: { getSession: async () => ({ user: { id: "" } }) } }, request)).resolves.toBeUndefined()
+    await expect(readConsoleSessionUser({ api: { getSession: async () => { throw new Error("database down") } } }, request)).rejects.toThrow("database down")
   })
 
-  it("writes an actor module for each Console access mode", async () => {
+  it("writes one actor module that checks the installed Console access policy", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-actor-"))
     try {
       // The Connections handler calls the policy with the Request first and the server event second.
-      // Every module checks the installed Console access policy before it names the manager.
-      const consoleAuth = await readFile(await writeConsoleConnectionsActor(root, "console-auth"), "utf8")
-      expect(consoleAuth).toContain('import { createAuthForRequest } from "#vitehub/auth/server"')
-      expect(consoleAuth).toContain('import { definition } from "./auth-definition.mjs"')
-      expect(consoleAuth).toContain("viteHubConsoleConnectionsActor(request, event)")
-      expect(consoleAuth).toContain("consoleConnectionsActor(event, () => consoleSessionActor(createAuthForRequest(definition, request, undefined, event), request))")
-
-      const appAuth = await readFile(await writeConsoleConnectionsActor(root, "app-auth"), "utf8")
-      expect(appAuth).toContain("viteHubConsoleConnectionsActor(request, event)")
-      expect(appAuth).toContain("consoleConnectionsActor(event, () => consoleSessionActor(getAuthForRequest(request, undefined, event), request))")
-
-      const file = await writeConsoleConnectionsActor(root, "none")
+      // The access policy reads the signed-in user, so one module serves every Console access mode.
+      const file = await writeConsoleConnectionsActor(root)
       expect(file).toBe(join(root, ".vitehub/nitro/console/connections-actor.mjs"))
-      const none = await readFile(file, "utf8")
-      expect(none).toContain('import { consoleConnectionsActor } from "vite-hub/console/sections"')
-      expect(none).toContain("return consoleConnectionsActor(event)")
-      expect(none).not.toContain("user:local")
+      const actor = await readFile(file, "utf8")
+      expect(actor).toContain('import { consoleConnectionsActor } from "vite-hub/console/sections"')
+      expect(actor).toContain("viteHubConsoleConnectionsActor(_request, event)")
+      expect(actor).toContain("return consoleConnectionsActor(event)")
+      expect(actor).not.toContain("user:open")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -207,7 +232,7 @@ describe("Connections actor", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-sections-"))
     try {
       const plugin = consoleVitePlugin({
-        console: command === "serve" ? { access: "auth" } : { exposure: "host-managed", authorize: hostManagedAuthorize },
+        console: command === "serve" ? { auth: false } : { auth: false, authorize: hostManagedAuthorize },
         connections,
         sections: ["env", "connections"],
       })
@@ -224,8 +249,8 @@ describe("Connections actor", () => {
   })
 
   it.each([
-    { console: true, handler: 'import actor from "#vitehub/console/connections-actor"' },
-    { console: false, handler: 'actor: "development"' },
+    { console: { auth: false } as const, handler: 'import actor from "#vitehub/console/connections-actor"' },
+    { console: false as const, handler: 'actor: "development"' },
   ])("checks development Connections routes with the Console actor module (console: $console)", async ({ console, handler }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-dev-"))
     try {
@@ -249,7 +274,7 @@ describe("Connections actor", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-alias-"))
     try {
       const configure = async (sections: ConsoleSectionId[]) => {
-        const plugin = consoleVitePlugin({ console: true, sections })
+        const plugin = consoleVitePlugin({ console: { auth: false }, sections })
         const config: { root: string, nitro?: { alias?: Record<string, string> } } = { root }
         const hook = plugin.config
         if (!hook) throw new TypeError("Expected Console config hook.")

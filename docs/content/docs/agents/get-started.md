@@ -2,7 +2,7 @@
 title: Define your first Agent
 description: Build an offline greeting Agent and call it from a server route.
 layout: tutorial
-navigation.title: Tutorial
+navigation.title: Get started
 navigation.order: 2
 navigation.group: Start
 icon: i-lucide-rocket
@@ -26,11 +26,10 @@ Register the Agent integration in `vite.config.ts`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true }), nitro() as never],
+  plugins: [vitehub({ preset: 'node', agent: true })],
 })
 ```
 

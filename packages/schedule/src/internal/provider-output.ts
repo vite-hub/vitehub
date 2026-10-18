@@ -63,10 +63,6 @@ export function resolveScheduleDefinitionEntry(resolveImport: ImportResolver = s
 const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()
 const scheduleDefinitionEntry = resolveScheduleDefinitionEntry()
 
-function staticScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): DiscoveredScheduleDefinition[] {
-  return definitions.filter(definition => definition.runtimeOnly !== true)
-}
-
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
   denoCronFile: string
@@ -196,6 +192,23 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
   return cron
 }
 
+/**
+ * Reads the `timeZone` option of a `defineSchedule()` call. Returns `undefined` when the call does not declare it,
+ * the string when it is a static string, and `null` when it is not a static string.
+ */
+export function readStaticScheduleTimeZone(file: string): string | null | undefined {
+  const { findDefaultExportCall, readObjectProperty, readObjectPropertyNames } = createSourceScanner(file)
+  const definition = findDefaultExportCall(readFileSync(file, "utf8"), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  if (!definition || !readObjectPropertyNames(definition.argument).includes("timeZone")) return undefined
+  return readStaticString(readObjectProperty(definition.argument, "timeZone")) ?? null
+}
+
+function assertProviderTimeZone(file: string, scheduleName: string): void {
+  const timeZone = readStaticScheduleTimeZone(file)
+  if (timeZone === undefined || timeZone === "UTC") return
+  throw scheduleErrorDiagnostics.SCHEDULE_R0003({ message: `Schedule "${scheduleName}" declares timeZone ${timeZone === null ? "with a value that is not a static string" : JSON.stringify(timeZone)}, but provider cron output supports only UTC. Remove timeZone and write the cron in UTC, or run Schedules with the process driver (\`runtime: { driver: "process" }\`).` })
+}
+
 function readStaticString(source: string | undefined): string | undefined {
   if (!source || !/^["'`]/.test(source)) return
   const quote = source[0]
@@ -212,7 +225,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   const workflowRuntime = provider === "vercel" ? workflow : undefined
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}missingScheduleDefinitionError, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
+    `import { executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}missingScheduleDefinitionError, normalizeCron, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     ...(workflowRuntime
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
@@ -251,9 +264,10 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "    return new Response('ViteHub schedule provider wake endpoint')",
           "  },",
           "  async scheduled(event, env, ctx) {",
+          "    if (typeof event.cron !== 'string' || !event.cron.trim()) return",
           "    const tasks = Object.entries(scheduleRegistry).map(async ([name]) => {",
           "      const definition = await loadScheduleDefinition(name)",
-          "      if (!definition || definition.cron !== event.cron) return",
+          "      if (!definition || normalizeCron(definition.cron) !== normalizeCron(event.cron)) return",
           "      await executeStaticSchedule({ cron: event.cron, definition, name, scheduledAt: new Date(event.scheduledTime), waitUntil: (promise) => ctx.waitUntil(promise) })",
           "    })",
           "    await Promise.all(tasks)",
@@ -383,7 +397,6 @@ async function writeProviderEntries(
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = (providedDefinitions ?? discoverScheduleDefinitions({ rootDir }))
     .filter(definition => !source || definition.source === source)
-    .filter(definition => definition.runtimeOnly !== true)
   await writeRuntimeRegistryFile(registryFile, definitions)
 
   const cloudflareWorkerFile = resolve(generatedDir, "cloudflare-worker.mjs")
@@ -398,12 +411,13 @@ async function writeProviderEntries(
 export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
   const crons = await readRuntimeDefinitionCrons(definitions)
   for (const [name, cron] of crons) validateProviderCron(cron, name)
+  for (const definition of staticScheduleDefinitions(definitions)) assertProviderTimeZone(definition.handler, definition.name)
   return crons
 }
 
 export async function readRuntimeDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
   const crons = new Map<string, string>()
-  for (const definition of staticScheduleDefinitions(definitions)) {
+  for (const definition of definitions) {
     const cron = readStaticScheduleCron(definition.handler, definition.name)
     crons.set(definition.name, cron)
   }
@@ -423,7 +437,7 @@ export async function writeVercelScheduleFunctions(options: {
   workflow?: ScheduleWorkflowRuntime
 }, crons: Map<string, string>) {
   options.signal?.throwIfAborted()
-  const definitions = staticScheduleDefinitions(options.definitions)
+  const definitions = options.definitions
   const outputRoot = options.outputRoot
   const functionRoot = resolve(outputRoot, "functions", "api", "vitehub", "schedules", "vercel")
   const stagedFunctionRoot = `${functionRoot}.pending`
@@ -596,7 +610,7 @@ export async function createNetlifyScheduleFunctionOutputs(options: {
   includedSourcesDir?: string
   registryFile: string
 }): Promise<NetlifyScheduleFunctionOutput[]> {
-  const definitions = staticScheduleDefinitions(options.definitions)
+  const definitions = options.definitions
   const crons = await readDefinitionCrons(definitions)
   const emitted = new Map<string, string>()
   return definitions.map((definition) => {
