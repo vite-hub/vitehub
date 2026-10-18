@@ -86,7 +86,15 @@ export const CodeBlockLine = defineComponent({
 });
 
 function isEmptyText(node: VNode): boolean {
-  return node.type === Text && String(node.children ?? "") === "";
+  if (node.type === Text) return String(node.children ?? "") === "";
+  if (node.type === Fragment && Array.isArray(node.children)) {
+    return node.children.length === 0 || node.children.every(isEmptyText);
+  }
+  if (typeof node.children === "string") return node.children === "";
+  if (Array.isArray(node.children)) {
+    return node.children.length === 0 || node.children.every(isEmptyText);
+  }
+  return node.children == null;
 }
 
 function textOf(nodes: VNode[]): string | undefined {
