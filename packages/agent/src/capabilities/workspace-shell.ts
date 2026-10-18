@@ -43,17 +43,19 @@ export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabi
     metadata: commands ? { commands, mode, ...(timeout ? { timeout } : {}) } : undefined,
     mode,
     requires: [{ primitive: "workspace", workspace: { mode: commands ? "write" : mode, required: true } }],
-    tools: ({ context, driver, workspace }) => {
+    tools: ({ context, driver, executionBudget, workspace }) => {
       if (commands && driver?.kind !== "provider") {
         throw agentDiagnostics.AGENT_R0298({ message: "[vitehub] workspaceShell({ commands }) is available only to provider Drivers. Use sandbox() for model-backed command tools." })
       }
       return {
+        // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Provider Drivers do not expose model Workspace tools.
         ...(driver?.kind === "provider"
           ? {}
           : mode === "write" && hasWritableTools(workspace)
-            ? workspace.tools.write({ sourceRequests: true })
-            : workspace.tools.inspect({ sourceRequests: true })),
-        ...(commands ? workspaceCommandTools(commands, mode, timeout, workspace, { context }) : {}),
+            ? workspace.tools.write({ executionBudget, sourceRequests: true })
+            : workspace.tools.inspect({ executionBudget, sourceRequests: true })),
+        // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional command tools are added only for provider-configured commands.
+        ...(commands ? workspaceCommandTools(commands, mode, timeout, workspace, { context, executionBudget }) : {}),
       }
     },
   })

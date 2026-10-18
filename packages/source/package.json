@@ -111,7 +111,6 @@
     "@types/picomatch": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
-    "effect": "catalog:effect",
     "mrmime": "catalog:workspace",
     "nitro": "catalog:unjs",
     "ocache": "catalog:unjs",

@@ -43,7 +43,6 @@ try {
       alwaysBundle: [
         /^@modelcontextprotocol\/sdk(?:\/|$)/,
         /^@vite-hub\/internal/,
-        "effect",
         "fdir",
         "mrmime",
         "ocache",

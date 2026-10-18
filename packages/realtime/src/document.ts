@@ -10,7 +10,7 @@ import type { RealtimeDocumentSnapshot, RealtimeDocumentStatus, RealtimeEditor, 
 
 const schemas = new WeakMap<RealtimeEditor, Schema>()
 
-export function realtimeEditorSchema(editor: RealtimeEditor): Schema {
+function realtimeEditorSchema(editor: RealtimeEditor): Schema {
   let schema = schemas.get(editor)
   if (!schema) {
     schema = getSchema(editor.extensions())
@@ -64,7 +64,7 @@ export async function createRealtimeYDoc(editor: RealtimeEditor, snapshot: Realt
   }
 }
 
-export function readRealtimeFields(document: Y.Doc): Record<string, RealtimeFieldValue> {
+function readRealtimeFields(document: Y.Doc): Record<string, RealtimeFieldValue> {
   // SAFETY: Fields hold only JSON values: the server writes RealtimeFieldValue and Y.Map.toJSON() returns JSON.
   return document.getMap(realtimeDocumentLayout.fields).toJSON() as Record<string, RealtimeFieldValue>
 }

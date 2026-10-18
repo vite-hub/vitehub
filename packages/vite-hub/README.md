@@ -68,7 +68,7 @@ vitehub({
   kv: true,
   queue: true,
   rateLimit: true,
-  sandbox: true,
+  sandboxTask: true,
   schedule: true,
   workflow: true,
   workspace: true,
@@ -122,7 +122,6 @@ Vite config resolution and builds also refresh the entry. Defining `files` in th
 
 ```ts
 import { defineAgent } from "vite-hub/agent";
-import { PullRequestInbox } from "vite-hub/agent/server/github-inbox";
 import { workspaceShell } from "vite-hub/agent/capabilities";
 import { env } from "vite-hub/env";
 import { renderMarkdownFile } from "vite-hub/markdown-template/file";
@@ -135,7 +134,7 @@ The root export intentionally contains only the framework configuration API. Fea
 
 Render a local prompt with `renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data })`. File rendering reads only the requested file at runtime; references such as `@./fragment.md` remain literal, so compose any additional Markdown explicitly before rendering. Use `renderMarkdownTemplate(text, { data })` for content already loaded from a Workspace, Source, or application storage.
 
-Built-in Agent Drivers and Box runtimes are selected by literal or tagged values, so they do not need provider-specific ViteHub imports. Install an optional external provider or SDK explicitly when its runtime requires one.
+Built-in Agent Drivers and Sandbox runtimes are selected by literal or tagged values, so they do not need provider-specific ViteHub imports. Install an optional external provider or SDK explicitly when its runtime requires one.
 
 ## Read the reference
 

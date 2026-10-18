@@ -25,6 +25,17 @@ export {
 
 export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
+export {
+  createExecutionBudget,
+  ExecutionBudgetExceededError,
+  type ExecutionBudget,
+  type ExecutionBudgetCounter,
+  type ExecutionBudgetLimits,
+  type ExecutionBudgetOptions,
+  type ExecutionBudgetSnapshot,
+  type ExecutionBudgetUsage,
+} from "./execution-budget.ts"
+
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
 export { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNames, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
 
@@ -53,6 +64,14 @@ export {
   type ViteHubErrorOptions,
   type ViteHubErrorShape,
 } from "./errors.ts"
+
+export {
+  defineErrors,
+  type DefineErrorsOptions,
+  type ErrorCatalog,
+  type Result,
+  type ResultError,
+} from "./result.ts"
 
 export type MaybePromise<T> = T | Promise<T>
 

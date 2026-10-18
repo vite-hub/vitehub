@@ -5,6 +5,7 @@ import { getWorkspaceSourceRequestExecution } from "./sources/request-execution.
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
 import type { JSONSchema7, Schema, Tool, ToolSet } from "ai"
+import type { ExecutionBudget } from "@vite-hub/runtime"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
@@ -16,6 +17,7 @@ type ShellObservationEvent =
   | "session_disposed"
 
 interface ShellRuntimeExecOptions {
+  budget?: ExecutionBudget
   cwd?: string
   env?: Record<string, string>
   maxOutputLength?: number
@@ -143,6 +145,7 @@ export type WorkspaceToolOperations = WorkspaceReadOperations & {
 export interface WorkspaceToolOptions<Operations extends WorkspaceToolOperations | undefined = undefined, SourceRequests extends boolean = boolean> extends Pick<ShellSessionPolicy, "maxOutputLength" | "maxShellCalls" | "timeout"> {
   broadSearchPaths?: string[]
   cwd?: string
+  executionBudget?: ExecutionBudget
   executionProvider?: ShellExecutionProvider | (() => MaybePromise<ShellExecutionProvider | undefined>)
   operations?: Operations
   sourceRequests?: SourceRequests
@@ -283,7 +286,7 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
     },
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const session = await starter.startSession({
-        abortSignal: execOptions.signal,
+        ...(execOptions.signal ? { abortSignal: execOptions.signal } : {}),
         paths: execOptions.workspacePaths,
       })
       let observation: ShellObservation
@@ -331,7 +334,7 @@ async function resolveExecutionProvider(
 function isUnavailableWorkspaceSession(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   return message.includes("Workspace exec requires an executable runtime")
-    || message.includes("Workspace exec requires a Box session host")
+    || message.includes("Workspace exec requires a Sandbox session host")
     || (message.includes("Workspace") && message.includes("is not registered"))
 }
 
@@ -419,18 +422,21 @@ function describeShellCommands(commands: string[], options: { sourceRequests?: b
 async function runShellCommand(
   input: Workspace | WorkspaceAssets,
   command: string,
-  options: { broadSearchPaths: string[], commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, signal?: AbortSignal, timeout?: number },
+  options: { broadSearchPaths: string[], budget?: ExecutionBudget, commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, signal?: AbortSignal, timeout?: number },
 ): Promise<WorkspaceShellResult> {
   const networkGrants = getWorkspaceSourceRequestExecution(input)
   const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await loadWorkspaceShellModule() as WorkspaceShellModule
   const inspectionOptions = {
+    budget: options.budget,
     broadSearchPaths: options.broadSearchPaths,
     commands: options.commands,
     cwd: options.cwd,
     fs: createReadonlyWorkspaceFs(input),
     maxOutputLength: options.maxOutputLength,
     networkGrants,
-    signal: options.signal,
+    signal: options.budget
+      ? options.signal ? AbortSignal.any([options.signal, options.budget.signal]) : options.budget.signal
+      : options.signal,
     timeout: options.timeout,
   }
   const starter = getWorkspaceSessionStarter(input)
@@ -491,7 +497,7 @@ async function materializeWorkspaceSourcesTool(
   }
 }
 
-function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resolveWriteOperations>): Partial<WorkspaceWriteToolMap> {
+function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resolveWriteOperations>, budget?: ExecutionBudget): Partial<WorkspaceWriteToolMap> {
   const result: Partial<WorkspaceWriteToolMap> = {}
 
   if (enabled.writeFile) {
@@ -508,6 +514,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ content, mediaType, path }) => {
+        budget?.recordToolCall(sizeOf(content))
         const normalized = cleanMutationPath(path)
         await workspace.writeFile(normalized, content, { mediaType } satisfies WriteFileOptions)
         return { path: normalized }
@@ -528,6 +535,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ content, path }) => {
+        budget?.recordToolCall(sizeOf(content))
         const normalized = cleanMutationPath(path)
         await appendWorkspaceFile(workspace, normalized, content)
         return { path: normalized }
@@ -549,6 +557,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ force, path, recursive }) => {
+        budget?.recordToolCall()
         const normalized = cleanMutationPath(path)
         await workspace.rm(normalized, { force, recursive })
         return { path: normalized }
@@ -569,6 +578,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ path, recursive }) => {
+        budget?.recordToolCall()
         const normalized = cleanMutationPath(path)
         await workspace.mkdir(normalized, { recursive })
         return { path: normalized }
@@ -590,6 +600,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ from, overwrite = false, to }) => {
+        budget?.recordToolCall()
         const source = cleanMutationPath(from)
         const target = cleanMutationPath(to)
         await copyWorkspacePath(workspace, source, target, overwrite)
@@ -612,6 +623,7 @@ function createWriteTools(workspace: Workspace, enabled: ReturnType<typeof resol
         type: "object",
       }),
       execute: async ({ from, overwrite = false, to }) => {
+        budget?.recordToolCall()
         const source = cleanMutationPath(from)
         const target = cleanMutationPath(to)
         await copyWorkspacePath(workspace, source, target, overwrite)
@@ -633,6 +645,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
     commands: shellCommandsFor(resolveReadOperations(options.operations)),
     cwd: options.cwd || workspaceMountPoint,
     executionProvider: options.executionProvider,
+    budget: options.executionBudget,
     materialize: resolveReadOperations(options.operations).materialize,
     maxShellCalls: options.maxShellCalls,
     maxOutputLength: options.maxOutputLength ?? defaultMaxOutputLength,
@@ -709,11 +722,17 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         },
         type: "object",
       }),
-      execute: async ({ path, sources }) => await materializeWorkspaceSourcesTool(input, { path, sources }),
+      execute: async ({ path, sources }) => {
+        resolved.budget?.recordToolCall()
+        return await materializeWorkspaceSourcesTool(input, { path, sources })
+      },
     }), { icon: "i-lucide-folder-sync", title: "Materialized Workspace sources" })
   }
 
-  if (writeEnabled) Object.assign(result, createWriteTools(input as Workspace, resolved.write))
+  if (writeEnabled) {
+    // SAFETY: writeEnabled is only set for a mutable Workspace with write operations.
+    Object.assign(result, createWriteTools(input as Workspace, resolved.write, resolved.budget))
+  }
 
   // Resolved flags select the shell, materialize_sources, and write tool contracts declared by WorkspaceTools.
   // SAFETY: These flags match its type parameters; Source requests require an executor and empty configurations throw above.

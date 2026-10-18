@@ -6,7 +6,7 @@ import type { EnvAccessContext, EnvAccessScope, EnvActor, EnvBridge, EnvPermissi
 /** Marks the type of contexts that Env creates. The bridge trusts only the `envAccess` grant registry, not this marker. */
 export const envAccessGrant: unique symbol = Symbol("vitehub.env.access-grant");
 
-export type EnvKeyPermission = EnvPermission | "activity";
+type EnvKeyPermission = EnvPermission | "activity";
 export type EnvAuthority =
   | { readonly kind: "admin" }
   /**

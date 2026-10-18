@@ -62,6 +62,8 @@ vi.mock("ai", () => ({
   jsonSchema,
   isStepCount: vi.fn(count => ({ count })),
   Output: { object: vi.fn(({ schema }) => ({ schema })) },
+  // This SDK double executes fixture responses without invoking a language model.
+  wrapLanguageModel: ({ model }: { model: unknown }) => model,
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
       agentSettings.push(settings)

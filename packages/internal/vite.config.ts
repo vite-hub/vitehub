@@ -4,6 +4,7 @@ export default defineConfig({
   pack: {
     dts: true,
     entry: [
+      "src/abort.ts",
       "src/agent-workflow.ts",
       "src/arrays.ts",
       "src/cli.ts",
@@ -14,10 +15,10 @@ export default defineConfig({
       "src/dev-endpoint.ts",
       "src/dev-token.ts",
       "src/env.ts",
-      "src/effect.ts",
       "src/http-request.ts",
       "src/inspect.ts",
       "src/object.ts",
+      "src/owned-paths.ts",
       "src/provision.ts",
       "src/provision-state.ts",
       "src/secret.ts",
@@ -38,7 +39,6 @@ export default defineConfig({
       "src/build/provider-output-sources.ts",
       "src/build/user-entry.ts",
       "src/build/vercel-config.ts",
-      "src/build/vercel-runtime-package-copy.ts",
       "src/build/vercel-runtime-packages.ts",
       "src/build/vite.ts",
       "src/nitro-kit.ts",

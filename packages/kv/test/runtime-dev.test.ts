@@ -47,10 +47,10 @@ async function run(body: unknown): Promise<{ body: Record<string, unknown>, stat
 
 describe("KV dev runtime handler", () => {
   it.each(["get", "has", "set", "del"] as const)("passes empty keys through the %s runtime operation", async operation => {
-    const get = vi.spyOn(kv, "get").mockResolvedValue([null, "empty key"])
-    const has = vi.spyOn(kv, "has").mockResolvedValue([null, true])
-    const set = vi.spyOn(kv, "set").mockResolvedValue([null, undefined])
-    const del = vi.spyOn(kv, "del").mockResolvedValue([null, undefined])
+    const get = vi.spyOn(kv, "get").mockResolvedValue([undefined, "empty key"])
+    const has = vi.spyOn(kv, "has").mockResolvedValue([undefined, true])
+    const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
+    const del = vi.spyOn(kv, "del").mockResolvedValue([undefined, undefined])
     try {
       expect(await run({ key: "", operation, ...(operation === "set" ? { value: "empty key" } : {}) })).toMatchObject({ status: 200, body: { key: "" } })
       const storageCall = { get, has, set, del }[operation]
@@ -63,7 +63,7 @@ describe("KV dev runtime handler", () => {
   it("rejects accessor-backed values without running their getters", async () => {
     const getter = vi.fn(() => { throw new Error("Getter must not run") })
     const value = Object.defineProperty({}, "secret", { enumerable: true, get: getter })
-    const get = vi.spyOn(kv, "get").mockResolvedValue([null, value])
+    const get = vi.spyOn(kv, "get").mockResolvedValue([undefined, value])
     try {
       expect(await run({ key: "native", operation: "get" })).toMatchObject({ status: 422, body: { error: { code: "KV_VALUE_UNSUPPORTED" } } })
       expect(getter).not.toHaveBeenCalled()
@@ -72,7 +72,7 @@ describe("KV dev runtime handler", () => {
   })
 
   it.each([undefined, new Map([["role", "admin"]]), Number.NaN, Number.POSITIVE_INFINITY, { nested: undefined }, [undefined], new Date("2026-01-01"), Object.assign(["entry"], { extra: "lost" }), Object.assign(["entry"], { [Symbol("extra")]: "lost" }), Object.defineProperty({}, "hidden", { value: "lost" })])("rejects native values that JSON would change: %j", async value => {
-    const get = vi.spyOn(kv, "get").mockResolvedValue([null, value])
+    const get = vi.spyOn(kv, "get").mockResolvedValue([undefined, value])
     try {
       expect(await run({ key: "native", operation: "get" })).toMatchObject({ status: 422, body: { error: { code: "KV_VALUE_UNSUPPORTED" } } })
     }
@@ -82,20 +82,20 @@ describe("KV dev runtime handler", () => {
   it("represents native bigint values and rejects cyclic values with a protocol error", async () => {
     const get = vi.spyOn(kv, "get")
     try {
-      get.mockResolvedValue([null, 9007199254740993n])
+      get.mockResolvedValue([undefined, 9007199254740993n])
       expect((await run({ key: "native", operation: "get" })).body).toMatchObject({ found: true, type: "bigint", value: "9007199254740993" })
-      get.mockResolvedValue([null, { nested: [42n] }])
+      get.mockResolvedValue([undefined, { nested: [42n] }])
       expect((await run({ key: "native", operation: "get" })).body).toMatchObject({ value: { nested: ["42"] } })
       const cyclic: { self?: unknown } = {}
       cyclic.self = cyclic
-      get.mockResolvedValue([null, cyclic])
+      get.mockResolvedValue([undefined, cyclic])
       expect(await run({ key: "native", operation: "get" })).toMatchObject({ status: 422, body: { error: { code: "KV_VALUE_UNSUPPORTED" } } })
     }
     finally { get.mockRestore() }
   })
 
   it("reports the effective Cloudflare TTL when fractional seconds are rounded", async () => {
-    const set = vi.spyOn(kv, "set").mockResolvedValue([null, undefined])
+    const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
       const response = await handleKVDevRequest(devRequest({ key: "fractional", operation: "set", ttl: 60.5, value: "x" }), [{ driver: "cloudflare-kv-binding", name: "default" }])
       expect(set).toHaveBeenCalledWith("fractional", "x", { ttl: 61 })
@@ -151,7 +151,7 @@ describe("KV dev runtime handler", () => {
 
   it("deletes an existing value despite a stale missing-key probe", async () => {
     expect((await run({ key: "stale-delete", operation: "set", value: "remove me" })).status).toBe(200)
-    const has = vi.spyOn(kv, "has").mockResolvedValue([null, false])
+    const has = vi.spyOn(kv, "has").mockResolvedValue([undefined, false])
     try {
       expect((await run({ key: "stale-delete", operation: "del" })).body).toEqual({ deleted: false, key: "stale-delete", store: "default" })
       expect((await run({ key: "stale-delete", operation: "get" })).body).toMatchObject({ found: false })
@@ -166,7 +166,7 @@ describe("KV dev runtime handler", () => {
   })
 
   it.each([0.001, 0.5])("rejects sub-second Upstash TTL without writing: %s", async ttl => {
-    const set = vi.spyOn(kv, "set").mockResolvedValue([null, undefined])
+    const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
       const response = await handleKVDevRequest(devRequest({ key: "short", operation: "set", ttl, value: "x" }), [{ driver: "upstash", name: "default" }])
       expect(response.status).toBe(400)
@@ -177,7 +177,7 @@ describe("KV dev runtime handler", () => {
   })
 
   it("rounds fractional Upstash TTL before storage and reports the effective seconds", async () => {
-    const set = vi.spyOn(kv, "set").mockResolvedValue([null, undefined])
+    const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
       const response = await handleKVDevRequest(devRequest({ key: "rounded", operation: "set", ttl: 1.5, value: "x" }), [{ driver: "upstash", name: "default" }])
       expect(set).toHaveBeenCalledWith("rounded", "x", { ttl: 2 })
@@ -187,7 +187,7 @@ describe("KV dev runtime handler", () => {
   })
 
   it("clamps Cloudflare TTL before calling storage", async () => {
-    const set = vi.spyOn(kv, "set").mockResolvedValue([null, undefined])
+    const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
       const response = await handleKVDevRequest(devRequest({ key: "clamped", operation: "set", ttl: 1.5, value: "x" }), [{ driver: "cloudflare-kv-binding", name: "default" }])
       expect(response.status).toBe(200)
@@ -217,7 +217,7 @@ describe("KV dev runtime handler", () => {
     expect((await run({ key: "a", operation: "set" })).status).toBe(400)
     expect((await run({ key: "a", operation: "set", ttl: 0, value: "x" })).status).toBe(400)
     expect((await run({ limit: 5_000, operation: "list" })).status).toBe(400)
-    expect((await run({ cursor: "not-a-cursor", limit: 1, operation: "list" })).body).toMatchObject({ error: { code: "KV_CURSOR_EXPIRED" } })
+    expect((await run({ cursor: "not-a-cursor", limit: 1, operation: "list" })).body).toMatchObject({ error: { code: "KV_INVALID_CURSOR" } })
   })
 
   it("reports disabled KV", async () => {

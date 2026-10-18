@@ -45,16 +45,16 @@ export interface ResumableChatProcessClaim {
   fail(error: unknown): void
 }
 
-export interface ResumableChatProcessExistingClaim {
+interface ResumableChatProcessExistingClaim {
   kind: "existing"
   response: Promise<Response>
 }
 
-export type ResumableChatProcessClaimResult =
+type ResumableChatProcessClaimResult =
   | ResumableChatProcessClaim
   | ResumableChatProcessExistingClaim
 
-export interface ResumableChatProcessSession {
+interface ResumableChatProcessSession {
   claim(invocationId: string): ResumableChatProcessClaimResult
   latest(): Promise<Response | undefined>
   stop(invocationId: string): Promise<void>

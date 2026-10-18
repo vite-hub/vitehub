@@ -1,6 +1,6 @@
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { appendMessageText, attachmentStringByteLength, attachmentStringBytes, isArrayBufferValue, isAttachmentBlob, isUint8ArrayValue } from "../messages.ts"
+import { appendMessageText, attachmentStringByteLength, blobArrayBuffer, attachmentStringBytes, isArrayBufferValue, isAttachmentBlob, isUint8ArrayValue } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isTranscriptionAbortError, isTranscriptionError, transcriptionError } from "./transcription.ts"
 
@@ -80,7 +80,7 @@ export interface TranscribeArtifactsOptions {
   transcript?: false | TranscribeTranscriptArtifactOptions
 }
 
-export const TRANSCRIPTION_RESULTS_CONTEXT_KEY = "transcribe.results"
+const TRANSCRIPTION_RESULTS_CONTEXT_KEY = "transcribe.results"
 
 type StaticTranscribeOptions =
   | (AiSdkTranscribeOptions & {
@@ -188,7 +188,7 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
 async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
   const data = await resolveAudioData(audio, maxBytes)
   if (isAttachmentBlob(data)) {
-    const bytes = new Uint8Array(await data.arrayBuffer())
+    const bytes = new Uint8Array(await blobArrayBuffer(data))
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
     return bytes
   }
@@ -269,7 +269,7 @@ export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number
   const maxBytes = normalizeMaxBytes(options?.maxBytes)
   const data = await resolveAudioData(audio, maxBytes)
   if (isAttachmentBlob(data)) {
-    const bytes = new Uint8Array(await data.arrayBuffer())
+    const bytes = new Uint8Array(await blobArrayBuffer(data))
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
     return bytes
   }
