@@ -79,11 +79,14 @@ function parseVercelMessageId(value: unknown): Result<string | undefined, "QUEUE
 
   let messageId: unknown
   try {
+    if (!Object.prototype.hasOwnProperty.call(value, "messageId")) return invalidVercelSendResponse(value)
     messageId = Reflect.get(value, "messageId")
   }
   catch (cause) {
     return invalidVercelSendResponse(cause)
   }
+  // `@vercel/queue` returns `messageId: null` when it accepts a message for deferred processing (HTTP 202).
+  if (messageId === null) return [undefined, undefined]
   if (typeof messageId !== "string" || !messageId || messageId.length > 128 || messageId.trim() !== messageId) {
     return invalidVercelSendResponse(value)
   }

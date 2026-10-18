@@ -1,6 +1,6 @@
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { appendMessageText, attachmentStringByteLength, blobArrayBuffer, attachmentStringBytes, isArrayBufferValue, isAttachmentBlob, isUint8ArrayValue } from "../messages.ts"
+import { appendMessageText, arrayBufferByteLength, attachmentStringByteLength, attachmentStringBytes, blobArrayBuffer, blobSize, isArrayBufferValue, isBlobValue, isUint8ArrayValue, uint8ArrayByteLength } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isTranscriptionAbortError, isTranscriptionError, transcriptionError } from "./transcription.ts"
 
@@ -23,7 +23,6 @@ type AiSdkStreamTranscriptionResult = ReturnType<AiSdkStreamTranscribe>
 type TranscribeArtifactValue<T, TInput> = T | ((input: TInput) => MaybePromise<T>)
 const DEFAULT_TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024
 const resolvedAudioData = new WeakMap<AudioPart, Promise<AudioData>>()
-
 export interface TranscribeExecuteInput {
   audio: AudioPart
 }
@@ -155,16 +154,11 @@ function assertWithinMaxBytes(byteLength: number | undefined, maxBytes: number, 
   }
 }
 
-const arrayBufferByteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!
-
-function arrayBufferLength(value: unknown): number | undefined {
-  return isArrayBufferValue(value) ? arrayBufferByteLength.call(value) : undefined
-}
-
 async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<AudioData | undefined> {
   assertWithinMaxBytes(audio.size, maxBytes, "audio")
-  if (isAttachmentBlob(audio.data)) assertWithinMaxBytes(audio.data.size, maxBytes, "audio data")
-  else if (isArrayBufferValue(audio.data)) assertWithinMaxBytes(arrayBufferLength(audio.data), maxBytes, "audio data")
+  if (isBlobValue(audio.data)) assertWithinMaxBytes(blobSize(audio.data), maxBytes, "audio data")
+  else if (isArrayBufferValue(audio.data)) assertWithinMaxBytes(arrayBufferByteLength(audio.data), maxBytes, "audio data")
+  else if (isUint8ArrayValue(audio.data)) assertWithinMaxBytes(uint8ArrayByteLength(audio.data), maxBytes, "audio data")
   else if (ArrayBuffer.isView(audio.data)) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
   if (audio.data) return audio.data
   if (!audio.fetchData) return
@@ -178,8 +172,9 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
     resolvedAudioData.set(audio, cached)
   }
   const data = await cached
-  if (isAttachmentBlob(data)) assertWithinMaxBytes(data.size, maxBytes, "downloaded audio")
-  else if (isArrayBufferValue(data)) assertWithinMaxBytes(arrayBufferLength(data), maxBytes, "downloaded audio")
+  if (isBlobValue(data)) assertWithinMaxBytes(blobSize(data), maxBytes, "downloaded audio")
+  else if (isArrayBufferValue(data)) assertWithinMaxBytes(arrayBufferByteLength(data), maxBytes, "downloaded audio")
+  else if (isUint8ArrayValue(data)) assertWithinMaxBytes(uint8ArrayByteLength(data), maxBytes, "downloaded audio")
   else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
   else if (hasRuntimeType(data, "string") && !/^data:/i.test(data)) assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
   return data
@@ -187,16 +182,27 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
 
 async function toAiSdkAudio(audio: AudioPart, maxBytes: number): Promise<Parameters<AiSdkTranscribe>[0]["audio"]> {
   const data = await resolveAudioData(audio, maxBytes)
-  if (isAttachmentBlob(data)) {
+  if (isBlobValue(data)) {
     const bytes = new Uint8Array(await blobArrayBuffer(data))
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
     return bytes
+  }
+  if (isArrayBufferValue(data)) return new Uint8Array(data)
+  if (isUint8ArrayValue(data)) {
+    assertWithinMaxBytes(uint8ArrayByteLength(data), maxBytes, "audio data")
+    return new Uint8Array(data)
   }
   if (hasRuntimeType(data, "string") && /^data:/i.test(data)) {
     assertWithinMaxBytes(attachmentStringByteLength(data, audio.mediaType), maxBytes, "audio data")
     return attachmentStringBytes(data, audio.mediaType)
   }
-  if (data) return data
+  if (isArrayBufferValue(data)) return new Uint8Array(data)
+  if (isUint8ArrayValue(data)) {
+    assertWithinMaxBytes(uint8ArrayByteLength(data), maxBytes, "audio data")
+    return new Uint8Array(data)
+  }
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+  if (hasRuntimeType(data, "string")) return data
   if (audio.url) return new URL(audio.url)
   throw agentDiagnostics.AGENT_R0237({ message: "[vitehub] transcribe() requires audio data, fetchData, or url." })
 }
@@ -242,7 +248,7 @@ async function responseBytes(response: Response, maxBytes: number): Promise<Uint
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      const chunk = isUint8ArrayValue(value) ? value : new Uint8Array(value)
+      const chunk = value instanceof Uint8Array ? value : new Uint8Array(value)
       byteLength += chunk.byteLength
       assertWithinMaxBytes(byteLength, maxBytes, "downloaded audio")
       chunks.push(chunk)
@@ -268,12 +274,12 @@ async function responseBytes(response: Response, maxBytes: number): Promise<Uint
 export async function audioBytes(audio: AudioPart, options?: { maxBytes?: number }): Promise<Uint8Array> {
   const maxBytes = normalizeMaxBytes(options?.maxBytes)
   const data = await resolveAudioData(audio, maxBytes)
-  if (isAttachmentBlob(data)) {
+  if (isBlobValue(data)) {
     const bytes = new Uint8Array(await blobArrayBuffer(data))
     assertWithinMaxBytes(bytes.byteLength, maxBytes, "audio data")
     return bytes
   }
-  if (isArrayBufferValue(data)) return new Uint8Array(data)
+  if (isUint8ArrayValue(data) || isArrayBufferValue(data)) return new Uint8Array(data)
   if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
   if (hasRuntimeType(data, "string")) {
     if (/^data:/i.test(data)) {
