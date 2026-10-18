@@ -298,6 +298,8 @@ export interface ViteHubAgentOptions extends AgentModuleOptions {
 }
 
 export interface ViteHubOptions {
+  /** Module specifier used by the application's `defineContent` import. */
+  contentImportBase?: string
   /** Local storage defaults for a Node host with a persistent filesystem. Relative to the working directory. */
   dataDir?: string
   preset: DeploymentPreset
@@ -981,6 +983,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (options.console) {
     const invocationRootState = {}
     plugins.push(consoleVitePlugin({
+      contentImportBase: options.contentImportBase ?? "vite-hub/content",
       blobStores: consoleBlobStores,
       console: options.console,
       connections: options.connections,
@@ -1158,7 +1161,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
           { serverDirs },
         ))
       : false,
-    contentImportBase: "vite-hub/content",
+    contentImportBase: options.contentImportBase ?? "vite-hub/content",
     importBase: "vite-hub/source",
   })
   plugins.push(sourcePlugin)

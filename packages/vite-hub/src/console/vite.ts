@@ -112,6 +112,7 @@ export function consoleAuthConfig(options: ConsoleOptions | false | undefined): 
 }
 
 export interface ConsoleVitePluginOptions {
+  contentImportBase?: string
   blobStores?: readonly string[]
   console?: ConsoleOptions
   connections?: unknown
@@ -418,7 +419,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
 
   const refreshConsoleCatalog = serializeConsoleRefresh(async () => {
     if (!generatedPlugin || !projectRoot || !root) return
-    const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
+    const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
@@ -552,7 +553,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       if (!cliDiscovery && !fixture) {
         const resolvedOnlySections = new Set<ConsoleSectionId>(["databases", "sandbox-tasks", "workflows", "workspaces"])
         const initialSections = sections.filter(section => !resolvedOnlySections.has(section))
-        const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
+        const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,

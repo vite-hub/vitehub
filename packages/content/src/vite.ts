@@ -4,6 +4,7 @@ import type { ViteHubConsoleDocumentEditorSection } from "@vite-hub/internal/con
 
 export interface ContentConsoleOptions {
   projectRoot: string
+  contentImportBase?: string
   /** Server directories to search, relative to `projectRoot`. Defaults to `server`. */
   serverDirs?: string[]
 }
@@ -16,7 +17,7 @@ export interface ContentConsoleOptions {
 async function findContentCollectionsEntry(options: ContentConsoleOptions): Promise<string | undefined> {
   const file = await findContentEntry(options)
   if (!file) return
-  return (await inspectContentEntry(file)).collections ? file : undefined
+  return (await inspectContentEntry(file, options.contentImportBase)).collections ? file : undefined
 }
 
 /**
