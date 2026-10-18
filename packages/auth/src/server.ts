@@ -350,6 +350,9 @@ const authorizationStreamGetReader = authorizationStreamPrototype
 const authorizationStreamLocked = authorizationStreamPrototype
   ? Object.getOwnPropertyDescriptor(authorizationStreamPrototype, "locked")?.get
   : undefined
+const authorizationFunctionToString = Object.getOwnPropertyDescriptor(Function.prototype, "toString")?.value as
+  | ((this: Function) => string)
+  | undefined
 const authorizationUint8ArraySubarray = Object.getOwnPropertyDescriptor(
   Object.getPrototypeOf(Uint8Array.prototype),
   "subarray",
@@ -368,6 +371,19 @@ const validatedAuthorizationStreamGetReader = (() => {
     || typeof authorizationReaderRead !== "function"
     || typeof authorizationReaderCancel !== "function"
     || typeof authorizationReaderReleaseLock !== "function") return
+  // A callable installed before this module evaluated can otherwise masquerade
+  // as the host intrinsic while returning a reader for a different stream.
+  // Native Web IDL operations have an unforgeable native function source; fail
+  // closed when the captured operation is an ordinary replacement.
+  if (typeof authorizationFunctionToString !== "function") return
+  let sourceText: string
+  try {
+    sourceText = Reflect.apply(authorizationFunctionToString, authorizationStreamGetReader, [])
+  }
+  catch {
+    return
+  }
+  if (!sourceText.includes("[native code]")) return
   try {
     const source = new ReadableStream()
     const reader = Reflect.apply(authorizationStreamGetReader, source, [])
