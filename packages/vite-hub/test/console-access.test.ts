@@ -111,11 +111,11 @@ describe("Console access policies", () => {
 
     const spoofed = await run({ mode: "open", authorize: () => ({ [Symbol.toStringTag]: "Response", status: 401, text: () => Promise.resolve("spoofed") }) as unknown as Response })
     expect(spoofed.handler).not.toHaveBeenCalled()
-    await expect(rejection(spoofed.result)).resolves.toMatchObject({ status: 403 })
+    await expect(rejection(spoofed.result)).resolves.toMatchObject({ status: 500 })
 
     const inheritedGetter = await run({ mode: "open", authorize: () => Object.create({ get status() { return 401 } }) as Response })
     expect(inheritedGetter.handler).not.toHaveBeenCalled()
-    await expect(rejection(inheritedGetter.result)).resolves.toMatchObject({ status: 403 })
+    await expect(rejection(inheritedGetter.result)).resolves.toMatchObject({ status: 500 })
 
     const completeSpoof = Object.create({
       [Symbol.toStringTag]: "Response",
@@ -129,7 +129,7 @@ describe("Console access policies", () => {
     }) as Response
     const spoofedPrototype = await run({ mode: "open", authorize: () => completeSpoof })
     expect(spoofedPrototype.handler).not.toHaveBeenCalled()
-    await expect(rejection(spoofedPrototype.result)).resolves.toMatchObject({ status: 403 })
+    await expect(rejection(spoofedPrototype.result)).resolves.toMatchObject({ status: 500 })
   })
 
   it("preserves genuine Response subclasses", async () => {

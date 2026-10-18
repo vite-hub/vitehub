@@ -73,7 +73,7 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ),
     CONSOLE_DEVELOPMENT_ONLY: code(
       "console: true is development-only. It works only on the development server.",
-      "For production, set console: { auth: \"app\" }, console: { auth: { ... }, authorize }, or console: { authorize } for host-managed access.",
+      "For production, set console: { auth: \"app\" }, console: { auth: { ... }, authorize }, or console: { auth: false, authorize } for host-managed access.",
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),
