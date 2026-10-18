@@ -63,10 +63,10 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
   try {
     if (value instanceof Response) {
       // `instanceof` also accepts proxies, but Fetch internal-slot accessors
-      // reject proxied Responses. Probe the native clone algorithm so a proxy
-      // cannot escape as a valid authorization result.
+      // reject proxied Responses. Probe an accessor that does not disturb or
+      // lock the body, so consumed and locked responses remain valid results.
       try {
-        Response.prototype.clone.call(value)
+        Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(value)
       }
       catch {
         return invalidAuthorizationResponse
