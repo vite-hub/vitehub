@@ -88,16 +88,15 @@
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
-    "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
-    "undici": "7.30.0",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "undici": "7.30.0"
+    "undici": "7.30.0",
+    "@types/node": "catalog:tooling"
   },
   "peerDependencies": {
     "@types/json-schema": "catalog:ai",
