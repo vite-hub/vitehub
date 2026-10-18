@@ -96,8 +96,10 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
   // together so generated artifacts and generated types keep the same contract as the Nuxt local runtime.
   const primaryLoaded = sources[definition.schemaSources.findIndex(source => source.handler === definition.handler)]?.loaded ?? false
   const activeContributions = primaryLoaded ? loadedContributions.filter(item => item.schema.loaded) : []
-  const loadedSources = primaryLoaded ? sources.filter(source => source.loaded) : []
-  const activeSourceDefinitions = primaryLoaded ? definition.schemaSources.filter((_, index) => sources[index]!.loaded) : []
+  // Keep literal fallback keys in generated artifacts when evaluation fails. The Definition import
+  // remains the source of runtime values, while the static table names preserve the previous dev/build output.
+  const loadedSources = sources
+  const activeSourceDefinitions = definition.schemaSources
   const activeDefinition = { ...definition, schemaSources: activeSourceDefinitions }
   const sourceVariables = schemaSourceVariables(activeDefinition, "databaseDefinition", "schemaSource_")
   const contributed = activeContributions.map(item => item.schema)
@@ -251,7 +253,7 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
       ...definition,
       // Keep generated types aligned with the schema artifact and Nuxt runtime: layers
       // remain available only when the primary Definition can provide a runtime entry.
-      schemaSources: primaryLoaded ? definition.schemaSources.filter((_, index) => sources[index]!.loaded) : [],
+      schemaSources: definition.schemaSources,
     }
     const contributions = config.tableContributionsByDatabase[definition.name] ?? []
     const loaded = await Promise.all(contributions.map(async contribution =>

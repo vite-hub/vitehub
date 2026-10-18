@@ -11,10 +11,11 @@ import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
 import { createDbCliContributor } from "./cli.ts"
+import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, resolveCloudflareD1Bindings } from "./internal/cloudflare.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { renderDatabaseConfigExpression } from "./internal/runtime-config-expression.ts"
+import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, generateProviderOutputs, prepareProviderOutputs, shouldCreateCloudflareOutput, shouldCreateVercelOutput } from "./internal/vite-build.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions } from "./inspect.ts"
@@ -26,6 +27,7 @@ import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-
 import type { ModuleNode, Plugin, ResolvedConfig, ViteDevServer } from "vite"
 import type { DatabaseTableNameOptions } from "./internal/schema-tables.ts"
 import type { DBModulePublicOptions, NuxtDatabaseViteOptions, ResolvedDBViteConfig } from "./types.ts"
+import type { CollectedDatabaseContribution } from "./contributions.ts"
 
 export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
 export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
@@ -110,7 +112,9 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
   ].join("\n"))
   const entries = config.definitions.map((definition, index) => [
     `  [${JSON.stringify(definition.name)}]: {`,
-    `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
+    config.databases[definition.name]?.dialect === "postgresql"
+      ? `    db: ${renderPostgresDatabaseExpression(definition.name, config, `definition_${index}`, `schema_${index}`)},`
+      : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
@@ -156,6 +160,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
+  let contributions: CollectedDatabaseContribution[] = []
 
   function resolvedOptions() {
     return resolved?.database ?? options
@@ -190,6 +195,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   async function refreshRuntimeConfig(options: { strict?: boolean } = {}) {
     if (!resolved) return
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
+      contributions,
       implicitDefault: true,
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
@@ -286,6 +292,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     async configResolved(config) {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
+      contributions = resolvedOptions() === false
+        ? []
+        : await collectDatabaseContributions(config.plugins, {
+            root: config.root,
+            projectRoot: resolveViteHubProjectRoot(config.root),
+            serverDirs: databaseServerDirs(),
+          })
       await refreshRuntimeConfig()
       mergeNitroCloudflareD1Bindings()
     },
