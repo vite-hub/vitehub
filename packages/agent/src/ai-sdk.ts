@@ -1371,7 +1371,7 @@ async function createAgent(
   const budgetedModel = middlewareActive
     ? aiSdk.wrapLanguageModel({
         model: observedModel as never,
-        middleware: executionBudgetMiddleware(context.executionBudget, budgetRetryLimit),
+        middleware: executionBudgetMiddleware(context.executionBudget!, budgetRetryLimit),
       })
     : observedModel
   const budgetedSettings = context.executionBudget
