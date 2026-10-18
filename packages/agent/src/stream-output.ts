@@ -248,6 +248,10 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(intrinsicHeaders.prototype, "getSetCookie")?.value)
     const nativeReader = responsePropertyDescriptor(body, "getReader")?.value === intrinsicReadableStream.prototype.getReader
     if (nativeProperties && nativeHeaders && nativeCookies && nativeReader) return value as Response & { body: ReadableStream<Uint8Array> }
+    // Registered implementations have already passed their intrinsic brand
+    // and surface checks. Preserve their identity so callers can continue to
+    // consume the original foreign response.
+    if (registered) return value as Response & { body: ReadableStream<Uint8Array> }
     if (!(registered ? isPortableRegisteredUIMessageBody(body) : isPortableUIMessageBody(body))) return
     const forEach = Reflect.get(headers, "forEach")
     if (!hasRuntimeType(forEach, "function")) return
@@ -296,7 +300,11 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
     }
   }
   // SAFETY: The local native stream is piped through a TransformStream whose output type is unknown.
-  return Reflect.apply(ReadableStream.prototype.pipeThrough, body, [new TransformStream<Uint8Array, unknown>({
+  const pipeThrough = isResponse(response)
+    ? Reflect.get(body, "pipeThrough")
+    : ReadableStream.prototype.pipeThrough
+  if (!hasRuntimeType(pipeThrough, "function")) throw new TypeError("Expected a readable UI message stream Response")
+  return Reflect.apply(pipeThrough, body, [new TransformStream<Uint8Array, unknown>({
     flush(controller) {
       buffer += decoder.decode()
       if (buffer.trim()) buffer += "\n\n"

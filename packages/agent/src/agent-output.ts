@@ -1218,6 +1218,21 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield* streamChunksToEventsWithTextFallback(fullStream, result, getTextIterator, initialTextIterator)
     return
   }
+  // Genuine Responses take precedence over incidental generic fields such as
+  // `textStream`; spoofed response-shaped values fail the brand check below
+  // and retain the generic handling path.
+  if (isResponseLike(value)) {
+    const body = validatedResponseBodies.get(value)
+    if (body) {
+      const pipeThrough = validatedResponsePipeThrough.get(body)
+      if (!pipeThrough) throw new TypeError("Response body does not expose pipeThrough")
+      for await (const text of pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
+        if (text) yield { text, type: "text-delta" }
+      }
+    }
+    yield { type: "finish" }
+    return
+  }
   const textStream = getTextStream()
   if (textStream) {
     for await (const text of textStream) {
@@ -1236,18 +1251,6 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     return
   }
   // Explicit Agent streams take precedence over response-shaped output fields.
-  if (isResponseLike(value)) {
-    const body = validatedResponseBodies.get(value)
-    if (body) {
-      const pipeThrough = validatedResponsePipeThrough.get(body)
-      if (!pipeThrough) throw new TypeError("Response body does not expose pipeThrough")
-      for await (const text of pipeThrough.call(body, new TextDecoderStream()) as ReadableStream<string>) {
-        if (text) yield { text, type: "text-delta" }
-      }
-    }
-    yield { type: "finish" }
-    return
-  }
   const text = hasRuntimeType(value, "object") && value !== null
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     ? textFromResult(value as Record<string, unknown>)
