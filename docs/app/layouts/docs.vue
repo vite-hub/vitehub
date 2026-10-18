@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import { isDocsLandingPath } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { isDocsSiteArea } from "../composables/useDocsSection";
 
 const route = useRoute();
 const isSupportMatrix = computed(() => normalizeDocsPath(route.path) === "/docs/frameworks-hosts/support-matrix");
 // The catalog and every product Overview are landing pages: no sidebar, one centered column.
 const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.path));
+const isDocsSiteAreaRoute = computed(() => isDocsSiteArea(route.path));
 
 // On docs pages the sidebar sits on the left edge of the viewport. The page content centers in the remaining space.
 const docsShellUi = {
@@ -22,15 +24,14 @@ const docsShellUi = {
       <slot />
     </UContainer>
 
-    <div v-else-if="isLanding" class="vh-docs-landing">
+    <div v-else-if="isLanding || isDocsSiteAreaRoute" class="vh-docs-landing">
       <slot />
     </div>
 
     <UPage v-else :ui="docsShellUi">
       <template #left>
         <UPageAside class="vh-docs-aside">
-          <DocsAsideLeftTop />
-          <DocsAsideLeftBody />
+          <DocsSidebars panel />
         </UPageAside>
       </template>
 
@@ -41,7 +42,7 @@ const docsShellUi = {
       </div>
     </UPage>
 
-    <AppFooter v-if="isSupportMatrix || isLanding" class="vh-docs-footer" />
+    <AppFooter v-if="isSupportMatrix || isLanding || isDocsSiteAreaRoute" class="vh-docs-footer" />
   </UMain>
 </template>
 
