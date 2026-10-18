@@ -52,10 +52,11 @@ function hasConfiguredPublicUrl(): boolean {
     && Boolean(__VITEHUB_PUBLIC_URL__?.url || Object.keys(__VITEHUB_PUBLIC_URL__?.agents ?? {}).length)
 }
 
-let authRuntimeEnvResolver: AuthRuntimeEnvResolver | undefined = getAuthRuntimeState().envResolver
+function getAuthRuntimeEnvResolver(): AuthRuntimeEnvResolver | undefined {
+  return getAuthRuntimeState().envResolver
+}
 
 export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined): void {
-  authRuntimeEnvResolver = resolver
   getAuthRuntimeState().envResolver = resolver
 }
 
@@ -83,7 +84,7 @@ export function createAuthRequestRuntimeOptions(
   runtimeOptions: AuthRuntimeOptions = {},
   event?: unknown,
 ): AuthRuntimeOptions {
-  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).requestRuntimeOptions
+  return resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeEnvResolver() }).requestRuntimeOptions
 }
 
 function resolveDefaultDefinition(): AuthDefinition {
@@ -97,7 +98,7 @@ export function createBetterAuthOptions(
   definition: AuthDefinition,
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthBetterAuthRuntimeOptions {
-  return resolveAuthOptions(definition, { runtimeOptions, env: authRuntimeEnvResolver }).providerOptions
+  return resolveAuthOptions(definition, { runtimeOptions, env: getAuthRuntimeEnvResolver() }).providerOptions
 }
 
 function createAuthenticationProvider(options: AuthBetterAuthRuntimeOptions): ViteHubAuth {
@@ -122,7 +123,7 @@ export function createAuthForRequest(
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): ViteHubAuth {
-  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).providerOptions) as ViteHubAuth
+  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeEnvResolver() }).providerOptions) as ViteHubAuth
 }
 
 export function handleAuthRequest(
@@ -176,7 +177,7 @@ export function getAuthForRequest(
   if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition)
   }
-  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: authRuntimeEnvResolver }).providerOptions)
+  return createAuthenticationProvider(resolveAuthOptions(definition, { request, runtimeOptions, event, env: getAuthRuntimeEnvResolver() }).providerOptions)
 }
 
 export async function assertAuthOrigin(
@@ -267,7 +268,7 @@ async function createSignInResponse(
 
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
   const request = unwrapAuthRequest(input)
-  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: authRuntimeEnvResolver })
+  const { options, providerOptions } = resolveAuthOptions(definition, { request, event: input, env: getAuthRuntimeEnvResolver() })
   const auth = createAuthenticationProvider(providerOptions)
   const session = await getAuthenticationSession(auth, { headers: request.headers })
   return { auth, options, request, session }
@@ -488,6 +489,8 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     prototype = Object.getPrototypeOf(prototype)
   }
   if (!locked || !getReader || lockedOwner !== readerOwner || Reflect.apply(locked, body, [])) return false
+  const ownLocked = Object.getOwnPropertyDescriptor(body, "locked")
+  if (ownLocked) return false
   const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
   return !ownReader || ownReader.value === getReader
 }
@@ -504,36 +507,68 @@ function authorizationBodyReader(body: object): (() => unknown) | undefined {
   }
 }
 
+function releaseAuthorizationReader(reader: unknown): void {
+  if (Object(reader) !== reader) return
+  let prototype: object | null = Object.getPrototypeOf(reader)
+  const seen = new Set<object>()
+  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(prototype)) return
+    seen.add(prototype)
+    const releaseLock = Object.getOwnPropertyDescriptor(prototype, "releaseLock")?.value
+    if (typeof releaseLock === "function") {
+      try { Reflect.apply(releaseLock, reader, []) } catch { /* best effort during initialization failure */ }
+      return
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
+
 function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
   getReader: () => unknown,
+  initialReader?: ReadableStreamDefaultReader<Uint8Array>,
 ) {
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined = initialReader
   let initializing: Promise<ReadableStreamDefaultReader<Uint8Array>> | undefined
   let read: ((...args: []) => Promise<{ done: boolean; value: Uint8Array }>) | undefined
   let cancel: ((...args: [unknown?]) => Promise<void>) | undefined
   let releaseLock: (() => void) | undefined
   let released = false
+  const initializeReader = (acquired: unknown) => {
+    if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
+    let prototype: object | null = Object.getPrototypeOf(acquired)
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) break
+      seen.add(prototype)
+      const readDescriptor = Object.getOwnPropertyDescriptor(prototype, "read")
+      const cancelDescriptor = Object.getOwnPropertyDescriptor(prototype, "cancel")
+      const releaseDescriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
+      read ??= typeof readDescriptor?.value === "function" ? readDescriptor.value : undefined
+      cancel ??= typeof cancelDescriptor?.value === "function" ? cancelDescriptor.value : undefined
+      releaseLock ??= typeof releaseDescriptor?.value === "function" ? releaseDescriptor.value : undefined
+      if (read && cancel && releaseLock) break
+      prototype = Object.getPrototypeOf(prototype)
+    }
+    if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
+    return acquired as ReadableStreamDefaultReader<Uint8Array>
+  }
+  if (initialReader) {
+    try { initializeReader(initialReader) }
+    catch (error) {
+      releaseAuthorizationReader(initialReader)
+      throw error
+    }
+  }
   const acquire = async () => {
+    if (reader) return reader
     initializing ??= Promise.resolve().then(() => {
       const acquired = Reflect.apply(getReader, body, [])
-      if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
-      let prototype: object | null = Object.getPrototypeOf(acquired)
-      const seen = new Set<object>()
-      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
-        if (seen.has(prototype)) break
-        seen.add(prototype)
-        const readDescriptor = Object.getOwnPropertyDescriptor(prototype, "read")
-        const cancelDescriptor = Object.getOwnPropertyDescriptor(prototype, "cancel")
-        const releaseDescriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
-        read ??= typeof readDescriptor?.value === "function" ? readDescriptor.value : undefined
-        cancel ??= typeof cancelDescriptor?.value === "function" ? cancelDescriptor.value : undefined
-        releaseLock ??= typeof releaseDescriptor?.value === "function" ? releaseDescriptor.value : undefined
-        if (read && cancel && releaseLock) break
-        prototype = Object.getPrototypeOf(prototype)
+      try { return initializeReader(acquired) }
+      catch (error) {
+        releaseAuthorizationReader(acquired)
+        throw error
       }
-      if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
-      return acquired as ReadableStreamDefaultReader<Uint8Array>
     })
     reader = await initializing
     return reader
@@ -551,7 +586,7 @@ function bridgeAuthorizationBody(
         if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
         if (result.done) { release(); controller.close() }
         else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
-        else controller.enqueue(result.value)
+        else controller.enqueue(new Uint8Array(result.value))
       } catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
@@ -561,7 +596,7 @@ function bridgeAuthorizationBody(
       } finally { release() }
     },
   }, { highWaterMark: 0 })
-  return { stream, release }
+  return { stream, release, ready: getReader === ReadableStream.prototype.getReader ? undefined : acquire() }
 }
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
@@ -583,6 +618,11 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
+    if (value instanceof Response && status === 0 && statusText === "" && body === null
+      && headers instanceof Headers
+      && authorizationResponseProperties.every(key =>
+        responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
+      && !authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))) return value
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
 
@@ -621,7 +661,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
         nativeBodyState = false
       }
     }
-
     if (value instanceof Response && !hasCallableOwnThen && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
     if (!serializableBody) return
     const forEach = Reflect.get(headerCarrier, "forEach")

@@ -92,3 +92,18 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
   }
   return definition
 }
+
+export function defineScheduleTarget<TInput = unknown, TResult = unknown>(input: ScheduleTargetDefinitionInput<TInput, TResult>): ScheduleTargetDefinition<TInput, TResult> {
+  if (!isPlainObject(input)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineScheduleTarget()` expects an object with `handler`." })
+  }
+  assertOwnDefinitionFields(input, scheduleTargetDefinitionKeys, "`defineScheduleTarget()` does not accept inherited options.", scheduleErrorDiagnostics.SCHEDULE_C0004)
+  const unknownKey = Object.keys(input).find(key => !scheduleTargetDefinitionKeys.has(key))
+  if (unknownKey) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0004({ message: `\`defineScheduleTarget()\` does not support the "${unknownKey}" option.` })
+  }
+  if (typeof input.handler !== "function") {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0005({ message: "`defineScheduleTarget()` requires a schedule handler." })
+  }
+  return { handler: input.handler, options: { allowRuntimeSchedules: true } }
+}
