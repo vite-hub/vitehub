@@ -117,9 +117,12 @@ describe("hubDb", () => {
   it.each([
     { name: "local SQLite", connection: "url: 'file:local.db',", cloudflare: undefined, providers: [] },
     { name: "remote libSQL", connection: "url: 'libsql://database.example',", cloudflare: undefined, providers: ["cloudflare", "vercel"] },
+    { name: "remote libSQL with unresolved D1 fallback", connection: "url: 'libsql://database.example',", cloudflare: "databaseId: '   ', databaseName: '   ',", providers: ["cloudflare", "vercel"] },
+    { name: "D1 with a blank ID", connection: undefined, cloudflare: "databaseId: '   ', databaseName: 'database-name',", providers: [] },
+    { name: "D1 with a blank name", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: '   ',", providers: [] },
     { name: "D1 binding", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name',", providers: ["cloudflare"] },
     { name: "D1 HTTP", connection: undefined, cloudflare: "databaseId: 'database-id', databaseName: 'database-name', http: true,", providers: ["cloudflare", "vercel"] },
-    { name: "D1 HTTP without a database name", connection: undefined, cloudflare: "databaseId: 'database-id', http: true,", providers: ["vercel"] },
+    { name: "D1 HTTP without a database name", connection: undefined, cloudflare: "databaseId: 'database-id', http: true,", providers: ["cloudflare", "vercel"] },
   ])("supports the hosted runtime on the expected hosts for $name", async ({ connection, cloudflare, providers }) => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { connection, cloudflare })

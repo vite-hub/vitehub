@@ -2716,7 +2716,11 @@ function isResolver(value: unknown): value is { resolve: (context: AgentCallback
   return isRecord(value) && hasRuntimeType(value.resolve, "function")
 }
 
-function ignored(reason: string) {
+/**
+ * Acknowledges a webhook that the Channel does not handle, such as an event type it does not use.
+ * Answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry.
+ */
+export function ignored(reason: string): Response {
   return Response.json({ accepted: false, ok: true, reason })
 }
 

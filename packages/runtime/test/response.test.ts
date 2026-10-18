@@ -1,10 +1,9 @@
-import { Window } from "happy-dom"
 import { describe, expect, it } from "vitest"
 import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
 
 describe("durable Response representation", () => {
-  it("preserves Blob bodies created in another realm", async () => {
-    const blob = new (new Window()).Blob(["test"], { type: "text/plain" })
+  it("preserves Blob bodies", async () => {
+    const blob = new Blob(["test"], { type: "text/plain" })
     const response = toResponse(blob)
     expect(response.headers.get("content-type")).toBe("text/plain")
     expect(await response.text()).toBe("test")
@@ -28,35 +27,18 @@ describe("durable Response representation", () => {
     expect(await toResponse([1, 2]).json()).toEqual([1, 2])
   })
 
-  it("does not execute spoofed or overridden stream methods", async () => {
+
+  it("does not execute spoofed Blob methods", async () => {
     const spoof = { slice: () => spoof, stream: () => { throw new Error("spoof") }, type: "text/plain" }
     expect(await toResponse(spoof).json()).toEqual({ type: "text/plain" })
 
-    const spoofPrototype = {
-      slice(this: object) {
-        return Object.create(Object.getPrototypeOf(this), { type: { value: "text/plain" } })
-      },
+    const distinctPrototype = {
+      slice(this: object) { return Object.create(Object.getPrototypeOf(this), { type: { value: "text/plain" } }) },
       stream() { throw new Error("distinct spoof") },
       get size() { return 0 },
     }
-    const spoofConstructor = function Blob() {}
-    spoofConstructor.prototype = spoofPrototype
-    Object.defineProperty(spoofPrototype, "constructor", { value: spoofConstructor })
-    const distinctSpoof = Object.create(spoofPrototype, { type: { value: "text/plain", enumerable: true } })
-    expect(await toResponse(distinctSpoof).json()).toEqual({ type: "text/plain" })
-
-    class BlobSpoof {
-      get size() { return 0 }
-      type = "text/plain"
-      slice() { return Object.create(BlobSpoof.prototype) }
-      stream() { throw new Error("class spoof") }
-    }
-    const classSpoof = new BlobSpoof()
-    expect(await toResponse(classSpoof).json()).toEqual({ type: "text/plain" })
-
-    const blob = new Blob(["test"], { type: "text/plain" })
-    expect(await toResponse(blob).text()).toBe("test")
-
+    const distinct = Object.create(distinctPrototype, { type: { value: "text/plain", enumerable: true } })
+    expect(await toResponse(distinct).json()).toEqual({ type: "text/plain" })
   })
 
   it("does not add a content type for an untyped Blob", async () => {

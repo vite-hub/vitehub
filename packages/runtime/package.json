@@ -78,8 +78,7 @@
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling",
-    "happy-dom": "20.14.5"
+    "vitest": "catalog:tooling"
   },
   "engines": {
     "node": ">=24.0.0"

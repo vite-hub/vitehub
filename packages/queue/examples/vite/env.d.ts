@@ -1,1 +1,1 @@
-/// <reference path="./.vitehub/queue.d.ts" />
+import "./.vitehub/queue.d.ts"
