@@ -7,7 +7,7 @@ export interface BaseFreshnessReader {
   page(path: string, projection: string, signal: AbortSignal): Promise<unknown>;
 }
 
-/** Files the comparison may list before it counts as truncated. GitHub stops at 300. */
+/** Files the comparison may list before it counts as truncated. GitHub caps this at 300. */
 const compareFileLimit = 300;
 /** Pushes this close to the run start may not be in the run's checkout. */
 const pushMarginMs = 2 * 60_000;
@@ -63,11 +63,17 @@ export async function staleBaseOverlap(reader: BaseFreshnessReader, snapshot: Sn
   // base was tested. Force a retest before allowing a direct merge.
   if (!testedBase) return [...changed];
   // The first page has the complete file list; later pages only add commits.
-  const compare = await reader.page(`repos/${repository}/compare/${testedBase}...${encodeURIComponent(live.base.ref)}?per_page=${compareFileLimit}`,
-    "{ahead: .ahead_by, files: [.files[]? | .filename, .previous_filename]}", signal);
+  const compare = await reader.page(`repos/${repository}/compare/${testedBase}...${encodeURIComponent(live.base.ref)}?per_page=100`,
+    "{ahead: .ahead_by, files: [.files[]? | {filename: .filename, previous_filename: .previous_filename}]}", signal);
   if (!isRuntimeRecord(compare) || !compare.ahead) return [];
-  if (!Array.isArray(compare.files) || compare.files.length >= compareFileLimit) return [...changed];
-  return [...new Set(compare.files.filter(file => hasRuntimeType(file, "string") && changed.has(file)))];
+  // GitHub exposes at most 300 files for a comparison. Each response item is
+  // one changed file, so renamed files and null previous names do not inflate
+  // the truncation count.
+  if (!Array.isArray(compare.files) || compare.files.length >= 100) return [...changed];
+  const baseFiles = compare.files.flatMap(file => isRuntimeRecord(file)
+    ? [file.filename, file.previous_filename]
+    : Array.isArray(file) ? file : []);
+  return [...new Set(baseFiles.filter(file => hasRuntimeType(file, "string") && changed.has(file)))];
 }
 
 /**
@@ -86,10 +92,20 @@ export async function baseFixedSinceFailure(reader: BaseFreshnessReader, snapsho
   if (!isRuntimeRecord(compare) || !hasRuntimeType(compare.ahead, "number") || !compare.ahead) return undefined;
   // While the base itself fails, the update inherits the same failures.
   const [baseFailures, baseStatuses] = await Promise.all([
-    reader.page(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/check-runs?per_page=100`,
-      `[.check_runs[] | select(.conclusion as $c | ${JSON.stringify([...failed])} | index($c))] | length`, signal),
-    reader.page(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/statuses?per_page=100`,
-      `[.[] | select(.state as $s | ${JSON.stringify([...failed])} | index($s))] | length`, signal),
+    reader.rest(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/check-runs?per_page=100`,
+      ".check_runs[]?.conclusion", signal),
+    reader.rest(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/statuses?per_page=100`,
+      ".[]?.state", signal),
   ]);
-  return baseFailures === 0 && (baseStatuses === undefined || baseStatuses === 0) ? compare.ahead : undefined;
+  const failedSet = new Set([...failed].map(value => value.toLowerCase()));
+  const legacyFailures = baseFailures.length ? baseFailures : [await reader.page(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/check-runs?per_page=100`,
+    `[.check_runs[] | select(.conclusion as $c | ${JSON.stringify([...failed])} | index($c))] | length`, signal)];
+  const legacyStatuses = baseStatuses.length ? baseStatuses : [await reader.page(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/statuses?per_page=100`,
+    `[.[] | select(.state as $s | ${JSON.stringify([...failed])} | index($s))] | length`, signal)];
+  return legacyFailures.some(value => hasRuntimeType(value, "string") && failedSet.has(value.toLowerCase()))
+    || legacyStatuses.some(value => hasRuntimeType(value, "string") && failedSet.has(value.toLowerCase()))
+    || legacyFailures.some(value => value !== 0 && value !== undefined)
+    || legacyStatuses.some(value => value !== 0 && value !== undefined)
+    ? undefined
+    : compare.ahead;
 }
