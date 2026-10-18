@@ -806,10 +806,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }])
     // Preserve one cookie when the fallback exposes only a combined value. A comma
     // followed by another cookie assignment at the cookie-pair boundary proves that
-    // multiple values were merged. Assignment-like text after an extension attribute
-    // can still be part of that attribute's value, so do not reject it as a merge.
+    // multiple values were merged. Also reject assignment-like text after a standard
+    // cookie attribute (for example `Path=/, next=2`), which is another merged-cookie
+    // boundary. Arbitrary extension attributes may legitimately contain commas.
     if (combinedCookies !== undefined) {
-      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      if (
+        /^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)
+        || /;\s*(?:Domain|Expires|HttpOnly|Max-Age|Partitioned|Path|SameSite|Secure)\s*=.*,[\s]*[^;=,\s]+\s*=\s*/i.test(combinedCookies)
+      ) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
