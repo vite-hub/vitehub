@@ -157,6 +157,7 @@ export const PrimitiveRailGroup = defineComponent({
  * One rail target: a square icon that becomes a labeled row when the rail expands. It renders a button by default.
  * Pass a link component in `as` and its props, such as `to`, as attributes.
  * The default slot replaces the primitive icon, for example with a host icon component. The icon is decorative.
+ * The `label` slot replaces the visible label, for example to add a badge. `label` stays the accessible name.
  */
 export const PrimitiveRailItem = defineComponent({
   name: "PrimitiveRailItem",
@@ -188,7 +189,7 @@ export const PrimitiveRailItem = defineComponent({
 
     const content = () => [
       h("span", { "aria-hidden": "true", class: "vh-primitive-rail__icon" }, slots.default?.() ?? (props.icon ? [h(PrimitiveIcon, { name: props.icon })] : [])),
-      h("span", { class: "vh-primitive-rail__label" }, props.label),
+      h("span", { class: "vh-primitive-rail__label" }, slots.label?.() ?? props.label),
     ];
     return () => {
       const attributes = {

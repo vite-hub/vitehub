@@ -451,7 +451,7 @@ describe("Auth access handlers", () => {
     const response = await handler(new Request("https://app.example/"))
 
     expect(response).toBeInstanceOf(Response)
-    expect(response).not.toBe(spoof)
+    expect(response).not.toBe(source)
     expect(() => response!.headers.getSetCookie()).not.toThrow()
     expect(() => response!.headers.forEach(() => {})).not.toThrow()
   })

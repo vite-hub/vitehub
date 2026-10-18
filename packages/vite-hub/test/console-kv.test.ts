@@ -11,7 +11,8 @@ import {
 import kvHandlerRoute from "../src/console/runtime/server/kv.get.ts"
 import { installConsoleKV } from "../src/console/runtime/server/kv.ts"
 
-import type { KVResult, KVStorage } from "@vite-hub/kv"
+import type { KVErrorCode, KVStorage } from "@vite-hub/kv"
+import type { Result, ResultError } from "@vite-hub/runtime"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import { allowed } from "./support/console-access.ts"
@@ -21,14 +22,14 @@ const kvHandler = allowed(kvHandlerRoute)
 // SAFETY: ConsoleInvocationScope only adds optional symbol-keyed test state to the global object.
 const scope = globalThis as ConsoleInvocationScope
 
-function success<TResult>(value: TResult): KVResult<TResult> {
-  return [null, value]
+function success<TResult>(value: TResult): Result<TResult, never> {
+  return [undefined, value]
 }
 
-function failure(message: string, cause?: unknown): KVResult<never> {
-  const error = Object.assign(new Error(message), cause === undefined ? {} : { cause })
-  // SAFETY: The handler under test consumes only the error message and cause from this failed KV result.
-  return [error as Exclude<KVResult<never>[0], null>, undefined]
+function failure<TCode extends KVErrorCode>(message: string, code: TCode): Result<never, TCode> {
+  const error = Object.assign(new Error(message), { code, name: code })
+  // SAFETY: The handler under test consumes only the error message and code from this failed KV result.
+  return [error as unknown as ResultError<TCode>, undefined]
 }
 
 function event(query = "", method = "GET", body?: unknown): ConsoleRequestEvent {
@@ -249,7 +250,7 @@ describe("Console KV inspection", () => {
 
   it("exposes configured stores when the selected store cannot list keys", async () => {
     const { storage } = memoryKV({ cache: new Map(), default: new Map() })
-    storage.list = async () => failure("default unavailable")
+    storage.list = async () => failure("default unavailable", "KV_OPERATION_FAILED")
     installConsoleKV("/project", storage, ["default", "cache"])
 
     await expect(kvHandler(event())).resolves.toMatchObject({
@@ -262,8 +263,7 @@ describe("Console KV inspection", () => {
 
   it("identifies only expired cursors as retryable", async () => {
     const { storage } = memoryKV({ default: new Map() })
-    const expiredCause = Object.assign(new Error("expired"), { code: "KV_CURSOR_EXPIRED" })
-    storage.list = async () => failure("list unavailable", expiredCause)
+    storage.list = async () => failure("list unavailable", "KV_INVALID_CURSOR")
     installConsoleKV("/project", storage)
 
     await expect(kvHandler(event("?cursor=continuation"))).resolves.toMatchObject({
