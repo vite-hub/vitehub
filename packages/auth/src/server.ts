@@ -403,6 +403,50 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   }
 }
 
+async function validateAuthorizationBody(
+  body: ReadableStream<unknown> | null,
+): Promise<ReadableStream<Uint8Array> | null | undefined> {
+  if (body === null) return null;
+  if (!isSerializableAuthorizationBody(body)) return;
+  const source = new Response(body).body;
+  if (!source) return;
+  const reader = source.getReader();
+  type Chunk = { done: false; value: unknown } | { done: true; value?: undefined };
+  let first: Chunk;
+  try {
+    first = await reader.read();
+  } catch {
+    await reader.cancel().catch(() => {});
+    return;
+  }
+  if (!first.done && !(first.value instanceof Uint8Array)) {
+    await reader.cancel().catch(() => {});
+    return;
+  }
+  let pending: Chunk | undefined = first;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (pending) {
+        const result = pending;
+        pending = undefined;
+        if (result.done) controller.close();
+        else controller.enqueue(result.value as Uint8Array);
+        return;
+      }
+      const result = (await reader.read()) as Chunk;
+      if (result.done) controller.close();
+      else if (result.value instanceof Uint8Array) controller.enqueue(result.value);
+      else {
+        await reader.cancel().catch(() => {});
+        controller.error(new TypeError("Authorization body chunk must be a Uint8Array"));
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason).catch(() => {});
+    },
+  });
+}
+
 function hasNativeStreamBrand(body: object): boolean {
   try {
     // A stream's reader acquisition is an internal capability. An own
@@ -543,7 +587,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // validated forEach fallback, so caller-installed cookie methods stay out
     // of the authorization boundary.
     if (!nativeHeaderMethods) return;
-    if (!isSerializableAuthorizationBody(body)) return;
+    const normalizedBody = await validateAuthorizationBody(body as ReadableStream<unknown> | null);
+    if (normalizedBody === undefined) return;
     const forEach = Reflect.get(headerCarrier, "forEach");
     const normalizedHeaders = new Headers();
     const cookieValues: string[] = [];
@@ -564,13 +609,17 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       // A single forEach value cannot prove whether a comma denotes a second
       // Set-Cookie field or an extension attribute. Fail closed; runtimes that
       // expose separate fields are handled by separate calls.
-      if (/^[^;]*,[\s]*(?=[^;,=\s]+\s*=)/.test(cookie)) return;
+      if (
+        /^[^;]*,[\s]*(?=[^;,=\s]+\s*=)/.test(cookie) ||
+        /;\s*expires=[^;]*,[\s]*(?=[^;,=\s]+\s*=)/i.test(cookie)
+      )
+        return;
       normalizedHeaders.append("set-cookie", cookie);
     }
     const normalizedResponse =
       status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
         ? Response.error()
-        : new Response(body, { status, statusText, headers: normalizedHeaders });
+        : new Response(normalizedBody, { status, statusText, headers: normalizedHeaders });
     return normalizedResponse;
   } catch {
     return;
