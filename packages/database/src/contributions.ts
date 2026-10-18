@@ -19,6 +19,8 @@ export interface DatabaseContribution {
   module: string
   /** Named export that holds an object of Drizzle tables. Defaults to `default`. */
   export?: string
+  /** Dialect used by the contributed tables. Defaults to sqlite. */
+  dialect?: "sqlite" | "postgresql"
 }
 
 /**
@@ -149,7 +151,7 @@ function validateDefinitionContribution(value: Record<string, unknown>, contribu
 
 function validateContribution(value: unknown, contributor: string): CollectedDatabaseContribution {
   if (!isPlainObject(value)) throw invalidContribution(contributor, "expected { database?, module, export? }.")
-  const { database, export: exportName, module } = value
+  const { database, export: exportName, module, dialect } = value
   if (!isNonEmptyString(module)) throw invalidContribution(contributor, "`module` must be a non-empty string.")
   if (!isAbsolute(module) && /^\.\.?(?:[\\/]|$)/.test(module)) {
     throw invalidContribution(contributor, `module ${JSON.stringify(module)} is relative. Use an absolute file path or a package specifier.`)
@@ -158,9 +160,13 @@ function validateContribution(value: unknown, contributor: string): CollectedDat
   if (database !== undefined && (!isNonEmptyString(database) || database.trim() !== database)) {
     throw invalidContribution(contributor, `\`database\` of ${JSON.stringify(module)} must be a Database name without surrounding whitespace. Omit it to target the default or only Database.`)
   }
+  if (dialect !== undefined && dialect !== "sqlite" && dialect !== "postgresql") {
+    throw invalidContribution(contributor, "`dialect` must be one of \"sqlite\", \"postgresql\".")
+  }
   const contribution: CollectedDatabaseContribution = { contributor, module }
   if (database !== undefined) contribution.database = database
   if (exportName !== undefined && exportName !== "default") contribution.export = exportName
+  if (dialect !== undefined) contribution.dialect = dialect
   return contribution
 }
 
@@ -239,6 +245,17 @@ export function resolveDatabaseContributionTargets(
     }
     else if (!databaseNames.includes(database)) {
       throw databaseErrorDiagnostics.DATABASE_B0011({ message: `[vitehub] Tables from ${source} target Database ${JSON.stringify(database)}, which has no Database Definition. Database Definitions: ${choices}.` })
+    }
+    const targetDialect = dialects?.[database]
+    const contributionDialect = contribution.dialect ?? "sqlite"
+    if (targetDialect && contributionDialect !== targetDialect) {
+      throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION_TARGET({
+        source,
+        database,
+        dialect: contributionDialect,
+        targetDialect,
+        reason: "dialect",
+      })
     }
     ;(byDatabase[database] ??= []).push({ ...contribution, database })
   }

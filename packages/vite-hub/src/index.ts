@@ -915,6 +915,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandboxTask: sandboxTaskEnabled })
   const plugins: unknown[] = [doctorPlugin(), hubMarkdownTemplate()]
+  // Content owns CMS preset discovery and its contributed Workspace/Database resources.
+  // Keep it in the direct Vite integration list so zero-config presets are actually applied.
+  plugins.push(hubContent())
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
