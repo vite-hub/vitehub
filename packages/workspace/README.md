@@ -160,7 +160,9 @@ Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
 Workspace your package does not define.
 
-File objects use `<prefix>/<sha256(workspace)>/sha256/<digest>` Blob keys.
+File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>` Blob keys.
+The optional `prefix` nests below `_vitehub/workspace-history/`, so ViteHub owns every
+history object.
 Identical bytes share one object within a workspace. Database stores immutable
 manifests, refs, an upload catalog, and Workspace metadata. Usage counts unique
 uncompressed file bytes across committed revisions on every ref. Workspaces have separate
@@ -267,9 +269,9 @@ search remains literal or regular-expression filesystem search over the visible
 tree; use Comark Content through `@vite-hub/content` for parsed-document
 navigation, query, cache, and ranked full-text search.
 
-## Box sessions
+## Sandbox sessions
 
-Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/box`](../box/README.md) session and pass it to `workspace.startSession({ host: boxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Box owns execution and the host lifecycle.
+Workspace definitions are runtime-free. To run generated code, open a [`@vite-hub/sandbox`](../sandbox/README.md) session and pass it to `workspace.startSession({ host: sandboxSession })`. Workspace materializes files into the host and still owns diff, commit, and rollback; closing without commit restores the host tree from authoritative Workspace state. Sandbox owns execution and the host lifecycle.
 
 GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
 
@@ -340,20 +342,6 @@ const plugin = {
 ```
 
 Contributed Workspaces appear in the generated registry, `WorkspaceName` types, `vitehub inspect`, and the Console, like discovered files. A name used by both a discovered file and a contribution fails the build with `WORKSPACE_B0003`.
-
-## Publishing current state
-
-`workspace.snapshot()` creates a durable Store snapshot, then runs every configured Workspace publisher. Use `workspace.publish()` when the current Store contents should be published without advancing the Store's snapshot history:
-
-```ts
-const workspace = useWorkspace("docs", { mode: "write" })
-
-await workspace.publish({ name: "chore: publish docs" })
-```
-
-Publishers receive a transient snapshot-shaped view of the current Store entries. `PublishContext.durable` is `false` for this direct lifecycle and `true` for snapshot-driven publication. Repeated publication remains a no-op when a publisher, such as the GitHub publisher, already has the same content.
-
-A GitHub publisher cannot publish directly to the repository and branch backing the active GitHub Store because that would move the Store branch behind its loaded baseline. Use `workspace.snapshot()` for that branch, or configure the publisher with a different repository or branch.
 
 ## Hosted Cloudflare runtime
 
@@ -432,23 +420,6 @@ views read the configured Workspace root from the commit tree and fetch file byt
 that commit. The existing `vitehub workspace history`, `refs`, and `show` CLI commands
 inspect this data; the Console Workspace/files view does not yet provide a history
 navigator.
-
-Publish a Workspace snapshot into an existing GitHub repository with the GitHub publisher:
-
-```ts
-import { github } from "@vite-hub/workspace/publish"
-
-export default defineWorkspace({
-  publish: [github({
-    repository: "owner/repo",
-    branch: "main",
-    root: "generated/docs",
-    deleteUntracked: false,
-  })],
-})
-```
-
-By default, the publisher treats `root` as an exact mirror and deletes remote paths that are absent from the Workspace snapshot. Set `deleteUntracked: false` when the publisher owns only part of `root`; Workspace files are still created and updated, while every remote-only path remains on GitHub, including files from earlier snapshots.
 
 Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://isomorphic-git.org/). Shell-backed Workspace tools load `@vite-hub/shell` only when the shell tool executes.
 

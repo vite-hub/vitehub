@@ -34,6 +34,13 @@ reader. Revision-aware loaders receive the same pinned revision on every
 operation. Loaders without revision support can observe origin changes. Create
 another reader to resolve a new revision. No registration or global type map is needed.
 
+`glob()` treats both `/` and `\` as path separators in `include` and `ignore`,
+including before wildcards: the JavaScript string `"docs\\*.md"` means
+`"docs/*.md"`. Backslashes never escape glob metacharacters. To match literal
+characters, use bracket expressions: `[*]` for `*`, `[?]` for `?`, and `[[]`
+for `[`. For example, `"docs/file[[]1].md"` matches `docs/file[1].md`.
+The same normalized patterns are used for discovery and final filtering.
+
 `glob()` keeps its cached key listing in each reader. Opening another reader
 refreshes that reader's listing without changing existing readers. File content
 and metadata are read from the current file system. Set `keyCache: false` to
@@ -146,10 +153,11 @@ await recaps.items() // [{ key: "2026-07", source: "github", identity: ["github"
 
 A combined reader exposes `items()` only when every input implements it.
 
-Use `cachedSource()` to add Nitro caching to a keyed reader:
+Use `cachedSource()` to add Nitro caching to a keyed reader. It loads
+`nitro/cache` on the first `get()`, so the app must run on Nitro:
 
 ```ts
-import { cachedSource } from "vite-hub/source/server"
+import { cachedSource } from "@vite-hub/source/server"
 
 const cachedDocs = cachedSource(createSource(docs), { name: "docs", maxAge: 60 })
 await cachedDocs.get("intro.md")
@@ -247,7 +255,9 @@ another query returns `409`. `load` runs on every request; return
 hashes the items. `useCollection()` exposes `total` and `facets` from the latest
 page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
-when the data set should not be loaded per request.
+from `@vite-hub/source/drizzle` when the data set should not be loaded per
+request. `table()` needs the optional `drizzle-orm` peer. `vite-hub/source`
+exports `table()` too.
 
 `workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
 in a Workspace file.

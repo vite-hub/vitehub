@@ -157,7 +157,6 @@ export function isViteHubDevHostAllowed(server: Pick<ViteHubDevEndpointServer, "
   if (host === undefined) return true
   const { allowedHosts = [], host: listenHost, https } = server.config.server
   if (allowedHosts === true || https) return true
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite server.host is a boolean or hostname; only a configured hostname authorizes requests.
   return hostHeaderAllowed(host, typeof listenHost === "string" ? [...allowedHosts, listenHost] : allowedHosts)
 }
 
@@ -518,7 +517,7 @@ export interface ViteHubNitroDevHandlerSource {
   arguments?: readonly string[]
   /** Named export of `module` that takes a Fetch `Request` and returns a `Response`. */
   export: string
-  /** Module that the generated handler imports, for example `vite-hub/_internal/schedule/runtime/console`. */
+  /** Module that the generated handler imports, for example `vite-hub/_internal/schedule/runtime/dev`. */
   module: string
 }
 
