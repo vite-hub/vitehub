@@ -1,30 +1,35 @@
 <script setup lang="ts">
+import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
 import {
   docsManifest,
   getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
+  docsRootSectionId,
   getDocsCatalog,
   getDocsRelatedSections,
-  getDocsSectionForPath,
   getDocsSidebarGroups,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
-import { sidebarPageIcon, sidebarSectionIcon } from "~/utils/docs-sidebar-icons";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
-const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
+const section = useDocsSection();
+// Get started is the home of the docs, so it also lists the site areas that the header shows on the landing page.
+const isRootSection = computed(() => section.value?.id === docsRootSectionId);
 const pageGroups = computed(() => {
   if (!section.value) return [];
   const groups = getDocsSidebarGroups(section.value);
   const perspective = getDocsPageByPath("/docs/ui/built-for-vue");
   if (section.value.id !== "ui" || !perspective) return groups;
-  return groups.map((group) =>
-    group.label === "Start" && !group.pages.some((page) => page.path === perspective.path)
-      ? { ...group, pages: [...group.pages, perspective] }
-      : group,
-  );
+  return groups.map((group) => {
+    const pages = group.pages.filter(page => page.path !== perspective.path);
+    if (group.label !== "Start") return { ...group, pages };
+    return {
+      ...group,
+      pages: [...pages, perspective],
+    };
+  }).filter(group => group.pages.length > 0);
 });
 const related = computed(() =>
   section.value ? getDocsRelatedSections(docsManifest.sections, section.value) : [],
@@ -40,7 +45,20 @@ function isActive(path: string) {
 
 <template>
   <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
-    <template v-for="(pageGroup, groupIndex) in pageGroups" :key="`${pageGroup.label || 'pages'}-${groupIndex}`">
+    <section v-if="isRootSection" class="vh-docs-sidebar-page-group vh-docs-sidebar-site-areas" aria-label="Site areas">
+      <NuxtLink
+        v-for="area in docsSiteAreas"
+        :key="area.to"
+        :to="area.to"
+        :class="['vh-docs-sidebar-link', { 'is-active': isActive(area.to) }]"
+        :aria-current="isActive(area.to) ? 'page' : undefined"
+      >
+        <UIcon :name="area.icon" class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{{ area.label }}</span>
+      </NuxtLink>
+    </section>
+
+    <template v-for="pageGroup in pageGroups" :key="pageGroup.label || 'pages'">
       <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
         <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink
@@ -82,10 +100,6 @@ function isActive(path: string) {
       </NuxtLink>
     </section>
 
-    <NuxtLink to="/docs" class="vh-docs-sidebar-link vh-docs-sidebar-catalog-link">
-      <UIcon name="i-ph-squares-four-light" class="size-4 shrink-0" />
-      <span class="min-w-0 truncate">Browse all docs</span>
-    </NuxtLink>
   </nav>
 
   <nav v-else class="vh-docs-sidebar-nav" aria-label="All products">
@@ -122,6 +136,17 @@ function isActive(path: string) {
 
 .vh-docs-sidebar-page-group:first-child,
 .vh-docs-sidebar-category:first-child {
+  border-top: 0;
+}
+
+/* The site areas lead Get started. A rule separates them from the section pages. */
+.vh-docs-sidebar-site-areas {
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent);
+  padding-bottom: 0.5rem;
+}
+
+.vh-docs-sidebar-site-areas + .vh-docs-sidebar-page-group {
   border-top: 0;
 }
 
@@ -169,18 +194,9 @@ function isActive(path: string) {
   color: var(--ui-text);
 }
 
+/* Related sits at the foot of the list, just above the panel footer, which draws the only rule. */
 .vh-docs-sidebar-related {
-  margin-top: 0.75rem;
-  border-top: 1px solid var(--ui-border);
-  padding-bottom: 0.25rem;
-}
-
-.vh-docs-sidebar-catalog-link {
-  margin-top: 0.5rem;
-  border-top: 1px solid var(--ui-border);
-  padding-top: 0.625rem;
-  padding-bottom: 0.625rem;
-  color: var(--ui-text-dimmed);
-  font-size: 0.8125rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
 }
 </style>

@@ -22,11 +22,11 @@ describe("normalizeQueueOptions", () => {
   })
 
   it.each(["deno-deploy", "netlify", "node-server"])("does not infer Vercel for %s hosting", (hosting) => {
-    expect(() => normalizeQueueOptions(undefined, { hosting })).toThrow("cannot be inferred for " + hosting)
+    expect(() => normalizeQueueOptions(undefined, { hosting })).toThrow(expect.objectContaining({ code: "QUEUE_MISSING_PROVIDER", why: `ViteHub cannot select a Queue provider for ${hosting} hosting.` }))
   })
 
 
   it("throws on unknown providers", () => {
-    expect(() => normalizeQueueOptions({ provider: "memory" } as never)).toThrow(/Unknown `queue.provider`/)
+    expect(() => normalizeQueueOptions({ provider: "memory" } as never)).toThrow(expect.objectContaining({ code: "QUEUE_INVALID_PROVIDER" }))
   })
 })

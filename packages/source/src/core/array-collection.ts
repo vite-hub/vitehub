@@ -158,7 +158,8 @@ function assertFieldList(label: string, fields: readonly string[] | undefined): 
 
 // Server code may filter on any field path; parseQuery() limits HTTP callers to the declared filters.
 function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQuery {
-  const normalized: NormalizedQuery = { empty: [], filters: {}, search: "" }
+  const filters: Record<string, string[]> = Object.create(null) as Record<string, string[]>
+  const normalized: NormalizedQuery = { empty: [], filters, search: "" }
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === null) continue
     if (key === "search") {
@@ -170,8 +171,9 @@ function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQue
       continue
     }
     const values = stringList(value).map(entry => entry.toLocaleLowerCase())
-    if (values.length) normalized.filters[key] = [...new Set(values)].sort()
+    if (values.length) filters[key] = [...new Set(values)].sort()
   }
+  normalized.filters = Object.fromEntries(Object.keys(filters).sort().map(key => [key, filters[key]!]))
   return normalized
 }
 
@@ -193,7 +195,7 @@ function matches(item: unknown, query: NormalizedQuery, searchFields: readonly s
 function sortItems<TItem>(items: TItem[], sort: ArrayCollectionSort | undefined): TItem[] {
   if (!sort) return items
   const direction = sort.direction === "desc" ? -1 : 1
-  return items.slice().sort((left, right) => {
+  return items.sort((left, right) => {
     const leftValue = firstScalar(collectionValueAt(left, sort.field))
     const rightValue = firstScalar(collectionValueAt(right, sort.field))
     if (Number(leftValue) === leftValue && Number(rightValue) === rightValue) return (leftValue - rightValue) * direction
@@ -291,7 +293,7 @@ export function array<TItem, const TFilter extends string = never>(
       vendor: "vite-hub",
       validate(value) {
         if (!isRecord(value)) return { issues: [{ message: "Collection query must be an object." }] }
-        const filterValues: { [TKey in TFilter]?: string[] } = {}
+        const filterValues: { [TKey in TFilter]?: string[] } = Object.create(null) as { [TKey in TFilter]?: string[] }
         let empty: TFilter[] | undefined
         let search: string | undefined
         for (const [key, raw] of Object.entries(value)) {
