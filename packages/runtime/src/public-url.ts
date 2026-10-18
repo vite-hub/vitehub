@@ -25,12 +25,10 @@ export function registerPublicUrlAgentName(name: string, discoveredName: string)
 }
 
 function publicUrlConfig(): PublicUrlConfig {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The build injects this value only when `vitehub({ publicUrl })` is set.
   return typeof __VITEHUB_PUBLIC_URL__ === "undefined" ? {} : __VITEHUB_PUBLIC_URL__
 }
 
 function applicationBasePath(): string {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The injected host base is optional in standalone package consumers.
   const configured = typeof __VITEHUB_APP_BASE_URL__ === "undefined" ? "/" : __VITEHUB_APP_BASE_URL__
   const segments = configured.split("/").filter(Boolean)
   return segments.length ? `/${segments.join("/")}` : ""

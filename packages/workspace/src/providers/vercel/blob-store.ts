@@ -37,7 +37,6 @@ type BlobListResult = {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vercel Blob responses cross an untrusted provider boundary.
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
@@ -52,23 +51,18 @@ function parseBlobListResponse(value: unknown): BlobListResult {
     const pathname = item.pathname
     const size = item.size
     const uploadedAt = item.uploadedAt
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- List item fields cross the Vercel Blob provider boundary.
     if (typeof pathname !== "string" || !pathname) invalidBlobListResponse()
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- List item fields cross the Vercel Blob provider boundary.
     if (size !== undefined && (typeof size !== "number" || !Number.isFinite(size) || size < 0)) invalidBlobListResponse()
     if (uploadedAt !== undefined && (!(uploadedAt instanceof Date) || Number.isNaN(uploadedAt.getTime()))) invalidBlobListResponse()
     return {
       key: pathname,
       lastModified: uploadedAt instanceof Date ? uploadedAt.getTime() : undefined,
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- List item fields cross the Vercel Blob provider boundary.
       size: typeof size === "number" ? size : undefined,
     }
   })
   const cursor = value.cursor
   const hasMore = value.hasMore
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Pagination fields cross the Vercel Blob provider boundary.
   if (cursor !== undefined && typeof cursor !== "string") invalidBlobListResponse()
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Pagination fields cross the Vercel Blob provider boundary.
   if (hasMore !== undefined && typeof hasMore !== "boolean") invalidBlobListResponse()
   if (hasMore === true && !cursor) invalidBlobListResponse()
   return {
@@ -191,14 +185,21 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   #files: ReturnType<typeof createVercelBlobClient> | undefined
 
   #root: string
+  #legacyRoot: string
 
   constructor(options: VercelBlobWorkspaceStoreOptions, workspaceName: string) {
     this.#options = resolveRuntimeVercelBlobWorkspaceStore(options, typeof process !== "undefined" ? process.env : {})
     this.#root = joinBlobPath(ownedBlobPrefix("workspaces", this.#options.prefix, "Workspace"), workspaceName)
+    const legacyPrefix = this.#options.prefix ?? ".vitehub/workspaces"
+    this.#legacyRoot = joinBlobPath(legacyPrefix, workspaceName)
   }
 
   #fileKey(path: string, options: { allowEmpty?: boolean } = {}) {
     return joinBlobPath(this.#root, "files", normalizeSafeWorkspacePath(path, { allowEmpty: options.allowEmpty }))
+  }
+
+  #legacyFileKey(path: string, options: { allowEmpty?: boolean } = {}) {
+    return joinBlobPath(this.#legacyRoot, "files", normalizeSafeWorkspacePath(path, { allowEmpty: options.allowEmpty }))
   }
 
   async #client() {
@@ -214,10 +215,18 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     return joinBlobPath(this.#root, ".vitehub/snapshots", `${id}.json`)
   }
 
+  #legacyMetaKey(key: string) {
+    return joinBlobPath(this.#legacyRoot, ".vitehub/meta", normalizeSafeWorkspacePath(key.endsWith(".json") ? key : `${key}.json`))
+  }
+
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeSafeWorkspacePath(path)
     const pathname = this.#fileKey(normalized)
-    const file = await (await this.#client()).download(pathname).catch((error: unknown) => {
+    let file = await (await this.#client()).download(pathname).catch((error: unknown) => {
+      if (isNotFoundError(error)) return undefined
+      throw error
+    })
+    if (!file && this.#legacyRoot !== this.#root) file = await (await this.#client()).download(this.#legacyFileKey(normalized)).catch((error: unknown) => {
       if (isNotFoundError(error)) return undefined
       throw error
     })
@@ -236,11 +245,15 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeSafeWorkspacePath(prefix, { allowEmpty: true })
     const filePrefix = this.#fileKey(normalizedPrefix, { allowEmpty: true })
-    const files = await this.#listBlobs(normalizedPrefix ? `${filePrefix}/` : `${this.#fileKey("", { allowEmpty: true })}/`)
+    const currentBase = `${this.#fileKey("", { allowEmpty: true })}/`
+    const legacyBase = `${this.#legacyFileKey("", { allowEmpty: true })}/`
+    const files = await this.#listBlobs(normalizedPrefix ? `${filePrefix}/` : currentBase)
+    const legacyFiles = this.#legacyRoot === this.#root ? [] : await this.#listBlobs(normalizedPrefix ? `${this.#legacyFileKey(normalizedPrefix, { allowEmpty: true })}/` : legacyBase)
     const entries = new Map<string, WorkspaceEntry>()
 
-    for (const blob of files) {
-      const path = normalizeWorkspacePath(blob.key.slice(`${this.#fileKey("", { allowEmpty: true })}/`.length))
+    for (const blob of [...files, ...legacyFiles]) {
+      const base = blob.key.startsWith(legacyBase) ? legacyBase : currentBase
+      const path = normalizeWorkspacePath(blob.key.slice(base.length))
       if (!path) continue
       if (isExcludedWorkspacePath(path, options.exclude)) continue
       if (normalizedPrefix && !path.startsWith(`${normalizedPrefix}/`)) continue
@@ -338,7 +351,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async getMeta(key: string): Promise<unknown> {
-    const file = await this.#readJson(this.#metaKey(key))
+    const file = await this.#readJson(this.#metaKey(key), this.#legacyMetaKey(key))
     return file
   }
 
@@ -370,8 +383,9 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     return blobs
   }
 
-  async #readJson(pathname: string): Promise<unknown> {
-    const file = await (await this.#client()).download(pathname)
+  async #readJson(pathname: string, fallback?: string): Promise<unknown> {
+    let file = await (await this.#client()).download(pathname).catch((error: unknown) => { if (isNotFoundError(error)) return undefined; throw error })
+    if (!file && fallback) file = await (await this.#client()).download(fallback).catch((error: unknown) => { if (isNotFoundError(error)) return undefined; throw error })
     return file ? JSON.parse(await file.text()) : undefined
   }
 }

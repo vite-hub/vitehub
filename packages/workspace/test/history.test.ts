@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm"
 import { createClient } from "@libsql/client"
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
-import { sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { Miniflare } from "miniflare"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -22,6 +22,7 @@ import { createCloudflareD1HttpResolver } from "../../database/src/runtime/d1-ht
 import { ViteHubError } from "@vite-hub/runtime"
 import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { sha256 } from "../src/core/path.ts"
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -108,6 +109,90 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     const latest = await store.history.open(second.id)
     await expect(latest.readFile("image.bin")).rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
     expect(await version.readFile("image.bin", { encoding: "binary" })).toEqual(binary)
+  })
+
+  it("filters history changes by file and folder path before pagination", async () => {
+    const { facade } = await setup(driver)
+    const workspace = facade()
+    const first = await workspace.history.commit({
+      ifHead: null,
+      files: {
+        "docs/guide.md": { content: "one", mediaType: "text/markdown", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const same = await workspace.history.commit({
+      ifHead: first.id,
+      files: {
+        "docs/guide.md": { content: "one", mediaType: "text/markdown", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const content = await workspace.history.commit({
+      ifHead: same.id,
+      files: {
+        "docs/guide.md": { content: "two", mediaType: "text/markdown", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const mediaType = await workspace.history.commit({
+      ifHead: content.id,
+      files: {
+        "docs/guide.md": { content: "two", mediaType: "text/custom", metadata: { version: 1 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const metadata = await workspace.history.commit({
+      ifHead: mediaType.id,
+      files: {
+        "docs/guide.md": { content: "two", mediaType: "text/custom", metadata: { version: 2 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const rename = await workspace.history.commit({
+      ifHead: metadata.id,
+      files: {
+        "docs/new.md": { content: "two", mediaType: "text/custom", metadata: { version: 2 } },
+        "docs-old/z.md": "old",
+      },
+    })
+    const unrelated = await workspace.history.commit({
+      ifHead: rename.id,
+      files: {
+        "docs/new.md": { content: "two", mediaType: "text/custom", metadata: { version: 2 } },
+        "docs-old/z.md": "new",
+      },
+    })
+
+    const matching: string[] = []
+    let cursor: string | undefined
+    do {
+      const page = await workspace.history.list({ path: "docs/", limit: 1, cursor })
+      matching.push(...page.revisions.map(revision => revision.id))
+      cursor = page.cursor
+    } while (cursor)
+    expect(matching).toEqual([rename.id, metadata.id, mediaType.id, content.id, first.id])
+    expect(matching).not.toContain(same.id)
+    expect(matching).not.toContain(unrelated.id)
+    expect((await workspace.history.list({ path: "docs/new.md" })).revisions.map(revision => revision.id)).toEqual([rename.id])
+    expect((await workspace.history.list({ path: "docs/guide.md" })).revisions.map(revision => revision.id)).toEqual([rename.id, metadata.id, mediaType.id, content.id, first.id])
+    expect((await workspace.history.list({ path: "docs-old" })).revisions.map(revision => revision.id)).toEqual([unrelated.id, first.id])
+    await expect(workspace.history.list({ path: "../docs" })).rejects.toMatchObject({ code: "WORKSPACE_PATH_INVALID" })
+  })
+
+  it("treats LIKE metacharacters as literal path characters", async () => {
+    const { facade } = await setup(driver)
+    const workspace = facade()
+    const first = await workspace.history.commit({
+      ifHead: null,
+      files: { "foo%/file.txt": "one", "fooA/file.txt": "one", "foo_/file.txt": "one", "foox/file.txt": "one" },
+    })
+    const second = await workspace.history.commit({
+      ifHead: first.id,
+      files: { "foo%/file.txt": "one", "fooA/file.txt": "two", "foo_/file.txt": "two", "foox/file.txt": "two" },
+    })
+    expect((await workspace.history.list({ path: "foo%" })).revisions.map(revision => revision.id)).toEqual([first.id])
+    expect((await workspace.history.list({ path: "foo_" })).revisions.map(revision => revision.id)).toEqual([second.id, first.id])
   })
 
   it("uploads each retained digest once, counts unique bytes, and keeps workspaces isolated", async () => {
@@ -708,6 +793,21 @@ describe("history policy and capabilities", () => {
 })
 
 describe("retained history Blob prefix", () => {
+  it("continues using an existing legacy workspace identity after upgrade", async () => {
+    const { blob, database, uploads } = await setup("libsql", "legacy-doc")
+    const digest = await sha256("legacy-doc")
+    const legacy = `vitehub/workspace-history/${digest}`
+    await database.insert(workspaceHistorySchema.workspaceHistoryWorkspaces).values({ workspace: legacy })
+    const store = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "legacy-doc" })
+    await store.history.commit({ ifHead: null, files: rawFiles({ "a.txt": "legacy" }) })
+    expect(uploads.mock.calls[0]?.[0]).toMatch(new RegExp(`^${legacy.replaceAll("/", "\\/")}/sha256/`))
+    const [current] = await database.select().from(workspaceHistorySchema.workspaceHistoryWorkspaces)
+      .where(eq(workspaceHistorySchema.workspaceHistoryWorkspaces.workspace, `_vitehub/workspace-history/${digest}`))
+    expect(current).toBeUndefined()
+    const restarted = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "legacy-doc" })
+    expect(await restarted.history.head()).toMatchObject({ id: expect.any(String) })
+  })
+
   it("nests a custom prefix under the ViteHub-owned history root", async () => {
     const { blob, database, uploads } = await setup("libsql")
     const store = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "handbook-doc", prefix: "handbook" })

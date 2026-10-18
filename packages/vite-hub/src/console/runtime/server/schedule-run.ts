@@ -40,7 +40,6 @@ function consoleScheduleRun(run: ScheduleRunRecord): ConsoleScheduleRun {
  */
 export async function runConsoleSchedule(body: unknown): Promise<ConsoleScheduleRunOutcome> {
   const name: unknown = body instanceof Object && "name" in body ? body.name : undefined
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
   if (typeof name !== "string" || !name) return { message: "Schedule run requires a Schedule Definition name.", ok: false, status: 400 }
   const registry = getConsoleSections().includes("schedules") ? getConsoleSchedules() : {}
   if (!Object.hasOwn(registry, name)) {

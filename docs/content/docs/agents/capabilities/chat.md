@@ -77,7 +77,8 @@ The delivery options below match the Agent-level `messages` settings that [Chann
 | `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
 | `lifecycleHooks` | `Record<string, unknown>` | none | Lifecycle-hook settings for integrations that read Chat Capability configuration. |
 | `event` | `"directMessage"` | none | Chat event binding hint. |
-| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number }` | current message only | Bounded Chat History Window sent into the `chat.message` Agent Trigger. `maxMessages` includes the current message. |
+| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number; maxImages?: number }` | current message only | Bounded Chat History Window sent into the `chat.message` Agent Trigger. `maxMessages` includes the current message. `maxImages` sends that many of the newest history images again. The default is `0`. |
+| `timeZone` | `string` | `"UTC"` | IANA time zone for the send time in each [message header](/docs/agents/chat-history-sessions#what-the-model-reads). An invalid value uses UTC. |
 | `threadHistory` | `{ maxMessages?: number; ttlMs?: number }` | inherited | Adapter thread backfill and cache. Stores messages but does not define model input. |
 | `messageHistory` | Chat SDK message-history configuration | inherited | Adapter message-history behavior passed to the Chat SDK. |
 | `logger` | Chat SDK logger | inherited | Logger passed to adapter-backed Chat SDK delivery. |
@@ -90,6 +91,7 @@ The delivery options below match the Agent-level `messages` settings that [Chann
 | `streamingUpdateIntervalMs` | `number` | inherited | Minimum interval between streamed Channel message updates. |
 | `commentary` | `"hidden" \| "message"` | `"hidden"` | Publish explicit Driver commentary phases as progress messages. Cannot be combined with `loading` or manual delivery. |
 | `concurrency` | `"drop" \| "parallel" \| "queue" \| "reject" \| "serial" \| "steer" \| string` | inherited | Overlapping message behavior. `serial` runs each retained message as a separate awaited Agent Invocation in queue order. `queue` coalesces retained messages into one invocation. `steer` sends overlapping input to the active Agent Invocation when its Driver supports live steering. Queue retention and failure guarantees come from the configured Chat State runtime. |
+| `debounceMs` | `number` | none | Only with `concurrency: "steer"`. Wait this many milliseconds after the first message, then start one Agent Invocation with all messages received in that window. Without it, each message starts its own handling at once. With durable Workflow delivery, later messages still go to the active Workflow. An inline Agent Invocation keeps the Chat SDK lock until it finishes, so messages that arrive during it start the next Invocation instead of steering. |
 | `lockScope` | `"agent" \| "channel" \| "thread" \| string` | inherited | Scope for message locks. |
 | `dedupeTtlMs` | `number` | inherited | Time-to-live for Chat SDK duplicate-message keys. |
 | `userName` | `string` | `"vitehub"` | Agent username for adapter-backed Chat SDK delivery. |
