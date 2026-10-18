@@ -410,10 +410,16 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let refreshConsoleAuthClient: (() => Promise<void>) | undefined
   let inlineConsoleAuthConfig: ResolvedConsoleAuthConfig | undefined
   let openAccessBuildWarning: string | undefined
+  const consoleBuildCatalogs = new Map<string, Awaited<ReturnType<typeof discoverConsoleBuildCatalog>>>()
   let baseURL = "/"
   type DeferredConsoleState = {
     config: ResolvedConfig
     root: string
+    projectRoot: string
+    generatedPlugin: string
+    catalog: Awaited<ReturnType<typeof discoverConsoleBuildCatalog>>
+    consoleConfiguration?: ConsoleOptions
+    appAuth?: ResolvedAuthViteConfig
     baseURL: string
     sections: ConsoleSectionId[]
     authConfig: ResolvedConsoleAuthConfig
@@ -578,6 +584,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         const resolvedOnlySections = new Set<ConsoleSectionId>(["databases", "sandbox-tasks", "workflows", "workspaces"])
         const initialSections = sections.filter(section => !resolvedOnlySections.has(section))
         const catalog = await discoverConsoleBuildCatalog({ databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections: initialSections, serverDirs, workspaceDiscoveryRoot })
+        consoleBuildCatalogs.set(projectRoot, catalog)
         await writeConsoleNitroPlugin(
           generatedPlugin,
           projectRoot,
@@ -628,6 +635,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         ? {
             config,
             root: config.root,
+            projectRoot: projectRoot!,
+            generatedPlugin: generatedPlugin!,
+            catalog: consoleBuildCatalogs.get(projectRoot!)!,
+            consoleConfiguration: resolvedConsoleConfiguration,
+            appAuth: resolvedAppAuth,
             baseURL: config.base,
             sections: [...sections],
             authConfig: inlineConsoleAuthConfig,
@@ -650,6 +662,34 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             if (!envKey || !callbackState) return
             const resolvedAuthConfig = { ...callbackState.authConfig, developmentSecretEnvKey: envKey }
             const resolvedHandlers = await writeConsoleAuthHandlers(callbackState.root, resolvedAuthConfig, callbackState.baseURL)
+            const access = callbackState.consoleConfiguration
+              ? resolveConsoleAccessBuild(callbackState.consoleConfiguration, {
+                  appAuth: callbackState.appAuth,
+                  base: callbackState.baseURL,
+                  handlers: resolvedHandlers,
+                  root: callbackState.root,
+                  sections: callbackState.sections,
+                })
+              : undefined
+            await writeConsoleNitroPlugin(
+              callbackState.generatedPlugin,
+              callbackState.projectRoot,
+              callbackState.sections,
+              callbackState.catalog.agents,
+              callbackState.catalog,
+              blobStores,
+              kvStores,
+              fixture,
+              options.invocationRootState?.binding,
+              invoke,
+              observations,
+              () => !options.invocationRootState?.closed,
+              journal,
+              consoleAuthMode,
+              retention,
+              access,
+              options.runtimeCapabilityImports,
+            )
             const nitro = (callbackState.config as typeof callbackState.config & { nitro?: ConsoleNitroConfig }).nitro ?? {}
             const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, callbackState.baseURL, callbackState.sections, resolvedHandlers, callbackState.handlers)
             const connectionsActor = callbackState.sections.includes("connections")
