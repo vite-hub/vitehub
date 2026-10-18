@@ -74,7 +74,11 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   if (options.nitro !== false && !nitroRegistered.has(nuxt)) {
     nitroRegistered.add(nuxt)
     nuxt.hook?.("nitro:config", async (nitroConfig) => {
-      const definitionHandler = (authPlugin as { api?: { getConfig?: () => { definition?: { handler?: string } } } }).api?.getConfig?.()?.definition?.handler
+      const pluginApi = (authPlugin as { api?: { getConfig?: () => { definition?: { handler?: string } }, refresh?: () => { definition?: { handler?: string } } } }).api
+      // Nitro can run before Vite's configResolved hook. Refresh discovery here
+      // so the virtual definition alias is available during Nitro setup.
+      const definitionHandler = pluginApi?.refresh?.()?.definition?.handler
+        || pluginApi?.getConfig?.()?.definition?.handler
       if (definitionHandler) {
         nitroConfig.alias = {
           ...(nitroConfig.alias as Record<string, string> | undefined),
