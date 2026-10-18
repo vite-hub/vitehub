@@ -132,7 +132,10 @@ function scheduleDeadline(controller: AbortController, deadlineAt: number, node:
     if (node.disposed || controller.signal.aborted) return
     const remaining = deadlineAt - Date.now()
     if (remaining <= 0) controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
-    else timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647))
+    else {
+      timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647))
+      if (typeof timer === "object" && timer && "unref" in timer && typeof timer.unref === "function") timer.unref()
+    }
   }
   const clear = () => clearTimeout(timer)
   controller.signal.addEventListener("abort", clear, { once: true })

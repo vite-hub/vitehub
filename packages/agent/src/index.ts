@@ -2442,19 +2442,19 @@ function createSyntheticWorkspaceRun<
       if (output instanceof Response) {
         if (!output.body) return output
         const finish = release
-        budgetDeferred = true
         const response = await withResponseCleanup(output, async () => { disposeBudget(); finish?.() }, { abortSignal: context.input.abortSignal })
+        budgetDeferred = true
         release = undefined
         return response
       }
       if (isAsyncIterable(output)) {
         const finish = release
         const source = cancellableAsyncIterableSource(output)
-        budgetDeferred = true
         const streamed = withCapabilityCleanup(source.stream, async () => { disposeBudget(); finish?.() }, {
           abortSignal: context.input.abortSignal,
           cancelOnAbort: source.cancel,
         })
+        budgetDeferred = true
         release = undefined
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return hasRuntimeType((output as ReadableStream<unknown>).getReader, "function")
@@ -8400,10 +8400,12 @@ async function executeAgentInvocation<
     ...(input.timeout !== undefined && input.executionBudget?.deadlineAt === undefined ? { deadlineAt: Date.now() + input.timeout } : {}),
     signal: input.abortSignal,
   })
+  const inputBeforeBudgetSignal = input
   input = {
     ...input,
     abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, executionBudget.signal]) : executionBudget.signal,
   }
+  transferParsedAgentWorkflowInput(inputBeforeBudgetSignal, input)
   let preparedInvocation: AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS> | undefined
   let release: (() => void) | undefined
   try {
