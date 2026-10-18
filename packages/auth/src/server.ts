@@ -332,11 +332,19 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 }
 
 let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
+let undiciResponseDescriptors: Record<typeof authorizationResponseProperties[number], PropertyDescriptor | undefined> | undefined
 
 async function getUndiciResponse(): Promise<typeof Response | undefined> {
   if (undiciResponsePromise) return undiciResponsePromise
   undiciResponsePromise = import(/* @vite-ignore */ "undici")
-    .then(module => module.Response as typeof Response)
+    .then(module => {
+      const constructor = module.Response as typeof Response
+      undiciResponseDescriptors = Object.fromEntries(authorizationResponseProperties.map(key => [
+        key,
+        Object.getOwnPropertyDescriptor(constructor.prototype, key),
+      ])) as Record<typeof authorizationResponseProperties[number], PropertyDescriptor | undefined>
+      return constructor
+    })
     .catch(() => undefined)
   return undiciResponsePromise
 }
@@ -359,6 +367,8 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
           for (const getter of accessors) Reflect.apply(getter!, value, [])
           const localAccessors = authorizationResponseProperties.map(key => nativeResponseDescriptors[key]?.get)
           if (constructor === Response && accessors.some((getter, index) => getter !== localAccessors[index])) continue
+          const foreignAccessors = authorizationResponseProperties.map(key => undiciResponseDescriptors?.[key]?.get)
+          if (constructor === UndiciResponse && (!undiciResponseDescriptors || accessors.some((getter, index) => getter !== foreignAccessors[index]))) continue
           if (constructor === Response || constructor === UndiciResponse) {
             // A subclass may override response accessors while inheriting the
             // native prototype. Reject any such intermediate descriptor before
