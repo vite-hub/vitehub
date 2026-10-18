@@ -126,7 +126,8 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
       || rightProperties.some(property => !property || !("value" in property))) return false
     // structuredClone rejects Proxy values while avoiding a Node-only builtin.
     // Run it only after accessors have been rejected, so no getter can execute.
-    if (!isCloneableSourceValue(left) || !isCloneableSourceValue(right)) return false
+    if (!hasSafeWorkspaceSourceGraph(left) || !hasSafeWorkspaceSourceGraph(right)
+      || !isCloneableSourceValue(left) || !isCloneableSourceValue(right)) return false
     ancestors.add(left)
     ancestors.add(right)
     try {
@@ -157,6 +158,27 @@ function isCloneableSourceValue(value: object): boolean {
   }
   catch {
     return false
+  }
+}
+
+function hasSafeWorkspaceSourceGraph(value: unknown, ancestors = new Set<object>()): boolean {
+  if (typeof value !== "object" || value === null) return true
+  if (ancestors.has(value)) return false
+  try {
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== Array.prototype && prototype !== null) return false
+    const keys = Reflect.ownKeys(value)
+    ancestors.add(value)
+    return keys.every(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return !!descriptor && "value" in descriptor && hasSafeWorkspaceSourceGraph(descriptor.value, ancestors)
+    })
+  }
+  catch {
+    return false
+  }
+  finally {
+    ancestors.delete(value)
   }
 }
 
