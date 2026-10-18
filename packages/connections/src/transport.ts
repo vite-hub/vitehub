@@ -2,21 +2,32 @@ import { isApiKeyProvider } from "./api-key.ts"
 import { ConnectionError } from "./errors.ts"
 import { providerApis } from "./catalog.ts"
 
+import type { RequestScheduler } from "./requests.ts"
 import type { ConnectionDefinition } from "./types.ts"
 
 const MAX_REDIRECTS = 5
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
+/** Whether `url` is the provider's `mcp` endpoint. Trailing slashes and the query do not count. */
+function isMcpEndpoint(endpoint: string | undefined, url: string): boolean {
+  if (!endpoint) return false
+  const declared = new URL(endpoint)
+  const target = new URL(url)
+  return target.origin === declared.origin && target.pathname.replace(/\/+$/, "") === declared.pathname.replace(/\/+$/, "")
+}
+
 /** Own credential destinations and headers for both catalog and raw requests. */
-export function createConnectionTransport(name: string, definition: ConnectionDefinition, request: typeof fetch) {
+export function createConnectionTransport(name: string, definition: ConnectionDefinition, request: typeof fetch, scheduler: RequestScheduler) {
   const provider = definition.provider
   const header = isApiKeyProvider(provider) ? provider.header : "authorization"
+  const policy = provider.requests ? scheduler.resolve(name, provider.requests) : undefined
 
   // Preparation also runs before governance so an unsafe destination cannot create an approval.
   function prepare(url: string | URL, input?: RequestInit["headers"]): Record<string, string> {
     const origin = new URL(url).origin
     const origins = Object.values(providerApis(definition)).map(catalog => new URL(catalog.rootUrl).origin)
     if (isApiKeyProvider(provider)) origins.push(...provider.origins)
+    if (provider.mcp) origins.push(new URL(provider.mcp).origin)
     if (!origins.includes(origin)) {
       throw new ConnectionError("invalid", `Connection "${name}" does not send its token to ${origin}.`, { details: { connection: name } })
     }
@@ -35,7 +46,9 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
     const { json, ...requestInit } = init
     if (json && init.body !== undefined && !headers.has("content-type")) headers.set("content-type", "application/json")
     const authenticated = { ...requestInit, headers }
-    return await (isApiKeyProvider(provider) ? sendKey(url, authenticated) : request(url, authenticated))
+    const dispatch = (attempt: RequestInit) => isApiKeyProvider(provider) ? sendKey(url, attempt) : request(url, attempt)
+    // MCP sessions are long-lived streams, so the request policy does not pace, retry, or time them out.
+    return await (policy && !isMcpEndpoint(provider.mcp, url) ? scheduler.send(policy, authenticated, dispatch) : dispatch(authenticated))
   }
 
   /**

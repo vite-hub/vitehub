@@ -17,7 +17,6 @@ createKVScheduleRunStore({ prefix: "proof" })
 import { discoverScheduleDefinitions } from "@vite-hub/schedule"
 // @ts-expect-error Execution and store helpers belong to the runtime entry.
 import { executeSchedule as rootExecuteSchedule } from "@vite-hub/schedule"
-// @ts-expect-error Runtime Schedules were removed.
 import { schedules } from "@vite-hub/schedule/runtime"
 
 void discoverScheduleDefinitions

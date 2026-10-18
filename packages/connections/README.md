@@ -50,7 +50,7 @@ Server code cannot pass an `agent:` actor. That call fails with `CONNECTION_INVA
 
 The client exposes only the methods selected in `api`. GET, HEAD, and OPTIONS methods are reads and other methods are writes. Denied calls throw `ConnectionError` with code `CONNECTION_DENIED`. Dry-run clients keep read responses non-optional; only skipped writes add `undefined` to the result. Custom typed catalogs can include a `method` field in each method signature to preserve this distinction. Writes that need approval throw `CONNECTION_APPROVAL_REQUIRED` and create an approval.
 
-Typed catalog methods and `useConnection().fetch()` can send the Connection token only to provider catalog origins or declared API key origins. A catalog path or reserved path parameter that resolves to another origin fails with `CONNECTION_INVALID` before a provider call or approval is created. `ConnectionFetchInit` accepts `method`, `headers`, `redirect`, `signal`, and a string `body` for approval replay. `useConnection(name, { rejectApprovals: true })` rejects approval-gated calls with `CONNECTION_DENIED` without storing a replay request. Use it for protocols that need the response in the active session, such as MCP. It does not bypass access policy. Encode form parameters with `URLSearchParams.toString()` and set the form content type.
+Typed catalog methods and `useConnection().fetch()` can send the Connection token only to provider catalog origins, declared API key origins, or the origin of the provider's `mcp` endpoint. `mcp` is an HTTPS or loopback URL without credentials, query, or fragment, and `inspect()` reports it. A catalog path or reserved path parameter that resolves to another origin fails with `CONNECTION_INVALID` before a provider call or approval is created. `ConnectionFetchInit` accepts `method`, `headers`, `redirect`, `signal`, and a string `body` for approval replay. `useConnection(name, { rejectApprovals: true })` rejects approval-gated calls with `CONNECTION_DENIED` without storing a replay request. Use it for protocols that need the response in the active session, such as MCP. It does not bypass access policy. Encode form parameters with `URLSearchParams.toString()` and set the form content type.
 
 ## Use an API key
 
@@ -72,6 +72,7 @@ export default defineConnection({
 | `header` | `authorization` | Request header that carries the key. |
 | `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. Set `""` to send the bare key. |
 | `apis` | `{}` | Typed API catalogs, as for OAuth providers. |
+| `requests` | none | Pacing, retries, and a timeout for provider requests. See [Pace and retry requests](#pace-and-retry-requests). |
 | `verify` | none | Check a new key before it is stored. It receives the runtime `fetch` and a 30-second abort signal. Return `false` to reject the key, or `{ account }` to label the Connection. |
 | `fallback` | none | Return the key to use until an admin sets one, for example `() => useServerEnv().github.token`. A sealed Server Env secret is unsealed. |
 | `id` | `"api-key"` | Provider id in inspection and the Console. |
@@ -84,6 +85,23 @@ printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 
 ViteHub seals the key like an OAuth token, and access rules, approvals, dry run, and activity work the same way. An API key has no scopes and no refresh: a `401` response does not change the Connection status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking an API key Connection deletes the stored key. Revoke the key at the provider too.
 
+## Pace and retry requests
+
+Set `requests` on an OAuth provider or in `apiKey()` to pace, retry, and time out provider requests. It applies to `fetch` and API method calls, but not to the provider's `mcp` endpoint, whose sessions are long-lived streams. Without it, each request is sent once.
+
+```ts
+apiKey({
+  origins: ["https://api.airtable.com"],
+  requests: {
+    bucket: "airtable-base", // Connections with the same bucket share one schedule and one 429 pause. Default: the Connection name.
+    rate: { limit: 5, perMs: 1000 }, // or { intervalMs: 200 }: request starts are spaced evenly.
+    retry: { attempts: 4, methods: ["GET"], delayMs: 250, on429: { minDelayMs: 30_000 } },
+    timeoutMs: 15_000, // Aborts each attempt.
+  },
+});
+```
+
+`retry.attempts` defaults to `3`. Network errors and `5xx` responses are retried with exponential backoff from `delayMs` (default `250`), only for `methods` (default `GET`, `HEAD`, `OPTIONS`). A `429` is retried for every method after `Retry-After`, at least `on429.minDelayMs`, and pauses the whole bucket. The last attempt returns its response as is. A caller abort stops at once and is not retried. The schedule is in memory, per server process or isolate.
 The `fallback` key applies only when no key was ever set for the Connection, or when the store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key set in the Console or with `set-key` always wins, and so does a revoke: a revoked Connection does not fall back. The fallback key must pass the stored key format check. Requests with it use the same access rules and approvals and are recorded as activity while the store is open. An approval requested with the fallback key does not run after an admin sets a key. `inspect()` reports `keySource: "fallback"` or `"stored"` for a connected API key Connection.
 
 ## Use a custom store
