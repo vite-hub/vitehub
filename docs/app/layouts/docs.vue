@@ -18,7 +18,7 @@ const docsShellUi = {
 </script>
 
 <template>
-  <UMain>
+  <UMain :class="{ 'vh-docs-no-header': !isSupportMatrix && !isLanding && !isDocsSiteAreaRoute }">
     <UContainer v-if="isSupportMatrix">
       <AnnouncementBanner />
       <slot />
@@ -74,7 +74,7 @@ const docsShellUi = {
 }
 
 .vh-docs-landing {
-  max-width: var(--vh-landing-width);
+  max-width: var(--vh-landing-width, 84rem);
 }
 
 .vh-docs-footer {
@@ -99,6 +99,14 @@ const docsShellUi = {
 }
 
 @media (min-width: 64rem) {
+  .vh-docs-no-header {
+    --ui-header-height: 0px;
+  }
+
+  :deep(.vh-docs-main:has(.vh-docs-article.has-code-panel)) {
+    max-width: none;
+  }
+
   .vh-docs-aside {
     position: sticky;
     top: var(--ui-header-height);

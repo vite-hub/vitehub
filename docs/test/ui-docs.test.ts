@@ -124,7 +124,7 @@ describe("UI documentation", () => {
     const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
 
     expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain('<ContentRenderer :value="page" />');
+    expect(article).toContain('<ContentRenderer :value="page" :components="{ pre: DocsCodePre }" />');
     expect(article).toContain('v-if="tocLinks.length"');
     expect(article).toContain('aria-label="Page outline"');
     expect(article).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 6rem)");
@@ -168,9 +168,8 @@ describe("UI documentation", () => {
 
     expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
     expect(rail).toContain("<template #header");
-    expect(rail).toContain('{ label: "Tutorials", to: "/tutorials"');
-    expect(rail).toContain('{ label: "Projects", to: "/projects"');
-    expect(rail).toContain('{ label: "Templates", to: "/templates"');
+    expect(rail).toContain("getDocsRailCatalog(docsManifest.sections)");
+    expect(rail).toContain("getUncategorizedDocsSections(docsManifest.sections)");
     expect(rail).toContain("<template #default");
   });
 
