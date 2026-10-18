@@ -27,12 +27,63 @@ export type H3RuntimeContext<TOptions extends H3RuntimeContextOptions = {}> = Cr
 function detectRuntime(cloudflare: boolean): H3RuntimeName {
   if (cloudflare) return "cloudflare-agents"
   if ("Deno" in globalThis) return "deno"
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Hosts can omit the process global; test its presence before reading Node environment variables.
   if (typeof process !== "undefined") {
     if (process.env.VERCEL) return "vercel"
     if (process.env.NODE_ENV === "development") return "vite"
   }
   return "unknown"
 }
+
+function isRequest(value: unknown): value is Request {
+  try {
+    if (value === null || typeof value !== "object") return false
+    const nativeGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
+    if (typeof nativeGetter !== "function") return false
+    try {
+      nativeGetter.call(value)
+      return true
+    } catch {
+      if (Object.prototype.toString.call(value) !== "[object Request]") return false
+      let prototype: object | null = value
+      const visited = new Set<object>()
+      while (prototype !== null) {
+        if (visited.has(prototype)) return false
+        visited.add(prototype)
+        if (prototype === Request.prototype) return false
+        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+        const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
+        if (typeof constructor === "function" && constructor.name === "Request"
+          && constructor.prototype === prototype && typeof bodyGetter === "function") {
+          const descriptors = Object.getOwnPropertyDescriptors(prototype)
+          const accessorNames = ["body", "headers", "method", "url", "signal"] as const
+          if (accessorNames.some(name => {
+            const descriptor = descriptors[name]
+            return !descriptor || typeof descriptor.get !== "function"
+          })) return false
+          // A foreign Request must not merely inherit this realm's methods on a
+          // caller-controlled prototype. Such copied methods brand-check the
+          // receiver against this realm's internal slots and identify a spoof,
+          // rather than a genuine foreign Request implementation.
+          const nativeClone = Object.getOwnPropertyDescriptor(Request.prototype, "clone")?.value
+          if (descriptors.clone?.value === nativeClone) return false
+          bodyGetter.call(value)
+          const headers = descriptors.headers.get?.call(value)
+          const headersPrototype = headers && Object.getPrototypeOf(headers)
+          const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
+          if (typeof headersGet !== "function") return false
+          headersGet.call(headers, "x-vite-hub-brand")
+          return true
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      return false
+    }
+  } catch {
+    return false
+  }
+}
+
 
 /** Adapt one H3 operation. Await flushWaitUntil when the host has no lifetime API. */
 export function getRuntimeContext(event: H3RuntimeEvent): H3RuntimeContext
@@ -51,7 +102,7 @@ export function getRuntimeContext(
   const cloudflare = options.cloudflare ?? (env ? { env } : undefined)
   const runtime = options.runtime ?? detectRuntime(!!cloudflare)
   return createRuntimeContext({
-    ...(event.req instanceof Request ? { request: event.req } : {}),
+    ...(isRequest(event.req) ? { request: event.req } : {}),
     ...options,
     ...(cloudflare ? { cloudflare } : {}),
     event,
