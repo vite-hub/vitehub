@@ -927,8 +927,8 @@ importers:
         specifier: catalog:runtime
         version: 1.3.0
       undici:
-        specifier: 7.30.0
-        version: 7.30.0
+        specifier: ^8.12.2
+        version: 8.12.2
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.2
