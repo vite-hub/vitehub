@@ -587,7 +587,7 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           // leaves the supplied body locked, which provides an observable
           // ownership check before the bridge accepts the method.
           const ownershipReader = Reflect.apply(descriptor.value, body, []) as object
-          if (!body.locked) return
+          if (typeof locked?.get !== "function" || Reflect.apply(locked.get, body, []) !== true) return
           if (!hasNativeAuthorizationReaderPrototype(ownershipReader)) return
           validatedAuthorizationReaders.set(body, ownershipReader)
           foreignReaderMethods.set(constructor, probeMethods)
