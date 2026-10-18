@@ -1,6 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
-import { Response as UndiciResponse } from "undici"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { unwrapAuthRequest } from "./request.ts"
@@ -424,9 +423,9 @@ function getAuthorizationStreamOperations(body: unknown): AuthorizationStreamOpe
 }
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, operations: AuthorizationStreamOperations) {
-  // Acquire and release a probe reader first. If a stateful replacement
-  // returns a reader for another stream, releasing it leaves this body locked;
-  // fail closed before exposing unrelated bytes.
+  // Establish ownership before consuming. A replacement that returns a reader
+  // for another stream cannot unlock this body, so fail closed without
+  // exposing unrelated bytes.
   const reader = Reflect.apply(operations.getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
   if (!Reflect.apply(operations.isLocked, body, [])) {
     throw new TypeError("Authorization reader is not associated with its body")
@@ -437,16 +436,35 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, operations: A
   if (typeof read !== "function" || typeof cancel !== "function" || typeof releaseLock !== "function") {
     throw new TypeError("Invalid authorization response reader")
   }
+  // A genuine reader must be able to release the lock it acquired. This also
+  // rejects replacements that merely lock the body with a hidden reader and
+  // return an unrelated reader to the bridge.
+  Reflect.apply(releaseLock, reader, [])
+  if (Reflect.apply(operations.isLocked, body, [])) {
+    throw new TypeError("Authorization reader is not associated with its body")
+  }
+  const bridgeReader = Reflect.apply(operations.getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
+  if (!Reflect.apply(operations.isLocked, body, [])) {
+    throw new TypeError("Authorization reader is not associated with its body")
+  }
+  Reflect.apply(releaseLock, bridgeReader, [])
+  if (Reflect.apply(operations.isLocked, body, [])) {
+    throw new TypeError("Authorization reader is not associated with its body")
+  }
+  const activeReader = Reflect.apply(operations.getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
+  if (!Reflect.apply(operations.isLocked, body, [])) {
+    throw new TypeError("Authorization reader is not associated with its body")
+  }
   let released = false
   const release = () => {
     if (released) return
     released = true
-    Reflect.apply(releaseLock, reader, [])
+    Reflect.apply(releaseLock, activeReader, [])
   }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, []) as { done: boolean, value?: Uint8Array }
+        const result = await Reflect.apply(read, activeReader, []) as { done: boolean, value?: Uint8Array }
         if (result.done) {
           release()
           controller.close()
@@ -461,7 +479,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, operations: A
     },
     async cancel(reason) {
       try {
-        await Reflect.apply(cancel, reader, [reason])
+        await Reflect.apply(cancel, activeReader, [reason])
       }
       finally {
         release()

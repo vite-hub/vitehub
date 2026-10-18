@@ -248,7 +248,7 @@ export function requireGitHubOption(
 
 export function splitGitHubRepository(
   repository: string,
-  kind: "publisher" | "store",
+  kind: "publisher" | "store" = "store",
 ): { owner: string; repo: string } {
   const parts = repository.split("/");
   const owner = parts[0];

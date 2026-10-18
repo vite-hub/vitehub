@@ -158,6 +158,35 @@ On Nitro hosts, a Channel's `webhooks.path` is served alongside its built-in `/a
 
 If several Agents declare the same path, their configured `publicUrl` hosts select the Agent for the request host. You can also set `agent.routes.aliases[path]` to `{ agent, webhook }` to select its owner explicitly. If ownership remains ambiguous, the declared path returns HTTP 409 instead of dispatching to an arbitrary Agent.
 
+### Verify a webhook signature
+
+Set `secretHeader`, `secretToken`, and `signature` on a webhook registration. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
+
+| `signature` | The header carries |
+| --- | --- |
+| Not set | The `secretToken` value itself. |
+| `'github-sha256'` | `sha256=` and the hex HMAC-SHA256 of the body. |
+| `'stripe-sha256'` | `t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. |
+| `{ preset: 'hmac-sha256', prefix?, encoding?, secretEncoding? }` | `prefix` and the HMAC-SHA256 of the body, in `'hex'` (default) or `'base64'`. |
+| `{ verify }` | Anything. Your callback receives `{ header, rawBody, request, secret }` and returns `true` to accept. |
+
+`github-sha256` is the HMAC preset with `prefix: 'sha256='`. Set `secretEncoding: 'base64'` when the provider issues a base64 key. A key that is not valid base64 fails verification.
+
+```ts [server/agents/support.ts]
+import { defineChannel } from 'vite-hub/agent/channels'
+
+export const airtable = defineChannel('airtable', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/airtable/webhook',
+    secretHeader: 'x-airtable-content-mac',
+    secretToken: () => process.env.AIRTABLE_MAC_SECRET,
+    signature: { preset: 'hmac-sha256', prefix: 'hmac-sha256=', secretEncoding: 'base64' },
+  },
+})
+```
+
 ## Replay Channel history
 
 Add `history` to a Channel to run an Agent on messages that arrived before the Agent existed, or to run them again after a change. `history.collection` is a [Collection](/docs/source/server-api#expose-a-typed-collection). Each item has the shape of the Channel trigger input, so a replayed message takes the same trigger path as a live one. `history.key` returns a stable key for each item, such as the provider message ID. Optional `history.thread` returns its conversation ID. `vitehub channels history` uses this Collection for custom Channels and accepts `--thread`, repeatable `--query key=value`, and `--invocations`.

@@ -555,7 +555,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
   const commit = async (commitOptions: WorkspaceStoreHistoryCommitOptions): Promise<WorkspaceRevision> => {
     const ref = normalizeHistoryRef(commitOptions.ref)
     if (commitOptions.ifHead !== null && !nonEmptyString(commitOptions.ifHead)) throw workspaceError("[vitehub] History commit requires ifHead to be a revision id or null.")
-    const state = await readGitHubBranchState({ branch: ref, repository: options.repository, root: options.root, token: options.token })
+    const state = await readGitHubBranchState({ kind: "store", branch: ref, repository: options.repository, root: options.root, token: options.token })
     const actual = state.branchExists ? state.refSha : null
     if (actual !== commitOptions.ifHead) throw historyConflict(ref, commitOptions.ifHead, actual)
     const updates: Array<{ bytes: Uint8Array, fullPath: string, gitSha: string, mode?: string }> = []

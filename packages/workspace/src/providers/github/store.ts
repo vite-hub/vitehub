@@ -173,12 +173,13 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     private workspaceName: string,
   ) {
     this.#repository = requireGitHubOption(
+      "store",
       "a repository",
       resolveGitHubRepositoryOption(options),
     );
     this.#branch = resolveGitHubBranchOption(options);
     this.#root = resolveGitHubRootOption(options, workspaceName);
-    this.#token = requireGitHubOption("a token", resolveGitHubTokenOption(options));
+    this.#token = requireGitHubOption("store", "a token", resolveGitHubTokenOption(options));
   }
 
   get history(): WorkspaceStoreHistory {
@@ -387,7 +388,8 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async rebase(options: WorkspaceRebaseOptions = {}): Promise<void> {
     await this.#mutate(async () => {
       await this.#ensure({ refresh: false });
-      const remote = await readGitHubBranchState({
+    const remote = await readGitHubBranchState({
+      kind: "store",
         branch: this.#branch,
         repository: this.#repository,
         root: this.#root,
@@ -467,6 +469,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     }
 
     const remote = await readGitHubBranchState({
+      kind: "store",
       branch: this.#branch,
       repository: this.#repository,
       root: this.#root,
@@ -581,6 +584,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async #load(): Promise<void> {
     const previousFiles = this.#files;
     const remote = await readGitHubBranchState({
+      kind: "store",
       branch: this.#branch,
       repository: this.#repository,
       root: this.#root,
