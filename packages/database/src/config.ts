@@ -60,16 +60,7 @@ function objectLiteralBody(value: string | undefined) {
   let trimmed = value?.trim()
   for (;;) {
     if (trimmed?.startsWith("<")) {
-      let depth = 0
-      let closeIndex: number | undefined
-      for (let index = 0; index < trimmed.length; index++) {
-        const char = trimmed[index]!
-        if (char === "<") depth++
-        else if (char === ">" && --depth === 0) {
-          closeIndex = index
-          break
-        }
-      }
+      const closeIndex = findAngleAssertionClose(trimmed)
       if (closeIndex !== undefined) {
         trimmed = trimmed.slice(closeIndex + 1).trim()
         continue
@@ -102,6 +93,33 @@ function objectLiteralBody(value: string | undefined) {
   if (!trimmed?.startsWith("{")) return
   const closeIndex = findMatching(trimmed, 0, "{", "}")
   return closeIndex === undefined ? undefined : trimmed.slice(1, closeIndex)
+}
+
+function findAngleAssertionClose(source: string): number | undefined {
+  let depth = 0
+  let quote: string | undefined
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]!
+    const next = source[index + 1]
+    if (quote) {
+      if (char === "\\") index++
+      else if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "'" || char === '"' || char === "`") { quote = char; continue }
+    if (char === "/" && next === "/") {
+      const end = source.indexOf("\n", index + 2)
+      index = end === -1 ? source.length : end
+      continue
+    }
+    if (char === "/" && next === "*") {
+      const end = source.indexOf("*/", index + 2)
+      index = end === -1 ? source.length : end + 1
+      continue
+    }
+    if (char === "<") depth++
+    else if (char === ">" && --depth === 0) return index
+  }
 }
 
 function stripLeadingEntryComments(entry: string) {
@@ -294,25 +312,26 @@ function readRuntimeEnvDeclaration(expression: string): DatabaseConfigValue | un
 const staticStringEscapes = new Map([["b", "\b"], ["f", "\f"], ["n", "\n"], ["r", "\r"], ["t", "\t"], ["v", "\v"]])
 
 function readStaticStringLiteral(expression: string): string | undefined {
-  const quote = expression[0]
-  if (expression.length < 2 || (quote !== "'" && quote !== '"') || expression.at(-1) !== quote) return
+  const normalized = stripStaticTypeAssertions(expression)
+  const quote = normalized[0]
+  if (normalized.length < 2 || (quote !== "'" && quote !== '"') || normalized.at(-1) !== quote) return
   let value = ""
-  for (let index = 1; index < expression.length - 1; index += 1) {
-    const char = expression[index]!
+  for (let index = 1; index < normalized.length - 1; index += 1) {
+    const char = normalized[index]!
     if (char === quote || char === "\n" || char === "\r") return
     if (char !== "\\") {
       value += char
       continue
     }
-    const escaped = expression[++index]!
-    if (index >= expression.length - 1) return
+    const escaped = normalized[++index]!
+    if (index >= normalized.length - 1) return
     if (escaped === "\r") {
-      if (expression[index + 1] === "\n") index += 1
+      if (normalized[index + 1] === "\n") index += 1
       continue
     }
     if (escaped === "\n" || escaped === "\u2028" || escaped === "\u2029") continue
     if (escaped === "u" && expression[index + 1] === "{") {
-      const match = /^\{([\da-f]+)\}/i.exec(expression.slice(index + 1, -1))
+      const match = /^\{([\da-f]+)\}/i.exec(normalized.slice(index + 1, -1))
       const codePoint = match ? Number.parseInt(match[1]!, 16) : Number.NaN
       if (!match || codePoint > 0x10FFFF) return
       value += String.fromCodePoint(codePoint)
@@ -321,16 +340,45 @@ function readStaticStringLiteral(expression: string): string | undefined {
     }
     if (escaped === "u" || escaped === "x") {
       const length = escaped === "u" ? 4 : 2
-      const hex = expression.slice(index + 1, index + 1 + length)
+      const hex = normalized.slice(index + 1, index + 1 + length)
       if (hex.length !== length || !/^[\da-f]+$/i.test(hex)) return
       value += String.fromCharCode(Number.parseInt(hex, 16))
       index += length
       continue
     }
-    if (/\d/.test(escaped) && (escaped !== "0" || /\d/.test(expression[index + 1] || ""))) return
+    if (/\d/.test(escaped) && (escaped !== "0" || /\d/.test(normalized[index + 1] || ""))) return
     value += escaped === "0" ? "\0" : staticStringEscapes.get(escaped) ?? escaped
   }
   return value
+}
+
+function stripStaticTypeAssertions(expression: string): string {
+  let value = expression.trim()
+  for (;;) {
+    let depth = 0
+    let quote: string | undefined
+    let assertionIndex = -1
+    for (let index = 0; index < value.length; index++) {
+      const char = value[index]!
+      if (quote) {
+        if (char === "\\") index++
+        else if (char === quote) quote = undefined
+        continue
+      }
+      if (char === "'" || char === '"' || char === "`") { quote = char; continue }
+      if ("([{<".includes(char)) { depth++; continue }
+      if (")]}>".includes(char)) { depth--; continue }
+      if (depth === 0 && (value.startsWith("as", index) || value.startsWith("satisfies", index))) {
+        const word = value.startsWith("as", index) ? "as" : "satisfies"
+        if (!/[\w$]/.test(value[index - 1] || "") && !/[\w$]/.test(value[index + word.length] || "")) assertionIndex = index
+      }
+    }
+    if (assertionIndex >= 0) { value = value.slice(0, assertionIndex).trim(); continue }
+    if (value.startsWith("(") && findMatching(value, 0, "(", ")") === value.length - 1) {
+      value = value.slice(1, -1).trim(); continue
+    }
+    return value
+  }
 }
 
 function readProcessEnvName(expression: string) {
