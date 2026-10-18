@@ -750,15 +750,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       ? (() => { throw new Error("A null body has no reader") })
       : await getNativeAuthorizationBodyReader(body)
     if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
-    // A genuine stream from an arbitrary realm cannot safely donate its
-    // reader methods across the boundary. The platform Response constructor
-    // performs the source-runtime brand check and creates a host stream whose
-    // captured intrinsics can be bridged without executing foreign methods.
-    if (!nativeBodyReader && body !== null) {
-      const converted = new Response(body as ReadableStream<Uint8Array>)
-      body = converted.body
-      nativeBodyReader = nativeStreamGetReader
-    }
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
 
     // Reader validation yields to the event loop. Re-read the source
