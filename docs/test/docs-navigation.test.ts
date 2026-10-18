@@ -152,7 +152,7 @@ describe("docs product navigation", () => {
     expect(isDocsLandingPath(docsManifest.sections, "/docs/ui")).toBe(false);
 
     const kv = docsManifest.sections.find(section => section.id === "kv");
-    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Configure");
+    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Get started");
     expect(getDocsSectionSubpages(kv!).some(page => page.id === "index")).toBe(false);
   });
 

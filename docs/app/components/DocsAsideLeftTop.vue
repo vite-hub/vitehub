@@ -10,7 +10,6 @@ const sectionCategory = computed(() => {
   const category = currentSection.value?.category;
 
   return category && category !== currentSection.value?.title ? category : "Getting started";
- f1827ce977864dea471f7c1c3b1925e14a0c2818
 });
 const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDocsPath(sectionPath.value));
 </script>
@@ -133,7 +132,6 @@ const isDocsIndex = computed(() => normalizeDocsPath(route.path) === normalizeDo
   color: inherit;
   font-size: 0.875rem;
   font-weight: 600;
- f1827ce977864dea471f7c1c3b1925e14a0c2818
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;

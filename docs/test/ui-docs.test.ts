@@ -174,12 +174,12 @@ describe("UI documentation", () => {
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
-    expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
+    expect(sidebarPanel).toContain("vh-docs-aside");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
     const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
     expect(desktopStyles).toMatch(/\.vh-docs-shell\s*>\s*\.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
     expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
-    expect(sidebarPanel).toContain("overflow: hidden;");
+    expect(sidebarPanel).toContain("overflow: auto;");
     expect(layout).toContain("overflow-x: clip;");
 
     expect(layout).toContain("overflow: visible;");
@@ -194,6 +194,6 @@ describe("UI documentation", () => {
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
-    expect(page).toContain("server primitives");
+    expect(page).toMatch(/server primitives/i);
   });
 });

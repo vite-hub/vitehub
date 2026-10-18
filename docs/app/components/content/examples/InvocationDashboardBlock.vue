@@ -7,7 +7,6 @@ import {
 } from "@vite-hub/ui";
 
 import { computed, onMounted, onUnmounted, ref } from "vue";
- f1827ce977864dea471f7c1c3b1925e14a0c2818
 
 // Keep the server clock through hydration, then refresh prerendered timestamps.
 const now = useState("ui-dashboard-clock", () => Date.now());
@@ -22,7 +21,6 @@ onMounted(() => {
 onUnmounted(() => {
   if (clock.value) clearInterval(clock.value);
 });
- f1827ce977864dea471f7c1c3b1925e14a0c2818
 const time = (secondsAgo: number) => new Date(now.value - secondsAgo * 1_000).toISOString();
 
 

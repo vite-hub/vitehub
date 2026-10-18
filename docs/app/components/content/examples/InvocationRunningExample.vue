@@ -2,7 +2,6 @@
 import type { AgentInvocationView } from "@vite-hub/ui";
 
 import { onMounted } from "vue";
- f1827ce977864dea471f7c1c3b1925e14a0c2818
 
 const now = useState("ui-running-clock", () => Date.now());
 const initialNow = now.value;

@@ -1808,7 +1808,6 @@ export const AgentInvocationInspector = defineComponent({
               : null,
 
             ...(configuration ? renderConfiguration(configuration, props.invocation, props.showSources, props.showCapabilities, selectTool) : []),
- f1827ce977864dea471f7c1c3b1925e14a0c2818
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",
