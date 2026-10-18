@@ -19,6 +19,8 @@ import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { renderPostgresDatabaseExpression } from "./internal/runtime-config-expression.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
+import { collectDatabaseContributions } from "./contributions.ts"
+import type { CollectedDatabaseContribution } from "./contributions.ts"
 
 import type { DatabaseNuxtIntegrationOptions, DBModulePublicOptions, NuxtDatabaseViteOptions } from "./types.ts"
 import type { Plugin } from "vite"
@@ -106,8 +108,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
     const serverDirs = resolvedOptions.projectRoot
       ? [resolve(root, "server")]
       : resolveNuxtServerDirs(nuxtOptions)
+    let contributions: CollectedDatabaseContribution[] = []
     const databaseConfig = resolvedOptions.driver === "d1"
-      ? resolveDBViteConfig(resolvedOptions, root, { provisionRoot, serverDirs })
+      ? resolveDBViteConfig(resolvedOptions, root, { contributions, implicitDefault: true, provisionRoot, serverDirs })
       : undefined
     const sourceMigrationsDir = databaseConfig && databaseConfig.definitionDefaults.cloudflareProjections.default?.resource === "inherited"
       ? databaseConfig.databases.default?.migrationsDir
@@ -147,7 +150,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       const refreshLocalRuntime = () => {
         const refresh = async () => {
           if (!localNitroConfig) return
-          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1)
+          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
@@ -168,6 +171,11 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         })
       }
       hook("nitro:config", async (config) => {
+        contributions = await collectDatabaseContributions(nuxtOptions.vite?.plugins, {
+          projectRoot: root,
+          root: resolve(nuxtOptions.srcDir || nuxtOptions.rootDir || root),
+          serverDirs,
+        })
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         if (!nuxtOptions.dev && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
           if (d1.unresolved.reason === "missing-database-name") {
@@ -181,7 +189,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           await refreshLocalRuntime()
         }
         if (!nuxtOptions.dev) {
-          const runtime = resolveDBViteConfig(runtimeOptions, root, { provisionRoot, serverDirs })
+          const runtime = resolveDBViteConfig(runtimeOptions, root, { contributions, implicitDefault: true, provisionRoot, serverDirs })
           if (provider === "cloudflare") assertDistinctNuxtD1Bindings(runtime, d1, config)
           const d1Only = runtime && usesD1HttpOnly(runtime)
           const runtimeProvider = provider === "vercel" ? "vercel" : provider === "cloudflare" || d1 || d1Only ? "cloudflare" : provider
@@ -256,6 +264,7 @@ async function installNitroLocalDatabaseRuntime(
   options: ResolvedDatabaseNuxtIntegrationOptions,
   serverDirs?: string[],
   d1?: ResolvedDatabaseNuxtD1Options,
+  contributions: CollectedDatabaseContribution[] = [],
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
   const alias = isRecord(config.alias) ? config.alias : undefined
@@ -265,7 +274,7 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
-  const runtime = resolveDBViteConfig(options, root, { provisionRoot, serverDirs })
+  const runtime = resolveDBViteConfig(options, root, { contributions, implicitDefault: true, provisionRoot, serverDirs })
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
     await rm(file, { force: true })
