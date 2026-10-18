@@ -192,6 +192,24 @@ function readStaticScheduleCron(file: string, scheduleName: string): string {
   return cron
 }
 
+/**
+ * Reads the `timeZone` option of a `defineSchedule()` call. Returns `undefined`
+ * when the call does not declare it, the string when it is static, and `null`
+ * when it is present but dynamic.
+ */
+export function readStaticScheduleTimeZone(file: string): string | null | undefined {
+  const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"], { positionalOptionsIndex: 2 })
+  const property = definition?.options && findProperty(definition.options, "timeZone")
+  if (!property) return undefined
+  return property.value ? staticString(property.value) ?? null : null
+}
+
+function assertProviderTimeZone(file: string, scheduleName: string): void {
+  const timeZone = readStaticScheduleTimeZone(file)
+  if (timeZone === undefined || timeZone === "UTC") return
+  throw scheduleErrorDiagnostics.SCHEDULE_R0003({ message: `Schedule "${scheduleName}" declares timeZone ${timeZone === null ? "with a value that is not a static string" : JSON.stringify(timeZone)}, but provider cron output supports only UTC. Remove timeZone and write the cron in UTC, or run Schedules with the process driver (\`runtime: { driver: "process" }\`).` })
+}
+
 
 function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string, workflow?: ScheduleWorkflowRuntime) {
   const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
@@ -384,7 +402,7 @@ async function writeProviderEntries(
 export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
   const crons = await readRuntimeDefinitionCrons(definitions)
   for (const [name, cron] of crons) validateProviderCron(cron, name)
-  for (const definition of staticScheduleDefinitions(definitions)) assertProviderTimeZone(definition.handler, definition.name)
+  for (const definition of definitions) assertProviderTimeZone(definition.handler, definition.name)
   return crons
 }
 
