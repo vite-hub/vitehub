@@ -693,8 +693,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (!storageDescriptor || !("value" in storageDescriptor)) return undefined
     const storage = storageDescriptor.value
     if (!storage || typeof storage !== "object") return undefined
-    const readNativeSql = (descriptor: PropertyDescriptor): RealtimeRoomSql | undefined => {
-      if ("value" in descriptor) return hasCloudflareSqlExec(descriptor.value) ? descriptor.value : undefined
+    const readNativeSql = (descriptor: PropertyDescriptor, inherited: boolean): RealtimeRoomSql | undefined => {
+      // An inherited data property can be supplied by an ordinary prototype
+      // and must not be mistaken for Workerd's branded lazy accessor.
+      if ("value" in descriptor) return inherited ? undefined : (hasCloudflareSqlExec(descriptor.value) ? descriptor.value : undefined)
       const getter = descriptor.get
       if (typeof getter !== "function") return undefined
       const source = Function.prototype.toString.call(getter)
@@ -725,12 +727,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       }
     }
     const descriptor = Object.getOwnPropertyDescriptor(storage, "sql")
-    if (descriptor) return readNativeSql(descriptor)
+    if (descriptor) return readNativeSql(descriptor, false)
     let prototype = Object.getPrototypeOf(storage)
     while (prototype && prototype !== Object.prototype) {
       const sqlDescriptor = Object.getOwnPropertyDescriptor(prototype, "sql")
       if (sqlDescriptor) {
-        return readNativeSql(sqlDescriptor)
+        return readNativeSql(sqlDescriptor, true)
       }
       prototype = Object.getPrototypeOf(prototype)
     }
