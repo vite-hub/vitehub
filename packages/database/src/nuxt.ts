@@ -257,7 +257,12 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           await refreshLocalRuntime()
         }
         if (!nuxtOptions.dev) {
-          const runtime = resolveDBViteConfig(runtimeOptions, root, { contributions, provisionRoot, serverDirs })
+          const runtime = resolveDBViteConfig(runtimeOptions, root, {
+            contributions,
+            implicitDefault: true,
+            provisionRoot,
+            serverDirs,
+          })
           if (provider === "cloudflare") assertDistinctNuxtD1Bindings(runtime, d1, config)
           const d1Only = runtime && usesD1HttpOnly(runtime)
           const runtimeProvider = provider === "vercel" ? "vercel" : provider === "cloudflare" || d1 || d1Only ? "cloudflare" : provider

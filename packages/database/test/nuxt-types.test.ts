@@ -61,7 +61,7 @@ describe("Database types in a Nuxt app", () => {
       options: { buildDir, dev: false, rootDir: root, serverDir: join(root, "server"), srcDir: join(root, "app"), vite: {} },
     })
     for (const hook of hooks) await hook({ alias: {}, preset: "node" })
-    await expect(readFile(join(root, ".vitehub/types/database.d.ts"), "utf8")).resolves.toBe("export {}\n")
+    await expect(readFile(join(root, ".vitehub/types/database.d.ts"), "utf8")).resolves.toContain("interface DatabaseRegistry")
   })
 
   it.each(["node", "vercel", "cloudflare-module"])("types schema tables in server/ and shared/ after nuxt prepare on %s", async (preset) => {
