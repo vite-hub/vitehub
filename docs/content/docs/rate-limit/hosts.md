@@ -8,7 +8,7 @@ icon: i-lucide-cloud-cog
 
 ## Inspect generated guarantees
 
-The integration writes `.vitehub/rate-limit/manifest.json` during configuration and Provider Output. Agents and tooling can inspect it. Application code keeps using the guard.
+The integration writes `.vitehub/rate-limit/manifest.json` during configuration. Agents and tooling can inspect it. Application code keeps using the guard.
 
 The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and supported `windows` without duplicating optional response metadata contracts.
 

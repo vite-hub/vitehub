@@ -1,3 +1,5 @@
+import type { Result } from "@vite-hub/runtime"
+
 export type MaybePromise<T> = T | Promise<T>
 
 export interface EmailAddressValue {
@@ -92,8 +94,13 @@ export interface EmailMessage {
   stream?: string
 }
 
+/**
+ * `NOT_CONFIGURED` marks invalid driver options, for example a missing API key. `INVALID_OPTIONS` marks a message
+ * that the driver cannot send.
+ */
 export type EmailProviderErrorCode =
   | "INVALID_OPTIONS"
+  | "NOT_CONFIGURED"
   | "NETWORK"
   | "AUTH"
   | "RATE_LIMIT"
@@ -147,6 +154,19 @@ export interface EmailDefinition {
   driver: EmailDriverSource
 }
 
+/** Codes that `send()` returns in the `[error, data]` tuple. Config errors throw instead. */
+export type EmailErrorCode =
+  | "EMAIL_AUTHENTICATION"
+  | "EMAIL_INVALID_MESSAGE"
+  | "EMAIL_NETWORK"
+  | "EMAIL_PROVIDER_FAILED"
+  | "EMAIL_RATE_LIMITED"
+  | "EMAIL_TIMEOUT"
+
 export interface EmailClient {
-  send: (message: EmailMessage) => Promise<EmailSendResult>
+  /**
+   * Sends one message and returns `[error, data]`. `data` tells that the provider accepted the message.
+   * `EMAIL_NOT_CONFIGURED` and an invalid driver throw, because the config must change.
+   */
+  send: (message: EmailMessage) => Promise<Result<EmailSendResult, EmailErrorCode>>
 }

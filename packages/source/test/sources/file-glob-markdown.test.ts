@@ -23,6 +23,9 @@ afterEach(async () => {
 })
 
 describe("@vite-hub/source local file sources", () => {
+  it.each(["../outside.md", "/outside.md", "./README.md"])('rejects unsafe workspace paths %j', (workspacePath) => {
+    expect(() => file({ content: "# Docs\n", workspacePath })).toThrow("Source path escapes the source root")
+  })
   it.each(["C:/outside/file", "C:\\outside\\file", "C:outside", "a\0b"])("rejects non-portable file path %j", (path) => {
     expect(() => file(path)).toThrow("Source path escapes the source root")
   })
@@ -46,6 +49,15 @@ describe("@vite-hub/source local file sources", () => {
       path: "docs/README.md",
       mediaType: "text/markdown",
     })
+  })
+
+  it("accepts Windows separators in portable glob patterns", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "README.md"), "# Docs\n")
+
+    await expect(glob({ include: "docs\\*.md" }).getKeys({ rootDir: root }))
+      .resolves.toEqual(["docs/README.md"])
   })
 
   it("loads file, markdown, and glob providers", async () => {

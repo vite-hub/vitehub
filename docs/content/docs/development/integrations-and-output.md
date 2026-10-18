@@ -48,7 +48,7 @@ vitehub({
   preset: "node",
   dataDir: "/var/lib/app",
   agent: true,
-  console: { exposure: "host-managed", authorize: "./server/console-authorize.ts" },
+  console: { auth: false, authorize: "./server/console-authorize.ts" },
   kv: true,
   blob: true,
   workspace: true,

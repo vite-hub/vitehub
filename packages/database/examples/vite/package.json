@@ -9,6 +9,7 @@
     "@vite-hub/database": "workspace:*",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
+    "nitro": "catalog:unjs",
     "vite": "catalog:vite"
   },
   "devDependencies": {

@@ -212,7 +212,7 @@ describe("durable Agent data handoff", () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
-  it("passes pre-parsed data to the Driver without parsing it again", async () => {
+  it.each([undefined, { maxToolCalls: 1 }])("passes pre-parsed data to the Driver with budget %j without parsing it again", async (executionBudget) => {
     const validate = vi.fn((value: string) => Number(value))
     const data = v.object({ count: v.pipe(v.string(), v.transform(validate)) })
     const run = vi.fn(({ input }: { input: { data?: unknown } }) => input.data)
@@ -222,7 +222,7 @@ describe("durable Agent data handoff", () => {
     const result = await runAgentWorkflowDefinition(agent, {
       id: "parsed-data",
       name: "parsed-data",
-      payload: { input: { data: parsedData }, parsedInputData: true },
+      payload: { input: { data: parsedData, executionBudget }, parsedInputData: true },
       provider: "cloudflare",
     }, runAgentInline)
 

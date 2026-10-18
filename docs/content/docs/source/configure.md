@@ -21,6 +21,13 @@ Configure the built-in loaders, or define a custom loader with `defineSource()`.
 
 Use `sourceIgnores` for reusable ignore patterns. Workspace GitHub Sources apply `sourceIgnores.defaults` automatically. Pass `ignore: false` to opt out, or pass more patterns to extend the defaults.
 
+`glob()` treats both `/` and `\` as path separators in `include` and `ignore`,
+including before wildcards: the JavaScript string `"docs\\*.md"` means
+`"docs/*.md"`. Backslashes never escape glob metacharacters. To match literal
+characters, use bracket expressions: `[*]` for `*`, `[?]` for `?`, and `[[]`
+for `[`. For example, `"docs/file[[]1].md"` matches `docs/file[1].md`.
+The same normalized patterns are used for discovery and final filtering.
+
 `glob()` caches its key listing per Source Reader. Opening a new reader gets a
 fresh listing without replacing an existing reader's keys. File content and
 metadata still come from the current file system. With `keyCache: false`, each

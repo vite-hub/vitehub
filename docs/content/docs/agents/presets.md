@@ -9,6 +9,8 @@ icon: i-lucide-copy
 
 An Agent preset is a reusable Agent Definition. It supplies defaults, instructions, and behavior. Your application selects the preset and supplies its model, credentials, and project settings.
 
+The ready-made presets are in the `@vite-hub/presets` package. Import them from `vite-hub/presets/<name>`. They are built from ViteHub primitives, such as Channels, Capabilities, and process hosts.
+
 ## Choose a preset
 
 | Preset | Use it for | Host requirements |
@@ -24,7 +26,7 @@ Import a preset and give it a name in the Agent's local `presets` map. The `pres
 
 ```ts [server/agents/babysitter/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { babysitter } from 'vite-hub/agent/presets/babysitter'
+import { babysitter } from 'vite-hub/presets/babysitter'
 
 export default defineAgent({
   preset: 'babysitter',
@@ -58,3 +60,16 @@ An extension gets a fresh runtime. Matching Capabilities, Channels, and hooks re
 Export a definition created with `defineAgent()`. Add typed `options` and a synchronous `configure` callback when consumers need workflow settings. Keep credentials and network calls out of that callback.
 
 Publishers must declare `@vite-hub/agent` as a peer dependency and include instruction content and required assets explicitly. Selecting a preset does not discover files inside its package. See [Named presets](/docs/agents/agent-definitions#named-presets) for the authoring API.
+
+A preset that needs a long-running Node host attaches one with `withAgentProcessHost()` from `vite-hub/agent/process-host`. List the preset subpath in the `vitehub.agent.processHost` field of your package.json, so that ViteHub starts the host and rejects hosts that cannot run it. List subpaths that select the Codex or Claude Code Driver in `vitehub.agent.providerDriver`, so that Worker builds fail early:
+
+```json [package.json]
+{
+  "vitehub": {
+    "agent": {
+      "processHost": ["./babysitter"],
+      "providerDriver": ["./babysitter", "./workspace"]
+    }
+  }
+}
+```

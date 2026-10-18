@@ -81,7 +81,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
-    console: true,
+    console: { auth: false },
     env: { providers: { credentials: './server/env/credentials.ts' } },
   })],
   env: {
@@ -236,7 +236,7 @@ Return `traceId` and `invocationId` from `runtimeAttribution` to correlate runti
 
 ## Structured errors
 
-Bridge operations throw `ViteHubError` with a fixed public message. Other failures are sanitized to `ENV_BRIDGE_OPERATION_FAILED`.
+Bridge operations throw `ViteHubError` with a fixed public message. Other failures are sanitized to `ENV_BRIDGE_OPERATION_FAILED`. The management route returns `{ code, message, fix, docs }` for these errors. `fix` says how to repair the failure, and `docs` links this section.
 
 | Code | Cause |
 | --- | --- |
