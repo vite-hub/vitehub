@@ -620,7 +620,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // multiple values were merged. Assignment-like text after an extension attribute
     // can still be part of that attribute's value, so do not reject it as a merge.
     if (combinedCookies !== undefined) {
-      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      const mergedCookie = /^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)
+        || /;\s*expires\s*=[^,]*,[\s]*[^;=,\s]+\s*=/i.test(combinedCookies)
+      if (mergedCookie) return
       normalizedHeaders.append("set-cookie", combinedCookies)
     }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)

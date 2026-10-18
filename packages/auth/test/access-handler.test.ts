@@ -380,6 +380,19 @@ describe("Auth access handlers", () => {
     expect(response?.headers.get("set-cookie")).toBe("session=one; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Path=/")
   })
 
+  it("rejects merged cookies after an Expires attribute without getSetCookie", async () => {
+    const foreign = new ForeignResponse("Policy rejected", {
+      status: 409,
+      headers: { "set-cookie": "first=1; Expires=Wed, 21 Oct 2037 07:28:00 GMT, second=2" },
+    })
+    Object.defineProperty(foreign.headers, "getSetCookie", { value: undefined })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it("preserves commas in a single cookie extension without getSetCookie", async () => {
     const foreign = new ForeignResponse(null, {
       status: 302,
