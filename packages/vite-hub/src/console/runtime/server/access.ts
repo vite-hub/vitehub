@@ -65,15 +65,15 @@ function isResponseLike(value: unknown): value is Response {
   if (value instanceof Response) return true
   if (value === null || typeof value !== "object") return false
   try {
-    const response = value as Record<string, unknown>
-    const headers = response.headers as { get?: unknown } | undefined
-    return Object.prototype.toString.call(value) === "[object Response]"
-      && typeof response.status === "number"
-      && typeof response.statusText === "string"
-      && typeof response.bodyUsed === "boolean"
-      && headers !== undefined
-      && typeof headers.get === "function"
-      && ["arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof response[method] === "function")
+    // Native accessors perform the Fetch internal-slot brand check. This accepts
+    // Responses from another realm while rejecting objects that spoof the tag
+    // and surface methods.
+    for (const name of ["headers", "status", "statusText", "body", "bodyUsed"] as const) {
+      const getter = Object.getOwnPropertyDescriptor(Response.prototype, name)?.get
+      if (!getter) return false
+      getter.call(value)
+    }
+    return true
   }
   catch { return false }
 }
