@@ -629,8 +629,32 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
     throw error
   }
   let released = false
+  const acquire = async () => {
+    initializing ??= Promise.resolve().then(() => {
+      const acquired = Reflect.apply(getReader, body, [])
+      if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
+      let prototype: object | null = Object.getPrototypeOf(acquired)
+      const seen = new Set<object>()
+      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+        if (seen.has(prototype)) break
+        seen.add(prototype)
+        const readDescriptor = Object.getOwnPropertyDescriptor(prototype, "read")
+        const cancelDescriptor = Object.getOwnPropertyDescriptor(prototype, "cancel")
+        const releaseDescriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
+        read ??= typeof readDescriptor?.value === "function" ? readDescriptor.value : undefined
+        cancel ??= typeof cancelDescriptor?.value === "function" ? cancelDescriptor.value : undefined
+        releaseLock ??= typeof releaseDescriptor?.value === "function" ? releaseDescriptor.value : undefined
+        if (read && cancel && releaseLock) break
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
+      return acquired as ReadableStreamDefaultReader<Uint8Array>
+    })
+    reader = await initializing
+    return reader
+  }
   const release = () => {
-    if (released) return
+    if (released || !reader || !releaseLock) return
     released = true
     Reflect.apply(releaseLock, reader, [])
   }
@@ -651,11 +675,9 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
     },
     async cancel(reason) {
       try {
-        await Reflect.apply(cancel, reader, [reason])
-      }
-      finally {
-        release()
-      }
+        const sourceReader = reader ?? await acquire()
+        await Reflect.apply(cancel!, sourceReader, [reason])
+      } finally { release() }
     },
   }, { highWaterMark: 0 })
   return { stream, release }

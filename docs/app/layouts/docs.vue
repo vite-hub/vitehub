@@ -32,7 +32,7 @@ const docsShellUi = {
       <AppFooter class="vh-docs-footer" />
     </div>
 
-    <UPage v-else :ui="docsShellUi">
+    <UPage v-else class="vh-docs-shell" :ui="docsShellUi">
       <template #left>
         <UPageAside class="vh-docs-aside hidden lg:block">
           <DocsSidebars panel />
@@ -49,6 +49,10 @@ const docsShellUi = {
 
 <style scoped>
 /* The header menu holds the navigation on narrow screens. The child selector outranks the DocsSidebars root rule. */
+.vh-docs-shell {
+  --ui-header-height: 0px;
+}
+
 .vh-docs-shell > .vh-docs-desktop-nav {
   display: none;
 }

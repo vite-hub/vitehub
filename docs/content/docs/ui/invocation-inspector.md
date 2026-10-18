@@ -44,12 +44,12 @@ The error appears in the outcome section with the Invocation status.
 
 ### Compact panel
 
-Set `:show-timeline="false"` to hide the timeline. Set `:show-sources="false"` when a separate Workspace view already displays Sources. Set `show-capabilities` to include the grouped Capability summary. Use the `actions` slot for a close button and `metadata` for your own section.
+Set `:show-timeline="false"` to hide the timeline. Set `:show-capabilities="false"` to hide the grouped Capability summary. Use the `actions` slot for a close button and `metadata` for your own section.
 
 ::component-preview{name="InvocationInspectorCompactExample" reset}
 ::
 
-The default keeps all recorded tool contracts in the inspector. Use the separate [Capability inspector](/docs/ui/capability-inspector) for Capability details, as in the Console. Set `showCapabilities` to `true` to embed them in a standalone inspector.
+The default keeps all recorded tool contracts and the embedded Capability summary in the inspector. Set `showCapabilities` to `false` to hide Capability details, or use the separate [Capability inspector](/docs/ui/capability-inspector) as in the Console.
 
 ## Captured configuration
 
