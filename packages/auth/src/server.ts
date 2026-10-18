@@ -554,11 +554,23 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
     const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
-    const nativeBodyState = body === null || (isSerializableAuthorizationBody(body) && bodyUsed !== undefined
-      && !Reflect.apply(bodyUsed, candidate, []))
+    let nativeBodyState = body === null
+    let serializableBody = body === null
+    if (body !== null) {
+      try {
+        serializableBody = isSerializableAuthorizationBody(body)
+        nativeBodyState = serializableBody && bodyUsed !== undefined
+          && !Reflect.apply(bodyUsed, candidate, [])
+      }
+      catch {
+        // A response from another Fetch realm cannot be branded by this realm.
+        // Keep it on the normalization and body-bridge path instead.
+        nativeBodyState = false
+      }
+    }
 
     if (value instanceof Response && !hasCallableOwnThen && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
-    if (!isSerializableAuthorizationBody(body)) return
+    if (!serializableBody) return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
