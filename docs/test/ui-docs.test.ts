@@ -185,7 +185,7 @@ describe("UI documentation", () => {
     expect(layout).toContain("overflow: visible;");
     expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside\s*\{[^}]*display: flex;/);
     expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toContain("flex: 1;");
+    expect(layout).toContain("flex: 1 1 auto;");
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {

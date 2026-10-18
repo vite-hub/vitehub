@@ -56,7 +56,10 @@ export const CodeBlockCopyButton = defineComponent({
         "data-copied": copied.value ? "" : undefined,
         "data-slot": "code-block-copy-button",
         onClick: (event: MouseEvent) => {
-          (attrs.onClick as ((event: MouseEvent) => void) | undefined)?.(event);
+          const listeners = attrs.onClick;
+          for (const listener of Array.isArray(listeners) ? listeners : [listeners]) {
+            if (typeof listener === "function") listener(event);
+          }
           void copy();
         },
       }),
