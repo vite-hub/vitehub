@@ -365,7 +365,11 @@ async function hasResponsePrototype(value: unknown, localResponsePrototype: obje
       const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
       const owner = prototype
       const constructorSource = typeof constructor === "function" ? Function.prototype.toString.call(constructor) : ""
-      const platformConstructor = constructor?.name === "Response" && (/^class\b/.test(constructorSource) || constructorSource.includes("[native code]"))
+      // A user-defined `class Response` is indistinguishable from a foreign
+      // platform constructor by source shape alone.  Known local/Undici
+      // prototypes are handled by `targets`; only native constructors may
+      // authenticate an otherwise unknown runtime prototype.
+      const platformConstructor = constructor?.name === "Response" && constructorSource.includes("[native code]")
       const platformGetters = authorizationResponseProperties.every((key) => {
         const getter = Object.getOwnPropertyDescriptor(owner, key)?.get
         if (typeof getter !== "function") return false
