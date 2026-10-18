@@ -486,6 +486,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   const locked = nativeStreamIntrinsic(stream, "locked", nativeStreamLocked, "locked")
   const getReader = nativeStreamIntrinsic(stream, "getReader", nativeStreamGetReader, "getReader")
   if (!locked || !getReader
+    || locked.owner !== getReader.owner
     || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false) || !isNativeFunction(getReader.value, nativeStreamGetReader, "getReader", false, false)) return false
   if (Reflect.apply(locked.value, stream, [])) return false
   // The Web Streams API exposes the disturbed state only through brand checks:
@@ -535,6 +536,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   const locked = nativeStreamIntrinsic(body, "locked", nativeStreamLocked, "locked")
   const getReaderIntrinsic = nativeStreamIntrinsic(body, "getReader", nativeStreamGetReader, "getReader")
   if (!locked || !getReaderIntrinsic
+    || locked.owner !== getReaderIntrinsic.owner
     || !isNativeFunction(locked.value, nativeStreamLocked, "locked", false, false)
     || !isNativeFunction(getReaderIntrinsic.value, nativeStreamGetReader, "getReader", false, false)) throw new Error("Non-native response stream")
   const streamPrototype = locked.owner
