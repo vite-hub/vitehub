@@ -402,14 +402,23 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     // Resolve the stream intrinsics from the body's own realm. Applying the
     // getter performs the brand check and works across JavaScript realms.
     if (Object.getOwnPropertyDescriptor(candidate, "getReader")) return false
-    const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
-    const getReader = ReadableStream.prototype.getReader
+    let prototype: object | null = Object.getPrototypeOf(candidate)
+    let locked: (() => boolean) | undefined
+    let getReader: ((...args: []) => unknown) | undefined
+    const seen = new Set<object>()
+    for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+      if (seen.has(prototype)) return false
+      seen.add(prototype)
+      const lockedGetter = Object.getOwnPropertyDescriptor(prototype, "locked")?.get
+      if (typeof lockedGetter === "function") {
+        locked = lockedGetter as () => boolean
+        getReader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value as ((...args: []) => unknown) | undefined
+        break
+      }
+      prototype = Object.getPrototypeOf(prototype)
+    }
     if (typeof locked !== "function" || typeof getReader !== "function") return false
     if (Reflect.apply(locked, candidate, [])) return false
-    // The stream can be released after consumption, leaving `locked` false
-    // while the stream is still disturbed.  Fetch's Response constructor
-    // performs the platform disturbed-state check without taking ownership.
-    new nativeResponseConstructor(candidate)
     // Validate the native reader against a fresh stream. The candidate's
     // inherited reader overrides are intentionally ignored.
     const freshStream = new ReadableStream()
@@ -444,11 +453,12 @@ function authorizationBodyReader(body: object): (() => unknown) | undefined {
 }
 
 const trustedUint8ArraySubarray = Uint8Array.prototype.subarray
+const intrinsicObjectToString = Object.prototype.toString
 
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   try {
     Reflect.apply(trustedUint8ArraySubarray, value, [0, 0])
-    return true
+    return Reflect.apply(intrinsicObjectToString, value, []) === "[object Uint8Array]"
   }
   catch {
     return false
