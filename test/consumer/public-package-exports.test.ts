@@ -96,6 +96,7 @@ async function requiredPeerSpecs() {
     "comark-content": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-content/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
+    postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
   }

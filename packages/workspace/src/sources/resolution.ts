@@ -110,6 +110,9 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
       return Object.is(left, right)
     }
+    // Node exposes a non-observable proxy brand check. Use it before any
+    // reflection so proxy traps cannot run during source authority checks.
+    if (isWorkspaceSourceProxy(left) || isWorkspaceSourceProxy(right)) return false
     const prototype = Object.getPrototypeOf(left)
     if (Array.isArray(left) !== Array.isArray(right)
       || prototype !== Object.getPrototypeOf(right)
@@ -124,10 +127,6 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     // Inspect descriptors before structuredClone: cloning an accessor reads it.
     if (leftProperties.some(property => !property || !("value" in property))
       || rightProperties.some(property => !property || !("value" in property))) return false
-    // structuredClone rejects Proxy values while avoiding a Node-only builtin.
-    // Run it only after accessors have been rejected, so no getter can execute.
-    if (!hasSafeWorkspaceSourceGraph(left) || !hasSafeWorkspaceSourceGraph(right)
-      || !isCloneableSourceValue(left) || !isCloneableSourceValue(right)) return false
     ancestors.add(left)
     ancestors.add(right)
     try {
@@ -151,36 +150,26 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
   }
 }
 
-function isCloneableSourceValue(value: object): boolean {
+const isWorkspaceSourceProxy = (() => {
   try {
-    structuredClone(value)
-    return true
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Node's optional process bridge is inspected at runtime to avoid importing Node-only modules in provider bundles.
+    const process = (globalThis as typeof globalThis & {
+      process?: { getBuiltinModule?: (name: string) => unknown }
+    }).process
+    const getBuiltinModule = process?.getBuiltinModule
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before invocation.
+    if (typeof getBuiltinModule !== "function") return (_value: object) => false
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- getBuiltinModule returns an unknown namespace that is narrowed by the guarded predicate below.
+    const util = getBuiltinModule.call(process, "util") as {
+      types?: { isProxy?: (value: object) => boolean }
+    } | undefined
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before capture.
+    return typeof util?.types?.isProxy === "function" ? util.types.isProxy : (_value: object) => false
   }
   catch {
-    return false
+    return (_value: object) => false
   }
-}
-
-function hasSafeWorkspaceSourceGraph(value: unknown, ancestors = new Set<object>()): boolean {
-  if (typeof value !== "object" || value === null) return true
-  if (ancestors.has(value)) return false
-  try {
-    const prototype = Object.getPrototypeOf(value)
-    if (prototype !== Object.prototype && prototype !== Array.prototype && prototype !== null) return false
-    const keys = Reflect.ownKeys(value)
-    ancestors.add(value)
-    return keys.every(key => {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key)
-      return !!descriptor && "value" in descriptor && hasSafeWorkspaceSourceGraph(descriptor.value, ancestors)
-    })
-  }
-  catch {
-    return false
-  }
-  finally {
-    ancestors.delete(value)
-  }
-}
+})()
 
 function workspaceSessionStarter<Name extends WorkspaceName>(workspace: ReadonlyWorkspaceFacade<Name>): Pick<Workspace, "startSession"> | undefined {
   return typeof (workspace as ReadonlyWorkspaceFacade<Name> & Partial<Pick<Workspace, "startSession">>).startSession === "function"
