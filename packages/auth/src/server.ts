@@ -28,6 +28,17 @@ import type {
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Int8Array.prototype), Symbol.toStringTag,
+)?.get
+const intrinsicUint8ArrayConstructor = Uint8Array
+const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
+const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
+function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  if (!intrinsicTypedArrayTagGetter) return false
+  try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
+  catch { return false }
+}
 
 const intrinsicPromiseThen = Promise.prototype.then
 const intrinsicPromiseConstructor = Promise
@@ -606,7 +617,15 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
           release()
           controller.close()
         }
-        else controller.enqueue(result.value as Uint8Array)
+        else {
+          const value = result.value
+          if (!isIntrinsicUint8Array(value) || !intrinsicTypedArrayByteLengthGetter || typeof intrinsicUint8ArraySet !== "function") {
+            throw new Error("Malformed authorization read result")
+          }
+          const copy = new intrinsicUint8ArrayConstructor(Reflect.apply(intrinsicTypedArrayByteLengthGetter, value, []))
+          Reflect.apply(intrinsicUint8ArraySet, copy, [value])
+          controller.enqueue(copy)
+        }
       }
       catch (error) {
         release()
@@ -679,8 +698,35 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     const headerCarrier = Object(headers)
     const snapshot = { status, statusText, headers, body }
+    let intrinsicStatus: unknown
+    let intrinsicStatusText: unknown
+    let intrinsicHeaders: unknown
+    let intrinsicBody: unknown
+    try {
+      let prototype: object | null = Object.getPrototypeOf(candidate)
+      const seen = new Set<object>()
+      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+        if (seen.has(prototype)) break
+        seen.add(prototype)
+        const statusGetter = Object.getOwnPropertyDescriptor(prototype, "status")?.get
+        const statusTextGetter = Object.getOwnPropertyDescriptor(prototype, "statusText")?.get
+        const headersGetter = Object.getOwnPropertyDescriptor(prototype, "headers")?.get
+        const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "body")?.get
+        if (statusGetter && statusTextGetter && headersGetter && bodyGetter) {
+          intrinsicStatus = Reflect.apply(statusGetter, candidate, [])
+          intrinsicStatusText = Reflect.apply(statusTextGetter, candidate, [])
+          intrinsicHeaders = Reflect.apply(headersGetter, candidate, [])
+          intrinsicBody = Reflect.apply(bodyGetter, candidate, [])
+          break
+        }
+        prototype = Object.getPrototypeOf(prototype)
+      }
+    }
+    catch { /* malformed or shadowed response state */ }
     if (value instanceof Response && status === 0 && statusText === "" && body === null
       && headers instanceof Headers
+      && intrinsicStatus === 0 && intrinsicStatusText === "" && intrinsicBody === null
+      && intrinsicHeaders !== null && typeof intrinsicHeaders === "object"
       && authorizationResponseProperties.every(key =>
         responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
       && !authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))) return value
@@ -755,12 +801,14 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
+      && intrinsicStatus === 0 && intrinsicStatusText === "" && intrinsicBody === null
+      && intrinsicHeaders !== null && typeof intrinsicHeaders === "object"
       ? Response.error()
       : new Response(null, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
-    const getReader = authorizationBodyReader(body)
+    const getReader = authorizationBodyReader(body as object)
     if (!getReader) return
-    const bridgedBody = bridgeAuthorizationBody(body, getReader)
+    const bridgedBody = bridgeAuthorizationBody(body as ReadableStream<Uint8Array>, getReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
