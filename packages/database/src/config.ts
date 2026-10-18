@@ -46,6 +46,8 @@ export function serializeGeneratedRegistry(value: unknown): string {
 
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
+const identifierPattern = /^[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*$/u
+const identifierCapturePattern = "([$\\u200C\\u200D\\p{ID_Start}][$\\u200C\\u200D\\p{ID_Continue}]*)"
 
 function isLineTerminator(char: string): boolean {
   return char === "\n" || char === "\r" || char === "\u2028" || char === "\u2029"
@@ -470,7 +472,7 @@ function readProcessEnvName(expression: string) {
     ?? (() => {
       const match = /^process\.env\[([\s\S]+)\]$/.exec(normalized)
       const value = match ? readStaticStringLiteral(match[1]!.trim()) : undefined
-      return typeof value === "string" && /^[A-Za-z_$][\w$]*$/.test(value) ? value : undefined
+      return typeof value === "string" && identifierPattern.test(value) ? value : undefined
     })()
 }
 
@@ -506,7 +508,7 @@ function readOpaqueDeclarationExpression(identifier: string, source: string): st
   // includes export-only lists/star exports and exported async functions,
   // which do not have a declaration keyword immediately after `export`.
   const topLevelStatementStart = /^\s*(?:export\b|async\s+function\b|abstract\s+class\b|(?:const|let|var|function|class|interface|type|enum|namespace|declare|import)\b)/
-  const declarations = [...masked.matchAll(/(?:^|[;\n\r])\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?:\s*:\s*[^=;\n]+)?\s*=\s*/g)]
+  const declarations = [...masked.matchAll(new RegExp(`(?:^|[;\\n\\r])\\s*(?:export\\s+)?(?:const|let|var)\\s+${identifierCapturePattern}\\s*(?:\\s*:\\s*[^=;\\n]+)?\\s*=\\s*`, "gu"))]
   for (let declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
     const declaration = declarations[declarationIndex]!
     let depth = 0
@@ -547,7 +549,7 @@ function readOpaqueDeclarationExpression(identifier: string, source: string): st
     const parts = splitTopLevel(remainder)
     let partOffset = 0
     for (const part of parts) {
-      const name = /^\s*([A-Za-z_$][\w$]*)\s*=/.exec(part)?.[1]
+      const name = new RegExp(`^\\s*${identifierCapturePattern}\\s*=`, "u").exec(part)?.[1]
       if (name !== identifier) {
         partOffset += part.length + 1
         continue
@@ -617,7 +619,7 @@ function readOpaqueResourceOwnership(expression: string | undefined, source: str
     }
     return ownership
   }
-  const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
+  const identifier = identifierPattern.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
   seen.add(identifier)
   return readOpaqueResourceOwnership(readOpaqueDeclarationExpression(identifier, source), source, seen)
@@ -634,7 +636,7 @@ function opaqueObjectContainsKey(expression: string, source: string, key: string
       return normalized.startsWith("...") && opaqueObjectContainsKey(normalized.slice(3), source, key, seen)
     })
   }
-  const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
+  const identifier = identifierPattern.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return false
   seen.add(identifier)
   return opaqueObjectContainsKey(readOpaqueDeclarationExpression(identifier, source) ?? "", source, key, seen)
@@ -671,7 +673,7 @@ function readOpaqueHttpOnly(expression: string | undefined, source: string, seen
     }
     return httpOnly
   }
-  const identifier = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? trimmed : undefined
+  const identifier = identifierPattern.test(trimmed) ? trimmed : undefined
   if (!identifier || seen.has(identifier)) return undefined
   seen.add(identifier)
   return readOpaqueHttpOnly(readOpaqueDeclarationExpression(identifier, source), source, seen)
@@ -708,7 +710,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
       : expression
     const opaqueBody = objectLiteralBody(resolvedExpression)
     const rawBinding = opaqueBody ? readObjectPropertyValue(opaqueBody, "binding")?.trim() : undefined
-    const bindingExpression = rawBinding && /^[A-Za-z_$][\w$]*$/.test(rawBinding)
+    const bindingExpression = rawBinding && identifierPattern.test(rawBinding)
       ? readOpaqueDeclarationExpression(rawBinding, source)?.trim() ?? rawBinding
       : rawBinding
     const binding = readStaticStringReference(bindingExpression, source)
@@ -728,7 +730,7 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
   const resolveProperty = (property: string) => {
     const raw = readObjectPropertyValue(body, property)?.trim()
     if (!raw || raw === "undefined") return raw
-    if (!/^[A-Za-z_$][\w$]*$/.test(raw)) return raw
+    if (!identifierPattern.test(raw)) return raw
     return readOpaqueDeclarationExpression(raw, source)?.trim() ?? raw
   }
   const httpExpression = resolveProperty("http")
