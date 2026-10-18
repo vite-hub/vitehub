@@ -252,7 +252,7 @@ async function createSignInResponse(
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
   const origin = new URL(options.baseURL as string).origin
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
-  const basePath = normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)
+  const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
   const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
@@ -310,24 +310,22 @@ async function runAccessAuthorize(
 
 function findGetter(value: object, name: string): ((this: unknown) => unknown) | undefined {
   let prototype: object | null = value
-  let getter: ((this: unknown) => unknown) | undefined
   while (prototype) {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, name)
-    if (descriptor?.get) getter = descriptor.get as (this: unknown) => unknown
+    if (descriptor?.get) return descriptor.get as (this: unknown) => unknown
     prototype = Object.getPrototypeOf(prototype)
   }
-  return getter
+  return undefined
 }
 
 function findMethod(value: object, name: string): ((this: unknown) => Promise<ArrayBuffer>) | undefined {
   let prototype: object | null = value
-  let method: ((this: unknown) => Promise<ArrayBuffer>) | undefined
   while (prototype) {
     const candidate = Object.getOwnPropertyDescriptor(prototype, name)?.value
-    if (typeof candidate === "function") method = candidate as (this: unknown) => Promise<ArrayBuffer>
+    if (typeof candidate === "function") return candidate as (this: unknown) => Promise<ArrayBuffer>
     prototype = Object.getPrototypeOf(prototype)
   }
-  return method
+  return undefined
 }
 
 async function normalizeResponse(value: unknown): Promise<Response | undefined> {
@@ -347,12 +345,15 @@ async function normalizeResponse(value: unknown): Promise<Response | undefined> 
       if (locked === true) return
     }
     const exposed = value as { status?: unknown, statusText?: unknown, headers?: unknown, body?: unknown }
+    if (statusNumber === 0 && body === null) return Response.error()
+    // Preserve an unshadowed native response without consuming its body. Foreign
+    // implementations and shadowed responses are copied below through arrayBuffer().
+    if (value instanceof Response && exposed.status === status && exposed.statusText === statusText
+      && exposed.headers === headers && exposed.body === body) return value as Response
     const arrayBuffer = findMethod(response, "arrayBuffer")
     if (!arrayBuffer) return
     const data = await arrayBuffer.call(response)
     if (data === null || typeof data !== "object") return
-    if (value instanceof Response && exposed.status === status && exposed.statusText === statusText
-      && exposed.headers === headers && exposed.body === body) return value as Response
     return new Response(body === null ? null : data, { status: statusNumber, statusText, headers: headers as Headers })
   }
   catch {
