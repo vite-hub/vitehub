@@ -11,6 +11,33 @@ import {
 } from "../src/inspect.ts"
 
 describe("inspection contributors", () => {
+  it("ignores inherited plugin metadata", async () => {
+    const inherited = Object.create({
+      vitehub: {
+        inspect: {
+          definitions: [{ kind: "inherited", label: "Inherited", list: () => [] }],
+          providerOutput: [{ description: "inherited", owner: "inherited", path: "/app/inherited.json" }],
+        },
+      },
+    }) as object
+
+    expect(await collectViteHubDefinitionInspectors([inherited])).toEqual([])
+    expect(await collectViteHubProviderOutputEntries([inherited])).toEqual([])
+  })
+
+  it("ignores inherited inspect metadata", async () => {
+    const inheritedInspect = Object.create({
+      inspect: {
+        definitions: [{ kind: "inherited", label: "Inherited", list: () => [] }],
+        providerOutput: [{ description: "inherited", owner: "inherited", path: "/app/inherited.json" }],
+      },
+    })
+    const plugin = { vitehub: inheritedInspect }
+
+    expect(await collectViteHubDefinitionInspectors([plugin])).toEqual([])
+    expect(await collectViteHubProviderOutputEntries([plugin])).toEqual([])
+  })
+
   it("collects object and factory contributors and skips plugins without inspection", async () => {
     const plugins = [
       null,

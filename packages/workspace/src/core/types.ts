@@ -121,10 +121,6 @@ export interface SnapshotOptions {
   name?: string
 }
 
-export interface WorkspacePublishOptions {
-  name?: string
-}
-
 export interface DiffOptions {
   from?: WorkspaceSnapshot
 }
@@ -139,7 +135,6 @@ export interface WorkspaceSyncSnapshotOptions extends SnapshotOptions {
 
 export interface WorkspaceSyncOptions {
   details?: WorkspaceSyncResultDetails
-  publish?: boolean
   publishPartial?: boolean
   snapshot?: boolean | WorkspaceSyncSnapshotOptions
   sources: WorkspaceSourceSelection
@@ -691,21 +686,6 @@ export interface WorkspaceLoader {
   load(ctx: LoaderContext): Promise<void>
 }
 
-export interface PublishContext {
-  abortSignal?: AbortSignal
-  durable: boolean
-  workspace: WorkspaceDefinition
-  store: WorkspaceStore
-  rootDir: string
-  snapshot?: WorkspaceSnapshot
-}
-
-export interface WorkspacePublisher {
-  name: string
-  clientSafe?: boolean
-  publish(ctx: PublishContext): Promise<void>
-}
-
 export interface Logger {
   debug(...args: unknown[]): void
   info(...args: unknown[]): void
@@ -777,7 +757,6 @@ export interface WorkspaceDefinition {
   bindings?: Record<string, WorkspaceInstructionBinding>
   sources?: Record<string, WorkspaceSourceInput>
   loaders?: WorkspaceLoader[]
-  publish?: WorkspacePublisher[]
   plugins?: WorkspacePlugin[]
   rules?: WorkspaceRules
   hooks?: WorkspaceHooks
@@ -822,7 +801,6 @@ export interface Workspace {
   exists(path: string): Promise<boolean>
   mkdir(path: string, options?: MkdirOptions): Promise<void>
   rm(path: string, options?: RmOptions): Promise<void>
-  publish(options?: WorkspacePublishOptions): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   rebase(options?: WorkspaceRebaseOptions): Promise<void>
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
@@ -853,7 +831,6 @@ export interface WorkspaceSourceSyncStatus {
 
 export interface WorkspaceSourceSyncResult {
   durationMs: number
-  published: boolean
   snapshot?: WorkspaceSnapshot
   sources: WorkspaceSourceSyncStatus[]
   status: "error" | "partial" | "ready" | "skipped"

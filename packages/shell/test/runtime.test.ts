@@ -13,7 +13,6 @@ import {
   runWorkspaceInspectionCommand,
   workspaceMountPoint,
 } from "../src/workspace/index.ts"
-import { createCloudflareShellProvider } from "../src/providers/cloudflare.ts"
 
 import type {
   ShellExecutionProvider,
@@ -76,9 +75,6 @@ describe("@vite-hub/shell just-bash runtime", () => {
     })
     await expect(import("@vite-hub/shell/providers/just-bash")).resolves.toMatchObject({
       createJustBashProvider: expect.any(Function),
-    })
-    await expect(import("@vite-hub/shell/providers/cloudflare")).resolves.toMatchObject({
-      createCloudflareShellProvider: expect.any(Function),
     })
   })
 
@@ -851,93 +847,6 @@ describe("@vite-hub/shell just-bash runtime", () => {
       stdout: "",
       timedOut: true,
     })
-  })
-})
-
-describe("@vite-hub/shell cloudflare runtime", () => {
-  it("preserves quoted arguments, escaped spaces and trailing backslashes when forwarding commands", async () => {
-    const exec = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" }))
-    const provider = createCloudflareShellProvider({
-      sandbox: { exec, supports: { execCwd: true, execEnv: true } },
-    })
-
-    await provider.exec("printf 'hello world' \"a|b\" space\\ value trailing\\")
-
-    expect(exec).toHaveBeenCalledWith("printf", ["hello world", "a|b", "space value", "trailing\\"], expect.any(Object))
-  })
-
-  it("rejects unterminated quotes before forwarding commands", async () => {
-    const exec = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" }))
-    const provider = createCloudflareShellProvider({
-      sandbox: { exec, supports: { execCwd: true, execEnv: true } },
-    })
-
-    await expect(provider.exec("cat 'unfinished")).rejects.toThrow("unterminated quote")
-    expect(exec).not.toHaveBeenCalled()
-  })
-
-  it("delegates to the cloudflare sandbox client", async () => {
-    const sandbox = {
-      exec: vi.fn(async (_command: string, _args?: string[], options?: {
-        onStderr?: (data: string) => void
-        onStdout?: (data: string) => void
-      }) => {
-        options?.onStdout?.("out")
-        options?.onStderr?.("err")
-        return {
-          exitCode: 0,
-          ok: true,
-          stderr: "err",
-          stdout: "out",
-        }
-      }),
-      provider: "cloudflare",
-      supports: {
-        deleteFile: true,
-        env: true,
-        execCwd: true,
-        execEnv: true,
-        execSudo: false,
-        exists: true,
-        listFiles: true,
-        moveFile: true,
-        readFileStream: true,
-        startProcess: true,
-      },
-    }
-
-    const runtime = createShellRuntime({
-      provider: createCloudflareShellProvider({
-        sandbox,
-      }),
-    })
-    const onStdout = vi.fn()
-    const onStderr = vi.fn()
-    const command = "ls -la /workspace | head -n 1"
-    const result = await runtime.exec(command, {
-      cwd: "/workspace",
-      env: { FOO: "bar" },
-      onStderr,
-      onStdout,
-      stdin: "input",
-      timeout: 100,
-    })
-
-    expect(result).toMatchObject({
-      command,
-      event: "command_finished",
-      exitCode: 0,
-      stderr: "err",
-      stdout: "out",
-    })
-    expect(sandbox.exec).toHaveBeenCalledWith("ls", ["-la", "/workspace", "|", "head", "-n", "1"], expect.objectContaining({
-      cwd: "/workspace",
-      env: { FOO: "bar" },
-      stdin: "input",
-      timeout: 100,
-    }))
-    expect(onStdout).toHaveBeenCalledWith("out")
-    expect(onStderr).toHaveBeenCalledWith("err")
   })
 })
 

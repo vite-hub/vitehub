@@ -1,26 +1,17 @@
+import { runInNewContext } from "node:vm"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { schedules } from "../src/runtime/client.ts"
-import { installScheduleRuntime } from "../src/runtime/driver.ts"
-import { createProcessScheduleWakeDriver } from "../src/runtime/process.ts"
+import { createProcessWakeDriver } from "../src/internal/process-wake-runtime.ts"
+import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { resetScheduleRuntime } from "../src/runtime/state.ts"
-import { createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "../src/runtime/store.ts"
+import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
 
-import type { RuntimeScheduleRecord } from "../src/types.ts"
-import type { RuntimeScheduleWakeDriver, RuntimeScheduleWakeDriverContext } from "../src/runtime/driver.ts"
-import type { ProcessScheduleWakeDriverOptions } from "../src/runtime/process.ts"
+import type { ProcessScheduleEntry, ProcessWakeContext, ProcessWakeDriver, ProcessWakeDriverOptions } from "../src/internal/process-wake-runtime.ts"
+import type { ScheduleDefinition } from "../src/types.ts"
 
-function record(id: string, options: Partial<RuntimeScheduleRecord> = {}): RuntimeScheduleRecord {
-  const now = new Date("2026-07-11T08:00:00.000Z")
-  return {
-    createdAt: now,
-    cron: "* * * * *",
-    enabled: true,
-    id,
-    target: "report",
-    updatedAt: now,
-    ...options,
-  }
+function record(id: string, options: Partial<ProcessScheduleEntry> = {}): ProcessScheduleEntry {
+  return { cron: "* * * * *", id, ...options }
 }
 
 async function flushAsyncWork(): Promise<void> {
@@ -29,8 +20,8 @@ async function flushAsyncWork(): Promise<void> {
   await Promise.resolve()
 }
 
-async function createDriver(context: RuntimeScheduleWakeDriverContext, options: ProcessScheduleWakeDriverOptions = {}): Promise<RuntimeScheduleWakeDriver> {
-  return await createProcessScheduleWakeDriver(options)(context)
+async function createDriver(context: ProcessWakeContext, options: ProcessWakeDriverOptions = {}): Promise<ProcessWakeDriver> {
+  return createProcessWakeDriver(options, context)
 }
 
 afterEach(() => {
@@ -38,30 +29,26 @@ afterEach(() => {
   resetScheduleRuntime()
 })
 
-describe("Process Schedule Wake Driver", () => {
-  it("executes due stored schedules through the installed Runtime Schedule boundary", async () => {
+describe("Process Schedule Runtime", () => {
+  it("runs a due Static Schedule and records the run", async () => {
     vi.useFakeTimers()
     const now = new Date("2026-07-11T09:00:20.000Z")
-    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
     const scheduleRunStore = createMemoryScheduleRunStore()
-    await runtimeScheduleStore.create(record("daily"))
     let calls = 0
     let handled!: () => void
     const handledSchedule = new Promise<void>(resolve => { handled = resolve })
 
-    const controller = await installScheduleRuntime({
-      createDriver: createProcessScheduleWakeDriver({ now: () => now }),
+    const controller = await installProcessScheduleRuntime({
+      now: () => now,
       registry: {
-        report: async () => ({
+        daily: async () => ({
           cron: "* * * * *",
           handler: async () => {
             calls += 1
             handled()
           },
-          options: { allowRuntimeSchedules: true },
         }),
       },
-      runtimeScheduleStore,
       scheduleRunStore,
     })
     await handledSchedule
@@ -70,6 +57,7 @@ describe("Process Schedule Wake Driver", () => {
     expect(calls).toBe(1)
     expect(await scheduleRunStore.listRuns()).toEqual([
       expect.objectContaining({
+        id: "srun_static_daily_2026-07-11T09:00:00.000Z",
         scheduleId: "daily",
         scheduledAt: new Date("2026-07-11T09:00:00.000Z"),
         status: "succeeded",
@@ -77,57 +65,127 @@ describe("Process Schedule Wake Driver", () => {
     ])
   })
 
-  it("lets active wake handlers reconcile Runtime Schedules while closing", async () => {
-    vi.useFakeTimers()
-    const now = new Date("2026-07-11T09:00:20.000Z")
-    const runtimeScheduleStore = createMemoryRuntimeScheduleStore()
-    await runtimeScheduleStore.create(record("daily"))
-    let releaseHandler: (() => void) | undefined
-    const processDriverFactory = createProcessScheduleWakeDriver({ now: () => now })
-
-    const controller = await installScheduleRuntime({
-      async createDriver(context) {
-        return await processDriverFactory(context)
-      },
+  it("catches up a Static Schedule minute that no process checked during a restart", async () => {
+    // The previous process stopped before its 15:00 scan, and this process starts at 15:01.
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const previous = new Date("2026-10-16T14:50:00.000Z")
+    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T14:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
+    const handler = vi.fn()
+    const controller = await installProcessScheduleRuntime({
+      now: () => new Date("2026-10-16T15:01:20.000Z"),
       registry: {
-        report: async () => ({
-          cron: "* * * * *",
-          handler: async () => {
-            await new Promise<void>(resolve => { releaseHandler = resolve })
-            await schedules.dynamic.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
-          },
-          options: { allowRuntimeSchedules: true },
-        }),
+        reconcile: async () => ({ cron: "*/10 * * * *", handler }),
       },
-      runtimeScheduleStore,
+      scheduleRunStore,
+    })
+
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1))
+    await controller.close()
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date("2026-10-16T15:00:00.000Z") }))
+  })
+
+  it("does not catch up a Static Schedule that has no run, or minutes outside catchUpMs", async () => {
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const previous = new Date("2026-10-16T12:50:00.000Z")
+    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T12:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
+    const reconcile = vi.fn()
+    const fresh = vi.fn()
+    const controller = await installProcessScheduleRuntime({
+      catchUpMs: 30 * 60_000,
+      now: () => new Date("2026-10-16T15:01:20.000Z"),
+      registry: {
+        fresh: async () => ({ cron: "*/10 * * * *", handler: fresh }),
+        reconcile: async () => ({ cron: "*/10 * * * *", handler: reconcile }),
+      },
+      scheduleRunStore,
+    })
+
+    await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(3))
+    await controller.close()
+    expect(reconcile.mock.calls.map(([context]) => context.scheduledAt.toISOString())).toEqual([
+      "2026-10-16T14:40:00.000Z",
+      "2026-10-16T14:50:00.000Z",
+      "2026-10-16T15:00:00.000Z",
+    ])
+    expect(fresh).not.toHaveBeenCalled()
+  })
+
+  it("loads Static Schedule definitions from module default exports before named exports", async () => {
+    const defaultHandler = vi.fn()
+    const namedHandler = vi.fn()
+    const controller = await installProcessScheduleRuntime({
+      now: () => new Date("2026-07-11T09:00:20.000Z"),
+      registry: {
+        "daily-report": async () => ({
+          default: { cron: "0 9 * * *", handler: defaultHandler },
+          handler: namedHandler,
+        }) as unknown as ScheduleDefinition,
+      },
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
 
-    await vi.waitFor(() => expect(releaseHandler).toBeTypeOf("function"))
-    const closing = controller.close()
-    releaseHandler!()
-    await closing
-
-    await expect(schedules.get("follow-up")).resolves.toMatchObject({ id: "follow-up" })
+    await vi.waitFor(() => expect(defaultHandler).toHaveBeenCalledOnce())
+    await controller.close()
+    expect(namedHandler).not.toHaveBeenCalled()
   })
 
+  it("runs static definitions with cross-realm handlers", async () => {
+    const calls: string[] = []
+    const handler = runInNewContext('() => calls.push("cross-realm")', { calls }) as () => void
+    const controller = await installProcessScheduleRuntime({
+      now: () => new Date("2026-07-11T09:00:20.000Z"),
+      registry: { report: async () => ({ cron: "0 9 * * *", handler }) },
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+
+    await vi.waitFor(() => expect(calls).toEqual(["cross-realm"]))
+    await controller.close()
+  })
+
+  it("skips Static Schedule definitions with an inherited cron property", async () => {
+    const inherited = { cron: "* * * * *" }
+    const handler = vi.fn()
+    const definition = Object.assign(Object.create(inherited), { handler })
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const controller = await installProcessScheduleRuntime({
+      now: () => new Date("2026-07-11T09:00:20.000Z"),
+      registry: { "inherited-cron": async () => definition },
+      scheduleRunStore,
+    })
+
+    await flushAsyncWork()
+    await controller.close()
+    expect(handler).not.toHaveBeenCalled()
+    expect(await scheduleRunStore.listRuns()).toEqual([])
+  })
+
+  it("rejects invalid options and restores runtime state", async () => {
+    await expect(installProcessScheduleRuntime({ intervalMs: 0, registry: {}, scheduleRunStore: createMemoryScheduleRunStore() })).rejects.toThrow("intervalMs must be a positive number")
+    await expect(installProcessScheduleRuntime({
+      registry: { invalid: async () => ({ cron: "bad", handler: () => {} }) },
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })).rejects.toThrow("five-field cron expression")
+  })
+})
+
+describe("Process Schedule Wake Driver", () => {
   it("starts a due wake before reconciliation can be closed", async () => {
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {})
+    const wake = vi.fn<ProcessWakeContext["wake"]>(async () => {})
     const driver = await createDriver({
       reportError: vi.fn(),
       wake,
     }, { now: () => new Date("2026-07-11T09:00:20.000Z") })
 
     await driver.reconcile([record("daily")])
-    await driver.close?.()
+    await driver.close()
 
     expect(wake).toHaveBeenCalledOnce()
   })
 
-  it("wakes each enabled due schedule once per process minute", async () => {
+  it("wakes each due schedule once per process minute", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {})
+    const wake = vi.fn<ProcessWakeContext["wake"]>(async () => {})
     const driver = await createDriver({
       reportError: vi.fn(),
       wake,
@@ -135,7 +193,7 @@ describe("Process Schedule Wake Driver", () => {
 
     await driver.reconcile([
       record("daily"),
-      record("disabled", { enabled: false }),
+      record("hourly", { cron: "30 * * * *" }),
     ])
     await flushAsyncWork()
     await vi.advanceTimersByTimeAsync(30_000)
@@ -153,35 +211,13 @@ describe("Process Schedule Wake Driver", () => {
       scheduledAt: new Date("2026-07-11T09:01:00.000Z"),
     })
 
-    await driver.close?.()
-  })
-
-  it("uses the shared time-zone matcher for process wakes", async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-07-15T07:00:20.000Z"))
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {})
-    const driver = await createDriver({
-      reportError: vi.fn(),
-      wake,
-    })
-
-    await driver.reconcile([
-      record("copenhagen", { cron: "0 9 * * *", timeZone: "Europe/Copenhagen" }),
-    ])
-    await flushAsyncWork()
-
-    expect(wake).toHaveBeenCalledOnce()
-    expect(wake).toHaveBeenCalledWith({
-      scheduleId: "copenhagen",
-      scheduledAt: new Date("2026-07-15T07:00:00.000Z"),
-    })
-    await driver.close?.()
+    await driver.close()
   })
 
   it("reconciles additions and removals without polling the schedule store", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {})
+    const wake = vi.fn<ProcessWakeContext["wake"]>(async () => {})
     const driver = await createDriver({
       reportError: vi.fn(),
       wake,
@@ -194,14 +230,14 @@ describe("Process Schedule Wake Driver", () => {
     await vi.advanceTimersByTimeAsync(60_000)
 
     expect(wake.mock.calls.map(([input]) => input.scheduleId)).toEqual(["first", "second", "second"])
-    await driver.close?.()
+    await driver.close()
   })
 
   it("limits concurrent wake delivery", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
     let releaseFirst: (() => void) | undefined
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {
+    const wake = vi.fn<ProcessWakeContext["wake"]>(async () => {
       if (!releaseFirst) await new Promise<void>(resolve => { releaseFirst = resolve })
     })
     const driver = await createDriver({
@@ -217,14 +253,14 @@ describe("Process Schedule Wake Driver", () => {
     await flushAsyncWork()
     expect(wake).toHaveBeenCalledTimes(2)
 
-    await driver.close?.()
+    await driver.close()
   })
 
   it("drops queued wakes when reconciliation removes the schedule", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
     let releaseFirst: (() => void) | undefined
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {
+    const wake = vi.fn<ProcessWakeContext["wake"]>(async () => {
       if (!releaseFirst) await new Promise<void>(resolve => { releaseFirst = resolve })
     })
     const driver = await createDriver({
@@ -241,14 +277,14 @@ describe("Process Schedule Wake Driver", () => {
     await flushAsyncWork()
 
     expect(wake).toHaveBeenCalledTimes(1)
-    await driver.close?.()
+    await driver.close()
   })
 
   it("preserves a current-minute dispatch when pruning an older queued occurrence", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:01:20.000Z"))
     let releaseFirst!: () => void
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {
+    const wake = vi.fn<ProcessWakeContext["wake"]>(async () => {
       if (wake.mock.calls.length === 1) {
         await new Promise<void>(resolve => { releaseFirst = resolve })
       }
@@ -269,15 +305,15 @@ describe("Process Schedule Wake Driver", () => {
       input.scheduleId === "daily" && input.scheduledAt.getTime() === new Date("2026-07-11T09:02:00.000Z").getTime()
     ))
     expect(currentDailyWakes).toHaveLength(1)
-    await driver.close?.()
+    await driver.close()
   })
 
   it("reports wake errors and continues scanning later minutes", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
     const error = new Error("wake failed")
-    const reportError = vi.fn<RuntimeScheduleWakeDriverContext["reportError"]>()
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>()
+    const reportError = vi.fn<ProcessWakeContext["reportError"]>()
+    const wake = vi.fn<ProcessWakeContext["wake"]>()
       .mockRejectedValueOnce(error)
       .mockResolvedValue(undefined)
     const driver = await createDriver({ reportError, wake }, { intervalMs: 1_000 })
@@ -289,15 +325,15 @@ describe("Process Schedule Wake Driver", () => {
     await vi.advanceTimersByTimeAsync(60_000)
     expect(wake).toHaveBeenCalledTimes(2)
 
-    await driver.close?.()
+    await driver.close()
   })
 
   it("reports synchronous wake errors and continues scanning later minutes", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
     const error = new Error("wake failed synchronously")
-    const reportError = vi.fn<RuntimeScheduleWakeDriverContext["reportError"]>()
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>()
+    const reportError = vi.fn<ProcessWakeContext["reportError"]>()
+    const wake = vi.fn<ProcessWakeContext["wake"]>()
       .mockImplementationOnce(() => { throw error })
       .mockResolvedValue(undefined)
     const driver = await createDriver({ reportError, wake }, { intervalMs: 1_000 })
@@ -309,29 +345,29 @@ describe("Process Schedule Wake Driver", () => {
     await vi.advanceTimersByTimeAsync(60_000)
     expect(wake).toHaveBeenCalledTimes(2)
 
-    await driver.close?.()
+    await driver.close()
   })
 
-  it("validates options and stored cron expressions before reconciliation succeeds", async () => {
-    const context: RuntimeScheduleWakeDriverContext = {
+  it("validates options and cron expressions before reconciliation succeeds", async () => {
+    const context: ProcessWakeContext = {
       reportError: vi.fn(),
       wake: vi.fn(),
     }
 
-    expect(() => createProcessScheduleWakeDriver({ intervalMs: 0 })(context)).toThrow("intervalMs must be a positive number")
-    expect(() => createProcessScheduleWakeDriver({ intervalMs: 60_001 })(context)).toThrow("no greater than 60000")
-    expect(() => createProcessScheduleWakeDriver({ concurrency: 0 })(context)).toThrow("concurrency must be a positive integer")
+    expect(() => createProcessWakeDriver({ intervalMs: 0 }, context)).toThrow("intervalMs must be a positive number")
+    expect(() => createProcessWakeDriver({ intervalMs: 60_001 }, context)).toThrow("no greater than 60000")
+    expect(() => createProcessWakeDriver({ concurrency: 0 }, context)).toThrow("concurrency must be a positive integer")
+    expect(() => createProcessWakeDriver({ catchUpMs: -1 }, context)).toThrow("catchUpMs must be a finite number")
 
     const driver = await createDriver(context)
     await expect(driver.reconcile([record("invalid", { cron: "bad" })])).rejects.toThrow("five-field cron expression")
-    await expect(driver.reconcile([record("disabled-invalid", { cron: "bad", enabled: false })])).resolves.toBeUndefined()
-    await driver.close?.()
+    await driver.close()
   })
 
   it("stops timers and rejects reconciliation after close", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {})
+    const wake = vi.fn<ProcessWakeContext["wake"]>(async () => {})
     const driver = await createDriver({
       reportError: vi.fn(),
       wake,
@@ -339,7 +375,7 @@ describe("Process Schedule Wake Driver", () => {
 
     await driver.reconcile([record("daily")])
     await flushAsyncWork()
-    await driver.close?.()
+    await driver.close()
     await vi.advanceTimersByTimeAsync(60_000)
 
     expect(wake).toHaveBeenCalledTimes(1)
@@ -361,7 +397,7 @@ describe("Process Schedule Wake Driver", () => {
       expect(unref).toHaveBeenCalledOnce()
     }
     finally {
-      await driver.close?.()
+      await driver.close()
       unref.mockRestore()
     }
   })
@@ -370,14 +406,14 @@ describe("Process Schedule Wake Driver", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-07-11T09:00:20.000Z"))
     let releaseWake!: () => void
-    const wake = vi.fn<RuntimeScheduleWakeDriverContext["wake"]>(async () => {
+    const wake = vi.fn<ProcessWakeContext["wake"]>(async () => {
       await new Promise<void>(resolve => { releaseWake = resolve })
     })
     const driver = await createDriver({ reportError: vi.fn(), wake }, { intervalMs: 1_000 })
     await driver.reconcile([record("daily")])
 
     let closed = false
-    const closePromise = Promise.resolve(driver.close?.()).then(() => { closed = true })
+    const closePromise = driver.close().then(() => { closed = true })
     await flushAsyncWork()
     expect(closed).toBe(false)
 

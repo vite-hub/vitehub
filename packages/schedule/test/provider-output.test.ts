@@ -357,17 +357,12 @@ describe("schedule provider output", () => {
     const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as { exports: Record<string, unknown> }
 
     expect(packageJson.exports).not.toHaveProperty("./definition")
-    expect(packageJson.exports).toHaveProperty("./runtime/driver", "./dist/runtime/driver.js")
+    expect(packageJson.exports).toHaveProperty(["./runtime/process", "import"], "./dist/runtime/process.js")
+    for (const removed of ["./runtime/console", "./runtime/driver"]) expect(packageJson.exports).not.toHaveProperty(removed)
   })
 
   it("emits Cloudflare, Vercel, and Netlify schedule provider wake output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-")
-    await writeFile(join(rootDir, "src", "agent-turn.schedule.ts"), [
-      "import { defineScheduleTarget } from '@vite-hub/schedule'",
-      "",
-      "export default defineScheduleTarget({ handler: () => 'ok' })",
-      "",
-    ].join("\n"), "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist/client",
@@ -398,15 +393,12 @@ describe("schedule provider output", () => {
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
     expect(await readFile(vercelFunction, "utf8")).toContain("unwrapScheduleDefinition")
     expect(await readFile(vercelFunction, "utf8")).not.toContain("setWorkflowRuntimeRegistry")
-    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "agent-turn.func"))).toBe(false)
     const netlifyModule = await import(pathToFileURL(netlifyFunction).href)
     expect(netlifyModule.config.schedule).toBe("0 0 * * *")
     expect((await netlifyModule.default(new Request("https://schedule.example"))).status).toBe(204)
-    expect(existsSync(join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-agent-turn.mjs"))).toBe(false)
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("unwrapScheduleDefinition")
-    await expect(readFile(join(rootDir, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.not.toContain("agent-turn")
   })
 
   it("preserves Node built-ins for the Cloudflare runtime", async () => {
@@ -967,6 +959,28 @@ describe("schedule provider output", () => {
       clientOutDir: "dist/client",
       rootDir,
     })).rejects.toThrow(/must declare a static cron string/)
+  })
+
+  it("rejects a non-UTC timeZone before provider output generation", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-time-zone-")
+    const write = async (definition: string) => await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), `export default ${definition}\n`, "utf8")
+    const generate = async () => await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+
+    await write("defineSchedule({ cron: '0 8 * * *', timeZone: 'Europe/Madrid', handler: () => 'ok' })")
+    await expect(generate()).rejects.toThrow(/Schedule "cleanup" declares timeZone "Europe\/Madrid", but provider cron output supports only UTC\. Remove timeZone .* or run Schedules with the process driver/)
+
+    await write("defineSchedule('0 8 * * *', () => 'ok', { timeZone: 'Europe/Madrid' })")
+    await expect(generate()).rejects.toThrow(/declares timeZone "Europe\/Madrid"/)
+
+    await write("defineSchedule({ cron: '0 8 * * *', timeZone, handler: () => 'ok' })")
+    await expect(generate()).rejects.toThrow(/declares timeZone with a value that is not a static string/)
+
+    await write("defineSchedule({ cron: '0 8 * * *', timeZone: 'UTC', handler: () => 'ok' })")
+    await generate()
+    expect(JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons).toEqual([{
+      path: "/api/vitehub/schedules/vercel/cleanup",
+      schedule: "0 8 * * *",
+    }])
   })
 
   it("reads cron from the top-level schedule object", async () => {

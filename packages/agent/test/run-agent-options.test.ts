@@ -1,5 +1,6 @@
-import { expect, it, vi } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 import { defineAgent, defineCapability, runAgent, workflow } from "../src/index.ts"
+import { setAgentHostCapabilities } from "../src/server/internal.ts"
 
 const schedule = {
   id: "friday-2026-09-25",
@@ -50,6 +51,48 @@ it("forwards runtime capabilities through standalone scheduled runs", async () =
     runtimeContext: { capabilities: { connections } },
     schedule,
   })).resolves.toEqual([null, "available"])
+})
+
+function capabilityProbeAgent() {
+  return defineAgent({
+    runtime: false,
+    capabilities: [defineCapability({
+      id: "host-capability-probe",
+      tools: context => ({
+        host_capabilities: {
+          name: "host_capabilities",
+          execute: (_input: unknown) => ({ connections: context.capabilities.connections, kv: context.capabilities.kv }),
+        },
+      }),
+    })],
+    driver: { async run({ tools }) {
+      return JSON.stringify(await tools?.host_capabilities?.execute?.({}))
+    } },
+  })
+}
+
+afterEach(() => setAgentHostCapabilities(undefined))
+
+it("gives standalone runs the registered host runtime capabilities", async () => {
+  setAgentHostCapabilities({ connections: { name: "host-connections" }, kv: { name: "host-kv" } })
+
+  await expect(runAgent(capabilityProbeAgent(), { prompt: "Check host" }, { output: "drained", schedule }))
+    .resolves.toEqual([null, JSON.stringify({ connections: { name: "host-connections" }, kv: { name: "host-kv" } })])
+})
+
+it("lets runtimeContext capabilities override one host capability", async () => {
+  setAgentHostCapabilities({ connections: { name: "host-connections" }, kv: { name: "host-kv" } })
+
+  await expect(runAgent(capabilityProbeAgent(), { prompt: "Check override" }, {
+    output: "drained",
+    runtimeContext: { capabilities: { connections: { name: "caller-connections" } } },
+    schedule,
+  })).resolves.toEqual([null, JSON.stringify({ connections: { name: "caller-connections" }, kv: { name: "host-kv" } })])
+})
+
+it("keeps standalone runs without host capabilities when no host registered them", async () => {
+  await expect(runAgent(capabilityProbeAgent(), { prompt: "Check standalone" }, { output: "drained", schedule }))
+    .resolves.toEqual([null, JSON.stringify({})])
 })
 
 it("rejects callable tools before starting an explicit Workflow", async () => {

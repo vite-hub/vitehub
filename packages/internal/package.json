@@ -8,6 +8,12 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./abort": {
+      "types": "./dist/abort.d.ts",
+      "import": "./dist/abort.js",
+      "require": "./dist/abort.js",
+      "default": "./dist/abort.js"
+    },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
@@ -31,12 +37,6 @@
       "import": "./dist/env.js",
       "require": "./dist/env.js",
       "default": "./dist/env.js"
-    },
-    "./effect": {
-      "types": "./dist/effect.d.ts",
-      "import": "./dist/effect.js",
-      "require": "./dist/effect.js",
-      "default": "./dist/effect.js"
     },
     "./arrays": {
       "types": "./dist/arrays.d.ts",
@@ -92,6 +92,12 @@
       "require": "./dist/object.js",
       "default": "./dist/object.js"
     },
+    "./owned-paths": {
+      "types": "./dist/owned-paths.d.ts",
+      "import": "./dist/owned-paths.js",
+      "require": "./dist/owned-paths.js",
+      "default": "./dist/owned-paths.js"
+    },
     "./provision": {
       "types": "./dist/provision.d.ts",
       "import": "./dist/provision.js",
@@ -109,6 +115,12 @@
       "import": "./dist/source-scanner.js",
       "require": "./dist/source-scanner.js",
       "default": "./dist/source-scanner.js"
+    },
+    "./standard-schema": {
+      "types": "./dist/standard-schema.d.ts",
+      "import": "./dist/standard-schema.js",
+      "require": "./dist/standard-schema.js",
+      "default": "./dist/standard-schema.js"
     },
     "./vite-stage": {
       "types": "./dist/vite-stage.d.ts",
@@ -158,6 +170,12 @@
       "require": "./dist/runtime/random.js",
       "default": "./dist/runtime/random.js"
     },
+    "./runtime/cache-bypass": {
+      "types": "./dist/runtime/cache-bypass.d.ts",
+      "import": "./dist/runtime/cache-bypass.js",
+      "require": "./dist/runtime/cache-bypass.js",
+      "default": "./dist/runtime/cache-bypass.js"
+    },
     "./secret": {
       "types": "./dist/secret.d.ts",
       "import": "./dist/secret.js",
@@ -169,6 +187,12 @@
       "import": "./dist/runtime/time-zone.js",
       "require": "./dist/runtime/time-zone.js",
       "default": "./dist/runtime/time-zone.js"
+    },
+    "./build/nitro-cache-bypass": {
+      "types": "./dist/build/nitro-cache-bypass.d.ts",
+      "import": "./dist/build/nitro-cache-bypass.js",
+      "require": "./dist/build/nitro-cache-bypass.js",
+      "default": "./dist/build/nitro-cache-bypass.js"
     },
     "./build/cloudflare": {
       "types": "./dist/build/cloudflare.d.ts",
@@ -236,12 +260,6 @@
       "require": "./dist/build/vercel-config.js",
       "default": "./dist/build/vercel-config.js"
     },
-    "./build/vercel-runtime-package-copy": {
-      "types": "./dist/build/vercel-runtime-package-copy.d.ts",
-      "import": "./dist/build/vercel-runtime-package-copy.js",
-      "require": "./dist/build/vercel-runtime-package-copy.js",
-      "default": "./dist/build/vercel-runtime-package-copy.js"
-    },
     "./build/vercel-runtime-packages": {
       "types": "./dist/build/vercel-runtime-packages.d.ts",
       "import": "./dist/build/vercel-runtime-packages.js",
@@ -287,14 +305,14 @@
   "dependencies": {
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
-    "effect": "catalog:effect",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "semver": "^7.8.5"
   },
   "devDependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
     "exsolve": "catalog:unjs",

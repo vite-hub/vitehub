@@ -2,7 +2,7 @@ import type { ForgeProvider, RepoRef, Webhook, WebhookInput } from "forges"
 import type { PullRequestOptions } from "../channels.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { CodeHostResponseError, codeHostErrorStatus, codeHostProvider } from "./code-host.ts"
+import { ForgeResponseError, forgeErrorStatus, forgeProvider } from "@vite-hub/forge"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 interface CodeHostChannelSyncOptions {
@@ -139,7 +139,7 @@ function gitlabHookFetch(fetchImpl: typeof fetch, enabled: readonly string[]): t
     const request = new Request(input, init)
     if (request.method !== "POST" && request.method !== "PUT") return await fetchImpl(input, init)
     const body: unknown = await request.json()
-    if (!isRuntimeRecord(body)) throw new CodeHostResponseError("Invalid Code Host webhook request body.")
+    if (!isRuntimeRecord(body)) throw new ForgeResponseError("Invalid Code Host webhook request body.")
     const flags = Object.fromEntries(["push_events", ...enabled].map(event => [event, false]))
     return await fetchImpl(new Request(request, { method: request.method, body: JSON.stringify({ ...flags, ...body }) }))
   }
@@ -148,10 +148,10 @@ function gitlabHookFetch(fetchImpl: typeof fetch, enabled: readonly string[]): t
 export function createCodeHostChannelSyncProvider(options: CodeHostChannelSyncOptions): AgentChannelSyncProvider {
   const repositories = repositoryNames(options)
   if (repositories && !options.token) {
-    throw agentDiagnostics.AGENT_R0992({ message: `Code Host webhook sync requires token or ${options.host.toUpperCase()}_TOKEN.` })
+    throw agentDiagnostics.AGENT_R0992({ message: `Code Host webhook sync requires token or VITEHUB_${options.host.toUpperCase()}_TOKEN.` })
   }
   if (repositories && !options.webhookSecret) {
-    throw agentDiagnostics.AGENT_R0993({ message: `Code Host webhook sync requires webhookSecret or ${options.host.toUpperCase()}_WEBHOOK_SECRET.` })
+    throw agentDiagnostics.AGENT_R0993({ message: `Code Host webhook sync requires webhookSecret or VITEHUB_${options.host.toUpperCase()}_WEBHOOK_SECRET.` })
   }
   let instance: string | undefined
   if (repositories) {
@@ -169,7 +169,7 @@ export function createCodeHostChannelSyncProvider(options: CodeHostChannelSyncOp
   const expectedSubscriptions = options.host === "forgejo" ? canonicalForgejoEvents(subscriptions) : subscriptions
   const operations = new WeakMap<AgentChannelSyncPlan, SyncOperation>()
   async function provider(fetchImpl: typeof fetch) {
-    const value = await codeHostProvider({ host: options.host, baseUrl: options.baseUrl, token: options.token, fetch: fetchImpl })
+    const value = await forgeProvider({ forge: options.host, baseUrl: options.baseUrl, token: options.token, fetch: fetchImpl })
     for (const verb of ["webhooks.list", "webhooks.create", "webhooks.update"] as const) {
       if (!value.can(verb)) throw agentDiagnostics.AGENT_R0994({ message: `Code Host cannot manage hooks with ${verb}.` })
     }
@@ -178,7 +178,7 @@ export function createCodeHostChannelSyncProvider(options: CodeHostChannelSyncOp
   async function request<T>(run: () => Promise<T>): Promise<T> {
     try { return await run() }
     catch (error) {
-      const status = codeHostErrorStatus(error)
+      const status = forgeErrorStatus(error)
       const message = redact(error instanceof Error ? error.message : "Unknown request error.", options).replace(/\bforges?\b/gi, "Code Host")
       throw agentDiagnostics.AGENT_R0996({ message: `Code Host webhook sync failed${status ? ` with HTTP ${status}` : ""}: ${message}` })
     }
@@ -199,7 +199,7 @@ export function createCodeHostChannelSyncProvider(options: CodeHostChannelSyncOp
         for (const repository of repositories) {
           const hook = await matchingHook(client, repository, desiredUrl)
           if (hook && !hook.active && options.host === "gitlab") {
-            throw new CodeHostResponseError("GitLab webhook is auto-disabled. Re-enable it with a successful test request in GitLab, then run sync again.")
+            throw new ForgeResponseError("GitLab webhook is auto-disabled. Re-enable it with a successful test request in GitLab, then run sync again.")
           }
           const reasons = !hook ? ["create webhook"] : [
             ...(!same(hook.nativeEvents, expectedSubscriptions) ? ["update events"] : []),
@@ -247,7 +247,7 @@ export function createCodeHostChannelSyncProvider(options: CodeHostChannelSyncOp
         for (const change of operation.changes) {
           const hook = await matchingHook(client, change.repository, operation.url)
           if (!hook || !hook.active || (options.host === "forgejo" && hook.contentType !== "json") || !same(hook.nativeEvents, expectedSubscriptions)) {
-            throw new CodeHostResponseError("Code Host did not return the desired webhook events, content type, and active state.")
+            throw new ForgeResponseError("Code Host did not return the desired webhook events, content type, and active state.")
           }
           results.push({ repository: redact(change.repository, options), hook: state(hook, options) })
         }

@@ -13,7 +13,7 @@ export function createDefinitionRuntime<TSchema extends Record<string, unknown>>
 ): RuntimeDrizzleDatabase<TSchema> {
   return createDrizzleSqliteAdapter(runtimeConfig(definition, defaults), definition.schema, {
     libsql: { createClient, drizzle: drizzleLibsql as never },
-    missingConnectionMessage: config => `[vitehub] Database "${config.name}" requires a Cloudflare D1 binding or database connection URL.`,
+    missingConnection: "a Cloudflare D1 binding or `connection.url`",
     requireRemoteUrl: false,
     resolveLocalUrl: resolveLocalSqliteUrl,
   })

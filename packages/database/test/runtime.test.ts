@@ -10,7 +10,6 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { getActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { build } from "esbuild"
 
-import { createDbCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import { defaultDatabaseNotConfiguredError } from "../src/runtime/agent.ts"
 
 const defaultSchema = {
@@ -36,8 +35,8 @@ const execFileAsync = promisify(execFile)
 
 it("identifies a missing generated default database", () => {
   expect(defaultDatabaseNotConfiguredError()).toMatchObject({
-    code: "DATABASE_R0016",
-    message: "[vitehub] Database \"default\" is not configured.",
+    code: "DATABASE_NOT_FOUND",
+    message: "The database \"default\" is not configured.",
   })
 })
 
@@ -183,33 +182,6 @@ afterEach(async () => {
   }
 })
 
-describe("cloudflare worker runtime", () => {
-  it("isolates overlapping request environments", async () => {
-    let arrivals = 0
-    let release!: () => void
-    const bothStarted = new Promise<void>(resolve => {
-      release = resolve
-    })
-    const worker = createDbCloudflareWorker({
-      app: async () => {
-        const before = getActiveCloudflareEnv()?.REQUEST_ID
-        arrivals += 1
-        if (arrivals === 2) release()
-        await bothStarted
-        return Response.json({ after: getActiveCloudflareEnv()?.REQUEST_ID, before })
-      },
-    })
-
-    const [first, second] = await Promise.all([
-      worker.fetch(new Request("https://example.com/first"), { REQUEST_ID: "first" }, { waitUntil: vi.fn() }),
-      worker.fetch(new Request("https://example.com/second"), { REQUEST_ID: "second" }, { waitUntil: vi.fn() }),
-    ])
-
-    await expect(first.json()).resolves.toEqual({ after: "first", before: "first" })
-    await expect(second.json()).resolves.toEqual({ after: "second", before: "second" })
-  })
-})
-
 describe("drizzle runtime", () => {
   it("loads the published drizzle subpath without a Vite virtual module", async () => {
     const script = [
@@ -220,7 +192,7 @@ describe("drizzle runtime", () => {
       "  db.run",
       '}',
       'catch (error) {',
-      '  if (String(error.message).includes("requires `hubDb()`")) process.exit(0)',
+      '  if (error.code === "DATABASE_DISABLED") process.exit(0)',
       "  throw error",
       '}',
       'throw new Error("expected missing database proxy to throw")',
@@ -237,7 +209,7 @@ describe("drizzle runtime", () => {
 
     expect(db).toBe(databases.default.db)
     expect(databases.default.schema).toEqual({})
-    expect(() => databases.default.db.run).toThrow("[vitehub] `@vite-hub/database/drizzle` requires `hubDb()` and `database !== false`.")
+    expect(() => databases.default.db.run).toThrow(expect.objectContaining({ code: "DATABASE_DISABLED" }))
   })
 
   it("keeps db as the default database alias and serves named schemas independently", async () => {
@@ -292,8 +264,8 @@ describe("drizzle runtime", () => {
     await analytics.exec("create table analytics_events (id integer primary key, name text not null)")
     await analytics.exec("insert into analytics_events (id, name) values (1, 'page-view')")
     await expect(analytics.query("select id, name from analytics_events")).resolves.toEqual([{ id: 1, name: "page-view" }])
-    expect(() => agentDb.database("missing")).toThrow('Database "missing" is not configured.')
-    expect(() => agentDb.database("toString")).toThrow('Database "toString" is not configured.')
+    expect(() => agentDb.database("missing")).toThrow('The database "missing" is not configured.')
+    expect(() => agentDb.database("toString")).toThrow('The database "toString" is not configured.')
   })
 
   it("queries configured Cloudflare D1 over HTTP from the generated local runtime", async () => {
@@ -348,7 +320,7 @@ describe("drizzle runtime", () => {
   it("throws when a named database has neither an active binding nor a fallback URL", async () => {
     const { databases } = await import("../src/runtime/drizzle-runtime.ts")
 
-    expect(() => databases.analytics.db.run).toThrow("Database \"analytics\" requires a Cloudflare D1 binding or `db.connection.url`.")
+    expect(() => databases.analytics.db.run).toThrow("The database \"analytics\" has no connection. It needs a Cloudflare D1 binding or `connection.url`.")
   })
 })
 
@@ -435,7 +407,7 @@ describe("database definition runtime", () => {
       schema: analyticsSchema,
     })
 
-    expect(() => db.run).toThrow("Cloudflare D1 database \"analytics\" requires cloudflare.databaseId when cloudflare.http is configured.")
+    expect(() => db.run).toThrow("The database \"analytics\" uses D1 HTTP and needs `cloudflare.databaseId` at runtime.")
   })
 
   it("accepts normalized nested database names", async () => {
@@ -482,7 +454,7 @@ describe("database definition runtime", () => {
     })
     const output = result.outputFiles[0]!.text
 
-    expect(output).toContain("Hosted database")
+    expect(output).toContain("a Cloudflare D1 binding, D1 HTTP configuration, or a remote libSQL URL")
     expect(output).not.toContain("node:fs")
     expect(output).not.toContain("node:path")
   })
@@ -520,7 +492,7 @@ describe("hosted drizzle runtime", () => {
       orm: "drizzle",
     }, defaultSchema)
 
-    expect(() => db.run).toThrow("Hosted DB \"default\" requires an active Cloudflare D1 binding, cloudflare.http with databaseId, or a remote libSQL URL")
+    expect(() => db.run).toThrow("The database \"default\" has no connection. It needs an active Cloudflare D1 binding, `cloudflare.http` with `cloudflare.databaseId`, or a remote libSQL URL")
   })
 
   it("rejects non-libsql remote schemes in hosted mode", async () => {
@@ -539,7 +511,7 @@ describe("hosted drizzle runtime", () => {
       orm: "drizzle",
     }, defaultSchema)
 
-    expect(() => db.run).toThrow("Hosted DB \"default\" requires an active Cloudflare D1 binding, cloudflare.http with databaseId, or a remote libSQL URL")
+    expect(() => db.run).toThrow("The database \"default\" has no connection. It needs an active Cloudflare D1 binding, `cloudflare.http` with `cloudflare.databaseId`, or a remote libSQL URL")
   })
 
   it("uses the active Cloudflare binding when hosted outputs run on Cloudflare", async () => {
@@ -672,13 +644,13 @@ describe("hosted drizzle runtime", () => {
     vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "")
     vi.stubEnv("CLOUDFLARE_API_TOKEN", "")
     const { db } = await createHostedAnalyticsDb()
-    expect(() => db.run).toThrow("Cloudflare D1 database \"analytics\" requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN when cloudflare.http is true.")
+    expect(() => db.run).toThrow("The database \"analytics\" uses D1 HTTP and needs the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` environment variables at runtime.")
   })
 
   it("requires both configured proxy values without falling back to Cloudflare credentials", async () => {
     vi.stubEnv("CLOUDFLARE_API_TOKEN", "cloudflare-token")
     const { db } = await createHostedAnalyticsDb({ authToken: "", url: "https://d1.example.com/raw" })
-    expect(() => db.run).toThrow("requires cloudflare.http.url and cloudflare.http.authToken at runtime")
+    expect(() => db.run).toThrow("needs `cloudflare.http.url` and `cloudflare.http.authToken` at runtime")
   })
 
   it("rejects malformed and failed D1 responses without exposing credentials", async () => {
@@ -696,10 +668,10 @@ describe("hosted drizzle runtime", () => {
     const malformedError = await db.select().from(analyticsSchema.analyticsEvents).then(() => undefined, error => error)
     const deniedError = await db.select().from(analyticsSchema.analyticsEvents).then(() => undefined, error => error)
     expect(malformedError).toMatchObject({
-      cause: { message: "[vitehub] Cloudflare D1 request failed (502)." },
+      cause: { message: "Cloudflare D1 request failed with HTTP 502." },
     })
     expect(deniedError).toMatchObject({
-      cause: { message: "[vitehub] Cloudflare D1 request failed (403): permission denied" },
+      cause: { message: "Cloudflare D1 request failed with HTTP 403: permission denied" },
     })
     expect(JSON.stringify([malformedError, deniedError])).not.toContain("secret-api-token")
   })
@@ -723,8 +695,8 @@ describe("hosted drizzle runtime", () => {
       db.select().from(analyticsSchema.analyticsEvents).where(eq(analyticsSchema.analyticsEvents.id, 1)),
       db.select().from(analyticsSchema.analyticsEvents).where(eq(analyticsSchema.analyticsEvents.id, 2)),
     ])
-    await expect(batch()).rejects.toThrow("Cloudflare D1 query 2 failed (200): second query failed")
-    await expect(batch()).rejects.toThrow("Cloudflare D1 returned an unexpected query result count")
+    await expect(batch()).rejects.toThrow("Cloudflare D1 query 2 failed with HTTP 200: second query failed")
+    await expect(batch()).rejects.toThrow("Cloudflare D1 returned a different number of results than the number of queries.")
   })
 
   it.each([
@@ -756,6 +728,6 @@ describe("hosted drizzle runtime", () => {
 
     const { db } = await createHostedAnalyticsDb()
     const error = await db.select().from(analyticsSchema.analyticsEvents).then(() => undefined, error => error)
-    expect(error).toMatchObject({ cause: { message: "[vitehub] Cloudflare D1 query 1 failed (200)." } })
+    expect(error).toMatchObject({ cause: { message: "Cloudflare D1 query 1 failed with HTTP 200." } })
   })
 })
