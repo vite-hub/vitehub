@@ -79,6 +79,7 @@ describe("@vite-hub/ui package contract", () => {
       katex: "^0.17.0",
       "@iconify-json/ph": "catalog:ui",
       "@nuxt/kit": "4.6.2",
+      "@shikijs/langs": "4.5.0",
       "@types/node": "catalog:tooling",
       "nostics": "catalog:runtime",
       "reka-ui": "catalog:ui",
