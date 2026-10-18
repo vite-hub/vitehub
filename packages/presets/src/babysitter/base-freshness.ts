@@ -95,17 +95,21 @@ export async function baseFixedSinceFailure(reader: BaseFreshnessReader, snapsho
     reader.rest(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/check-runs?per_page=100`,
       ".check_runs[]?.conclusion", signal),
     reader.rest(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/statuses?per_page=100`,
-      ".[]?.state", signal),
+      ".[]? | {context: .context, state: .state}", signal),
   ]);
   const failedSet = new Set([...failed].map(value => value.toLowerCase()));
   const legacyFailures = baseFailures.length ? baseFailures : [await reader.page(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/check-runs?per_page=100`,
     `[.check_runs[] | select(.conclusion as $c | ${JSON.stringify([...failed])} | index($c))] | length`, signal)];
   const legacyStatuses = baseStatuses.length ? baseStatuses : [await reader.page(`repos/${snapshot.repository}/commits/${encodeURIComponent(baseRef)}/statuses?per_page=100`,
     `[.[] | select(.state as $s | ${JSON.stringify([...failed])} | index($s))] | length`, signal)];
+  const latestStatuses = new Map<string, string>();
+  for (const value of legacyStatuses) {
+    if (isRuntimeRecord(value) && hasRuntimeType(value.context, "string") && hasRuntimeType(value.state, "string") && !latestStatuses.has(value.context)) latestStatuses.set(value.context, value.state);
+  }
   return legacyFailures.some(value => hasRuntimeType(value, "string") && failedSet.has(value.toLowerCase()))
-    || legacyStatuses.some(value => hasRuntimeType(value, "string") && failedSet.has(value.toLowerCase()))
-    || legacyFailures.some(value => value !== 0 && value !== undefined)
-    || legacyStatuses.some(value => value !== 0 && value !== undefined)
+    || (latestStatuses.size ? [...latestStatuses.values()].some(value => failedSet.has(value.toLowerCase())) : legacyStatuses.some(value => hasRuntimeType(value, "string") && failedSet.has(value.toLowerCase())))
+    || legacyFailures.some(value => typeof value === "number" && value > 0)
+    || legacyStatuses.some(value => typeof value === "number" && value > 0)
     ? undefined
     : compare.ahead;
 }
