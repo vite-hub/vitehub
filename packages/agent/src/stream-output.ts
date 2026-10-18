@@ -115,9 +115,9 @@ export function isUIMessageStreamResponse(value: unknown): value is Response & {
     const body = bodyDescriptor?.get ? Reflect.apply(bodyDescriptor.get, value, []) : bodyDescriptor && "value" in bodyDescriptor ? bodyDescriptor.value : undefined
     const headers = responseHeadersDescriptor?.get ? Reflect.apply(responseHeadersDescriptor.get, value, []) : responseHeadersDescriptor && "value" in responseHeadersDescriptor ? responseHeadersDescriptor.value : undefined
     const lockedGetter = body && readableStreamDescriptor(body, "locked")?.get
-    const get = headers && headersDescriptor(headers, "get")?.value
-    if (!body || !headers || !lockedGetter || !hasRuntimeType(get, "function")) return false
-    Reflect.apply(lockedGetter, body, [])
+    const get = registered ? Reflect.get(headers as object, "get") : headers && headersDescriptor(headers, "get")?.value
+    if (!body || !headers || (!registered && !lockedGetter) || !hasRuntimeType(get, "function")) return false
+    if (!registered) Reflect.apply(lockedGetter, body, [])
     return Reflect.apply(get, headers, ["x-vercel-ai-ui-message-stream"]) === "v1"
   }
   catch {
@@ -133,6 +133,13 @@ function isPortableUIMessageBody(body: unknown): body is ReadableStream<Uint8Arr
   if (Reflect.apply(lockedGetter, body, [])) return false
   const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
   return !ownReader || ownReader.value === getReader
+}
+
+function isPortableRegisteredUIMessageBody(body: unknown): body is ReadableStream<Uint8Array> {
+  if (!isRuntimeRecord(body)) return false
+  const locked = Reflect.get(body, "locked")
+  const getReader = Reflect.get(body, "getReader")
+  return typeof locked === "boolean" && locked === false && hasRuntimeType(getReader, "function")
 }
 
 function readableStreamDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor | undefined {
@@ -167,10 +174,10 @@ function headersDescriptor(value: unknown, key: PropertyKey): PropertyDescriptor
   }
 }
 
-function bridgeUIMessageBody(body: ReadableStream<Uint8Array>) {
+function bridgeUIMessageBody(body: ReadableStream<Uint8Array>, registered = false) {
   // Use the source realm's native operations, never caller-supplied methods.
   // SAFETY: readableStreamDescriptor only returns the branded ReadableStream prototype's getReader method.
-  const getReader = readableStreamDescriptor(body, "getReader")?.value as () => ReadableStreamDefaultReader<Uint8Array>
+  const getReader = (registered ? Reflect.get(body, "getReader") : readableStreamDescriptor(body, "getReader")?.value) as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
   const readerPrototype = Object.getPrototypeOf(reader)
   // SAFETY: readerPrototype is the native prototype of the reader returned by the branded stream.
@@ -229,7 +236,7 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     const type: unknown = Reflect.get(value, "type")
     if (!hasRuntimeType(type, "string")) return
     const snapshot = { status, statusText, headers, body, type }
-    const markerGetter = headersDescriptor(headers, "get")?.value
+    const markerGetter = registered ? Reflect.get(headers, "get") : headersDescriptor(headers, "get")?.value
     if (!registered && !branded) return
     if (!hasRuntimeType(markerGetter, "function")
       || Reflect.apply(markerGetter, headers, ["x-vercel-ai-ui-message-stream"]) !== "v1") return
@@ -241,7 +248,7 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(intrinsicHeaders.prototype, "getSetCookie")?.value)
     const nativeReader = responsePropertyDescriptor(body, "getReader")?.value === intrinsicReadableStream.prototype.getReader
     if (nativeProperties && nativeHeaders && nativeCookies && nativeReader) return value as Response & { body: ReadableStream<Uint8Array> }
-    if (!isPortableUIMessageBody(body)) return
+    if (!(registered ? isPortableRegisteredUIMessageBody(body) : isPortableUIMessageBody(body))) return
     const forEach = Reflect.get(headers, "forEach")
     if (!hasRuntimeType(forEach, "function")) return
     const getSetCookie = Reflect.get(headers, "getSetCookie")
@@ -255,7 +262,7 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     if (normalizedHeaders.get("x-vercel-ai-ui-message-stream") !== "v1") return
     // Consumption uses a stable local snapshot and the branded stream, never
     // methods supplied by a Response-shaped carrier.
-    const bridgedBody = bridgeUIMessageBody(body)
+    const bridgedBody = bridgeUIMessageBody(body, registered)
     try {
       const response = new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
       return isUIMessageStreamResponse(response) ? response : undefined
