@@ -390,12 +390,8 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true;
   if (Object(body) !== body) return false;
-
   const stream = body as object;
   try {
-    // Response performs the platform ReadableStream brand check without
-    // consulting getReader, read, cancel, releaseLock, or closed properties.
-    // Identity distinguishes a genuine stream from a generic body value.
     if (!hasNativeStreamBrand(stream)) return false;
     if (stream instanceof ReadableStream) {
       const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get;
@@ -547,7 +543,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // validated forEach fallback, so caller-installed cookie methods stay out
     // of the authorization boundary.
     if (!nativeHeaderMethods) return;
-    if (body !== null && !isSerializableAuthorizationBody(body)) return;
+    if (!isSerializableAuthorizationBody(body)) return;
     const forEach = Reflect.get(headerCarrier, "forEach");
     const normalizedHeaders = new Headers();
     const cookieValues: string[] = [];
@@ -568,7 +564,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       // A single forEach value cannot prove whether a comma denotes a second
       // Set-Cookie field or an extension attribute. Fail closed; runtimes that
       // expose separate fields are handled by separate calls.
-      if (/,[\s]*(?=[^;,=\s]+\s*=)/.test(cookie)) return;
+      if (/^[^;]*,[\s]*(?=[^;,=\s]+\s*=)/.test(cookie)) return;
       normalizedHeaders.append("set-cookie", cookie);
     }
     const normalizedResponse =
