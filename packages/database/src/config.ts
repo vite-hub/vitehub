@@ -623,7 +623,11 @@ export function resolveDBViteConfig(
 ): ResolvedDBViteConfig | undefined {
   if (options === false) return
 
-  const definitions = discoverDatabaseDefinitions(rootDir, { definitions: context.contributions?.definitions, serverDirs: context.serverDirs })
+  const definitions = discoverDatabaseDefinitions(rootDir, {
+    definitions: context.contributions?.definitions,
+    implicitDefault: context.implicitDefault,
+    serverDirs: context.serverDirs,
+  })
   if (!definitions.length) return
 
   const databases: Record<string, ResolvedDrizzleDatabaseConfig> = Object.create(null)

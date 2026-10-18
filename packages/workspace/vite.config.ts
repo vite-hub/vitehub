@@ -78,7 +78,7 @@ export default defineConfig({
             // tables import workspaceHistorySchema from this subpath.
             return [
               key,
-              key === "./blob-database" ? { types, import: value, default: value } : { types, import: value },
+              key === "./blob-database" ? { types, import: value, require: value, default: value } : { types, import: value },
             ];
           }),
         ));

@@ -16,6 +16,7 @@ import type { H3Event } from "h3"
 import { createContentCollections } from "./collections.ts"
 import { createContentInstance } from "./content-source.ts"
 import { isDocumentsDefinition } from "./documents.ts"
+import { resolveContentPreset } from "./presets.ts"
 import { createContentPreview } from "./preview.ts"
 import type {
   ContentCollection,
@@ -211,7 +212,9 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
 >(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
-  const { source, sources, workspace, collections, authorize, ...sharedOptions } = options
+  const { source, sources, collections, authorize, ...sharedOptions } = options
+  const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
+  const workspace = options.workspace ?? presetDefaults.workspace
   if (authorize !== undefined && !(authorize instanceof Function)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }

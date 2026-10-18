@@ -1174,6 +1174,7 @@ export interface WorkspaceNitroConfigOptions {
   nitro?: unknown
   /** Vite plugins that can contribute Workspace Definitions through `vitehub.workspaces`. */
   plugins?: readonly unknown[]
+  serverDirs?: string[]
   viteRoot?: string
   workspace?: false | WorkspaceModuleOptions
 }
@@ -1592,8 +1593,8 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   })
   if (!normalized) return null
 
-  const contributions = await collectPluginWorkspaceContributions(options.plugins, roots)
-  const definitions = discoverDefinitions(roots, undefined, contributions)
+  const contributions = await collectPluginWorkspaceContributions(options.plugins, roots, options.serverDirs)
+  const definitions = discoverDefinitions(roots, options.serverDirs, contributions)
   if (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0) return null
 
   const definitionOverrides = new Map<string, ResolvedWorkspaceModuleOptions>()
