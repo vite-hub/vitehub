@@ -25,12 +25,13 @@ export class ConsoleRequestError extends Diagnostic {
   /** JSON details of an owner action failure, such as per-field issues. */
   readonly details?: Record<string, unknown>
 
-  constructor(status: number, message = `Console request failed with status ${status}.`, failure: { code?: string, details?: Record<string, unknown> } = {}) {
-    super({ code: "VITE_HUB_R0110", docs: "https://vitehub.dev/docs/reference/diagnostics", why: message }, ConsoleRequestError)
+  constructor(status: number, fields: { code?: string; docs?: string; fix?: string; message?: string; failureCode?: string; details?: Record<string, unknown> } | string = {}, failure: { code?: string; details?: Record<string, unknown> } = {}) {
+    const body = typeof fields === "string" ? { message: fields, failureCode: failure.code, details: failure.details } : fields
+    super({ code: body.code ?? "VITE_HUB_R0110", docs: body.docs ?? "https://vitehub.dev/docs/reference/diagnostics", fix: body.fix, why: body.message ?? `Console request failed with status ${status}.` }, ConsoleRequestError)
     this.name = "ConsoleRequestError"
     this.status = status
-    if (failure.code !== undefined) this.failureCode = failure.code
-    if (failure.details !== undefined) this.details = failure.details
+    if (body.failureCode !== undefined) this.failureCode = body.failureCode
+    if (body.details !== undefined) this.details = body.details
   }
 }
 
@@ -76,8 +77,16 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
   return { method }
 }
 
+export class ConsoleNetworkError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : "Console network request failed.", { cause })
+    this.name = "ConsoleNetworkError"
+  }
+}
+
 export function isRetryableConsoleRequestError(error: unknown): boolean {
-  return !(error instanceof ConsoleRequestError) || error.status === 408 || error.status === 429 || error.status >= 500
+  if (!(error instanceof ConsoleRequestError)) return error instanceof ConsoleNetworkError
+  return error.status === 408 || error.status === 429 || error.status === 500 || (error.status >= 502 && error.status <= 504)
 }
 
 export async function requestConsole(
@@ -105,25 +114,36 @@ export async function requestConsole(
   if (call.id !== undefined) input.id = call.id
   if (options.body !== undefined) input.body = options.body
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
-  const response = await fetch(consoleRpcCallURL(path), {
+  let response: Response
+  try {
+    response = await fetch(consoleRpcCallURL(path), {
     body: JSON.stringify({ method: call.method, input }),
     cache: "no-store",
     credentials: "same-origin",
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
     signal: options.signal,
-  })
+    })
+  }
+  catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error
+    throw new ConsoleNetworkError(error)
+  }
   const result = record(await response.json().catch(() => undefined))
   if (response.ok && result?.ok === true) return result.value
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const status = typeof result?.status === "number" && result.status >= 400 ? result.status : response.ok ? 502 : response.status
-  const failure: { code?: string, details?: Record<string, unknown> } = {}
+  const failure: { code?: string, docs?: string, fix?: string, message?: string, failureCode?: string, details?: Record<string, unknown> } = {}
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   if (typeof result?.code === "string") failure.code = result.code
+  if (typeof result?.docs === "string") failure.docs = result.docs
+  if (typeof result?.fix === "string") failure.fix = result.fix
+  if (typeof result?.message === "string") failure.message = result.message
   const details = record(result?.details)
   if (details) failure.details = details
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
-  throw new ConsoleRequestError(status, typeof result?.message === "string" ? result.message : undefined, failure)
+  if (typeof result?.failureCode === "string") failure.failureCode = result.failureCode
+  // Owner action responses use failureCode; ordinary diagnostics retain code/docs/fix.
+  throw new ConsoleRequestError(status, failure)
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {

@@ -116,7 +116,7 @@ function errorResult(error: unknown): ConsoleRpcResult {
   // Document actions add a separate stable code and JSON-safe details.
   const actionCode: unknown = Reflect.get(value, "consoleCode")
   const details: unknown = Reflect.get(value, "consoleDetails")
-  if (typeof actionCode === "string" && actionCode) Object.assign(failure, { code: actionCode })
+  if (typeof actionCode === "string" && actionCode) Object.assign(failure, { failureCode: actionCode })
   if (typeof actionCode === "string" && actionCode && details instanceof Object && !Array.isArray(details)) Object.assign(failure, { details })
   return failure
 }

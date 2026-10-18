@@ -432,14 +432,14 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
   }
 
   function normalizeTarget(pathname: string): string {
-    const normalized = context.normalizePathname(pathname)
+    const normalized = driver.canonicalPathname?.(context.normalizePathname(pathname)) ?? context.normalizePathname(pathname)
     if (!normalized || normalized.endsWith("/")) throw invalid("Media pathname must name a file, not a folder.")
     if (isReservedPathname(normalized)) throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob pathname uses a reserved ViteHub namespace." })
     return normalized
   }
 
   function normalizeFolder(path: string): string {
-    const folder = context.normalizePathname(path).replace(/\/+$/, "")
+    const folder = (driver.canonicalPathname?.(context.normalizePathname(path)) ?? context.normalizePathname(path)).replace(/\/+$/, "")
     if (!folder) throw invalid("Media folder must not be the store root.")
     if (isReservedPathname(folder)) throw blobErrorDiagnostics.BLOB_R0033({ message: "Blob folder uses a reserved ViteHub namespace." })
     return folder
