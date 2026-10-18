@@ -1158,6 +1158,13 @@ function isResponseLike(value: unknown): value is Response {
     // through a proxy. Its methods work when read from the instance, even
     // though the proxy target's prototype has no corresponding descriptors.
     if (!lockedAccessor || !streamReader) {
+      // Registered foreign responses may expose a proxy-backed reader, but an
+      // own reader operation is caller-controlled and must not run merely
+      // because the response constructor was registered.
+      if (registeredResponse) {
+        const ownReader = Object.getOwnPropertyDescriptor(body, "getReader")
+        if (ownReader && !ownReader.get) return false
+      }
       const directLocked = (body as { locked?: unknown }).locked
       const directReader = (body as { getReader?: unknown }).getReader
       if (!hasRuntimeType(directReader, "function")) return false
