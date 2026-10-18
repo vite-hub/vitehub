@@ -2,10 +2,12 @@ import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 
 import { normalizeAuthBasePath } from "./shared.ts"
+import { resolveAuthMountPath } from "./application-path.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
+import { unwrapAuthRequest } from "./request.ts"
 
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
@@ -92,10 +94,7 @@ function toRequest(request: AuthRequest): Request {
   return new Request(request.url, init)
 }
 
-function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
-  // SAFETY: AuthRequestInput is a request or an own-property host wrapper; inherited req values must not replace the request.
-  return Object.hasOwn(input, "req") ? (input as { req: AuthRequest }).req : input as AuthRequest
-}
+export { unwrapAuthRequest as toAuthRequest } from "./request.ts"
 
 export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
@@ -147,11 +146,12 @@ export function createAuthForRequest(
 
 export function handleAuthRequest(
   definition: AuthDefinition,
-  request: AuthRequest,
+  input: AuthRequestInput,
   runtimeOptions?: AuthRuntimeOptions,
   event?: unknown,
 ): Promise<Response> {
-  return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+  const request = unwrapAuthRequest(input)
+  return createAuthForRequest(definition, request, runtimeOptions, event ?? input).handler(toRequest(request))
 }
 
 export function createAuthHandler(
@@ -301,28 +301,37 @@ async function runAccessAuthorize(
   context: AuthAccessAuthorizationContext,
 ): Promise<Response | undefined> {
   const result = await authorize(context)
-  if (isResponseLike(result)) return result
+  const response = normalizeResponse(result)
+  if (response) return response
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-function isResponseLike(value: unknown): value is Response {
+function normalizeResponse(value: unknown): Response | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response input is untrusted at the authorization boundary; reject primitives before invoking the native brand-checking getters.
-  if (value === null || typeof value !== "object") return false
+  if (value === null || typeof value !== "object") return
   try {
     // Accessors on the native prototype perform an internal-slot brand check,
     // which accepts genuine cross-realm Responses while rejecting lookalikes.
     const responsePrototype = Response.prototype
-    const status = Object.getOwnPropertyDescriptor(responsePrototype, "status")!.get!.call(value)
-    const statusText = Object.getOwnPropertyDescriptor(responsePrototype, "statusText")!.get!.call(value)
-    const headers = Object.getOwnPropertyDescriptor(responsePrototype, "headers")!.get!.call(value)
-    return Number.isInteger(status) && status >= 0 && status <= 599
+    const get = (name: string) => Object.getOwnPropertyDescriptor(responsePrototype, name)!.get!.call(value)
+    const status = get("status")
+    const statusText = get("statusText")
+    const headers = get("headers")
+    const body = get("body")
+    if (!(Number.isInteger(status) && status >= 0 && status <= 599
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter has checked Response internal slots; validate its status text before returning the Response contract.
       && typeof statusText === "string"
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The native getter has checked Response internal slots; validate its Headers object before returning the Response contract.
-      && headers !== null && typeof headers === "object"
+      && headers !== null && typeof headers === "object")) return
+
+    // Read ordinary properties after validating the internal slots. If a caller
+    // shadows one of them, return a stable local snapshot instead.
+    const exposed = value as { status?: unknown, statusText?: unknown, headers?: unknown, body?: unknown }
+    if (exposed.status === status && exposed.statusText === statusText && exposed.headers === headers && exposed.body === body) return value as Response
+    return new Response(body, { status, statusText, headers })
   }
   catch {
-    return false
+    return
   }
 }
 
@@ -441,7 +450,7 @@ export function createAuthAccessHandler(
     index,
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
-    path: route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route,
+    path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
     recursive: route.route.endsWith("/**"),
   }))
 

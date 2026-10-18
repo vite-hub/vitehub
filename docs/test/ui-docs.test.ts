@@ -168,7 +168,7 @@ describe("UI documentation", () => {
   });
 
   it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
-    const page = readFileSync(resolve(docsRoot, "content/docs/ui/built-for-vue.md"), "utf8");
+    const page = readFileSync(resolve(docsRoot, "content/docs/getting-started/built-for-vue.md"), "utf8");
 
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Why Vue?");
