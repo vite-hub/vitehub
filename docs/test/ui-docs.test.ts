@@ -207,6 +207,6 @@ describe("UI documentation", () => {
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
-    expect(page).toContain("@vite-hub/ui` is ViteHub's Vue component package.");
+    expect(page).toContain("ViteHub UI is the Vue answer for the first ViteHub use case: the Console.");
   });
 });
