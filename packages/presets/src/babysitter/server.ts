@@ -1355,7 +1355,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   await assertLease();
                   await assertRepairBase();
                   // After a failed optional install there is nothing to verify against; hosted CI validates the dependency inputs.
-                  const verifyDependencies = hostInstall() && (installRequired || !await installFailed(providerDirectory));
+                  // A handed-off lockfile defect is the recovery pass that repairs the
+                  // dependency inputs, so the previously failed graph cannot be verified yet.
+                  const verifyDependencies = hostInstall() && !installDefect && (installRequired || !await installFailed(providerDirectory));
                   if (verifyDependencies) await assertGitHubDependenciesCurrent(providerDirectory);
                   const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies });
                   await assertLease();
