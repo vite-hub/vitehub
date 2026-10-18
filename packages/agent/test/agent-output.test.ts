@@ -789,6 +789,78 @@ describe("agent output helpers", () => {
     expect(events).toEqual([{ type: "usage", usageRecord }])
   })
 
+  it("stops at a fatal stream error before reading result promises or fallback text", async () => {
+    let usageReads = 0
+    let textReads = 0
+    let continued = false
+    const output = {
+      fullStream: (async function* () {
+        yield { type: "error", error: "terminal failure" }
+        continued = true
+        yield { type: "finish" }
+      })(),
+      get usage() {
+        usageReads++
+        throw new Error("Rejected final usage")
+      },
+      get textStream() {
+        textReads++
+        return (async function* () { yield "must not be replayed" })()
+      },
+    }
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) events.push(event)
+
+    expect(events).toEqual([{ type: "error", error: "terminal failure" }])
+    expect(continued).toBe(false)
+    expect(usageReads).toBe(0)
+    expect(textReads).toBe(0)
+  })
+
+  it("does not evaluate deferred response metadata while measuring streamed usage", () => {
+    const reads: string[] = []
+    const output = {
+      fullStream: (async function* () {})(),
+      modelId: "model",
+      provider: "test",
+      get response() {
+        reads.push("response")
+        throw new Error("Deferred response")
+      },
+      get providerMetadata() {
+        reads.push("providerMetadata")
+        throw new Error("Deferred provider metadata")
+      },
+    }
+
+    expect(usageRecordFromStreamChunk({ type: "finish", usage: { inputTokens: 1 } }, output)).toEqual({
+      model: "test/model", provider: "test", usage: { inputTokens: 1 },
+    })
+    expect(reads).toEqual([])
+  })
+
+  it.each(["cycle", "fresh", "throws"] as const)("bounds %s proxy traversal while measuring streamed usage", mode => {
+    let prototypeReads = 0
+    const stream = (async function* () {})()
+    let carrier: object
+    const handler: ProxyHandler<object> = {
+      getOwnPropertyDescriptor(target, key) {
+        if (mode === "throws" && key === "response") throw new Error("Descriptor unavailable")
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
+      getPrototypeOf() {
+        prototypeReads++
+        return mode === "fresh" ? new Proxy({}, handler) : carrier
+      },
+    }
+    carrier = new Proxy({ fullStream: stream, modelId: "model", provider: "test" }, handler)
+
+    expect(usageRecordFromStreamChunk({ type: "finish", usage: { inputTokens: 1 } }, carrier)).toEqual({
+      model: "test/model", provider: "test", usage: { inputTokens: 1 },
+    })
+    expect(prototypeReads).toBeLessThanOrEqual(400)
+  })
+
   it("preserves measured usage when fallback text throws", async () => {
     const failure = new Error("text interrupted")
     const usageRecord = { usage: { inputTokens: 7 } }

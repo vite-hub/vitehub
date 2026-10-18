@@ -1,3 +1,5 @@
+import { createDatabaseEnvStore } from "@vite-hub/env/database"
+import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/d1"
 import { Miniflare } from "miniflare"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -47,5 +49,18 @@ describe("Connections store on D1", () => {
     await expect(test.runtime.complete({ code: "code", state: "expired" })).rejects.toMatchObject({ code: "CONNECTION_INVALID" })
     expect(test.provider.calls).toEqual([])
     expect(await store.authorizations.take("expired")).toBeUndefined()
+  })
+
+  it("prunes activity with one D1 DELETE", async () => {
+    const db = drizzle(await worker.getD1Database("DB"))
+    const retained = createDatabaseConnectionStore({ activityRetention: { maxAgeMs: 60_000, maxRecords: 2 }, db, encryptionKey: new Uint8Array(32).fill(3) })
+    const other = createDatabaseEnvStore({ db, encryptionKey: new Uint8Array(32).fill(3), namespace: "default" })
+    const event = (id: string, age = 0) => ({ action: "use" as const, actor: { id: "agent", kind: "agent" as const }, id, key: "connection/gmail", operationId: id, outcome: "succeeded" as const, timestamp: new Date(Date.now() - age).toISOString() })
+    await other.access.append(event("other-old", 120_000))
+    await store.access.append(event("old", 120_000))
+    for (const id of ["one", "two", "three"]) await store.access.append(event(id))
+    await retained.access.append(event("four"))
+    const rows = await db.all<{ id: string, namespace: string }>(sql`SELECT id, namespace FROM vitehub_env_activity ORDER BY sequence`)
+    expect(rows).toEqual([{ id: "other-old", namespace: "default" }, { id: "three", namespace: "connections" }, { id: "four", namespace: "connections" }])
   })
 })

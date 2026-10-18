@@ -7,6 +7,8 @@ import type { CodeHostTarget } from "./internal/code-host-channel.ts"
 import { codeHostChannelFetch, codeHostActivityComments, codeHostDeliveryEffects, codeHostIdentity, codeHostPullRequest, codeHostPullRequestMetadata, codeHostThreadRef, codeHostChannelRequest, codeHostChannelRead, codeHostChannelWrite } from "./internal/code-host-channel.ts"
 import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
+export { channelEnv, channelEnvValue } from "./channel-env.ts"
+export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, readGitHubAppPrivateKey } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
@@ -209,6 +211,7 @@ export interface AgentChannelOptions<
   capabilities?: AgentChannelDefinition<TRuntimeConfig>["capabilities"]
   identity?: AgentChannelDefinition<TRuntimeConfig>["identity"]
   history?: AgentChannelHistory<THistoryItem>
+  instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   message?: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: boolean | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
@@ -1878,6 +1881,16 @@ function githubActivityAnswer(entry: GitHubActivityHistoryEntry): string | undef
   return githubActivityText(entry.summary, 2_000)
 }
 
+/** The live state of the current run, so an older run's answer is never read as current. */
+function githubActivityStatus(activity: AgentActivityUpdate): string | undefined {
+  const summary = activity.summary?.trim()
+  const detail = summary ? githubActivityText(summary, 2_000) : undefined
+  if (activity.status === "queued") return `Queued\n\n${detail || "Waiting for a worker slot."}`
+  if (activity.status === "running") return `In progress\n\n${detail || "The agent is working. Open the current session for live details."}`
+  if (activity.status === "waiting") return `Next step\n\n${detail || "Waiting for new pull request evidence."}`
+  return undefined
+}
+
 /** Saved PR projections and invocation events can describe the same linked session. */
 function githubActivitySessions(state: GitHubActivityCommentState): GitHubActivityCommentState {
   const sessions: GitHubActivityHistoryEntry[] = []
@@ -1899,14 +1912,19 @@ function renderGithubActivity(
   state = githubActivitySessions(state)
   const sections = [encodeGithubActivityState(state)]
   const current = state.current
-  const sessions = [current, ...state.history].filter((entry): entry is GitHubActivityHistoryEntry => !!entry && (entry.links.length > 0 || entry.status !== "queued"))
+  // Earlier runs without a session link have nothing to open; only the current run may show unlinked.
+  const sessions = [current, ...state.history].filter((entry, index): entry is GitHubActivityHistoryEntry =>
+    !!entry && (entry.links.length > 0 || (index === 0 && entry.status !== "queued")))
   const labels: Record<AgentActivityStatus, string> = {
     queued: "Starting", running: "Running", waiting: "Waiting",
     completed: "Completed", failed: "Failed", cancelled: "Cancelled",
   }
+  const status = githubActivityStatus(activity)
   if (activity.status === "queued" && !current?.links.length) {
-    sections.push(activity.summary ? githubActivityText(activity.summary, 2_000) : "Waiting to start.")
-    if (!sessions.length) return sections.join("\n\n")
+    if (!sessions.length) {
+      if (status) sections.push(status)
+      return sections.join("\n\n")
+    }
   }
   sections.push([
     "| Session | Status | Started | Duration |",
@@ -1916,15 +1934,10 @@ function renderGithubActivity(
       return `| ${links || "Pending"} | ${entry !== current && entry.status === "running" ? "Last seen running" : entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry, entry === current)} |`
     }),
   ].join("\n"))
-  let latestAnswer: string | undefined
-  for (const entry of [current, ...state.history]) {
-    if (!entry) continue
-    latestAnswer = githubActivityAnswer(entry)
-    if (latestAnswer !== undefined) break
-  }
-  if (latestAnswer) {
-    sections.push(`Latest answer\n\n${latestAnswer}`)
-  }
+  if (status) sections.push(status)
+  // Earlier answers stay in "Final answers"; only a finished current run has a latest result.
+  const latestAnswer = current && ["completed", "failed", "cancelled"].includes(current.status ?? "") ? githubActivityAnswer(current) : undefined
+  if (latestAnswer) sections.push(`Latest result\n\n${latestAnswer}`)
   if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"))
   if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1_000)}`)
   const answers = [current, ...state.history]
@@ -2703,7 +2716,11 @@ function isResolver(value: unknown): value is { resolve: (context: AgentCallback
   return isRecord(value) && hasRuntimeType(value.resolve, "function")
 }
 
-function ignored(reason: string) {
+/**
+ * Acknowledges a webhook that the Channel does not handle, such as an event type it does not use.
+ * Answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry.
+ */
+export function ignored(reason: string): Response {
   return Response.json({ accepted: false, ok: true, reason })
 }
 
@@ -3159,6 +3176,9 @@ export function defineChannel<
   if (!hasRuntimeType(kind, "string") || !kind.trim()) {
     throw agentDiagnostics.AGENT_R0371({ message: "[vitehub] defineChannel() requires a non-empty Channel kind." })
   }
+  if (options.instructions !== undefined && (!hasRuntimeType(options.instructions, "string") || !options.instructions.trim())) {
+    throw agentDiagnostics.AGENT_R0557({ message: `[vitehub] Channel "${kind}" instructions must be a non-empty string.` })
+  }
   validateChannelMessageDefinition(kind, options.message)
   validateChannelHistoryDefinition(kind, options.history, options.triggers)
   const messages: false | AgentMessageChannelSettings<TRuntimeConfig> =
@@ -3428,6 +3448,8 @@ export interface GmailChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   dryRun?: boolean
   /** `fetch` for Google OAuth, certificates, and the Gmail API. Defaults to the global `fetch`. */
   fetch?: typeof fetch
+  /** Instructions added to Invocations started by this Channel. */
+  instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   /**
    * Labels that the Channel manages. `vitehub channels sync` creates and colors them,
    * and message methods create a missing one on first use.
@@ -3499,6 +3521,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
     await modifyGmailMessage(await resolveClient(context), id, input, labels)
   const channel = defineChannel("gmail", {
     ...(options.capabilities ? { capabilities: options.capabilities } : {}),
+    ...(options.instructions !== undefined ? { instructions: options.instructions } : {}),
     history: {
       collection: gmailHistoryCollection(() => resolveClient(), bodyLimit),
       key: message => message.id,

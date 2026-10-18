@@ -37,7 +37,6 @@ export const console = {
     return {
       invocations: getConsoleInvocationsDatabase(),
       invocationUrl(invocation) {
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Invocation links accept records from external database adapters, so validate both required identities at this boundary.
         if (typeof invocation.agentName !== "string" || typeof invocation.id !== "string") {
           throw viteHubErrorDiagnostics.VITE_HUB_R0074({ message: "[vitehub] Console invocation URLs require an invocation with agentName and id." })
         }

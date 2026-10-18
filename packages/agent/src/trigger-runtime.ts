@@ -494,7 +494,6 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       registration,
     }))
     .filter((entry): entry is { headerValue: string | null, registration: AgentWebhookRegistrationDefinition } =>
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored verifier callbacks require runtime validation at the webhook boundary.
       entry.headerValue !== null || (typeof entry.registration.signature === "object" && entry.registration.signature !== null && "verify" in entry.registration.signature && typeof entry.registration.signature.verify === "function"))
 
   if (!targeted.length) {
@@ -521,7 +520,6 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     if (secretToken === false) {
       return { registration, verified: true }
     }
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Webhook signature verifiers cross the user configuration boundary and require runtime validation.
     if (typeof registration.signature === "object" && registration.signature !== null && "verify" in registration.signature && typeof registration.signature.verify === "function") {
       const rawBody = await readRawBody()
       if (await registration.signature.verify({ context: verificationContext, header: headerValue ?? "", rawBody, request, secret: secretToken || "" })) {
@@ -643,16 +641,35 @@ export async function resolveAgentTriggerInvocation<
       validatedInput = await parseStandardSchema(trigger.input, input, `Agent trigger "${trigger.id}" input`)
     }
   }
-  const invoked = await trigger.invoke(validatedInput)
-  if (isResponse(invoked)) return resolveAgentTriggerInvocationResult(invoked, trigger)
+  const result = await trigger.invoke(validatedInput)
+  if (isResponse(result)) return resolveAgentTriggerInvocationResult(result, trigger)
+  const invokedRun = result.run ? { ...context.run, ...result.run } : context.run
+  const invoked = withWebhookDeliveryRun({
+    ...result,
+    ...(invokedRun ? { run: invokedRun } : {}),
+  }, trigger)
   const annotations = channelHistoryAnnotations(agent, trigger, validatedInput)
+  const inheritedRun = invoked.run && { ...invoked.run }
   const run = annotations
-    ? { ...(invoked.run || context.run || { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...(invoked.run || context.run)?.annotations, ...annotations } }
-    : invoked.run
+    ? { ...(inheritedRun ?? { runId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}` }), annotations: { ...inheritedRun?.annotations, ...annotations } }
+    : inheritedRun
   return resolveAgentTriggerInvocationResult({
     ...invoked,
     ...(run ? { run } : {}),
   }, trigger)
+}
+
+/**
+ * A Channel trigger result with `webhook.deliveryId` runs under that ID. Unset `run.runId` and
+ * `run.channelId` default to the delivery ID and the Channel, so a retried delivery keeps one Invocation.
+ */
+function withWebhookDeliveryRun<CALL_OPTIONS>(
+  invoked: AgentTriggerRunInvokeResult<CALL_OPTIONS>,
+  trigger: Pick<ResolvedAgentTriggerDefinition, "channelId">,
+): AgentTriggerRunInvokeResult<CALL_OPTIONS> {
+  const deliveryId = invoked.webhook?.deliveryId
+  if (!trigger.channelId || !isRuntimeString(deliveryId) || !deliveryId.trim()) return invoked
+  return { ...invoked, run: { channelId: trigger.channelId, ...invoked.run, runId: invoked.run?.runId || deliveryId } }
 }
 
 export function resolveAgentTriggerInvocationResult<

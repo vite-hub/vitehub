@@ -283,7 +283,6 @@ export async function channelRegistration(
   if (registration.path) result.path = registration.path
   if (registration.secretHeader) result.secretHeader = registration.secretHeader
   if (secretToken === false || typeof secretToken === "string") result.secretToken = secretToken
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CLI serialization accepts signature identifiers and omits executable verifier callbacks.
   if (typeof registration.signature === "string") result.signature = registration.signature
   else if (registration.signature && "preset" in registration.signature && registration.signature.preset === "hmac-sha256") {
     const { encoding, prefix, secretEncoding } = registration.signature
