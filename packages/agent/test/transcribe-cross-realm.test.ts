@@ -56,4 +56,10 @@ describe("Transcribe attachment portability", () => {
     await expect(audioBytes({ data: data as unknown as Uint8Array, mediaType: "audio/ogg", type: "audio" })).resolves.toEqual(new Uint8Array(data.buffer, data.byteOffset, data.byteLength))
   })
 
+  it("uses the intrinsic Uint8Array size for maxBytes", async () => {
+    const data = new Uint8Array([1, 2, 3])
+    Object.defineProperty(data, "byteLength", { value: 0 })
+    await expect(audioBytes({ data, mediaType: "audio/ogg", type: "audio" }, { maxBytes: 2 })).rejects.toThrow("exceeds maxBytes")
+  })
+
 })
