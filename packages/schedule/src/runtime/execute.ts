@@ -5,6 +5,7 @@ import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleErr
 import { isRuntimeScheduleDue } from "./due.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
+import { validateScheduledAt } from "./date.ts"
 
 import type { RuntimeScheduleStore, RuntimeScheduleWake, ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore, ScheduleTargetName } from "../types.ts"
 
@@ -69,25 +70,6 @@ function normalizeRunSource(source: ExecuteScheduleOptions["source"]): NonNullab
 /** Returns the Schedule Run id for one scheduled occurrence, with an optional unique suffix. */
 export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: string, scheduledAt: Date, runIdSuffix?: string): string {
   return `srun_${normalizeRunSource(source)}_${encodeURIComponent(scheduleId)}_${scheduledAt.toISOString()}${runIdSuffix ? `_${runIdSuffix}` : ""}`
-}
-
-function isDate(value: unknown): value is Date {
-  try {
-    if (Object.prototype.toString.call(value) !== "[object Date]") return false
-    return !Number.isNaN(Date.prototype.getTime.call(value as Date))
-  }
-  catch {
-    return false
-  }
-}
-
-function validateScheduledAt(scheduledAt: Date): Date {
-  if (!isDate(scheduledAt)) {
-    throw createScheduleError("SCHEDULE_INVALID_SCHEDULED_AT", {
-      details: invalidScheduleValueDetails("scheduledAt", scheduledAt),
-    })
-  }
-  return new Date(Date.prototype.getTime.call(scheduledAt))
 }
 
 function toRunError(error: unknown): ScheduleRunError {
@@ -213,12 +195,12 @@ async function failRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord
 }
 
 export async function createScheduleRun(options: Omit<ExecuteScheduleOptions, "definition" | "waitUntil">): Promise<ScheduleRunRecord> {
-  const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
   return (await createOrGetRun({ ...options, scheduledAt })).run
 }
 
 export async function executeSchedule(options: ExecuteScheduleOptions): Promise<ScheduleRunRecord> {
-  const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
+  const scheduledAt = validateScheduledAt(options.scheduledAt)
   const { created, run } = await createOrGetRun({ ...options, scheduledAt })
 
   // v1 policy is intentionally fixed: the deterministic run id dedupes repeated
@@ -313,7 +295,7 @@ export async function executeRuntimeSchedule(options: ExecuteRuntimeScheduleOpti
   assertRuntimeExecuteOptionsObject(runtimeOptions)
   assertRuntimeScheduleId(runtimeOptions.id)
   const id = runtimeOptions.id
-  const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt ?? new Date())
+  const scheduledAt = validateScheduledAt(runtimeOptions.scheduledAt)
   const runtimeScheduleStore = runtimeOptions.runtimeScheduleStore
   const scheduleRunStore = runtimeOptions.scheduleRunStore
   const existingRun = await (scheduleRunStore ?? getScheduleRunStore()).getRun(toRunId("runtime", id, scheduledAt))
