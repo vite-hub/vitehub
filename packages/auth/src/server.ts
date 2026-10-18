@@ -406,12 +406,11 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // Async concise methods have the same caller-controlled body but stringify
     // as `async name() { ... }`, so reject them before invocation as well.
     if (/^\s*async\s+[^\s(]+\s*\([^)]*\)\s*\{/.test(source)) return false
-    // Cross-runtime Web API implementations (for example undici) commonly
-    // stringify as concise methods with a full implementation body. Reject
-    // the short, caller-authored method-shaped functions used to spoof an
-    // operation while allowing those substantive implementations through.
-    // Concise methods are caller-authored and can be padded to mimic a
-    // foreign intrinsic. Reject the entire method-shaped source form.
+    // Concise methods are always created by the response author. Unlike
+    // cross-runtime implementations, which expose function declarations or
+    // native source, these methods can be padded with arbitrary executable
+    // code while retaining an intrinsic-looking name.
+    if (/^\s*(?:get\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(source)) return false
     return true
   }
   catch {
