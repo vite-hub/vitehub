@@ -160,10 +160,10 @@ const agent = context.agent as AgentInput & { options: { filter: unknown; concur
     intervalMs: 10_000,
     run: async (reason, run, accepting) => await runtime?.reconcile(reason, run, accepting),
   });
-  // Placement may move every pass into a Sandbox, where the host installer is
-  // deliberately skipped. Do not park the whole host on a Corepack check that
-  // those passes can never use; host installs still validate at dispatch time.
-  const preflight = createBabysitterPreflight(agent.options.placement ? false : agent.options.install ?? true);
+  // Keep the configured installer in host admission checks. A placement lease
+  // can be local (without a Sandbox), so disabling this check for every
+  // configured placement would admit passes that still need host Corepack.
+  const preflight = createBabysitterPreflight(agent.options.install ?? true);
   const buildRevision = typeof __VITEHUB_PRESETS_BUILD_REVISION__ === "undefined" ? presetsBuildRevision(fileURLToPath(new URL("../../", import.meta.url))) : __VITEHUB_PRESETS_BUILD_REVISION__;
   const admission = createBabysitterAdmission({
     invocations: host.invocations,
