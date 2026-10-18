@@ -51,6 +51,15 @@ describe("@vite-hub/source local file sources", () => {
     })
   })
 
+  it("accepts Windows separators in portable glob patterns", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "README.md"), "# Docs\n")
+
+    await expect(glob({ include: "docs\\*.md" }).getKeys({ rootDir: root }))
+      .resolves.toEqual(["docs/README.md"])
+  })
+
   it("loads file, markdown, and glob providers", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })
