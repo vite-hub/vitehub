@@ -4104,7 +4104,7 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
     expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("1,234");
     expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("$0.02 (estimated)");
-    expect(wrapper.text()).not.toContain("Capabilities");
+    expect(wrapper.text()).toContain("Capabilities");
     expect(wrapper.get(".vh-agent-tool-list").text()).toContain("read_file");
     expect(mount(AgentInvocationInspector, { props: { invocation, showCapabilities: true } }).text()).toContain("Capabilities");
   });

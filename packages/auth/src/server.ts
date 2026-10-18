@@ -564,56 +564,57 @@ function bridgeAuthorizationBody(
   body: ReadableStream<Uint8Array>,
   getReader: () => unknown,
 ) {
-  const reader = Reflect.apply(getReader, body, [])
-  let readerPrototype: object | null = Object.getPrototypeOf(Object(reader))
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let initializing: Promise<ReadableStreamDefaultReader<Uint8Array>> | undefined
   let read: ((...args: []) => Promise<{ done: boolean; value: Uint8Array }>) | undefined
   let cancel: ((...args: [unknown?]) => Promise<void>) | undefined
   let releaseLock: (() => void) | undefined
-  const seen = new Set<object>()
-  for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++) {
-    if (seen.has(readerPrototype)) break
-    seen.add(readerPrototype)
-    const readDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "read")
-    const cancelDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")
-    const releaseDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
-    if (!read && typeof readDescriptor?.value === "function") read = readDescriptor.value
-    if (!cancel && typeof cancelDescriptor?.value === "function") cancel = cancelDescriptor.value
-    if (!releaseLock && typeof releaseDescriptor?.value === "function") releaseLock = releaseDescriptor.value
-    if (read && cancel && releaseLock) break
-    readerPrototype = Object.getPrototypeOf(readerPrototype)
-  }
-  if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
   let released = false
+  const acquire = async () => {
+    initializing ??= Promise.resolve().then(() => {
+      const acquired = Reflect.apply(getReader, body, [])
+      if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
+      let prototype: object | null = Object.getPrototypeOf(acquired)
+      const seen = new Set<object>()
+      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+        if (seen.has(prototype)) break
+        seen.add(prototype)
+        const readDescriptor = Object.getOwnPropertyDescriptor(prototype, "read")
+        const cancelDescriptor = Object.getOwnPropertyDescriptor(prototype, "cancel")
+        const releaseDescriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
+        read ??= typeof readDescriptor?.value === "function" ? readDescriptor.value : undefined
+        cancel ??= typeof cancelDescriptor?.value === "function" ? cancelDescriptor.value : undefined
+        releaseLock ??= typeof releaseDescriptor?.value === "function" ? releaseDescriptor.value : undefined
+        if (read && cancel && releaseLock) break
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
+      return acquired as ReadableStreamDefaultReader<Uint8Array>
+    })
+    reader = await initializing
+    return reader
+  }
   const release = () => {
-    if (released) return
+    if (released || !reader || !releaseLock) return
     released = true
     Reflect.apply(releaseLock, reader, [])
   }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, []) as { done: boolean; value?: Uint8Array }
+        const sourceReader = await acquire()
+        const result = await Reflect.apply(read!, sourceReader, [])
         if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
-        if (result.done) {
-          release()
-          controller.close()
-        } else if (!isIntrinsicUint8Array(result.value)) {
-          release()
-          controller.error(new Error("Malformed authorization read result"))
-        } else controller.enqueue(result.value)
-      }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
+        if (result.done) { release(); controller.close() }
+        else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
+        else controller.enqueue(result.value)
+      } catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
       try {
-        await Reflect.apply(cancel, reader, [reason])
-      }
-      finally {
-        release()
-      }
+        const sourceReader = reader ?? await acquire()
+        await Reflect.apply(cancel!, sourceReader, [reason])
+      } finally { release() }
     },
   }, { highWaterMark: 0 })
   return { stream, release }
