@@ -455,6 +455,10 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
         // A name-only constructor is easy to spoof and does not establish a
         // native stream brand. Genuine stream prototypes own this link.
         if (typeof constructor !== "function" || constructor.prototype !== prototype) return
+        // Reject foreign stream implementations before invoking any
+        // caller-controlled reader methods; only the captured host brand is
+        // safe to bridge at this authorization boundary.
+        if (constructor !== ReadableStream) return
         const locked = Object.getOwnPropertyDescriptor(prototype, "locked")
         const nativeShape = locked?.get
           && Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
@@ -749,11 +753,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // reader methods across the boundary. The platform Response constructor
     // performs the source-runtime brand check and creates a host stream whose
     // captured intrinsics can be bridged without executing foreign methods.
-    if (!nativeBodyReader && body !== null) {
-      const converted = new Response(body as BodyInit)
-      body = converted.body
-      nativeBodyReader = nativeStreamGetReader
-    }
     if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
 
     // Reader validation yields to the event loop. Re-read the source
