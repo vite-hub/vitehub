@@ -158,6 +158,45 @@ describe("Console Blob inspection", () => {
     expect(writes).not.toHaveBeenCalled()
   })
 
+  it("hides ViteHub-owned objects unless the request asks for them", async () => {
+    const { list, storage } = memoryBlob({
+      default: [
+        object("_vitehub/console/attachments/a"),
+        object("_vitehub/workspace-history/b"),
+        object("_vitehub/workspace-history/c"),
+        object("first.txt"),
+        object("second.txt"),
+        object("third.txt"),
+      ],
+    })
+    installConsoleBlob("/project", storage)
+
+    const page = await blobHandler(event("?limit=2"))
+    expect(page.blobs.map(blob => blob.pathname)).toEqual(["first.txt", "second.txt"])
+    expect(page).toMatchObject({ cursor: "5", hasMore: true, limit: 2 })
+    expect(list.mock.calls.map(([, options]) => options)).toEqual([
+      { cursor: undefined, limit: 2, prefix: "" },
+      { cursor: "2", limit: 2, prefix: "" },
+      { cursor: "4", limit: 1, prefix: "" },
+    ])
+    await expect(blobHandler(event("?limit=2&cursor=5"))).resolves.toMatchObject({ blobs: [expect.objectContaining({ pathname: "third.txt" })], hasMore: false })
+
+    const all = await blobHandler(event("?limit=2&showVitehub=true"))
+    expect(all.blobs.map(blob => blob.pathname)).toEqual(["_vitehub/console/attachments/a", "_vitehub/workspace-history/b"])
+    expect(all).toMatchObject({ cursor: "2", hasMore: true })
+  })
+
+  it("bounds provider calls when many ViteHub-owned objects come first", async () => {
+    const { list, storage } = memoryBlob({
+      default: [...Array.from({ length: 30 }, (_, index) => object(`_vitehub/workspace-history/${index}`)), object("visible.txt")],
+    })
+    installConsoleBlob("/project", storage)
+
+    const page = await blobHandler(event("?limit=1"))
+    expect(page).toMatchObject({ blobs: [], cursor: "10", hasMore: true })
+    expect(list).toHaveBeenCalledTimes(10)
+  })
+
   it("validates methods, stores, cursors, prefixes, and list limits", async () => {
     const { storage } = memoryBlob({ default: [] })
     installConsoleBlob("/project", storage)

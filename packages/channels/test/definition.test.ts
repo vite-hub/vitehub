@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { defineChannel, defineOutboundChannel } from "../src/index.ts"
+import { defineOutboundChannel } from "../src/index.ts"
 
 const connector = {
   async send() {
@@ -63,14 +63,5 @@ describe("defineOutboundChannel", () => {
     [{ connectors: { fixture: {} } }, "CHANNELS_C0004"],
   ])("distinguishes connector name and implementation diagnostics", (definition, code) => {
     expect(() => defineOutboundChannel(definition as never)).toThrowError(expect.objectContaining({ code }))
-  })
-})
-
-describe("defineChannel", () => {
-  it("remains a deprecated alias of defineOutboundChannel", () => {
-    const definition = { connectors: { fixture: connector } }
-    expect(defineChannel).toBe(defineOutboundChannel)
-    expect(defineChannel(definition)).toBe(definition)
-    expect(() => defineChannel({ connectors: {} } as never)).toThrow("at least one")
   })
 })

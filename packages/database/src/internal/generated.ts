@@ -6,7 +6,7 @@ import { dirname, isAbsolute, join, relative } from "pathe"
 import { renderConfigValueExpression } from "../config-value.ts"
 import { describeDatabaseContribution } from "../contributions.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDatabaseSchema, mergeLoadedSchemas } from "./schema-tables.ts"
+import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./schema-tables.ts"
 
 import type { ResolvedDatabaseContribution } from "../contributions.ts"
 import type { DatabaseTableNameOptions, LoadedDatabaseSchema } from "./schema-tables.ts"
@@ -53,7 +53,7 @@ function createTableExports(parts: SchemaPart[]) {
   let index = 0
   return parts.flatMap(part => part.schema.tableNames.flatMap((tableName) => {
     if (reservedSchemaExports.has(tableName)) {
-      throw databaseErrorDiagnostics.DATABASE_B0009({ message: `[vitehub] ${part.owner} uses the reserved schema key ${JSON.stringify(tableName)}. Rename that table key.` })
+      throw databaseErrorDiagnostics.DATABASE_RESERVED_SCHEMA_KEY({ key: tableName, owner: part.owner })
     }
     const variable = `table_${index++}`
     return [
@@ -84,7 +84,7 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
   const contributions = config.tableContributionsByDatabase[definition.name] ?? []
   await mkdir(dirname(file), { recursive: true })
   const [sources, loadedContributions] = await Promise.all([
-    Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options))),
+    loadDefinitionSchemas(definition, options),
     Promise.all(contributions.map(async contribution => ({
       contribution,
       schema: await loadContributedDatabaseSchema(contribution, file, options),
@@ -92,25 +92,21 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
   ])
   // A failed contribution is intentionally omitted in non-strict mode. Its module cannot be imported by the
   // generated schema, while the fallback warning already explains that its tables are unavailable.
-  // A Database without its primary Definition cannot provide a runtime entry. Drop its layers and contributions
-  // together so generated artifacts and generated types keep the same contract as the Nuxt local runtime.
-  const primaryLoaded = sources[definition.schemaSources.findIndex(source => source.handler === definition.handler)]?.loaded ?? false
-  const activeContributions = primaryLoaded ? loadedContributions.filter(item => item.schema.loaded) : []
-  const loadedSources = primaryLoaded ? sources.filter(source => source.loaded) : []
-  const activeSourceDefinitions = primaryLoaded ? definition.schemaSources.filter((_, index) => sources[index]!.loaded) : []
-  const activeDefinition = { ...definition, schemaSources: activeSourceDefinitions }
-  const sourceVariables = schemaSourceVariables(activeDefinition, "databaseDefinition", "schemaSource_")
+  // A Definition source that cannot load here stays: the host resolves its aliases and Nuxt auto-imports when it
+  // imports the generated schema, and the fallback lists the keys of its literal `schema: { ... }` object.
+  const activeContributions = loadedContributions.filter(item => item.schema.loaded)
+  const sourceVariables = schemaSourceVariables(definition, "databaseDefinition", "schemaSource_")
   const contributed = activeContributions.map(item => item.schema)
   // Each table comes from the layer source that wins its key, so drizzle-kit sees every table once.
   const tableSources = new Map<string, string>()
-  loadedSources.forEach((source, index) => {
+  sources.forEach((source, index) => {
     for (const key of source.keys) tableSources.set(key, `${sourceVariables[index]}.schema`)
   })
   const parts: SchemaPart[] = [
     {
-      expression: loadedSources.length > 1 ? "definitionSchema" : loadedSources.length === 1 ? "databaseDefinition.schema" : "{}",
+      expression: definition.schemaSources.length > 1 ? "definitionSchema" : "databaseDefinition.schema",
       owner: `Database Definition "${definition.handler}"`,
-      schema: mergeLoadedSchemas(loadedSources),
+      schema: mergeLoadedSchemas(sources),
       tableSources,
     },
     ...activeContributions.map((item, index) => ({
@@ -120,10 +116,15 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
     })),
   ]
   assertDistinctLoadedSchemas(definition.name, parts)
-  await writeFile(file, renderGeneratedDrizzleSchema(file, activeDefinition, parts, activeContributions.map(item => item.contribution)), "utf8")
+  await writeFile(file, renderGeneratedDrizzleSchema(file, definition, parts, activeContributions.map(item => item.contribution)), "utf8")
 }
 
 function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
+  if (database.dialect === "postgresql") {
+    const url = renderConfigValueExpression(database.connection?.url)
+    return url ? ["  dbCredentials: {", `    url: ${url},`, "  },"] : []
+  }
+
   const databaseId = renderConfigValueExpression(database.cloudflare?.databaseId)
   if (database.cloudflare?.http && databaseId) {
     return [
@@ -163,7 +164,7 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
     `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
     "",
     "export default {",
-    "  dialect: \"sqlite\",",
+    `  dialect: ${JSON.stringify(database.dialect)},`,
     "  casing: databaseDefinition.drizzle?.casing,",
     ...renderDbCredentials(database),
     `  schema: ${JSON.stringify([config.generatedSchemaFilesByDatabase[database.name]!])},`,
@@ -179,8 +180,8 @@ function renderSchemaType(variables: string[]) {
   return rest.reduce((merged, next) => `Omit<${merged}, keyof ${next}> & ${next}`, first)
 }
 
-function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig, loadedContributions: ReadonlyMap<string, readonly ResolvedDatabaseContribution[]>, activeDefinitions: readonly DiscoveredDatabaseDefinition[] = config.definitions) {
-  const { definitions } = { definitions: activeDefinitions }
+function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig, loadedContributions: ReadonlyMap<string, readonly ResolvedDatabaseContribution[]>) {
+  const { definitions } = config
   const variables = definitions.map((definition, index) => schemaSourceVariables(definition, `database_${index}`, `database_${index}_`))
   const imports = definitions.flatMap((definition, index) => [
     ...definition.schemaSources.map((source, sourceIndex) =>
@@ -197,6 +198,7 @@ function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig
   const schemaDefinitionIndex = Math.max(0, definitions.findIndex(definition => definition.name === "default"))
   const registryEntries = definitions.flatMap((definition, index) => [
     `    ${JSON.stringify(definition.name)}: {`,
+    ...(config.databases[definition.name]?.dialect === "postgresql" ? ["      dialect: \"postgresql\""] : []),
     `      schema: ${schemaType(definition, index)}`,
     "    },",
   ])
@@ -238,26 +240,17 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   const generatedTypesFile = join(config.rootDir, ".vitehub/types/database.d.ts")
   await Promise.all(config.definitions.map(definition => writeGeneratedDrizzleSchema(config, definition, options)))
   const loadedContributions = new Map<string, readonly ResolvedDatabaseContribution[]>()
-  const activeDefinitions = await Promise.all(config.definitions.map(async (definition) => {
-    const sources = await Promise.all(definition.schemaSources.map(source => loadDatabaseSchema(source.handler, options)))
-    const primaryLoaded = sources[definition.schemaSources.findIndex(source => source.handler === definition.handler)]?.loaded ?? false
-    const active = {
-      ...definition,
-      // Keep generated types aligned with the schema artifact and Nuxt runtime: layers
-      // remain available only when the primary Definition can provide a runtime entry.
-      schemaSources: primaryLoaded ? definition.schemaSources.filter((_, index) => sources[index]!.loaded) : [],
-    }
+  await Promise.all(config.definitions.map(async (definition) => {
     const contributions = config.tableContributionsByDatabase[definition.name] ?? []
     const loaded = await Promise.all(contributions.map(async contribution =>
       ({ contribution, schema: await loadContributedDatabaseSchema(contribution, config.generatedSchemaFilesByDatabase[definition.name]!, options) })))
-    loadedContributions.set(definition.name, primaryLoaded ? loaded.filter(item => item.schema.loaded).map(item => item.contribution) : [])
-    return active
+    loadedContributions.set(definition.name, loaded.filter(item => item.schema.loaded).map(item => item.contribution))
   }))
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
   await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config), "utf8")
   await mkdir(dirname(generatedTypesFile), { recursive: true })
-  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config, loadedContributions, activeDefinitions), "utf8")
+  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config, loadedContributions), "utf8")
   await Promise.all(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })
