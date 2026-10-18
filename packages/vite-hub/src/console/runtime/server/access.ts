@@ -202,8 +202,16 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
           ] as const
           hasFactoryBrand = true
           for (const [name, args] of factories) {
-            const factory = Object.getOwnPropertyDescriptor(constructor, name)?.value
+            const factoryDescriptor = Object.getOwnPropertyDescriptor(constructor, name)
+            // Class static methods are defined as non-enumerable properties.
+            // An enumerable factory is an assignment supplied by the callback,
+            // so it cannot establish the implementation's Response brand.
+            const factory = factoryDescriptor?.value
             if (typeof factory !== "function") {
+              hasFactoryBrand = false
+              break
+            }
+            if (isClassConstructor && factoryDescriptor?.enumerable !== false) {
               hasFactoryBrand = false
               break
             }
