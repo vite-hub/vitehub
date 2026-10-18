@@ -412,7 +412,6 @@ function isNativeFunction(value: unknown, localIntrinsic?: unknown, expectedName
     // operation while allowing those substantive implementations through.
     // Concise methods are caller-authored and can be padded to mimic a
     // foreign intrinsic. Reject the entire method-shaped source form.
-    if (/^\s*[^\s(]+\s*\([^)]*\)\s*\{/.test(source)) return false
     return true
   }
   catch {
