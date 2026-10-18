@@ -433,6 +433,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (typeof streamConstructor !== "function") return false
     const freshStream = new streamConstructor()
     const reader = Reflect.apply(getReader, freshStream, [])
+    if (!Reflect.apply(locked, freshStream, [])) return false
     if (Object(reader) !== reader) return false
     const readerObject = reader as object
     const intrinsicReaderMethods = new Map<string, Function>()
@@ -527,10 +528,23 @@ function bridgeAuthorizationBody(
   let read: ((...args: []) => Promise<{ done: boolean; value: Uint8Array }>) | undefined
   let cancel: ((...args: [unknown?]) => Promise<void>) | undefined
   let releaseLock: (() => void) | undefined
+  let locked: (() => boolean) | undefined
   let released = false
   const acquire = async () => {
     initializing ??= Promise.resolve().then(() => {
       const acquired = Reflect.apply(getReader, body, [])
+      if (!locked) {
+        let owner: object | null = Object.getPrototypeOf(body)
+        const seenOwners = new Set<object>()
+        for (let depth = 0; owner && depth < authorizationResponsePrototypeLimit; depth++) {
+          if (seenOwners.has(owner)) break
+          seenOwners.add(owner)
+          const getter = Object.getOwnPropertyDescriptor(owner, "locked")?.get
+          if (typeof getter === "function") { locked = getter as () => boolean; break }
+          owner = Object.getPrototypeOf(owner)
+        }
+      }
+      if (!locked || !Reflect.apply(locked, body, [])) throw new Error("Malformed authorization reader")
       if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
       let prototype: object | null = Object.getPrototypeOf(acquired)
       const seen = new Set<object>()
