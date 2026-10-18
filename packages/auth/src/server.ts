@@ -27,6 +27,19 @@ import type {
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+const intrinsicTypedArrayTagGetter = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Int8Array.prototype), Symbol.toStringTag,
+)?.get
+const intrinsicUint8ArrayConstructor = Uint8Array
+const intrinsicTypedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
+const intrinsicUint8ArraySet = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "set")?.value
+function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
+  if (!intrinsicTypedArrayTagGetter) return false
+  try { return Reflect.apply(intrinsicTypedArrayTagGetter, value, []) === "Uint8Array" }
+  catch { return false }
+}
+
+
 export { resetAuth } from "./runtime-state.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
@@ -415,10 +428,11 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
   if (typeof getReader !== "function") return
   let reader: object
   try { reader = Object(Reflect.apply(getReader, body, [])) } catch { return }
-  let readerPrototype: object | null = Object.getPrototypeOf(reader)
+  let releaseLock: ((this: object) => void) | undefined
   let read: ((this: object) => Promise<unknown>) | undefined
   let cancel: ((this: object, reason?: unknown) => Promise<unknown>) | undefined
-  let releaseLock: ((this: object) => void) | undefined
+  try {
+  let readerPrototype: object | null = Object.getPrototypeOf(reader)
   for (let depth = 0; readerPrototype && depth < authorizationResponsePrototypeLimit; depth++, readerPrototype = Object.getPrototypeOf(readerPrototype)) {
     if (!read) read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as typeof read
     if (!cancel) cancel = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")?.value as typeof cancel
@@ -441,6 +455,10 @@ function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefin
     try { Reflect.apply(releaseLock, reader, []) } catch {}
     return
   }
+  } catch {
+    try { if (typeof releaseLock === "function") Reflect.apply(releaseLock, reader, []) } catch {}
+    return
+  }
   return { locked, getReader, read, cancel, releaseLock, reader }
 }
 
@@ -452,19 +470,6 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     const intrinsics = streamIntrinsics(candidate)
     if (!intrinsics || !Reflect.apply(intrinsics.locked, candidate, [])) return false
     validatedAuthorizationReaders.set(candidate, intrinsics)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
-  if (!ArrayBuffer.isView(value)) return false
-  try {
-    // Calling a captured typed-array intrinsic performs the cross-realm brand
-    // check without consulting mutable instance properties or toString tags.
-    Uint8Array.prototype.values.call(value as Uint8Array)
     return true
   }
   catch {
@@ -656,6 +661,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     finally {
       if (!bridgeOwned) releaseValidatedAuthorizationReader(Object(body))
     }
+
   }
   catch {
     return undefined
