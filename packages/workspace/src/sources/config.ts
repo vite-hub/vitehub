@@ -335,7 +335,7 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
 function inferredSourceFingerprintOptions(family: WorkspaceSourceFamily, input: WorkspaceSourceInput) {
   if (family === "file" && isPlainRecord(input)) {
     const options: Record<string, unknown> = input
-    if (isWorkspaceBytes(options.content)) {
+    if (hasOwn(options, "content") && isWorkspaceBytes(options.content)) {
       return {
         ...options,
         get content() {
@@ -417,8 +417,8 @@ function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Part
 function inferredFileSourceKey(input: WorkspaceSourceInput): string {
   if (typeof input === "string") return normalizeSafeWorkspacePath(input)
   const options = input as Record<string, unknown>
-  if (typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
-  if (typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
+  if (hasOwn(options, "workspacePath") && typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
+  if (hasOwn(options, "path") && typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
   throw workspaceErrorDiagnostics.WORKSPACE_C0006({ message: "[vitehub] file requires a path or workspacePath." })
 }
 

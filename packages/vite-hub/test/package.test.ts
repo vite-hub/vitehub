@@ -83,7 +83,13 @@ describe("Console Auth package exports", () => {
 
 const forwarderExportLine = /^export (?:type )?(?:\*|\{[^}]+\}) from "([^"]+)"$/;
 
-const consolidatedOwnerExports = new Set(["@vite-hub/blob/ensure", "@vite-hub/workspace/ai"]);
+// `vite-hub/source` also forwards `table()` from `@vite-hub/source/drizzle`. The owner root
+// cannot export it because `table()` needs the optional `drizzle-orm` peer.
+const consolidatedOwnerExports = new Set([
+  "@vite-hub/blob/ensure",
+  "@vite-hub/source/drizzle",
+  "@vite-hub/workspace/ai",
+]);
 
 const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/ai-sdk",
@@ -99,7 +105,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/server/workspace",
   "@vite-hub/blob/config",
   "@vite-hub/blob/errors",
-  "@vite-hub/box/ssh",
+  "@vite-hub/sandbox/ssh",
   "@vite-hub/database/config",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
@@ -112,17 +118,15 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/agent/runtime/invocations-dev",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
-  "@vite-hub/blob/runtime/cloudflare-vite",
   "@vite-hub/blob/runtime/dev",
   "@vite-hub/blob/runtime/state",
-  "@vite-hub/blob/runtime/vercel-vite",
   "@vite-hub/database/runtime/agent",
   "@vite-hub/database/runtime/cloudflare-env",
-  "@vite-hub/database/runtime/cloudflare-vite",
   "@vite-hub/database/runtime/d1",
+  "@vite-hub/database/runtime/default-database",
   "@vite-hub/database/runtime/hosted",
+  "@vite-hub/database/runtime/postgres",
   "@vite-hub/database/runtime/state",
-  "@vite-hub/database/runtime/vercel-vite",
   "@vite-hub/database/runtime/virtual-databases",
   "@vite-hub/database/runtime/virtual-schema",
   "@vite-hub/email/runtime/console",
@@ -132,10 +136,9 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
   "@vite-hub/rate-limit/runtime/console",
-  "@vite-hub/sandbox/runtime/empty-registry",
-  "@vite-hub/sandbox/runtime/provider-loader",
-  "@vite-hub/sandbox/runtime/state",
-  "@vite-hub/schedule/runtime/console",
+  "@vite-hub/sandbox-task/runtime/empty-registry",
+  "@vite-hub/sandbox-task/runtime/provider-loader",
+  "@vite-hub/sandbox-task/runtime/state",
   "@vite-hub/schedule/runtime/dev",
   "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
@@ -258,6 +261,7 @@ describe("framework package contract", () => {
         .sort(),
     ).toEqual([
       ".",
+      "./_internal/agent/invocations",
       "./_internal/database/runtime/state",
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
@@ -275,19 +279,18 @@ describe("framework package contract", () => {
       "./console/kv",
       "./console/sections",
       "./console/server",
-      "./database/drizzle",
       "./doctor",
       "./nuxt",
-      "./runtime/h3",
-      "./source",
-      "./source/server",
       "./source/vite",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {
       const ownerSpecifier = ownerSpecifierForDistributionSubpath(subpath);
       const ownerPackage = ownerSpecifier.split("/").slice(0, 2).join("/");
-      expect([...new Set(targets)], subpath).toEqual([ownerSpecifier]);
+      const ownTargets = [...new Set(targets)].filter(
+        (target) => !(consolidatedOwnerExports.has(target) && target.startsWith(`${ownerSpecifier}/`)),
+      );
+      expect(ownTargets, subpath).toEqual([ownerSpecifier]);
       expect(manifest.dependencies[ownerPackage], subpath).toBeDefined();
     }
   });
@@ -484,6 +487,10 @@ describe("framework package contract", () => {
       `${packageRoot}/dist/console/runtime/components/console-session-code-preview.vue`,
       "utf8",
     );
+    const workspaceHistory = readFileSync(
+      `${packageRoot}/dist/console/runtime/components/console-workspace-history.vue`,
+      "utf8",
+    );
     expect(sessionInspector).toContain("Workspace unavailable");
     expect(sessionInspector).toContain(':show-status="false"');
     expect(sessionInspector).toContain(':show-timeline="false"');
@@ -500,6 +507,7 @@ describe("framework package contract", () => {
       /const loadedWorkspace = parseWorkspaceDescriptor\([\s\S]*?if \(workspaceRequest !== controller\) return;[\s\S]*?workspace\.value = loadedWorkspace;/,
     );
     expect(sessionInspector).toContain("<template #identityActions>");
+    expect(workspaceHistory).toContain("Workspace history");
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
@@ -649,7 +657,8 @@ describe("framework package contract", () => {
     expect(consoleKVRoute).toContain(`navigateTo("/_vitehub")`);
     expect(consoleKVRoute).not.toContain("navigateTo(`${appBaseURL}/_vitehub`)");
     expect(consoleKVRoute).toContain(`v-if="available"`);
-    expect(consoleKVRoute).toContain("Try again");
+    expect(consoleKVRoute).toContain('<ConsoleState :error="loadError"');
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-state.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true);
     const consoleKV = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-kv.vue`,
@@ -657,7 +666,7 @@ describe("framework package contract", () => {
     );
     expect(consoleKV).toContain("loadedStore.value === store");
     expect(existsSync(`${packageRoot}/dist/console/runtime/pages/section.vue`)).toBe(true);
-    for (const page of ["workflows", "queues", "rate-limits", "schedules", "sandboxes", "workspaces"]) {
+    for (const page of ["workflows", "queues", "rate-limits", "schedules", "sandbox-tasks", "workspaces"]) {
       expect(existsSync(`${packageRoot}/dist/console/runtime/pages/${page}.vue`)).toBe(false);
     }
     expect(
@@ -780,7 +789,7 @@ describe("framework package contract", () => {
       const plugin = framework
         .vitehub({
           agent: true,
-          console: { exposure: "host-managed", authorize: hostManagedAuthorize },
+          console: { auth: false, authorize: hostManagedAuthorize },
           kv: true,
           preset: "node",
           queue: true,

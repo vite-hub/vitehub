@@ -6,15 +6,29 @@ import { parseCollectionSchema } from "./schema.ts"
 import type { CollectionCursorValue } from "./collection.ts"
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
+/** Why a Collection rejected a cursor: it cannot be decoded, or it belongs to other data or another query. */
+export type CollectionCursorErrorReason = "malformed" | "stale"
+
+export interface CollectionCursorErrorOptions extends ErrorOptions {
+  reason?: CollectionCursorErrorReason
+}
+
+/** A Collection cursor was rejected. Routes answer `400` for `malformed` and `409` for `stale`. */
 export class CollectionCursorError extends Diagnostic {
-  constructor(message = "[vitehub] Collection cursor is malformed.", options?: ErrorOptions) {
+  readonly reason: CollectionCursorErrorReason
+
+  constructor(message?: string, options?: CollectionCursorErrorOptions) {
+    const reason = options?.reason ?? "malformed"
     super({
       cause: options?.cause,
-      code: "SOURCE_R0023",
+      code: reason === "stale" ? "SOURCE_R0027" : "SOURCE_R0023",
       docs: "https://vitehub.dev/docs/reference/diagnostics",
-      why: message,
+      why: message ?? (reason === "stale"
+        ? "[vitehub] Collection cursor is stale. Its data or query changed; reload from the first page."
+        : "[vitehub] Collection cursor is malformed."),
     }, CollectionCursorError)
     this.name = "CollectionCursorError"
+    this.reason = reason
   }
 }
 

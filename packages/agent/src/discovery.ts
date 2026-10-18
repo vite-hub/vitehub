@@ -12,6 +12,7 @@ import {
 
 import type { DiscoveredAgentDefinition } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { hasAgentModuleTrait } from "./internal/agent-module-traits.ts"
 
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const folderAgentPattern = /^agent\.(?:c|m)?[jt]s$/i
@@ -307,17 +308,14 @@ function relativeExportBindings(clause: string[]): [string, string][] {
   return bindings
 }
 
-/** Presets whose Agents need a long-running process host. */
-const processHostPresetModules = new Set(["@vite-hub/agent/presets/babysitter", "vite-hub/agent/presets/babysitter"])
-
-/** Whether an Agent module statically imports a preset that needs a process host. */
-export function usesProcessHostPreset(source: string): boolean {
+/** Whether an Agent module statically imports a package subpath that declares the `processHost` trait. */
+export function usesProcessHostPreset(source: string, file: string): boolean {
   const { tokens } = tokenizeAgentSource(source)
   for (let index = 0; index < tokens.length; index++) {
     if (tokens[index] !== "import" || tokens[index + 1] === "(") continue
     for (let next = index + 1; next < tokens.length && tokens[next] !== ";" && tokens[next] !== "import"; next++) {
       if (!/^['"`]/.test(tokens[next] ?? "")) continue
-      if (processHostPresetModules.has(moduleSpecifier(tokens[next]))) return true
+      if (hasAgentModuleTrait(moduleSpecifier(tokens[next]), file, "processHost")) return true
       break
     }
   }
@@ -326,7 +324,7 @@ export function usesProcessHostPreset(source: string): boolean {
 
 /** Discovered Agents whose definitions use a process host preset, by discovered name. */
 export function discoverProcessHostAgentNames(definitions: readonly DiscoveredAgentDefinition[]): string[] {
-  return definitions.filter(definition => usesProcessHostPreset(readFileSync(definition.handler, "utf8"))).map(definition => definition.name).sort()
+  return definitions.filter(definition => usesProcessHostPreset(readFileSync(definition.handler, "utf8"), definition.handler)).map(definition => definition.name).sort()
 }
 
 function isWorkspaceAgentDefinition(source: string, file: string): boolean {
@@ -460,7 +458,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
                 }
               }
               // Process host presets own no Workspace, so they are known, inspectable parents.
-              if (processHostPresetModules.has(moduleName)) for (const binding of tokens.slice(i + 1, j)) imported.delete(binding)
+              if (hasAgentModuleTrait(moduleName, file, "processHost")) for (const binding of tokens.slice(i + 1, j)) imported.delete(binding)
               i = j; break
             }
             continue

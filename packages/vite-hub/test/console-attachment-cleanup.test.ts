@@ -2,14 +2,14 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
-import { consoleAttachmentPrefix, isConsoleAttachmentPendingCleanup, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "../src/console/runtime/server/attachment-cleanup.ts"
+import { consoleAttachmentCleanupPrefix, consoleAttachmentPrefix, consoleAttachmentQuarantinePrefix, isConsoleAttachmentPendingCleanup, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "../src/console/runtime/server/attachment-cleanup.ts"
 import type { BlobObject, BlobStorage } from "@vite-hub/blob"
 
 const dirs: string[] = []
 afterEach(async () => {
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
-const cleanupPrefix = "vitehub-console-attachment-cleanup/"
+const cleanupPrefix = consoleAttachmentCleanupPrefix
 const path = () => `${consoleAttachmentPrefix}${crypto.randomUUID()}`
 const marker = (path: string) => path.replace(consoleAttachmentPrefix, cleanupPrefix)
 
@@ -98,6 +98,27 @@ it("bounds each pass and ignores malformed cleanup identifiers", async () => {
   expect((await storage.list())[1]?.blobs).toHaveLength(3)
   await retryConsoleAttachmentCleanup(storage)
   expect((await storage.list())[1]?.blobs.map(blob => blob.pathname)).toEqual([malformed])
+})
+
+it("shares the retry bound across current and legacy cleanup prefixes", async () => {
+  const { storage } = await fixture()
+  for (let i = 0; i < 100; i++) {
+    await storage.put(`${cleanupPrefix}${crypto.randomUUID()}`, "pending")
+    await storage.put(`vitehub-console-attachment-cleanup/${crypto.randomUUID()}`, "pending")
+  }
+  await retryConsoleAttachmentCleanup(storage)
+  const current = (await storage.list({ prefix: cleanupPrefix }))[1]!.blobs
+  const legacy = (await storage.list({ prefix: "vitehub-console-attachment-cleanup/" }))[1]!.blobs
+  expect(current.length + legacy.length).toBe(100)
+})
+
+it("does not starve legacy cleanup when the current queue is full", async () => {
+  const { storage } = await fixture()
+  for (let i = 0; i < 100; i++) await storage.put(`${cleanupPrefix}${crypto.randomUUID()}`, "pending")
+  const legacy = `vitehub-console-attachment-cleanup/${crypto.randomUUID()}`
+  await storage.put(legacy, "pending")
+  await retryConsoleAttachmentCleanup(storage)
+  expect((await storage.list({ prefix: "vitehub-console-attachment-cleanup/" }))[1]!.blobs).toEqual([])
 })
 
 it("recovers the entire batch when rollback stops during its first deletion", async () => {
@@ -195,7 +216,7 @@ it.each(["{", "{}", "[]", '["not-an-id"]'])("rejects reuse when a batch record i
   await expect(retryConsoleAttachmentCleanup(storage)).resolves.toBeUndefined()
   await expect(retryConsoleAttachmentCleanup(storage)).resolves.toBeUndefined()
   expect((await storage.list({ prefix: cleanupPrefix }))[1]?.blobs).toEqual([])
-  const quarantined = (await storage.list({ prefix: "vitehub-console-attachment-quarantine/" }))[1]!.blobs[0]!
+  const quarantined = (await storage.list({ prefix: consoleAttachmentQuarantinePrefix }))[1]!.blobs[0]!
   expect(await (await storage.get(quarantined.pathname))[1]!.text()).toBe(body)
   await expect(isConsoleAttachmentPendingCleanup(storage, abandoned.slice(consoleAttachmentPrefix.length))).rejects.toThrow("quarantined")
   expect((await storage.list())[1]?.blobs).toHaveLength(2)
@@ -221,4 +242,9 @@ it("rejects reuse when another request quarantines a record during the ownership
       return storage.list(options)
     },
   }, crypto.randomUUID())).rejects.toThrow("quarantined")
+})
+
+it("keeps every attachment record under the ViteHub-owned Blob prefix", () => {
+  expect([consoleAttachmentPrefix, consoleAttachmentCleanupPrefix, consoleAttachmentQuarantinePrefix])
+    .toEqual(["_vitehub/console/attachments/", "_vitehub/console/cleanup/", "_vitehub/console/quarantine/"])
 })

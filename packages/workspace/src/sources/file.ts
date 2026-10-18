@@ -15,7 +15,8 @@ export function file<const TKey extends string>(input: TKey): WorkspaceSource
 export function file<const TKey extends string = string, const TOptions extends FileSourceOptions<TKey> = FileSourceOptions<TKey>>(input: ExactOptions<TOptions, FileSourceOptions<TKey>>): WorkspaceSource
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): WorkspaceSource {
   const options = (typeof input === "string" ? { path: input } : input) as FileSourceOptions<TKey>
-  const key = normalizeSafeWorkspacePath(options.workspacePath || options.path || "")
+  const workspacePath = ownSourceOption(options, "workspacePath") || ownSourceOption(options, "path") || ""
+  const key = normalizeSafeWorkspacePath(workspacePath)
   const declaredMount = ownSourceOption(options, "mount")
   const mount = typeof declaredMount === "object" && declaredMount && !Object.hasOwn(declaredMount, "path")
     ? { ...declaredMount, path: "" }

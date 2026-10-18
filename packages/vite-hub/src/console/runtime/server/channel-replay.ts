@@ -2,8 +2,8 @@ import { handleChannelReplayRequest } from "@vite-hub/agent/server/internal"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 
 import { console } from "../../server.ts"
-import { getConsoleAgentDefinition } from "./agents.ts"
-import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
+import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { consoleRequestJSON, consoleRequestURL, setConsoleResponseHeaders } from "./request.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -34,7 +34,7 @@ function memo() {
  * Replays Channel history for `vitehub channels replay --url`.
  * The default export checks Console access first. This handler also needs Console invocation to be enabled.
  */
-async function channelReplayHandler(event: ConsoleRequestEvent): Promise<Response> {
+async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<Response> {
   setConsoleResponseHeaders(event)
   const method = event.method ?? event.req?.method ?? event.node?.req?.method
   if (method !== "POST") return replayError("Method not allowed.", 405)
@@ -53,31 +53,31 @@ async function channelReplayHandler(event: ConsoleRequestEvent): Promise<Respons
     }
     return replayError("Malformed Channel replay payload.", 400)
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Request JSON is untyped until this boundary validates its object shape.
   if (!body || typeof body !== "object" || Array.isArray(body) || !("agent" in body)) {
     return replayError("Channel replay requires an Agent name.", 400)
   }
   // SAFETY: the object guard above establishes a string-keyed JSON object.
   const replayBody = body as Record<string, unknown>
   const agentName = replayBody.agent
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The agent field is untyped request JSON until validated here.
   if (typeof agentName !== "string" || !agentName.trim()) return replayError("Channel replay requires an Agent name.", 400)
   const name = agentName
   const { agent: _, ...replay } = replayBody
   const agent = getConsoleAgentDefinition(name)
   if (!agent) return replayError("Channel replay is not available. Enable Console invocation for this Agent.", 404)
+  const actor = consoleAccessActor(access.user)
   const tasks = createRuntimeWaitUntilController({ forward: event.waitUntil })
   const context = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
-    capabilities: { console },
+    ...(actor ? { actor } : {}),
+    capabilities: { ...getConsoleAgentCapabilities(), console },
     memo: memo(),
-    request: new Request(url, { method: "POST" }),
+    request: consoleRequest(event),
     runtime: "unknown" as const,
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
   })
-  return await handleChannelReplayRequest(agent, replay, { maxLimit: maximumReplayItemsPerRequest, runtime: context })
+  return await handleChannelReplayRequest(agent, replay, { actor, maxLimit: maximumReplayItemsPerRequest, runtime: context })
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler)
+const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler, { section: "agents", user: true })
 export default guardedHandler
