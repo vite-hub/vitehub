@@ -393,6 +393,8 @@ async function hasResponsePrototype(value: unknown, localResponsePrototype: obje
   }
 }
 
+const nativeStreamGetReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
+
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
   if (body === null) return true
   if (Object(body) !== body) return false
@@ -406,6 +408,7 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     let locked: (() => boolean) | undefined
     let getReader: ((...args: []) => unknown) | undefined
     let streamConstructor: (new (...args: []) => object) | undefined
+    let readerOwner: object | undefined
     const seen = new Set<object>()
     for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
       if (seen.has(prototype)) return false
@@ -415,11 +418,15 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
         locked = lockedGetter as () => boolean
         getReader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value as ((...args: []) => unknown) | undefined
         streamConstructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value as (new (...args: []) => object) | undefined
+        readerOwner = prototype
         break
       }
       prototype = Object.getPrototypeOf(prototype)
     }
     if (typeof locked !== "function" || typeof getReader !== "function") return false
+    // A local stream must use the captured intrinsic reader. Prototype overrides
+    // can otherwise return a fabricated reader that controls the bridge.
+    if (streamConstructor === ReadableStream && getReader !== nativeStreamGetReader) return false
     if (Reflect.apply(locked, candidate, [])) return false
     // Validate the reader against a fresh stream from the body's realm. A
     // reader method from another Web Streams realm rejects a local stream.
@@ -429,7 +436,25 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
     if (Object(reader) !== reader) return false
     const readerObject = reader as object
     const intrinsicReaderMethods = new Map<string, Function>()
-    let readerPrototype: object | null = Object.getPrototypeOf(readerObject)
+    // If getReader is overridden on a stream subclass, obtain the genuine reader
+    // from the inherited stream implementation and compare method identities.
+    // Methods returned by the override must never authenticate themselves.
+    let inheritedReader: object | undefined
+    let inherited = readerOwner ? Object.getPrototypeOf(readerOwner) : null
+    const inheritedSeen = new Set<object>()
+    while (inherited && inheritedSeen.size < authorizationResponsePrototypeLimit) {
+      if (inheritedSeen.has(inherited)) return false
+      inheritedSeen.add(inherited)
+      const inheritedMethod = Object.getOwnPropertyDescriptor(inherited, "getReader")?.value
+      if (typeof inheritedMethod === "function") {
+        try {
+          const candidate = Reflect.apply(inheritedMethod, new streamConstructor(), [])
+          if (Object(candidate) === candidate) { inheritedReader = candidate as object; break }
+        } catch { /* continue to the next prototype */ }
+      }
+      inherited = Object.getPrototypeOf(inherited)
+    }
+    let readerPrototype: object | null = Object.getPrototypeOf(inheritedReader ?? readerObject)
     const readerSeen = new Set<object>()
     while (readerPrototype && readerSeen.size < authorizationResponsePrototypeLimit) {
       if (readerSeen.has(readerPrototype)) return false
@@ -442,7 +467,9 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
       readerPrototype = Object.getPrototypeOf(readerPrototype)
     }
     for (const name of ["read", "cancel", "releaseLock"]) {
+      const candidateMethod = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(readerObject), name)?.value
       if (typeof Reflect.get(readerObject, name) !== "function" || !intrinsicReaderMethods.has(name)) return false
+      if (inheritedReader && candidateMethod !== intrinsicReaderMethods.get(name)) return false
     }
     // Applying the fresh realm's intrinsic operation performs the reader brand
     // check; a getReader override cannot authenticate a fabricated lookalike.
@@ -479,7 +506,12 @@ const intrinsicTypedArrayTag = Object.getOwnPropertyDescriptor(typedArrayPrototy
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (typeof intrinsicTypedArrayTag !== "function") return false
   try {
-    return Reflect.apply(intrinsicTypedArrayTag, value, []) === "Uint8Array"
+    if (!ArrayBuffer.isView(value) || Reflect.get(value, "BYTES_PER_ELEMENT") !== 1) return false
+    const constructor = Reflect.get(value, "constructor")
+    if (constructor === Uint8Array) return true
+    return typeof constructor === "function"
+      && constructor.name === "Uint8Array"
+      && Reflect.apply(intrinsicTypedArrayTag, value, []) === "Uint8Array"
   }
   catch {
     return false
