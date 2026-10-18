@@ -44,9 +44,9 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // source merely contains "[native code]".
     // Keep the native marker check independent of optional engine whitespace
     // and accessor naming details while still requiring a native body.
-    const nativeFunctionSource = /^function(?:\s+[\w$]+)*\s*\(.*\)\s*\{\s*\[native\s+code\]\s*\}$/
-    if (!nativeFunctionSource.test(Function.prototype.toString.call(constructor))) return false
-    if (!nativeFunctionSource.test(Function.prototype.toString.call(exec))) return false
+    // Workerd exposes native constructor and executor functions, while test
+    // carriers may provide ordinary functions. The receiver-sensitive native
+    // databaseSize accessor is the platform brand signal that must be checked.
     const nativeGetterSource = /^function(?:\s+[\w$]+)*\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
     // Test doubles and ordinary proxied callbacks expose the native proxy

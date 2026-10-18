@@ -6,6 +6,7 @@ type LanguageModule = { default: LanguageRegistration[] };
 // ANSI output is parsed by Shiki's built-in ANSI tokenizer, but it still needs
 // a registered language entry when using the core highlighter with no defaults.
 const ansiLanguage: LanguageRegistration = { name: "ansi", scopeName: "source.ansi", patterns: [] };
+const ansiEscape = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001B\\))/g;
 
 // The languages of shadcn/ui's highlighter. Each one loads the first time it is used. Other languages render as plain text.
 const languages: Record<string, () => Promise<LanguageModule>> = {
@@ -69,7 +70,8 @@ export function useHighlightedCode(code: MaybeRefOrGetter<string>, language: May
       await instance.loadLanguage(lang === "ansi" ? [ansiLanguage] : (await languages[lang]!()).default);
     }
     // Every theme color is a CSS variable; styles.css picks the light or dark one.
-    const { tokens } = instance.codeToTokens(source.replace(/\n$/, ""), {
+    const highlightedSource = lang === "ansi" ? source.replace(ansiEscape, "") : source;
+    const { tokens } = instance.codeToTokens(highlightedSource.replace(/\n$/, ""), {
       defaultColor: false,
       lang,
       themes: { dark: "github-dark-default", light: "github-light-default" },
