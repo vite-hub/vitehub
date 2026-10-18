@@ -134,6 +134,21 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const modelConcurrency = presetOptions.modelConcurrency ?? Number.POSITIVE_INFINITY;
   const providerQuota = createProviderQuota(pullRequestInbox, presetOptions.providerCooldownMs ?? 5 * 60_000);
   const forgeQuota = createForgeQuota(pullRequestInbox);
+  // Owner capacity includes host-only work, while this separate gate limits
+  // the number of providers that may be running at once.
+  let activeModelPasses = 0;
+  const modelSlotWaiters = new Set<() => void>();
+  const acquireModelSlot = async () => {
+    while (activeModelPasses >= await providerQuota.modelLimit(options.concurrency, modelConcurrency)) {
+      await new Promise<void>(resolve => modelSlotWaiters.add(resolve));
+    }
+    activeModelPasses++;
+  };
+  const releaseModelSlot = () => {
+    activeModelPasses = Math.max(0, activeModelPasses - 1);
+    for (const wake of modelSlotWaiters) wake();
+    modelSlotWaiters.clear();
+  };
   const deferWhilePending = baseAgent.deferWhilePending ?? presetOptions.deferWhilePending ?? true;
   const waitPolicy: BabysitterWaitPolicy = {
     ignoreFeedbackAuthors: new Set((baseAgent.ignoreFeedbackAuthors ?? presetOptions.ignoreFeedbackAuthors ?? []).map(author => author.trim().toLowerCase())),
@@ -1580,22 +1595,27 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 // Run metadata and retry backoff can outlive a sibling admission
                 // block. Check each Sandbox dispatch immediately before runAgent.
                 if (workerSettings.sandbox && await parkBlockedModelWork()) throw new DOMException("Provider dispatch is waiting for admission.", "AbortError");
-                modelDispatched = true;
-                return await runAgent(
-                  agent,
-                  {
-                    runtime: "vite",
-                    run: githubRun,
-                    memo: (_key, create) => create(),
-                    waitUntil: () => {},
-                  },
-                  {
-                    abortSignal,
-                    context,
-                    messages: [createMessage({ role: "user", text: userMessage })],
-                  },
-                  { schedule: { ...schedule, runId }, output: "drained" },
-                );
+                await acquireModelSlot();
+                try {
+                  modelDispatched = true;
+                  return await runAgent(
+                    agent,
+                    {
+                      runtime: "vite",
+                      run: githubRun,
+                      memo: (_key, create) => create(),
+                      waitUntil: () => {},
+                    },
+                    {
+                      abortSignal,
+                      context,
+                      messages: [createMessage({ role: "user", text: userMessage })],
+                    },
+                    { schedule: { ...schedule, runId }, output: "drained" },
+                  );
+                } finally {
+                  releaseModelSlot();
+                }
               }, abortSignal, () => { providerLimited = true; });
               // The structured worker driver validates its output with
               // passResultSchema before runAgent returns. Revalidating here
