@@ -272,7 +272,7 @@ describe("Auth access handlers", () => {
     expect(response?.headers.get("set-cookie")).toBe("session=one; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Path=/")
   })
 
-  it("preserves commas in a single cookie extension without getSetCookie", async () => {
+  it("rejects ambiguous cookie extensions without getSetCookie", async () => {
     const foreign = new ForeignResponse(null, {
       status: 302,
       headers: { "set-cookie": "session=one; Extension=alpha, beta=gamma" },
@@ -284,7 +284,7 @@ describe("Auth access handlers", () => {
     }))
     const response = await handler(new Request("https://app.example/"))
 
-    expect(response?.headers.get("set-cookie")).toBe("session=one; Extension=alpha, beta=gamma")
+    expect(response?.status).toBe(403)
   })
 
   it.each(["read", "cancel"] as const)("preserves a foreign stream with a different reader method on %s", async action => {
