@@ -32,6 +32,9 @@ const AUTHORIZATION_TTL_MS = 10 * 60_000
 const APPROVAL_EXECUTION_TTL_MS = 5 * 60_000
 // Visible ASCII only, so the key is a valid header value.
 const API_KEY_PATTERN = /^[\x21-\x7e]{1,8192}$/
+// The approval grant of a write requested while the provider `fallback` key was in use.
+// Stored grants use random 43-character ids, so the two never match.
+const FALLBACK_GRANT = "fallback"
 
 interface StoredToken {
   grantId?: string
@@ -63,6 +66,8 @@ interface CallContext {
   options: UseConnectionOptions
   providerExecution?: { dispatched: boolean, rejected: boolean }
 }
+
+type SendInit = { headers?: Record<string, string>, redirect?: RequestInit["redirect"], signal?: AbortSignal }
 
 interface ProviderRequest {
   action: string
@@ -129,6 +134,7 @@ const apiKeyVerificationSchema = v.union([
   v.boolean(),
   v.object({ account: v.optional(v.object({ email: v.optional(v.string()), id: v.pipe(v.string(), v.minLength(1)) })) }),
 ])
+const sealedValueSchema = v.object({ unseal: v.function() })
 // A replayed approval decides with the inherited actors that the Agent runtime vouched for when it was requested.
 const inheritedActorsSchema = v.optional(v.array(v.pipe(v.string(), v.startsWith("agent:"), v.minLength(7), v.maxLength(518))))
 const approvalInputSchema = v.variant("kind", [
@@ -223,7 +229,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   let store: Promise<ConnectionStore> | undefined
   const definitions = new Map<string, Promise<ConnectionDefinition | undefined>>()
 
-  const getStore = () => (store ??= Promise.resolve(v.is(v.function(), options.store) ? options.store() : options.store).catch((error: unknown) => {
+  // A store factory that throws synchronously still rejects, so callers can treat the store as unavailable.
+  const getStore = () => (store ??= Promise.resolve().then(() => v.is(v.function(), options.store) ? options.store() : options.store).catch((error: unknown) => {
     store = undefined
     throw error
   }))
@@ -482,8 +489,118 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     throw new ConnectionError("reauth_required", message, { details: { connection: name } })
   }
 
+  /**
+   * Read the `fallback` key of an API key Connection. A sealed Server Env secret is unsealed.
+   * The key must pass the same format check as a stored key.
+   */
+  async function readFallbackKey(name: string, definition: ConnectionDefinition): Promise<string | undefined> {
+    const provider = definition.provider
+    if (!isApiKeyProvider(provider) || !provider.fallback) return undefined
+    let value: unknown = await provider.fallback()
+    if (v.is(sealedValueSchema, value)) value = value.unseal()
+    const key = v.is(v.string(), value) ? value.trim() : undefined
+    if (!key) return undefined
+    if (!API_KEY_PATTERN.test(key)) {
+      throw new ConnectionError("invalid", `The fallback key of Connection "${name}" must contain 1 to 8192 visible ASCII characters.`, { details: { connection: name } })
+    }
+    return key
+  }
+
+  /**
+   * The `fallback` key for one request. It applies only when no key state was ever stored for the
+   * Connection, or when the store cannot open. A stored key wins, and so does a revoke or a quarantine.
+   * `connections` is the open store for activity, or `undefined` when the store cannot open.
+   */
+  async function fallbackFor(context: CallContext): Promise<{ connections?: ConnectionStore, key: string } | undefined> {
+    const provider = context.definition.provider
+    if (!isApiKeyProvider(provider) || !provider.fallback) return undefined
+    // An approval binds to the credential it was requested with. A stored grant never uses the fallback.
+    if (context.approved && context.approvedGrantId !== FALLBACK_GRANT) return undefined
+    const connections = await getStore().catch(() => undefined)
+    // A failed state read on an open store fails the request. It must not skip a revoke.
+    if (connections && await connections.state.get(context.name) !== undefined) return undefined
+    const key = await readFallbackKey(context.name, context.definition)
+    return key === undefined ? undefined : { connections, key }
+  }
+
+  /** Dispatch one provider request with a credential and record whether a write reached the provider. */
+  async function dispatch(context: CallContext, providerRequest: ProviderRequest, init: SendInit, token: { accessToken: string, tokenType: string }): Promise<Response> {
+    if (providerRequest.write && context.providerExecution) {
+      context.providerExecution.dispatched = true
+      context.providerExecution.rejected = false
+    }
+    const response = await context.transport.send(providerRequest.url, token, {
+      body: providerRequest.body,
+      json: providerRequest.json,
+      headers: init.headers,
+      method: providerRequest.method,
+      redirect: init.redirect,
+      signal: init.signal,
+    })
+    if (providerRequest.write && context.providerExecution) {
+      context.providerExecution.rejected = response.status >= 400 && response.status < 500 && response.status !== 408
+    }
+    return response
+  }
+
+  /** Reject a failed typed method response. Raw `fetch` returns every response. */
+  async function checkResponse(context: CallContext, providerRequest: ProviderRequest, response: Response): Promise<Response> {
+    if (response.ok || providerRequest.action === "fetch") return response
+    const message = await providerMessage(response)
+    throw new ConnectionError("provider", `Provider rejected ${providerRequest.action} with ${response.status}${message ? `: ${message}` : "."}`, {
+      details: { action: providerRequest.action, connection: context.name, status: response.status },
+    })
+  }
+
+  /** Send with the provider `fallback` key. Activity is recorded like an Env Bridge use while the store is open. */
+  async function sendWithFallback(context: CallContext, providerRequest: ProviderRequest, init: SendInit, fallback: { connections?: ConnectionStore, key: string }): Promise<Response> {
+    // Serialize fallback dispatch with token mutations. Recheck state after claiming the lease
+    // so a revoke that completed while the fallback was resolving always wins.
+    let owner: string | undefined
+    if (fallback.connections?.refreshLeases) {
+      owner = await claimMutationLease(context.name)
+    }
+    try {
+      if (owner && await fallback.connections!.state.get(context.name) !== undefined) {
+        throw new ConnectionError("reauth_required", `Connection "${context.name}" must be connected again before requesting access.`, { details: { connection: context.name } })
+      }
+      const operationId = crypto.randomUUID()
+      const record = async (outcome: EnvActivity["outcome"]) => {
+        await fallback.connections?.access.append({
+          action: "use",
+          actor: envActor(context.actor),
+          id: crypto.randomUUID(),
+          key: tokenKey(context.name),
+          operation: providerRequest.action,
+          operationId,
+          outcome,
+          revision: FALLBACK_GRANT,
+          timestamp: new Date(now()).toISOString(),
+          traceId: context.options.traceId,
+          invocationId: context.options.invocationId,
+        })
+      }
+      await record("started")
+      let response: Response
+      try {
+        response = await checkResponse(context, providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
+      }
+      catch (error) {
+        await record("failed").catch(() => undefined)
+        throw error
+      }
+      await record("succeeded")
+      return response
+    }
+    finally {
+      if (owner) await fallback.connections!.refreshLeases!.release(context.name, owner).catch(() => undefined)
+    }
+  }
+
   /** Send one provider request with the Connection token inside an audited Env Bridge use. */
-  async function send(context: CallContext, providerRequest: ProviderRequest, init: { headers?: Record<string, string>, redirect?: RequestInit["redirect"], signal?: AbortSignal } = {}): Promise<Response> {
+  async function send(context: CallContext, providerRequest: ProviderRequest, init: SendInit = {}): Promise<Response> {
+    const fallback = await fallbackFor(context)
+    if (fallback) return await sendWithFallback(context, providerRequest, init, fallback)
     const connections = await getStore()
     await requireConnected(context.name)
     let failure: unknown
@@ -495,29 +612,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
             throw new ConnectionError("invalid", "Approval belongs to a previous Connection grant.")
           }
           if (expiresSoon(token)) token = await refresh(context.name, context.definition, token.accessToken, false)
-          const call = (current: StoredToken) => {
+          const call = async (current: StoredToken) => {
             if (context.approved && (!context.approvedGrantId || current.grantId !== context.approvedGrantId)) {
               throw new ConnectionError("invalid", "Approval belongs to a previous Connection grant.")
             }
-            if (providerRequest.write && context.providerExecution) {
-              context.providerExecution.dispatched = true
-              context.providerExecution.rejected = false
-            }
-            const providerInit = {
-              body: providerRequest.body,
-              json: providerRequest.json,
-              headers: init.headers,
-              method: providerRequest.method,
-              redirect: init.redirect,
-              signal: init.signal,
-            }
-            const dispatch = context.transport.send(providerRequest.url, current, providerInit)
-            return dispatch.then(response => {
-              if (providerRequest.write && context.providerExecution) {
-                context.providerExecution.rejected = response.status >= 400 && response.status < 500 && response.status !== 408
-              }
-              return response
-            })
+            return await dispatch(context, providerRequest, init, current)
           }
           let response = await call(token)
           // An API key has no refresh token. The admin replaces a rejected key.
@@ -525,13 +624,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
             token = await refresh(context.name, context.definition, token.accessToken, true)
             response = await call(token)
           }
-          if (!response.ok && providerRequest.action !== "fetch") {
-            const message = await providerMessage(response)
-            throw new ConnectionError("provider", `Provider rejected ${providerRequest.action} with ${response.status}${message ? `: ${message}` : "."}`, {
-              details: { action: providerRequest.action, connection: context.name, status: response.status },
-            })
-          }
-          return response
+          return await checkResponse(context, providerRequest, response)
         }
         catch (error) {
           failure = error
@@ -548,8 +641,20 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
+  /** The credential that an approval binds to: the stored grant, or the provider `fallback` key. */
+  async function approvalGrant(context: CallContext): Promise<string> {
+    if (await fallbackFor(context)) return FALLBACK_GRANT
+    await requireConnected(context.name)
+    const current = await (await getStore()).secrets.read(tokenKey(context.name))
+    const token = current ? parseToken(current.value, context.name) : undefined
+    if (!token?.grantId) {
+      throw new ConnectionError("reauth_required", `Connection "${context.name}" must be connected again before requesting approval.`, { details: { connection: context.name } })
+    }
+    return token.grantId
+  }
+
   /** Apply policy, dry run, and approval, then send. Returns `undefined` when dry run skips a write. */
-  async function governed(context: CallContext, providerRequest: ProviderRequest, approvalInput: ApprovalInput, init: { headers?: Record<string, string>, redirect?: RequestInit["redirect"], signal?: AbortSignal } = {}): Promise<Response | undefined> {
+  async function governed(context: CallContext, providerRequest: ProviderRequest, approvalInput: ApprovalInput, init: SendInit = {}): Promise<Response | undefined> {
     envActor(context.actor)
     for (const parent of context.inherited ?? []) envActor(parent)
     const decision = decide({
@@ -562,7 +667,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       write: providerRequest.write,
     })
     if (decision === "deny") {
-      await recordDenied(context.name, context.actor, providerRequest.action, context.options)
+      await recordDenied(context.name, context.actor, providerRequest.action, context.options).catch(() => undefined)
       throw new ConnectionError("denied", `Actor "${context.actor}" may not call ${providerRequest.action} on Connection "${context.name}".`, {
         details: { action: providerRequest.action, connection: context.name },
       })
@@ -583,23 +688,18 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
     if (decision === "approve") {
       if (context.options.rejectApprovals) {
-        await recordDenied(context.name, context.actor, providerRequest.action, context.options)
+        await recordDenied(context.name, context.actor, providerRequest.action, context.options).catch(() => undefined)
         throw new ConnectionError("denied", `Connection "${context.name}" requires immediate access for ${providerRequest.action}. Set approve: false on the actor's access rule.`, {
           details: { action: providerRequest.action, connection: context.name },
         })
       }
-      await requireConnected(context.name)
-      const current = await (await getStore()).secrets.read(tokenKey(context.name))
-      const token = current ? parseToken(current.value, context.name) : undefined
-      if (!token?.grantId) {
-        throw new ConnectionError("reauth_required", `Connection "${context.name}" must be connected again before requesting approval.`, { details: { connection: context.name } })
-      }
+      const grantId = await approvalGrant(context)
       const approval: ConnectionApproval = {
         action: providerRequest.action,
         actor: context.actor,
         createdAt: new Date(now()).toISOString(),
         id: `approval_${randomToken().slice(0, 20)}`,
-        input: { ...approvalInput, grantId: token.grantId, ...(context.inherited?.length ? { inherited: [...context.inherited] } : {}) },
+        input: { ...approvalInput, grantId, ...(context.inherited?.length ? { inherited: [...context.inherited] } : {}) },
         name: context.name,
         status: "pending",
         traceId: context.options.traceId,
@@ -658,23 +758,38 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   async function inspect(name: string): Promise<ConnectionInspection> {
     const loaded = await definition(name)
-    const state = await (await getStore()).state.get(name)
+    const provider = loaded.provider
+    const apiKeyProvider = isApiKeyProvider(provider)
+    const hasFallback = isApiKeyProvider(provider) && provider.fallback !== undefined
+    let connections: ConnectionStore | undefined
+    try {
+      connections = await getStore()
+    }
+    catch (error) {
+      // The fallback key works without the store, so inspection must too.
+      if (!hasFallback) throw error
+    }
+    const state = await connections?.state.get(name)
     const declared = [...(loaded.scopes ?? [])]
     const granted = state?.scopes ?? []
+    // A failing fallback means no key here. The request that uses it reports the error.
+    const fallback = hasFallback && state === undefined && await readFallbackKey(name, loaded).catch(() => undefined) !== undefined
+    const keySource = fallback ? "fallback" : apiKeyProvider && state?.status === "connected" ? "stored" : undefined
     return {
       account: state?.accountId ? { id: state.accountId, email: state.accountEmail } : undefined,
       actions: connectionActions(loaded),
       connectedAt: state?.connectedAt,
-      credential: isApiKeyProvider(loaded.provider) ? "api-key" : "oauth2",
+      credential: apiKeyProvider ? "api-key" : "oauth2",
+      ...(keySource ? { keySource } : {}),
       name,
-      provider: loaded.provider.id,
+      provider: provider.id,
       refreshedAt: state?.refreshedAt,
       scopes: {
         declared,
         granted,
         missing: state?.status === "connected" ? declared.filter(scope => !granted.includes(scope)) : declared,
       },
-      status: state?.status ?? "disconnected",
+      status: fallback ? "connected" : state?.status ?? "disconnected",
     }
   }
 

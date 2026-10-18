@@ -1,109 +1,107 @@
 ---
 title: Channels
 navigation.title: Overview
-description: Define named server delivery channels and send through a selected connector.
+description: Send messages from your server to Slack, Telegram, or any service through a named Channel.
 navigation.order: 1
 icon: i-lucide-send
 ---
 
-::agent-only{skill="channels"}
-Use Channels for outbound message delivery through named connectors such as HTTP, chat, GitHub, Slack, or email. For inbound webhooks, chat admission, or Agent input, use [Agent Channels](/docs/agents/channels) and [Triggers](/docs/agents/triggers).
+::product-hero{tagline="Send messages to Slack, Telegram, or your own API from server code, through one named destination." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Telegram, Slack, Your API" channel-mode="custom"}
+  :::product-files
+  ```ts [server/channels/alerts.ts]
+  import {
+    defineOutboundChannel,
+  } from 'vite-hub/channels'
+  import { postToSlack } from '../utils/slack'
 
-Read [Get started](/docs/channels/get-started). Use [Server API](/docs/channels/server-api) for delivery and [Agent Channels](/docs/agents/channels) for Agent input.
-
-Keep connector credentials and delivery or reply policy in the Channel Definition. A Channel does not grant an Agent every application capability. Grant tools separately. For inbound webhook verification or chat admission, follow the Agent Channels and Triggers guidance instead.
-
-Prove one outbound delivery and its result on the target channel.
-::
-
-::product-hero{tagline="Send outbound messages to a named destination from server code, through connectors you write and select per call." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Telegram, Slack, Your API" channel-mode="custom"}
-  :::code-group
-  ```ts [Definition]
-  import { defineOutboundChannel } from 'vite-hub/channels'
-  import { useServerEnv } from '#vitehub/env/server'
-
-  type TelegramOptions = {
-    chatId: string
-  }
-
+  // The file name makes this the "alerts" Channel.
+  // Each connector is one way to deliver a message.
   export default defineOutboundChannel({
     connectors: {
-      telegram: {
-        async send(text: string, { chatId }: TelegramOptions) {
-          const { telegram } = useServerEnv()
-          const response = await fetch(`https://api.telegram.org/bot${telegram.botToken.unseal()}/sendMessage`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text }),
-          })
-          if (!response.ok) throw new Error(`Telegram returned ${response.status}.`)
-          const result = await response.json() as { result?: { message_id?: number } }
-          return { id: result.result?.message_id?.toString() }
+      // Prints to the terminal while you test
+      log: {
+        send(text: string, meta: { label: string }) {
+          console.log(`[${meta.label}] ${text}`)
+          return { id: `log-${meta.label}` }
         },
       },
+      slack: { send: postToSlack },
     },
   })
   ```
 
-  ```ts [Route]
+  ```ts [server/utils/slack.ts]
+  import { useServerEnv } from '#vitehub/env/server'
+
+  // Post to a Slack incoming webhook.
+  // Declare the URL as a secret in vite.config.ts.
+  export async function postToSlack(text: string) {
+    const env = useServerEnv()
+    const url = env.slack.webhookUrl.unseal()
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+    if (!response.ok) throw new Error('Slack failed')
+    return {}
+  }
+  ```
+
+  ```ts [server/api/builds.post.ts]
   import { defineEventHandler } from 'h3'
   import { useChannel } from 'vite-hub/channels/server'
 
   export default defineEventHandler(async () => {
-    const [error, receipt] = await useChannel('alerts').send('Build finished.', {
-      connector: 'telegram',
-      chatId: 'build-room',
-    })
+    // Choose the connector on each send
+    const [error, receipt] = await useChannel('alerts')
+      .send('Build finished.', { connector: 'slack' })
+    // A failed send returns an error, not a throw
     if (error) throw error
     return receipt
   })
   ```
 
-  ```ts [Agent]
-  import { defineAgent } from 'vite-hub/agent'
-  import { channelDelivery } from 'vite-hub/agent/capabilities'
+  ```ts [server/api/test-alert.post.ts]
+  import { defineEventHandler } from 'h3'
   import { useChannel } from 'vite-hub/channels/server'
-  import bot from '../agents/bot/agent'
 
-  const reportAgent = defineAgent({
-    extends: bot,
-    name: 'weekly-report',
-    capabilities: [
-      channelDelivery({
-        channel: useChannel('teams'),
-        options: { recipient: 'user:7b0bff9d' },
-        description: 'Send the finished weekly report. Call once.',
-        required: true,
-      }),
-    ],
+  // Each connector takes its own options
+  export default defineEventHandler(async () => {
+    const [error, receipt] = await useChannel('alerts')
+      .send('Test alert.', {
+        connector: 'log',
+        label: 'test',
+      })
+    if (error) throw error
+    return receipt
   })
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="Send through your own connector" icon="i-lucide-plug" to="/docs/channels/get-started"}
-  Discovers `server/channels` and `.channel.ts`; each connector owns its `send()`.
+  :::product-feature-item{title="One file for each destination" icon="i-lucide-file-code-2" to="/docs/channels/get-started#define-a-named-channel"}
+  Add a file to `server/channels`. Its name is the Channel name.
   :::
 
-  :::product-feature-item{title="Handle delivery results" icon="i-lucide-code-2" to="/docs/channels/server-api"}
-  Returns `[null, receipt]` or `[error, null]` with the delivery id.
+  :::product-feature-item{title="You write the delivery code" icon="i-lucide-plug" to="/docs/channels/server-api#add-another-connector"}
+  A connector is a `send()` function you write. One Channel can have several, such as Slack and Telegram.
   :::
 
-  :::product-feature-item{title="One destination, several providers" icon="i-lucide-blocks" to="/docs/channels/server-api#add-another-connector"}
-  Name `connector` at each call site, such as `telegram` or `slack`.
+  :::product-feature-item{title="Pick the connector on each send" icon="i-lucide-route" to="/docs/channels/server-api#add-another-connector"}
+  Name the connector in each call, so it is clear where a message goes.
   :::
 
-  :::product-feature-item{title="Inspect delivery events" icon="i-lucide-activity" to="/docs/channels/server-api#send-from-an-h3-or-nitro-handler"}
-  `outbound.*` events omit message text and connector options.
+  :::product-feature-item{title="Errors without try and catch" icon="i-lucide-code-2" to="/docs/channels/server-api#send-from-an-h3-or-nitro-handler"}
+  `send()` returns `[null, receipt]` or `[error, null]`. The receipt has a delivery id.
   :::
 
-  :::product-feature-item{title="The application picks the recipient" icon="i-lucide-bot" to="/docs/channels/agent-capability"}
-  `channelDelivery()` fixes Channel and options; the model writes the message.
+  :::product-feature-item{title="Logs without message text" icon="i-lucide-activity" to="/docs/channels/server-api#send-from-an-h3-or-nitro-handler"}
+  Each send logs when it starts and when it ends. The logs leave out the message text and options.
   :::
 
-  :::product-feature-item{title="Receive messages with Agent Channels" icon="i-lucide-radio" to="/docs/agents/channels"}
-  Use Agent Channels when the destination starts an Invocation.
+  :::product-feature-item{title="Test before you add a service" icon="i-lucide-terminal" to="/docs/channels/get-started#send-and-verify-one-delivery"}
+  A connector that prints to the terminal lets you check your code first.
   :::
 ::

@@ -1,111 +1,105 @@
 ---
 title: Rate Limit
 navigation.title: Overview
-description: Require request budgets through an event-first H3 guard and atomic drivers.
+description: Limit how many requests each client or user can make to a route.
 navigation.order: 1
 icon: i-lucide-gauge
 ---
 
-::agent-only{skill="rate-limit"}
-Use Rate Limit to guard an action with an atomic counter and a defined window. Put identity derivation in the caller or Agent Capability.
+::product-hero{tagline="Cap how many requests each client or user can make, and reject the extra ones with a 429 error." hosts="Node, Docker, Cloudflare"}
+  :::product-files
+  ```ts [vite.config.ts]
+  import { vitehub } from 'vite-hub'
+  import { defineConfig } from 'vite'
+  import { nitro } from 'nitro/vite'
 
-Read [Get started](/docs/rate-limit/get-started), [Server API](/docs/rate-limit/server-api), [Hosts](/docs/rate-limit/hosts), or [Limits and errors](/docs/rate-limit/limits-and-errors).
+  export default defineConfig({
+    plugins: [
+      // On Node, counts stay in memory
+      vitehub({ preset: 'node', rateLimit: true }),
+      nitro() as never,
+    ],
+  })
+  ```
 
-Choose a provider whose guarantees match the action. Memory is local to one process. Inspect `.vitehub/rate-limit/manifest.json` before a production deploy. Do not replace a Rate Limit with a KV read followed by a write.
-
-Prove allowed, rejected, reset, and provider failure behavior. Check the resolved window and enforcement mode in generated inspection state.
-::
-
-::product-hero{tagline="One guard caps requests per client, user, or tenant, with atomic drivers: memory on Node, Cloudflare Rate Limiting on Cloudflare." hosts="Node, Docker, Cloudflare"}
-  :::code-group
-  ```ts [Route]
-  import { auth } from '@vite-hub/auth/server'
+  ```ts [server/api/upload.post.ts]
+  import { defineEventHandler } from 'h3'
   import { requireRateLimit } from 'vite-hub/rate-limit'
 
+  // 2 requests a minute for each client.
+  // The third gets a 429 error.
   export default defineEventHandler(async (event) => {
-    const session = await auth.api.getSession({ headers: new Headers(getRequestHeaders(event)) })
-
     await requireRateLimit(event, 'image-upload', {
-      enforcement: 'best-effort',
-      failure: 'deny',
-      key: session?.user.id,
-      limit: 10,
+      limit: 2,
       window: '1m',
     })
     return { ok: true }
   })
   ```
 
-  ```ts [vite.config.ts]
-  import { vitehub } from 'vite-hub'
-  import { defineConfig } from 'vite'
+  ```ts [server/api/messages.post.ts]
+  import { defineEventHandler } from 'h3'
+  import { withAuth } from 'vite-hub/auth/server'
+  import { requireRateLimit } from 'vite-hub/rate-limit'
 
-  export default defineConfig({
-    plugins: [vitehub({ preset: "node", rateLimit: true })],
-  })
+  // Count per signed-in user, not per address
+  export default defineEventHandler(
+    withAuth(async (event, { user }) => {
+      await requireRateLimit(event, 'send-message', {
+        key: user.id,
+        limit: 10,
+        window: '1m',
+      })
+      return { ok: true }
+    }),
+  )
   ```
 
-  ```ts [Limiter]
+  ```ts [server/api/search.get.ts]
+  import { defineEventHandler } from 'h3'
   import { createRateLimiter } from '@vite-hub/rate-limit'
-  import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+  import {
+    memoryRateLimitDriver,
+  } from '@vite-hub/rate-limit/drivers/memory'
 
   const limiter = createRateLimiter({
     driver: memoryRateLimitDriver(),
-    enforcement: 'strict',
-    limit: 2,
+    limit: 30,
     window: '1m',
   })
 
-  const decision = await limiter.consume({ key: 'demo' })
-  ```
-
-  ```ts [Agent]
-  import { defineAgent } from 'vite-hub/agent'
-  import { rateLimit } from 'vite-hub/agent/capabilities'
-  import { createRateLimiter } from '@vite-hub/rate-limit'
-  import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
-
-  const invocations = createRateLimiter({
-    driver: memoryRateLimitDriver(),
-    limit: 20,
-    window: '1m',
-  })
-
-  export default defineAgent({
-    driver: { model },
-    capabilities: [
-      rateLimit({
-        limiter: invocations,
-      }),
-    ],
+  // Read the result and answer your own way
+  export default defineEventHandler(async () => {
+    const result = await limiter.consume({ key: 'all' })
+    if (!result.allowed) return { busy: true }
+    return { results: [] }
   })
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="Limited requests get a 429 from the guard" icon="i-lucide-shield-alert" to="/docs/rate-limit/server-api"}
-  `requireRateLimit()` throws `429`, keyed by client address unless you pass `key`.
+  :::product-feature-item{title="One line guards a route" icon="i-lucide-shield-alert" to="/docs/rate-limit/server-api#require-a-managed-rate-limit"}
+  `requireRateLimit()` lets the request continue or stops it with a 429 error.
   :::
 
-  :::product-feature-item{title="Read the decision for your own response" icon="i-lucide-code-2" to="/docs/rate-limit/server-api#use-a-direct-driver"}
-  `limiter.consume()` returns the decision and does not throw.
+  :::product-feature-item{title="Count per user or per team" icon="i-lucide-users" to="/docs/rate-limit/server-api#require-a-managed-rate-limit"}
+  Each client address has its own count. Pass `key` to count per user, account, or team.
   :::
 
-  :::product-feature-item{title="The preset selects the driver" icon="i-lucide-sliders-horizontal" to="/docs/rate-limit/get-started"}
-  `node` uses memory; `cloudflare` uses Cloudflare Rate Limiting.
+  :::product-feature-item{title="Choose your own response" icon="i-lucide-code-2" to="/docs/rate-limit/server-api#use-a-direct-driver"}
+  `limiter.consume()` returns the result and does not throw.
   :::
 
-  :::product-feature-item{title="Budget each Agent Invocation before it runs" icon="i-lucide-bot" to="/docs/rate-limit/agent-capability"}
-  `rateLimit()` consumes one unit; a rejection maps to `429`.
+  :::product-feature-item{title="Memory on Node, native on Cloudflare" icon="i-lucide-server" to="/docs/rate-limit/hosts#deploy-to-cloudflare"}
+  On Node, counts stay in memory. On Cloudflare, the limit uses Cloudflare Rate Limiting.
   :::
 
-  :::product-feature-item{title="The build records what each provider guarantees" icon="i-lucide-cloud-cog" to="/docs/rate-limit/hosts"}
-  `.vitehub/rate-limit/manifest.json` lists enforcement, scope, and windows per limit.
+  :::product-feature-item{title="See each limit before you deploy" icon="i-lucide-file-search" to="/docs/rate-limit/hosts#inspect-generated-guarantees"}
+  The build writes a file that lists each limit and what the host can promise.
   :::
 
-  :::product-feature-item{title="Not a KV get followed by set" icon="i-lucide-git-branch" to="/docs/kv"}
-  KV get then set races; Rate Limit drivers `consume()` atomically.
+  :::product-feature-item{title="Know the limits" icon="i-lucide-info" to="/docs/rate-limit/limits-and-errors#limitations"}
+  Memory counts reset on restart and are not shared between servers.
   :::
 ::
