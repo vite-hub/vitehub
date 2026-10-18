@@ -56,7 +56,16 @@ const objectToString = Object.prototype.toString
 const invalidAuthorizationResponse = Symbol("invalid authorization response")
 
 function isRuntimeResponse(value: ConsoleAccess | Response): value is Response {
-  return value instanceof Response
+  if (!(value instanceof Response)) return false
+  try {
+    // `instanceof` also accepts proxies. The native accessor requires the
+    // Fetch internal slots while leaving the body untouched.
+    Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 async function authorizationResponse(value: unknown): Promise<Response | typeof invalidAuthorizationResponse | undefined> {
