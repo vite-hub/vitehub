@@ -155,7 +155,12 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // and factory above, but cannot provide a native function body. Keep
         // class-based foreign implementations (such as happy-dom) supported.
         const isClassConstructor = /^class(?:\s|$)/.test(constructorSource)
-        hasNativeConstructorLineage = (isClassConstructor || constructorSource.includes("[native code]"))
+        // A caller can manufacture a self-consistent class with the public
+        // Response surface. Independently implemented Fetch responses use a
+        // base body implementation, so their constructor is derived; reject
+        // stand-alone caller classes before the structural checks below.
+        const isDerivedClassConstructor = isClassConstructor && /\bextends\b/.test(constructorSource)
+        hasNativeConstructorLineage = (isDerivedClassConstructor || constructorSource.includes("[native code]"))
           && typeof parentConstructor === "function"
           && parentConstructor.prototype === constructorParent
           && parentConstructor.name === "Function"
