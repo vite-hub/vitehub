@@ -159,29 +159,11 @@
       "require": "./dist/output.js",
       "default": "./dist/output.js"
     },
-    "./presets/babysitter": {
-      "types": "./dist/presets/babysitter.d.ts",
-      "import": "./dist/presets/babysitter.js",
-      "require": "./dist/presets/babysitter.js",
-      "default": "./dist/presets/babysitter.js"
-    },
-    "./presets/babysitter/server": {
-      "types": "./dist/presets/babysitter/server.d.ts",
-      "import": "./dist/presets/babysitter/server.js",
-      "require": "./dist/presets/babysitter/server.js",
-      "default": "./dist/presets/babysitter/server.js"
-    },
-    "./presets/labeller": {
-      "types": "./dist/presets/labeller.d.ts",
-      "import": "./dist/presets/labeller.js",
-      "require": "./dist/presets/labeller.js",
-      "default": "./dist/presets/labeller.js"
-    },
-    "./presets/workspace": {
-      "types": "./dist/presets/workspace.d.ts",
-      "import": "./dist/presets/workspace.js",
-      "require": "./dist/presets/workspace.js",
-      "default": "./dist/presets/workspace.js"
+    "./process-host": {
+      "types": "./dist/process-host.d.ts",
+      "import": "./dist/process-host.js",
+      "require": "./dist/process-host.js",
+      "default": "./dist/process-host.js"
     },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
@@ -218,12 +200,6 @@
       "import": "./dist/server/github.js",
       "require": "./dist/server/github.js",
       "default": "./dist/server/github.js"
-    },
-    "./server/github-inbox": {
-      "types": "./dist/server/github-inbox.d.ts",
-      "import": "./dist/server/github-inbox.js",
-      "require": "./dist/server/github-inbox.js",
-      "default": "./dist/server/github-inbox.js"
     },
     "./server/internal": {
       "types": "./dist/server/internal.d.ts",

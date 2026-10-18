@@ -19,7 +19,10 @@ export default defineEventHandler(async (event) => {
     marker,
   }
 
-  if (!runInBackground(event, () => runQueue(queueName, payload))) {
+  if (!runInBackground(event, async () => {
+    const [error] = await runQueue(queueName, payload)
+    if (error) throw error
+  })) {
     deferQueue(queueName, payload)
   }
 

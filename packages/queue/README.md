@@ -42,7 +42,9 @@ Enqueue it by its discovered name:
 import { runQueue } from "@vite-hub/queue";
 
 export async function enqueueWelcomeEmail(email: string) {
-  return await runQueue("welcome-email", { email });
+  const [error, result] = await runQueue("welcome-email", { email });
+  if (error) throw error;
+  return result;
 }
 
 export default function handleRequest() {
@@ -72,7 +74,7 @@ pnpm vite build
 
 A successful build writes `.vitehub/queue/registry.mjs` with the `welcome-email` definition. Nitro writes the Worker and `.output/server/wrangler.json`. The Wrangler configuration contains one generated producer binding and one consumer for the Queue Definition.
 
-That build proves discovery and generated output only. `runQueue()` needs the generated runtime, a deployed Cloudflare binding, and an existing queue before it can return `{ status: "queued" }`. Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
+That build proves discovery and generated output only. `runQueue()` needs the generated runtime, a deployed Cloudflare binding, and an existing queue before it can return `[undefined, { status: "queued" }]`. Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
 
 ## Choose Cloudflare or Vercel
 
@@ -89,7 +91,7 @@ Vercel needs a generated topic and the `@vercel/queue` runtime. It rejects Cloud
 
 ## Treat acceptance and delivery separately
 
-`runQueue()` waits for provider enqueue and returns this portable result:
+`runQueue()` waits for provider enqueue and returns `[error, result]`. `result` is this portable value:
 
 ```ts
 type QueueSendResult = {
@@ -104,9 +106,9 @@ The optional message ID is provider-specific. Vercel returns the ID from its enq
 
 Providers can retry failed delivery, so handlers must tolerate another invocation after a partial side effect. ViteHub does not expose an exactly-once delivery guarantee. Vercel sends an idempotency key, using the generated message ID by default; pass a stable application key when repeated enqueue attempts should share one key. Cloudflare does not accept `idempotencyKey`, so protect non-repeatable side effects inside the handler.
 
-On Cloudflare, successful handlers acknowledge the message. Failed handlers retry by default unless ViteHub identifies a non-retryable built-in error or `onError` returns an explicit acknowledge or retry action. On Vercel, `callbackOptions.retry` can return an explicit directive; returning nothing preserves provider behavior. Application error codes do not choose retry policy.
+On Cloudflare, successful handlers acknowledge the message. Failed handlers retry by default unless the error is a Queue error that a retry cannot fix or `onError` returns an explicit acknowledge or retry action. On Vercel, `callbackOptions.retry` can return an explicit directive; returning nothing preserves provider behavior. Application error codes do not choose retry policy.
 
-Queue operations use the shared `ViteHubError` contract. Public `code` and JSON-safe `details` may appear in delivery reports. Put credentials, provider responses, and private resource locations in `cause`; serialized errors and Queue reports omit it. See the [Queue error and retry reference](https://vitehub.dev/docs/queue/limits-and-errors#errors) for built-in codes and provider callbacks.
+`runQueue()`, `dynamicQueue.run()`, `send()`, and `sendBatch()` return `[error, data]`. `error.code` is `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, or `QUEUE_UNSUPPORTED_OPTION`, and each error has `why`, `fix`, `docs`, and `cause`. Configuration errors, for example an unknown Queue name or a missing Cloudflare binding, throw. `JSON.stringify(error)` and Queue delivery reports omit `cause`, so keep credentials and provider responses there. Throw `ViteHubError` from a handler for an application code. See the [Queue error reference](https://vitehub.dev/docs/queue/limits-and-errors) for each code and the retry policy.
 
 ## Public imports
 
@@ -132,9 +134,9 @@ Queue operations use the shared `ViteHubError` contract. Public `code` and JSON-
 The Vite Integration writes `.vitehub/queue.d.ts`. Include that file in your TypeScript project. The Nuxt Integration adds it to the generated type context. Names and payloads then come from the discovered Queue Definitions:
 
 ```ts
-await runQueue("welcome-email", { email: "ada@example.com" }, { delaySeconds: 60 })
+const [error] = await runQueue("welcome-email", { email: "ada@example.com" }, { delaySeconds: 60 })
 const queue = await getQueue("welcome-email")
-await queue.send({ email: "ada@example.com" })
+const [sendError] = await queue.send({ email: "ada@example.com" })
 ```
 
 `QueueRegistry` is the generated definition map. `QueuePayload<"welcome-email">` extracts a payload type. A missing name or wrong payload is a type error. Run Vite configuration or the Nuxt prepare step after you add a definition. For a standalone TypeScript host, you can extend `QueueRegistry` with `typeof import("./welcome.queue").default`.

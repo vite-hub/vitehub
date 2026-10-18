@@ -24,7 +24,8 @@ export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 /** The checked Console access that a guarded handler receives. Only `withConsoleAccess()` creates it. */
 export interface ConsoleAccess {
   readonly mode: ConsoleAccessMode
-  readonly sections?: "all" | readonly ConsoleSectionId[]
+  /** The sections that this request may use. `"all"` when `console.authorize` is not set or returns `true`. */
+  readonly sections: "all" | readonly ConsoleSectionId[]
   readonly user?: ConsoleUser
 }
 
@@ -137,38 +138,22 @@ function isRequestLike(value: unknown): value is Request {
   catch { return false }
 }
 
-function isResponseLike(value: unknown): value is Response {
-  if (value === null || typeof value !== "object") return false
-  if (value instanceof Response) return true
-  try {
-    const response = value as Record<string, unknown>
-    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
-    const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
-    if (typeof status === "number" && headers && typeof (headers as { get?: unknown }).get === "function") return true
-  }
-  catch { /* a foreign implementation may not share native internal slots */ }
-  try {
-    const headers = responseHeaders(value)
-    const tag = Object.prototype.toString.call(value)
-    const headersTag = headers && Object.prototype.toString.call(headers)
-    const headersConstructor = headers && (headers as { constructor?: unknown }).constructor
-    const response = value as Record<string, unknown>
-    const responseConstructor = response.constructor
-    return (tag === "[object Response]" || (typeof responseConstructor === "function" && responseConstructor.name === "Response"))
-      && typeof response.status === "number"
-      && typeof response.statusText === "string"
-      && typeof response.bodyUsed === "boolean"
-      && "body" in response
-      && headers !== undefined
-      && typeof (headers as { get?: unknown }).get === "function"
-      && (headersTag === "[object Headers]" || (typeof headersConstructor === "function" && headersConstructor.name === "Headers"))
-      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof (value as Record<string, unknown>)[method] === "function")
-  }
-  catch { return false }
-}
+const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
 
-function responseHeaders(value: object): unknown {
-  try { return Reflect.get(value, "headers") } catch { return undefined }
+/**
+ * Return whether `value` is a Response of this runtime.
+ * The native `status` getter checks the internal Response slot, so a proxy, a copied prototype, an object tagged `Response`,
+ * and a Response from another Fetch implementation all fail. The check reads no property of `value`.
+ */
+function isRuntimeResponse(value: unknown): value is Response {
+  if (!nativeResponseStatus || value === null || typeof value !== "object") return false
+  try {
+    Reflect.apply(nativeResponseStatus, value, [])
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 function isSectionId(value: unknown): value is ConsoleSectionId {
@@ -214,10 +199,10 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     if (response) return response
     if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
-  let sections: ConsoleAccess["sections"]
+  let sections: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
     const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
-    if (isResponseLike(result)) return result
+    if (isRuntimeResponse(result)) return result
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
     if (result !== true) {
       const allowed = authorizedSections(result)
@@ -226,7 +211,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       sections = allowed
     }
   }
-  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, ...(sections ? { sections } : {}), ...(user ? { user } : {}) })
+  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}) })
   if (policy.mode === "auth" && !user && policy.user) deferredUsers.set(access, () => policy.user!(event))
   return access
 }
@@ -238,7 +223,7 @@ export async function readConsoleAccessUser(access: ConsoleAccess): Promise<Cons
 
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
-  return access.sections === undefined || access.sections === "all" || (section !== undefined && access.sections.includes(section))
+  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
 }
 
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
@@ -271,7 +256,7 @@ export async function consoleConnectionsActor(
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | Response> {
   const access = await checkConsoleAccess(event, { user: true })
-  if (isResponseLike(access)) return access
+  if (isRuntimeResponse(access)) return access
   if (!consoleAccessAllows(access, "connections")) return rejection(403, "CONSOLE_ACCESS_DENIED")
   if (access.mode === "auth") {
     const actor = sessionActor ? await sessionActor() : (await readConsoleAccessUser(access))?.id
@@ -288,7 +273,7 @@ export async function consoleConnectionsActor(
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
-  routeScope: ConsoleRouteScope = { anySection: true },
+  routeScope: ConsoleRouteScope,
 ): (event: TEvent) => Promise<TResult | Response> {
   if (!(handler instanceof Function)) throw new TypeError("[vitehub] withConsoleAccess() requires a handler function.")
   assertRouteScope(routeScope)
@@ -298,7 +283,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
     if (!access || !consoleAccessGrant.isValid(access)) {
       const checked = await checkConsoleAccess(event, { user: declared.user === true })
       // A Response from another realm fails `instanceof`. It is a denial, not an access grant.
-      if (isResponseLike(checked)) return checked
+      if (isRuntimeResponse(checked)) return checked
       access = checked
       checkedEvents.set(event, access)
     }

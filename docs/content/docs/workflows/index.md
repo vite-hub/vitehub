@@ -1,91 +1,93 @@
 ---
 title: Workflows
 navigation.title: Overview
-description: Start provider-tracked long-running work with run ids, durable state, and optional steps.
+description: Run long tasks in steps, get a run id at once, and check the status and result later.
 navigation.order: 1
 icon: i-lucide-workflow
 ---
 
-::agent-only{skill="workflow"}
-Use Workflows for provider-tracked work that can outlive a request and needs durable state, retries, or steps. A run id is the handle for inspection.
+::product-hero{tagline="Run long tasks in steps, then check their status and result later with a run id." hosts="Cloudflare, Vercel, Node, Docker"}
+  :::product-files
+  ```ts [server/workflows/onboard-user/index.ts]
+  import { defineWorkflow } from 'vite-hub/workflow'
 
-Read [Get started](/docs/workflows/get-started), [Configure](/docs/workflows/configure), [Server API](/docs/workflows/server-api), or [Hosts](/docs/workflows/hosts).
+  // Each numbered file in this folder is a step.
+  // They run in the order you call them.
+  export default defineWorkflow<{ email: string }>(
+    async ({ payload, steps }) => {
+      const user = await steps!.createUser(payload)
+      return await steps!.sendWelcome(user)
+    },
+  )
+  ```
 
-Make each step idempotent and define terminal failure behavior. Keep request handlers small: start the run, return its id, and inspect the run separately.
+  ```ts [server/workflows/onboard-user/01.create-user.ts]
+  // Step 1: create the user
+  export default async function createUser(input: {
+    email: string
+  }) {
+    // Save the user in your database here
+    const id = `user:${input.email}`
+    return { id, email: input.email }
+  }
+  ```
 
-Prove start, retry or resume, cancellation, and a terminal result. Inspect provider state instead of assuming the request process owns the run.
-::
+  ```ts [server/workflows/onboard-user/02.send-welcome.ts]
+  // Step 2: send the welcome message
+  export default async function sendWelcome(user: {
+    id: string
+    email: string
+  }) {
+    return { userId: user.id, welcomeSent: true }
+  }
+  ```
 
-::product-hero{tagline="Start long-running work as a tracked run with an id, status, and result on Cloudflare, Vercel, or OpenWorkflow." hosts="Cloudflare, Vercel, Node, Docker"}
-  :::code-group
-  ```ts [Route]
-  import { runWorkflow } from '@vite-hub/workflow'
+  ```ts [server/api/onboard.post.ts]
+  import { defineEventHandler, readBody } from 'h3'
+  import { runWorkflow } from 'vite-hub/workflow'
 
+  // Start a run and return its id at once
   export default defineEventHandler(async (event) => {
     const body = await readBody<{ email: string }>(event)
-
-    // A stable id deduplicates the same logical run on providers that accept one.
-    const run = await runWorkflow('onboard-user', body, { id: `onboard:${body.email}` })
-
-    // Read it later with getWorkflowRun('onboard-user', run.id).
-    return run
+    return runWorkflow('onboard-user', body)
   })
   ```
 
-  ```ts [Definition]
-  import { defineWorkflow } from '@vite-hub/workflow'
+  ```ts [server/api/runs/[id].get.ts]
+  import { defineEventHandler, getRouterParam } from 'h3'
+  import { getWorkflowRun } from 'vite-hub/workflow'
 
-  export default defineWorkflow<{ email: string }>(async ({ payload }) => {
-    const user = await createUser(payload.email)
-    await sendWelcomeEmail(user.email)
-
-    return { userId: user.id }
-  })
-  ```
-
-  ```ts [Status]
-  import { getWorkflowRun } from '@vite-hub/workflow'
-
+  // Read the status and result of one run
   export default defineEventHandler((event) => {
-    return getWorkflowRun('onboard-user', getRouterParam(event, 'id')!)
-  })
-  ```
-
-  ```ts [vite.config.ts]
-  import { hubWorkflow } from '@vite-hub/workflow/vite'
-  import { defineConfig } from 'vite'
-
-  export default defineConfig({
-    plugins: [hubWorkflow()],
-    workflow: { provider: 'cloudflare' },
+    const id = getRouterParam(event, 'id')!
+    return getWorkflowRun('onboard-user', id)
   })
   ```
   :::
 ::
 
-
 ::product-features
-  :::product-feature-item{title="One file, one named Workflow" icon="i-lucide-code-2" to="/docs/workflows/configure"}
-  `server/workflows/<name>.ts` gets the payload, run id, and step helpers.
+  :::product-feature-item{title="One file or folder per workflow" icon="i-lucide-file-code-2" to="/docs/workflows/configure#define-a-workflow"}
+  Add a file to `server/workflows`. Its name is the workflow name.
   :::
 
-  :::product-feature-item{title="Start by name, read by id" icon="i-lucide-play-circle" to="/docs/workflows/server-api"}
-  `getWorkflowRun()` returns the status and, when available, the result.
+  :::product-feature-item{title="Split work into steps" icon="i-lucide-list-checks" to="/docs/workflows/get-started#define-the-workflow-steps"}
+  Put numbered files in a workflow folder. If a step fails, a durable host can run that step again.
   :::
 
-  :::product-feature-item{title="Durable steps on Vercel with a native entry" icon="i-lucide-workflow" to="/docs/workflows/configure#add-a-durable-vercel-entry"}
-  A `native` entry runs on Workflow DevKit for durable steps.
+  :::product-feature-item{title="Start now, check later" icon="i-lucide-play-circle" to="/docs/workflows/server-api#start-a-run"}
+  `runWorkflow()` starts a run and returns its id. Your route does not wait for the work.
   :::
 
-  :::product-feature-item{title="One error contract on every provider" icon="i-lucide-circle-alert" to="/docs/workflows/limits-and-errors"}
-  Throw `ViteHubError` with a stable `code`; `toJSON()` omits `cause`.
+  :::product-feature-item{title="Status and result" icon="i-lucide-activity" to="/docs/workflows/server-api#inspect-a-run"}
+  `getWorkflowRun()` tells you if a run is queued, running, completed, or failed, and gives the result.
   :::
 
-  :::product-feature-item{title="Pick the provider and its storage per host" icon="i-lucide-cloud-cog" to="/docs/workflows/hosts"}
-  Cloudflare or Vercel by host; OpenWorkflow with `postgres.url` or `sqlite.path`.
+  :::product-feature-item{title="Choose where runs live" icon="i-lucide-cloud-cog" to="/docs/workflows/hosts#providers"}
+  Use Cloudflare, Vercel, or OpenWorkflow with Postgres or SQLite on your own server. Your routes do not change.
   :::
 
-  :::product-feature-item{title="Steps survive retries" icon="i-lucide-refresh-cw" to="/docs/workflows/server-api"}
-  Durable steps resume after a worker or provider failure.
+  :::product-feature-item{title="Clear error codes" icon="i-lucide-circle-alert" to="/docs/workflows/limits-and-errors#structured-errors"}
+  Throw an error with a fixed code. The code is the same on every host.
   :::
 ::
