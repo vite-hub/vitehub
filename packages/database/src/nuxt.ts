@@ -16,7 +16,7 @@ import { mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCl
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
-import { generatedDatabaseTypesFile, renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
+import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
@@ -271,6 +271,10 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               alias: nuxtOptions.alias,
               onFallback: message => console.warn(message),
             })
+          }
+          else {
+            // Keep Nuxt's unconditional type reference valid when no Database Definition exists.
+            await removeGeneratedDatabaseTypes(root)
           }
           if (runtime && (runtimeProvider === "cloudflare" || runtimeProvider === "vercel")) {
             await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])

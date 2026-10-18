@@ -48,6 +48,22 @@ const tableChecks = [
 ]
 
 describe("Database types in a Nuxt app", () => {
+  it("creates the referenced types file without a Database Definition", async () => {
+    const baseDir = join(import.meta.dirname, "../../../.vitest-tmp")
+    const root = await mkdtemp(join(baseDir, "nuxt-types-empty-"))
+    tempDirs.push(root)
+    const buildDir = join(root, ".nuxt")
+    const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
+    await hubDb()(undefined, {
+      hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
+        if (name === "nitro:config") hooks.push(callback)
+      },
+      options: { buildDir, dev: false, rootDir: root, serverDir: join(root, "server"), srcDir: join(root, "app"), vite: {} },
+    })
+    for (const hook of hooks) await hook({ alias: {}, preset: "node" })
+    await expect(readFile(join(root, ".vitehub/types/database.d.ts"), "utf8")).resolves.toBe("export {}\n")
+  })
+
   it.each(["node", "vercel", "cloudflare-module"])("types schema tables in server/ and shared/ after nuxt prepare on %s", async (preset) => {
     const root = await createApp()
     const buildDir = join(root, ".nuxt")
