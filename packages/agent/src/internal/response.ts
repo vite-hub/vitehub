@@ -65,7 +65,11 @@ export function isResponse(value: unknown): value is Response {
           bodyPrototype = Object.getPrototypeOf(bodyPrototype) as object | null
         }
         if (typeof body !== "function") return false
-        body.call(value)
+        // A fabricated registered prototype can copy the public body factory
+        // and make the accessor return null without ever running the foreign
+        // Response constructor. Body-bearing responses must expose the
+        // implementation-created body here; otherwise keep the value generic.
+        if (body.call(value) == null) return false
         return true
       }
       // A subclass may inherit the implementation's intrinsic accessor from

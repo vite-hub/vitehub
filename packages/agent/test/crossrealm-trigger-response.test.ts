@@ -87,6 +87,7 @@ describe("agent trigger cross realm responses", () => {
   it("rejects objects fabricated from a registered Response prototype", () => {
     const impostor = Object.create(ForeignFetchResponse.prototype, {
       headers: { value: {} },
+      _bodyFactory: { value: () => null },
     })
     expect(isResponse(impostor)).toBe(false)
   })
