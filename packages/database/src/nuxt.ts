@@ -157,6 +157,9 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
         const refresh = async () => {
           if (closed || !localNitroConfig) return
           const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
+          // The Nuxt instance may close while the runtime is being rebuilt. Do not
+          // repopulate watcher state after the close hook has cleared it.
+          if (closed) return
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
@@ -170,6 +173,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               definitionFiles.add(resolve(root, module))
             }
           }
+          if (closed) return
           for (const file of definitionFiles) {
             if (definitionWatchers.has(file)) continue
             try {
