@@ -1302,18 +1302,6 @@ async function createAgent(
   const observedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
-  const budgetRetryLimit = context.executionBudget
-    ? Math.min(
-        typeof execution?.callSettings?.maxRetries === "number" ? execution.callSettings.maxRetries : 2,
-        context.executionBudget.snapshot().remaining.retries ?? Number.POSITIVE_INFINITY,
-      )
-    : undefined
-  const budgetedModel = context.executionBudget && hasRuntimeType(aiSdk.wrapLanguageModel, "function")
-    ? aiSdk.wrapLanguageModel({
-        model: observedModel as never,
-        middleware: executionBudgetMiddleware(context.executionBudget, budgetRetryLimit),
-      })
-    : observedModel
   const instructions = await composeInstructions(
     joinInstructions(
       await resolveInstructions(options, metadataContext),
@@ -1365,20 +1353,30 @@ async function createAgent(
     context: context.context,
     input: context.input,
     invoker: context.invoker,
-    model: budgetedModel,
+    model: observedModel,
     run: context.runtime.run,
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
   const remainingRetries = context.executionBudget?.snapshot().remaining.retries
-  const budgetedSettings = remainingRetries === undefined
-    ? settings
-    : {
+  const configuredRetries = typeof settings.maxRetries === "number" ? settings.maxRetries : 2
+  const budgetRetryLimit = context.executionBudget
+    ? Math.min(configuredRetries, remainingRetries ?? Number.POSITIVE_INFINITY)
+    : undefined
+  const budgetedModel = context.executionBudget && hasRuntimeType(aiSdk.wrapLanguageModel, "function")
+    ? aiSdk.wrapLanguageModel({
+        model: observedModel as never,
+        middleware: executionBudgetMiddleware(context.executionBudget, budgetRetryLimit),
+      })
+    : observedModel
+  const budgetedSettings = context.executionBudget
+    ? {
         ...settings,
         // Provider retries are charged and performed by executionBudgetMiddleware.
         maxRetries: 0,
       }
+    : settings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
