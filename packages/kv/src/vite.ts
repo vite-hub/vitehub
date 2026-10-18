@@ -124,7 +124,7 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "",
     "function resolveStoreConfig(name) {",
     "  const stores = kvConfig.stores || { default: kvConfig.store };",
-    "  if (!Object.hasOwn(stores, name)) throw unknownKVStoreError(name);",
+    "  if (!Object.hasOwn(stores, name)) throw kvStoreNotFoundError(name);",
     "  const store = stores[name];",
     "  return store;",
     "}",
