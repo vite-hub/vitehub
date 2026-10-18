@@ -292,14 +292,17 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   if (!isResponseLike(value)) return
   if (value instanceof Response) return value
 
-  // Validate the native Response brand before copying a foreign response. This
-  // rejects objects that only spoof Symbol.toStringTag and shallow properties.
-  try { Response.prototype.clone.call(value) }
-  catch { return }
+  // Invoke the response-owned body method. Native Responses from another
+  // realm accept this call, while tag-spoofed lookalikes do not.
+  let body: BodyInit | null = null
+  try {
+    body = value.body === null ? null : new Uint8Array(await value.arrayBuffer())
+  } catch {
+    return
+  }
 
   if (value.status === 0) return Response.error()
   const headers = new Headers(value.headers)
-  const body = value.body === null ? null : new Uint8Array(await value.arrayBuffer())
   return new Response(body, {
     headers,
     status: value.status,
@@ -317,7 +320,7 @@ function isResponseLike(value: unknown): value is Response {
     if (typeof response.statusText !== "string") return false
     const headers = response.headers
     if (headers === null || typeof headers !== "object" || typeof (headers as { get?: unknown }).get !== "function") return false
-    return response.body === null || typeof response.arrayBuffer === "function"
+    return typeof response.arrayBuffer === "function"
   }
   catch {
     return false
@@ -416,7 +419,7 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
   handler: AuthGuardedHandler<TInput, TResult>,
   definition?: AuthDefinition,
 ): (input: TInput) => Promise<TResult | Response> {
-  if (authorize !== true && !(authorize instanceof Function)) {
+  if (authorize !== true && typeof authorize !== "function") {
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   if (!(handler instanceof Function)) {

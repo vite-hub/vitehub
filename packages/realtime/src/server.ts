@@ -196,9 +196,65 @@ export function realtimeRoomKey(definitionName: string, documentId: string): str
   return JSON.stringify([definitionName, documentId])
 }
 
+export async function restoreRealtimeDocument(
+  markdown: string,
+  baselineDigest: string | undefined,
+  stored: Record<string, unknown> | undefined,
+): Promise<Y.Doc> {
+  const update = storedUpdate(stored?.update_blob)
+  const storedDigest = typeof stored?.baseline_digest === "string" ? stored.baseline_digest : undefined
+  if (!update || storedDigest !== baselineDigest) {
+    return await createRealtimeYDoc(realtimeMarkdownEditor, { body: markdown })
+  }
+  const document = new Y.Doc()
+  try {
+    Y.applyUpdate(document, update)
+    return document
+  }
+  catch (error) {
+    document.destroy()
+    throw error
+  }
+}
+
 function storedUpdate(value: unknown): Uint8Array | undefined {
-  if (value instanceof ArrayBuffer) return new Uint8Array(value)
-  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+  if (ArrayBuffer.isView(value)) {
+    try {
+      const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
+      const typedBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer")?.get
+      const typedOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset")?.get
+      const typedLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")?.get
+      let buffer: ArrayBuffer
+      let byteOffset: number
+      let byteLength: number
+      try {
+        buffer = typedBuffer!.call(value)
+        byteOffset = typedOffset!.call(value)
+        byteLength = typedLength!.call(value)
+      }
+      catch {
+        const dataViewPrototype = DataView.prototype
+        buffer = Object.getOwnPropertyDescriptor(dataViewPrototype, "buffer")!.get!.call(value)
+        byteOffset = Object.getOwnPropertyDescriptor(dataViewPrototype, "byteOffset")!.get!.call(value)
+        byteLength = Object.getOwnPropertyDescriptor(dataViewPrototype, "byteLength")!.get!.call(value)
+      }
+      if (!buffer || byteOffset === undefined || byteLength === undefined) return undefined
+      return new Uint8Array(buffer, byteOffset, byteLength)
+    }
+    catch {
+      return undefined
+    }
+  }
+  try {
+    // The native getter checks the ArrayBuffer internal slot and accepts buffers from other realms.
+    const byteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+    if (byteLength?.call(value) !== undefined) {
+      return new Uint8Array(value as ArrayBuffer)
+    }
+  }
+  catch {
+    return undefined
+  }
 }
 
 interface ResolvedRealtimeDefinition {
@@ -637,27 +693,46 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     if (!storageDescriptor || !("value" in storageDescriptor)) return undefined
     const storage = storageDescriptor.value
     if (!storage || typeof storage !== "object") return undefined
-    const descriptor = Object.getOwnPropertyDescriptor(storage, "sql")
-    if (descriptor) {
-      if (!("value" in descriptor)) return undefined
-      return hasCloudflareSqlExec(descriptor.value) ? descriptor.value : undefined
+    const readNativeSql = (descriptor: PropertyDescriptor, inherited: boolean): RealtimeRoomSql | undefined => {
+      // An inherited data property can be supplied by an ordinary prototype
+      // and must not be mistaken for Workerd's branded lazy accessor.
+      if ("value" in descriptor) return inherited ? undefined : (hasCloudflareSqlExec(descriptor.value) ? descriptor.value : undefined)
+      const getter = descriptor.get
+      if (typeof getter !== "function") return undefined
+      const source = Function.prototype.toString.call(getter)
+      // Native accessor formatting differs between Workerd/V8 versions. Keep
+      // the native body and function shape checks while allowing anonymous
+      // accessors and runtime-specific whitespace.
+      if (!/^function(?:\s+get(?:\s+\w+)?|\s+\w+)?\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
+      try {
+        // Workerd's lazy accessor is receiver-branded. Probe a structurally
+        // identical receiver first; ordinary getters and copied/proxied
+        // carriers that return a SQL-shaped object must not be accepted.
+        const prototype = Object.getPrototypeOf(storage)
+        try {
+          // Probe even null-prototype storage objects. A missing prototype is
+          // still a valid receiver shape for the platform accessor and must
+          // not bypass the receiver-brand check.
+          Reflect.apply(getter, Object.create(prototype), [])
+          return undefined
+        }
+        catch {
+          // Expected for the genuine Workerd accessor.
+        }
+        const sql = Reflect.get(storage, "sql")
+        return hasCloudflareSqlExec(sql) ? sql : undefined
+      }
+      catch {
+        return undefined
+      }
     }
+    const descriptor = Object.getOwnPropertyDescriptor(storage, "sql")
+    if (descriptor) return readNativeSql(descriptor, false)
     let prototype = Object.getPrototypeOf(storage)
     while (prototype && prototype !== Object.prototype) {
       const sqlDescriptor = Object.getOwnPropertyDescriptor(prototype, "sql")
       if (sqlDescriptor) {
-        if ("value" in sqlDescriptor) return undefined
-        const getter = sqlDescriptor.get
-        if (typeof getter !== "function") return undefined
-        const source = Function.prototype.toString.call(getter)
-        if (!/^function\s+get\s+sql\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/.test(source)) return undefined
-        try {
-          const sql = Reflect.get(storage, "sql")
-          return hasCloudflareSqlExec(sql) ? sql : undefined
-        }
-        catch {
-          return undefined
-        }
+        return readNativeSql(sqlDescriptor, true)
       }
       prototype = Object.getPrototypeOf(prototype)
     }
