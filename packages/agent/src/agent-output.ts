@@ -362,8 +362,9 @@ async function resolveUsageValue(value: unknown): Promise<unknown> {
   return isPromiseLike(value) ? await value : value
 }
 
-function usageMetadataValue(result: Record<string, unknown>, key: string): unknown {
-  if (!hasTraceableStreamResult(result)) return result[key]
+function usageMetadataValue(result: unknown, key: string): unknown {
+  if (!isRecord(result)) return
+  if (!hasTraceableStreamResult(result)) return readableRecordValue(result, key)
   // Stream result getters can create rejecting promise projections while the provider is still running.
   const descriptor = resultPropertyDescriptor(result, key)
   return descriptor && "value" in descriptor ? descriptor.value : undefined
@@ -371,7 +372,7 @@ function usageMetadataValue(result: Record<string, unknown>, key: string): unkno
 
 function modelMetadataFromResult(result: unknown): Pick<AgentUsageRecord, "model" | "provider" | "transport"> | undefined {
   if (!isRecord(result)) return
-  const responseValue = readableRecordValue(result, "response")
+  const responseValue = usageMetadataValue(result, "response")
   const response = isRecord(responseValue) ? responseValue : undefined
   const rawModel = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
   const provider = readString(result, "provider")
@@ -414,11 +415,11 @@ function isDateValue(value: unknown): value is Date {
 
 function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
   if (!isRecord(result)) return
-  const responseValue = readableRecordValue(result, "response")
+  const responseValue = usageMetadataValue(result, "response")
   const response = isRecord(responseValue) ? responseValue : undefined
   const id = readString(response, "id")
   const timestamp = response ? readableRecordValue(response, "timestamp") : undefined
-  const finishReason = readableRecordValue(result, "finishReason")
+  const finishReason = usageMetadataValue(result, "finishReason")
   if (id === undefined && timestamp === undefined) return
   return {
     ...(finishReason !== undefined ? { finishReason } : {}),
@@ -429,7 +430,7 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
 
 function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undefined {
   if (!isRecord(result)) return
-  const latencyValue = readableRecordValue(result, "latency")
+  const latencyValue = usageMetadataValue(result, "latency")
   const source = isRecord(latencyValue) ? latencyValue : result
   const durationMs = readNumber(source, "durationMs", "duration_ms")
   const timeToFirstTokenMs = readNumber(source, "timeToFirstTokenMs", "ttftMs", "time_to_first_token_ms")
@@ -444,7 +445,7 @@ function latencyFromResult(result: unknown): AgentUsageRecord["latency"] | undef
 
 function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | undefined {
   if (!isRecord(result)) return
-  const providerMetadata = readableRecordValue(result, "providerMetadata")
+  const providerMetadata = usageMetadataValue(result, "providerMetadata")
   if (!isRecord(providerMetadata)) return
   for (const metadata of Object.values(providerMetadata)) {
     const usage = isRecord(metadata) ? readableRecordValue(metadata, "usage") : undefined
@@ -571,7 +572,7 @@ export function usageRecordFromStreamChunk(chunk: unknown, fallbackMetadataSourc
 
 async function usageFromResult(result: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  return usageRecordFromUsage(await resolveUsageValue(readableRecordValue(result, "usage") ?? readableRecordValue(result, "totalUsage")), result, undefined, run)
+  return usageRecordFromUsage(await resolveUsageValue(usageMetadataValue(result, "usage") ?? usageMetadataValue(result, "totalUsage")), result, undefined, run)
 }
 
 export async function resolveAgentUsageRecord(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {

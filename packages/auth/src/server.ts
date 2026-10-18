@@ -298,7 +298,8 @@ async function runAccessAuthorize(
 ): Promise<Response | undefined> {
   const result: unknown = await authorize(context)
   if (result === true) return
-  if (isRuntimeResponse(result)) return result
+  const normalized = await normalizeAuthorizationResponse(result)
+  if (normalized) return normalized
   return createForbiddenResponse(context.request)
 }
 
