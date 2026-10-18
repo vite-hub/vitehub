@@ -175,12 +175,6 @@ describe("Auth access handlers", () => {
     finally {
       Promise.prototype.then = originalThen
     }
-    finally {
-      reader.releaseLock()
-    }
-  })
-
-
     await expect(pending!).resolves.toBeUndefined()
   })
 
