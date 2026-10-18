@@ -169,7 +169,7 @@ function isRequestLike(value: AuthRequest): value is Request {
             // also reject an object inheriting from its prototype.
             const symbols = Object.getOwnPropertySymbols(value)
             const symbolNames = new Set(symbols.map(symbol => symbol.description))
-            if (!(["dispatcher", "state", "signal", "headers"].every(name => symbolNames.has(name)))) {
+            if (symbols.length !== 4 || !["dispatcher", "state", "signal", "headers"].every(name => symbolNames.has(name))) {
               return false
             }
             // A genuine Web IDL accessor checks its internal slot even when
