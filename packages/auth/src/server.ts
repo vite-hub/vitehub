@@ -585,11 +585,12 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // A same-realm Response is already a trusted, usable result. Return it
     // before probing its body: consumed and locked native bodies are still
     // required to pass through unchanged.
-    if (value instanceof Response
-      && headers instanceof Headers
-      && authorizationResponseProperties.every(key =>
-        responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
-      && !authorizationResponseProperties.some(key => Object.prototype.hasOwnProperty.call(candidate, key))) return value
+    if (value instanceof Response && headers instanceof Headers
+      && authorizationResponseProperties.every(key => {
+        const ownDescriptor = Object.getOwnPropertyDescriptor(candidate, key)
+        if (ownDescriptor) return typeof ownDescriptor.get === "function" && ownDescriptor.set === undefined
+        return responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
+      })) return value
     // Response construction rejects bodies for these status codes. Check this
     // before transferring a foreign stream so a rejected candidate retains
     // ownership of its original body.
