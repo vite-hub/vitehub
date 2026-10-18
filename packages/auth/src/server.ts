@@ -415,6 +415,11 @@ function getNativeAuthorizationBodyReader(body: unknown): ((this: object) => Rea
     if (Object.prototype.hasOwnProperty.call(body, "getReader")) return false
     const streamDescriptors = getNativeAuthorizationStreamDescriptors(body)
     if (!streamDescriptors) return false
+    // Response construction performs the native disturbed/locked stream check.
+    // Probe before acquiring a reader so an already-consumed foreign body fails
+    // closed without changing the source stream state.
+    try { new Response(body as ReadableStream<Uint8Array>) }
+    catch { return false }
     const getReader = streamDescriptors.getReader
     const reader = Reflect.apply(getReader, body, [])
     const methods = getNativeAuthorizationReaderMethods(reader)
@@ -632,6 +637,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // methods are ordinary JavaScript and can be forged to look self-consistent;
     // only trusted Web intrinsics provide a non-spoofable internal-slot check.
     if (!branded) return
+    if (!trustedForEach) return
     const snapshot = { status, statusText, headers, body }
     if (value instanceof Response && status === 0 && statusText === "" && body === null
       && headers instanceof Headers
@@ -691,7 +697,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     if (body === null) return new Response(null, { status, statusText, headers: normalizedHeaders })
     if (body === null || typeof bodyReader !== "function") return
-    const bridgedBody = bridgeAuthorizationBody(body, bodyReader)
+    const bridgedBody = bridgeAuthorizationBody(body as ReadableStream<Uint8Array>, bodyReader)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }
