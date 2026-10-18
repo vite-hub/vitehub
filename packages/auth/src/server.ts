@@ -306,7 +306,6 @@ function responsePropertyDescriptor(value: unknown, key: PropertyKey): PropertyD
 }
 
 let undiciResponsePromise: Promise<typeof Response | undefined> | undefined
-let undiciHeadersPromise: Promise<typeof Headers | undefined> | undefined
 
 async function getUndiciResponse(): Promise<typeof Response | undefined> {
   if (undiciResponsePromise) return undiciResponsePromise
@@ -316,13 +315,6 @@ async function getUndiciResponse(): Promise<typeof Response | undefined> {
   return undiciResponsePromise
 }
 
-async function getUndiciHeaders(): Promise<typeof Headers | undefined> {
-  if (undiciHeadersPromise) return undiciHeadersPromise
-  undiciHeadersPromise = import(/* @vite-ignore */ "undici")
-    .then(module => module.Headers as typeof Headers)
-    .catch(() => undefined)
-  return undiciHeadersPromise
-}
 
 async function hasResponsePrototype(value: unknown): Promise<boolean> {
   const UndiciResponse = await getUndiciResponse()
@@ -494,7 +486,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     })
     const nativeHeaderMethods = headerMethodOwners.every(Boolean)
       && headerMethodOwners[0] === headerMethodOwners[1]
-    const UndiciHeaders = await getUndiciHeaders()
     // A foreign implementation must carry its own native Headers methods.
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
@@ -505,39 +496,22 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     if (!nativeHeaderMethods) return
     if (body !== null && !isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
-    const cookieMethod = headerPrototype
-      ? Object.getOwnPropertyDescriptor(headerPrototype, "getSetCookie")?.value
-      : undefined
-    const undiciCookieMethod = UndiciHeaders
-      ? Object.getOwnPropertyDescriptor(UndiciHeaders.prototype, "getSetCookie")?.value
-      : undefined
-    const nativeGetSetCookie = typeof cookieMethod === "function"
-      && cookieMethod === undiciCookieMethod
     const normalizedHeaders = new Headers()
-    let combinedCookies: string | undefined
+    const cookieValues: string[] = []
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
       if (key.toLowerCase() === "set-cookie") {
-        if (combinedCookies === undefined) combinedCookies = value
+        cookieValues.push(value)
         return
       }
       normalizedHeaders.append(key, value)
     }])
-    if (nativeGetSetCookie) {
-      const cookies = Reflect.apply(cookieMethod, headers, [])
-      if (!Array.isArray(cookies)) return
-      combinedCookies = undefined
-      for (const cookie of cookies) {
-        if (typeof cookie !== "string") return
-        normalizedHeaders.append("set-cookie", cookie)
-      }
-    }
-    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // Preserve cookies exposed by the validated enumeration method. A comma
     // followed by another cookie assignment at the cookie-pair boundary proves that
     // multiple values were merged. Assignment-like text after an extension attribute
     // can still be part of that attribute's value, so do not reject it as a merge.
-    if (combinedCookies !== undefined) {
-      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
-      normalizedHeaders.append("set-cookie", combinedCookies)
+    for (const cookie of cookieValues) {
+      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(cookie)) return
+      normalizedHeaders.append("set-cookie", cookie)
     }
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
