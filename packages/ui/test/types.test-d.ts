@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { describe, it } from "vitest";
 import {
   AgentCodeView,
   AgentFile,
@@ -17,53 +18,62 @@ import type {
   ViteHubUISession,
 } from "../src/index.ts";
 
-const file: FileContents = { contents: "export const ready = true\n", name: "ready.ts" };
-const fileDiff = getSingularPatch(`--- a/ready.ts
+declare const message: ViteHubUIMessage<{ createdAt: string }, { weather: { city: string } }>;
+
+const patch = `--- a/ready.ts
 +++ b/ready.ts
 @@ -1 +1 @@
 -false
-+true`);
-const codeViewItems: CodeViewItem<unknown>[] = [
-  { file, id: "file", type: "file" },
-  { fileDiff, id: "diff", type: "diff" },
-];
++true`;
 
-void AgentCodeView;
-void AgentFile;
-void AgentFileDiff;
-void AgentMultiFileDiff;
-void AgentPatchDiff;
-void AgentUnresolvedFile;
-void codeViewItems;
+describe("UI types", () => {
+  it("accepts code view items", () => {
+    const file: FileContents = { contents: "export const ready = true\n", name: "ready.ts" };
+    const fileDiff = getSingularPatch(patch);
+    const codeViewItems: CodeViewItem<unknown>[] = [
+      { file, id: "file", type: "file" },
+      { fileDiff, id: "diff", type: "diff" },
+    ];
 
-const listItem: AgentInvocationListItem = {
-  id: "invocation-1",
-  project: "vitehub",
-  status: "running",
-  title: "Improve the console",
-};
-void listItem;
+    void AgentCodeView;
+    void AgentFile;
+    void AgentFileDiff;
+    void AgentMultiFileDiff;
+    void AgentPatchDiff;
+    void AgentUnresolvedFile;
+    void codeViewItems;
+  });
 
-declare const message: ViteHubUIMessage<{ createdAt: string }, { weather: { city: string } }>;
-const compatible: UIMessage = message;
-const session: ViteHubUISession<typeof message> = { id: "session-1", messages: [message] };
-const invocation: AgentInvocationView = {
-  configuration: {
-    capabilities: [{ id: "workspace-shell", metadata: { mode: "write" } }],
-    driver: { kind: "provider", model: { id: "codex", provider: "openai" } },
-    instructions: ["Inspect the repository."],
-    runtime: { name: "node" },
-    tools: [{ name: "exec" }],
-    workspace: { mode: "write", name: "review", sources: ["repository"] },
-  },
-  createdAt: "2026-08-22T00:00:00.000Z",
-  id: "ainv_1",
-  observations: [],
-  status: "running",
-  traceId: "trace_1",
-  updatedAt: "2026-08-22T00:00:00.000Z",
-};
+  it("accepts Invocation views and UI messages", () => {
+    const listItem: AgentInvocationListItem = {
+      id: "invocation-1",
+      project: "vitehub",
+      status: "running",
+      title: "Improve the console",
+    };
+    void listItem;
 
-void compatible;
-void invocation;
-void session;
+    const compatible: UIMessage = message;
+    const session: ViteHubUISession<typeof message> = { id: "session-1", messages: [message] };
+    const invocation: AgentInvocationView = {
+      configuration: {
+        capabilities: [{ id: "workspace-shell", metadata: { mode: "write" } }],
+        driver: { kind: "provider", model: { id: "codex", provider: "openai" } },
+        instructions: ["Inspect the repository."],
+        runtime: { name: "node" },
+        tools: [{ name: "exec" }],
+        workspace: { mode: "write", name: "review", sources: ["repository"] },
+      },
+      createdAt: "2026-08-22T00:00:00.000Z",
+      id: "ainv_1",
+      observations: [],
+      status: "running",
+      traceId: "trace_1",
+      updatedAt: "2026-08-22T00:00:00.000Z",
+    };
+
+    void compatible;
+    void invocation;
+    void session;
+  });
+});

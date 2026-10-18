@@ -17,9 +17,9 @@ type CustomWorkspaceSourceFiles = WorkspaceSourceRuntimeOptions & Pick<Workspace
 export function custom<const TSource extends CustomWorkspaceSourceFiles>(source: ExactOptions<TSource, CustomWorkspaceSourceFiles>): WorkspaceSource
 export function custom<const TSource extends WorkspaceSource>(source: ExactOptions<TSource, WorkspaceSource>): WorkspaceSource
 export function custom(source: WorkspaceSource | CustomWorkspaceSourceFiles): WorkspaceSource {
-  if (!("files" in source) || !Array.isArray(source.files)) return source as WorkspaceSource
+  if (!Object.hasOwn(source, "files") || !Array.isArray((source as Partial<CustomWorkspaceSourceFiles>).files)) return source as WorkspaceSource
 
-  const { files: inputFiles, ...options } = source
+  const { files: inputFiles, ...options } = source as CustomWorkspaceSourceFiles
   const files = inputFiles.map(file => ({
     ...file,
     path: normalizeSafeWorkspacePath(file.path),
