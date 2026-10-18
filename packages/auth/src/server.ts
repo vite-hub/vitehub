@@ -1,6 +1,7 @@
 import discoveredDefinition from "#vitehub/auth/definition"
 import { betterAuth } from "better-auth"
 import { normalizeAuthBasePath } from "./shared.ts"
+import { resolveAuthMountPath } from "./application-path.ts"
 import { unwrapAuthRequest } from "./request.ts"
 import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
@@ -230,7 +231,7 @@ async function createSignInResponse(
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
   const origin = new URL(options.baseURL as string).origin
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- basePath comes from Definition metadata carried alongside Better Auth runtime options.
-  const basePath = normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)
+  const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
   const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
@@ -700,7 +701,7 @@ export function createAuthAccessHandler(
     index,
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
-    path: route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route,
+    path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
     recursive: route.route.endsWith("/**"),
   }))
 
