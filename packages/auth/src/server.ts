@@ -307,8 +307,7 @@ async function runAccessAuthorize(
   if (result !== true) return createForbiddenResponse(context.request)
 }
 
-
-const authorizationResponseProperties = ["status", "statusText", "headers", "body", "bodyUsed"] as const
+const authorizationResponseProperties = ["status", "statusText", "headers", "body"] as const
 
 const authorizationResponsePrototypeLimit = 32
 
@@ -545,41 +544,77 @@ async function isSerializableAuthorizationBody(body: unknown): Promise<boolean> 
   }
 }
 
+function authorizationBodyReader(body: object): (() => unknown) | undefined {
+  let prototype: object | null = Object.getPrototypeOf(body)
+  const seen = new Set<object>()
+  let lockedOwner: object | undefined
+  for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+    if (seen.has(prototype)) return
+    seen.add(prototype)
+    if (!lockedOwner && typeof Object.getOwnPropertyDescriptor(prototype, "locked")?.get === "function") lockedOwner = prototype
+    if (lockedOwner === prototype) {
+      const reader = Object.getOwnPropertyDescriptor(prototype, "getReader")?.value
+      return typeof reader === "function" ? reader : undefined
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+}
 
-function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
-  // Use native operations on native stream state, never caller-supplied reader methods.
-  const getReader: () => ReadableStreamDefaultReader<Uint8Array> = ReadableStream.prototype.getReader
-  const reader = Reflect.apply(getReader, body, [])
-  const read: ReadableStreamDefaultReader<Uint8Array>["read"] = ReadableStreamDefaultReader.prototype.read
-  const { cancel, releaseLock } = ReadableStreamDefaultReader.prototype
+function bridgeAuthorizationBody(
+  body: ReadableStream<Uint8Array>,
+  getReader: () => unknown,
+) {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let initializing: Promise<ReadableStreamDefaultReader<Uint8Array>> | undefined
+  let read: ((...args: []) => Promise<{ done: boolean; value: Uint8Array }>) | undefined
+  let cancel: ((...args: [unknown?]) => Promise<void>) | undefined
+  let releaseLock: (() => void) | undefined
   let released = false
+  const acquire = async () => {
+    initializing ??= Promise.resolve().then(() => {
+      const acquired = Reflect.apply(getReader, body, [])
+      if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
+      let prototype: object | null = Object.getPrototypeOf(acquired)
+      const seen = new Set<object>()
+      for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+        if (seen.has(prototype)) break
+        seen.add(prototype)
+        const readDescriptor = Object.getOwnPropertyDescriptor(prototype, "read")
+        const cancelDescriptor = Object.getOwnPropertyDescriptor(prototype, "cancel")
+        const releaseDescriptor = Object.getOwnPropertyDescriptor(prototype, "releaseLock")
+        read ??= typeof readDescriptor?.value === "function" ? readDescriptor.value : undefined
+        cancel ??= typeof cancelDescriptor?.value === "function" ? cancelDescriptor.value : undefined
+        releaseLock ??= typeof releaseDescriptor?.value === "function" ? releaseDescriptor.value : undefined
+        if (read && cancel && releaseLock) break
+        prototype = Object.getPrototypeOf(prototype)
+      }
+      if (!read || !cancel || !releaseLock) throw new Error("Malformed authorization reader")
+      return acquired as ReadableStreamDefaultReader<Uint8Array>
+    })
+    reader = await initializing
+    return reader
+  }
   const release = () => {
-    if (released) return
+    if (released || !reader || !releaseLock) return
     released = true
     Reflect.apply(releaseLock, reader, [])
   }
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const result = await Reflect.apply(read, reader, [])
-        if (result.done) {
-          release()
-          controller.close()
-        }
+        const sourceReader = await acquire()
+        const result = await Reflect.apply(read!, sourceReader, [])
+        if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
+        if (result.done) { release(); controller.close() }
+        else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
         else controller.enqueue(result.value)
-      }
-      catch (error) {
-        release()
-        controller.error(error)
-      }
+      } catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
       try {
-        await Reflect.apply(cancel, reader, [reason])
-      }
-      finally {
-        release()
-      }
+        const sourceReader = reader ?? await acquire()
+        await Reflect.apply(cancel!, sourceReader, [reason])
+      } finally { release() }
     },
   }, { highWaterMark: 0 })
   return { stream, release }
@@ -589,86 +624,109 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
   if (value === null || Object(value) !== value) return
   try {
     const candidate = Object(value)
-    if (!hasResponsePrototype(candidate)) return
+    if (!await hasResponsePrototype(candidate)) return
     // Snapshot ordinary property reads once. Prototype shape is not proof of origin.
     const status: unknown = Reflect.get(candidate, "status")
     const statusText: unknown = Reflect.get(candidate, "statusText")
     const headers: unknown = Reflect.get(candidate, "headers")
     const body: unknown = Reflect.get(candidate, "body")
-
-    const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A response snapshot needs an integer HTTP status before constructing the local Response.
     if (typeof status !== "number" || !Number.isInteger(status) || status < 0 || status > 599) return
+    // The Fetch Response constructor rejects status 0 when a body is present.
+    // Reject before acquiring the source reader so malformed responses cannot
+    // leave a foreign stream locked.
+    if (status === 0 && body !== null) return
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Response status text is an opaque boundary string validated by the local Response constructor below.
     if (typeof statusText !== "string") return
     if (headers === null || Object(headers) !== headers) return
 
     const headerCarrier = Object(headers)
-
-    const snapshot = { status, statusText, headers, body, bodyUsed }
+    const snapshot = { status, statusText, headers, body }
     const nativeDescriptors = value instanceof Response && authorizationResponseProperties.every(key =>
       responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
     let nativeProperties = false
+    let nativeBodyUnused = false
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
         const getter = Object.getOwnPropertyDescriptor(Response.prototype, key)?.get
         return getter && Reflect.apply(getter, candidate, []) === snapshot[key]
       })
+      const bodyUsedGetter = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyUnused = Boolean(bodyUsedGetter && !Reflect.apply(bodyUsedGetter, candidate, []))
+        && (body === null || Boolean(lockedGetter && !Reflect.apply(lockedGetter, body, [])))
     }
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    // A foreign implementation must carry its own native Headers methods.
+    // Accepting a foreign Response prototype paired with current-realm Headers
+    // would make a user-defined Response-shaped object indistinguishable from
+    // a genuine cross-runtime response.
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
     const nativeBodyMethod = body === null || responsePropertyDescriptor(Object(body), "getReader")?.value === ReadableStream.prototype.getReader
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
-
-    if (bodyUsed !== false) return
-    // An own bodyUsed property can hide the foreign response's disturbed state.
-    // Read its prototype getter without cloning (which tees and locks the body).
-    if (Object.hasOwn(candidate, "bodyUsed")) {
-      const getter = responsePropertyDescriptor(Object.getPrototypeOf(candidate), "bodyUsed")?.get
-      if (!getter || Reflect.apply(getter, candidate, []) !== false) return
+    let nativeBodyState = false
+    try {
+      const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
+      const locked = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
+      nativeBodyState = bodyUsed !== undefined
+        && !Reflect.apply(bodyUsed, candidate, [])
+        && (body === null || (locked !== undefined && !Reflect.apply(locked, body, [])))
     }
-    if (!(await isSerializableAuthorizationBody(body))) return
-    // Some foreign stream implementations expose `locked` as false after a
-    // reader is released even though the stream is already disturbed. Let the
-    // native constructor perform its intrinsic disturbed-state check before
-    // taking the snapshot; it does not read or lock an undisturbed stream.
-    if (body !== null) {
-      const probe = new Response(body)
-      if (probe.bodyUsed) return
+    catch {
+      // A proxy can expose native descriptors without owning native response state.
     }
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod && nativeBodyState) return value
+    if (!await isSerializableAuthorizationBody(body)) return
+    const serializableBody = body as ReadableStream<Uint8Array>
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Headers.getSetCookie is optional across runtimes; capture its result once when callable.
     const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
     if (!Array.isArray(cookies)) return
     const normalizedHeaders = new Headers()
+    let combinedCookies: string | undefined
     Reflect.apply(forEach, headers, [(value: string, key: string) => {
-      if (key.toLowerCase() !== "set-cookie" || cookies.length === 0) normalizedHeaders.append(key, value)
+      if (key.toLowerCase() === "set-cookie") {
+        if (cookies.length === 0) combinedCookies = value
+        return
+      }
+      normalizedHeaders.append(key, value)
     }])
+    // Preserve one cookie when the fallback exposes only a combined value. A comma
+    // followed by another cookie assignment at the cookie-pair boundary proves that
+    // multiple values were merged. Assignment-like text after an extension attribute
+    // can still be part of that attribute's value, so do not reject it as a merge.
+    if (combinedCookies !== undefined) {
+      if (/^[^;]*,[\s]*[^;=,\s]+\s*=/.test(combinedCookies)) return
+      normalizedHeaders.append("set-cookie", combinedCookies)
+    }
     for (const cookie of cookies) normalizedHeaders.append("set-cookie", cookie)
 
-    // Validate status and native body state before acquiring reader ownership.
+    // Foreign and shadowed values require a serializable local snapshot.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
-    if (body === null) return normalizedResponse
-    const bridgedBody = bridgeAuthorizationBody(body as ReadableStream<Uint8Array>)
-    try {
-      return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
-    }
-    catch (error) {
-      bridgedBody.release()
-      throw error
-    }
+      : body === null
+        ? new Response(null, { status, statusText, headers: normalizedHeaders })
+        : (() => {
+            const bridge = bridgeAuthorizationBody(serializableBody, authorizationBodyReader(Object(serializableBody)) ?? (() => undefined))
+            try {
+              return new Response(bridge.stream, { status, statusText, headers: normalizedHeaders })
+            }
+            catch (error) {
+              bridge.release()
+              throw error
+            }
+          })()
+    // Foreign implementations and shadowed native values become stable local responses.
+    return normalizedResponse
   }
   catch {
-    return undefined
+    return
   }
 }
 
