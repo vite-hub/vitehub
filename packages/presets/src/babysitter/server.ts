@@ -1710,8 +1710,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             // The repair reached GitHub. Its checks and reviews resume the PR.
             outcome = "waiting";
             await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait);
-            await noteForgeQuota(error, "owner-pushed");
-            const expected = isAbortError(error) || (error instanceof Error && error.name === "TimeoutError") || github.isRateLimitError(error);
+            if (!providerLimited) await noteForgeQuota(error, "owner-pushed");
+            const expected = isAbortError(error) || (error instanceof Error && error.name === "TimeoutError") || (!providerLimited && github.isRateLimitError(error));
             if (!expected) schedulerError("babysitter.owner.failed", error, owner);
           } else if (isAbortError(error)) {
             outcome = "completed";

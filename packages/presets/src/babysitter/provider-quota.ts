@@ -52,7 +52,8 @@ export function createProviderQuota(store: QuotaStore, cooldownMs: number, now: 
       if (current > 0 && now() - await blockedUntil() > strikeRecoveryMs) await store.setMeta(providerStrikesKey, current - 1);
     },
     async modelLimit(ownerLimit, cap) {
-      return Math.min(cap, Math.max(Math.min(2, ownerLimit), ownerLimit >> await strikes()));
+      const strikeCount = await strikes();
+      return Math.min(cap, Math.max(Math.min(2, ownerLimit), Math.floor(ownerLimit / 2 ** strikeCount)));
     },
   };
 }
