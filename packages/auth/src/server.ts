@@ -280,24 +280,6 @@ function reject(response: Response): AuthCheck {
   return { response }
 }
 
-const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-
-/**
- * Return whether `value` is a Response of this runtime.
- * The native `status` getter checks the internal Response slot, so a proxy, a copied prototype, an object tagged `Response`,
- * and a Response from another Fetch implementation all fail. The check reads no property of `value`.
- */
-function isRuntimeResponse(value: unknown): value is Response {
-  if (!nativeResponseStatus || value === null || typeof value !== "object") return false
-  try {
-    Reflect.apply(nativeResponseStatus, value, [])
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
 /**
  * Only `true` grants access. A Response of this runtime is sent as the rejection. Every other value gets `403`.
  */
@@ -645,11 +627,6 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
-  // A native Response from this Fetch implementation is already safe to
-  // return, including responses whose body has been consumed or locked. The
-  // intrinsic status getter is a realm-independent internal-slot check and
-  // does not inspect body state.
-  if (isRuntimeResponse(value)) return value
   try {
     const candidate = Object(value)
     if (!await hasResponsePrototype(candidate)) return
