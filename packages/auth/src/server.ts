@@ -807,10 +807,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
 
-    // A null body cannot be bridged; only a response branded by this runtime
-    // may cross this boundary without a source stream to validate.
-    if (body === null && !(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod)) return
-
+    // A null body cannot be bridged. A foreign `Response.error()` has no
+    // stream to transfer, but its intrinsic snapshot is still a valid
+    // authorization response and must retain its status-zero semantics.
     let nativeBodyReader = body === null
       ? (() => { throw new Error("A null body has no reader") })
       : await getNativeAuthorizationBodyReader(body)
@@ -881,9 +880,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // constructor acquires the stream's reader, which would prevent the bridge
     // below from acquiring it again.
     if (body === null) {
-      return status === 0 && statusText === "" && [...normalizedHeaders].length === 0
-        ? Response.error()
-        : new Response(null, { status, statusText, headers: normalizedHeaders })
+      const emptyError = status === 0 && statusText === "" && [...normalizedHeaders].length === 0
+      const nativeForeignError = emptyError && nativeHeaderMethods && nativeCookieMethod
+      if (!(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) && !nativeForeignError) return
+      return emptyError ? Response.error() : new Response(null, { status, statusText, headers: normalizedHeaders })
     }
     const bridgedBody = bridgeAuthorizationBody(body, nativeBodyReader)
     try {
