@@ -641,7 +641,7 @@ function bridgeAuthorizationBody(
         if (typeof result.done !== "boolean") throw new Error("Malformed authorization read result")
         if (result.done) { release(); controller.close() }
         else if (!isIntrinsicUint8Array(result.value)) { release(); controller.error(new Error("Malformed authorization read result")) }
-        else controller.enqueue(Reflect.construct(intrinsicUint8ArrayConstructor, [result.value.buffer, result.value.byteOffset, result.value.byteLength]))
+        else controller.enqueue(Reflect.construct(intrinsicUint8ArrayConstructor, [result.value]))
       } catch (error) { release(); controller.error(error) }
     },
     async cancel(reason) {
@@ -719,8 +719,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     catch {
       // A proxy can expose native descriptors without owning native response state.
     }
-    const UndiciResponse = await getUndiciResponse()
-    if (status === 0 && body === null) return value as Response
     if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyMethod) return value
     if (!await isSerializableAuthorizationBody(body)) return
     const serializableBody = body as ReadableStream<Uint8Array>
@@ -754,8 +752,16 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       : body === null
         ? new Response(null, { status, statusText, headers: normalizedHeaders })
         : (() => {
-            const bodyReader = authorizationBodyReader(Object(serializableBody)) ?? (() => undefined)
-            const bridge = bridgeAuthorizationBody(serializableBody, bodyReader)
+            const bodyObject = Object(serializableBody)
+            const bodyReader = authorizationBodyReader(bodyObject) ?? (() => undefined)
+            // Acquire readers eagerly for stream subclasses. Their inherited
+            // native reader method can otherwise leave the local bridge pull
+            // awaiting a reader acquisition that never settles.
+            const bodyPrototype = Object.getPrototypeOf(bodyObject)
+            const eagerReader = bodyPrototype !== ReadableStream.prototype
+              ? Reflect.apply(bodyReader, bodyObject, []) as ReadableStreamDefaultReader<Uint8Array>
+              : undefined
+            const bridge = bridgeAuthorizationBody(serializableBody, bodyReader, eagerReader)
             try {
               return new Response(bridge.stream, { status, statusText, headers: normalizedHeaders })
             }
