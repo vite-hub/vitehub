@@ -362,7 +362,7 @@ function aiSdkAttachmentMaxBytes(options: AiSdkAttachmentOptions | undefined): n
 function attachmentDataByteLength(data: AttachmentData | undefined): number | undefined {
   if (isAttachmentBlob(data)) return blobSize(data)
   if (isArrayBufferValue(data)) return data.byteLength
-  if (ArrayBuffer.isView(data)) return data.byteLength
+  if (isUint8ArrayValue(data)) return data.byteLength
   if (hasRuntimeType(data, "string")) return new TextEncoder().encode(data).byteLength
 }
 
