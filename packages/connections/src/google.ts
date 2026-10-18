@@ -1,9 +1,7 @@
-import * as v from "valibot"
-
 import { gmailMethods, gmailRootUrl } from "./google/gmail.ts"
 
 import type { GmailMethods } from "./google/gmail.ts"
-import type { ConnectionAccount, ConnectionProvider, ConnectionValue } from "./types.ts"
+import type { ConnectionProvider, ConnectionValue } from "./types.ts"
 
 export type * from "./google/gmail.ts"
 
@@ -16,27 +14,9 @@ export interface GoogleProviderOptions {
   clientSecret: ConnectionValue
 }
 
-const accountClaims = v.object({ sub: v.string(), email: v.optional(v.string()) })
-
-function decodeIdToken(token: string | undefined): ConnectionAccount | undefined {
-  const payload = token?.split(".")[1]
-  if (!payload) return undefined
-  try {
-    const claims: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(payload.replace(/-/g, "+").replace(/_/g, "/")), character => character.charCodeAt(0))))
-    const parsed = v.safeParse(accountClaims, claims)
-    if (!parsed.success) return undefined
-    const account: ConnectionAccount = { id: parsed.output.sub }
-    if (parsed.output.email !== undefined) account.email = parsed.output.email
-    return account
-  }
-  catch {
-    return undefined
-  }
-}
-
 /**
- * Google OAuth 2.0 with offline access. The account comes from the ID token that
- * Google returns from the token endpoint over TLS.
+ * Google OAuth 2.0 with offline access. It requests `openid`, so the account comes
+ * from the ID token that Google returns from the token endpoint.
  */
 export function google(options: GoogleProviderOptions): ConnectionProvider<GoogleApis> {
   return {
@@ -64,6 +44,5 @@ export function google(options: GoogleProviderOptions): ConnectionProvider<Googl
         ],
       },
     },
-    account: token => decodeIdToken(token.id_token),
   }
 }
