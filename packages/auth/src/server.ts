@@ -493,13 +493,18 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const cookieDescriptor = headerPrototype
       ? Object.getOwnPropertyDescriptor(headerPrototype, "getSetCookie")
       : undefined
-    const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
-      || typeof cookieDescriptor.value === "function")
+    const cookieMethod = cookieDescriptor?.value
+    // A callable value alone is not enough: a caller can replace the foreign
+    // prototype method while preserving the Headers brand. Native implementations
+    // either expose a host intrinsic or perform their own Web IDL brand check.
+    const cookieSource = typeof cookieMethod === "function" ? Function.prototype.toString.call(cookieMethod) : ""
+    const nativeCookieMethod = !cookieDescriptor?.get && (cookieMethod === undefined
+      || (typeof cookieMethod === "function" && cookieMethod.name === "getSetCookie"
+        && (cookieSource.includes("[native code]") || cookieSource.includes("brandCheck"))))
     if (!nativeHeaderMethods || !nativeCookieMethod) return
     if (body !== null && !isSerializableAuthorizationBody(body)) return
     const forEach = Reflect.get(headerCarrier, "forEach")
-    const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
-    const cookies: unknown = typeof getSetCookie === "function" ? Reflect.apply(getSetCookie, headers, []) : []
+    const cookies: unknown = typeof cookieMethod === "function" ? Reflect.apply(cookieMethod, headers, []) : []
     if (!Array.isArray(cookies)) return
     // Without a cookie accessor, multiple Set-Cookie values may be collapsed.
     const normalizedHeaders = new Headers()
