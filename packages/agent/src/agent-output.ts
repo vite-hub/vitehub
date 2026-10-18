@@ -1,3 +1,5 @@
+import { isTrustedResponseConstructor } from "./internal/response.ts"
+
 import { hasRuntimeType, isRuntimeObject, runtimeType } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
@@ -970,12 +972,9 @@ function isResponseLike(value: unknown): value is Response {
     // instance. Require that implementation surface for unbranded own-tag
     // responses instead of trusting caller-controlled constructor metadata.
     if (ownResponseTag && !trustedResponse) {
-      const ownBodyFactory = Object.prototype.hasOwnProperty.call(value, "_bodyFactory")
-        && hasRuntimeType((value as Record<string, unknown>)._bodyFactory, "function")
-      const ownBodyInit = Object.prototype.hasOwnProperty.call(value, "bodyInit")
-      const ownOptions = Object.prototype.hasOwnProperty.call(value, "options")
-      const generateBody = getPrototypeMethod(value, "generateBody")
-      if (!ownBodyFactory || !ownBodyInit || !ownOptions || !generateBody) return false
+      // Foreign Fetch implementations must opt in at their adapter boundary.
+      // Public fields such as `_bodyFactory` are copyable and do not establish provenance.
+      if (!isTrustedResponseConstructor(constructorDescriptor.value)) return false
     }
     if (!trustedResponse && !ownResponseTag) return false
     const status = read("status")

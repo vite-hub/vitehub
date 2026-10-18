@@ -3,6 +3,7 @@ import { Response as ForeignResponse } from "../../../node_modules/.pnpm/@whatwg
 import { describe, expect, it } from "vitest"
 
 import { applyStreamEvent } from "../src/messages.ts"
+import { registerResponseConstructor } from "../src/internal/response.ts"
 import { finalChannelOutputSelectedSymbol } from "../src/internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "../src/internal/synthesized-agent-output.ts"
 import {
@@ -13,6 +14,8 @@ import {
   toAgentStreamEvent,
   usageRecordFromStreamChunk,
 } from "../src/agent-output.ts"
+
+registerResponseConstructor(ForeignResponse)
 
 describe("agent output helpers", () => {
   it("normalizes primitive values into Agent run results", () => {

@@ -3,6 +3,16 @@
 // tags, copied methods, or objects inheriting Response.prototype. Unrelated Fetch
 // implementations must be converted to the host Response at their adapter boundary.
 const responseHeaders = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get
+const trustedResponseConstructors = new WeakSet<Function>([Response])
+
+/** Register an independently implemented Fetch Response constructor at an adapter boundary. */
+export function registerResponseConstructor(constructor: Function): void {
+  trustedResponseConstructors.add(constructor)
+}
+
+export function isTrustedResponseConstructor(constructor: unknown): constructor is Function {
+  return typeof constructor === "function" && trustedResponseConstructors.has(constructor)
+}
 
 export function isResponse(value: unknown): value is Response {
   try {
@@ -11,6 +21,7 @@ export function isResponse(value: unknown): value is Response {
     return true
   }
   catch {
-    return false
+    const constructor = (value as { constructor?: unknown }).constructor
+    return isTrustedResponseConstructor(constructor) && value instanceof (constructor as Function)
   }
 }

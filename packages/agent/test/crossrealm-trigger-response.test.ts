@@ -2,11 +2,12 @@ import { runInNewContext } from "node:vm"
 import { Response as ForeignFetchResponse } from "../../../node_modules/.pnpm/@whatwg-node+node-fetch@0.8.6/node_modules/@whatwg-node/node-fetch/esm/index.js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { streamAgentOutputToEvents } from "../src/agent-output.ts"
-import { isResponse } from "../src/internal/response.ts"
+import { registerResponseConstructor, isResponse } from "../src/internal/response.ts"
 import { isUIMessageStreamResponse } from "../src/stream-output.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocationResult } from "../src/trigger-runtime.ts"
 
 const HostResponse = Response
+registerResponseConstructor(ForeignFetchResponse)
 
 function foreignResponse(body = "foreign", init?: ResponseInit): Response {
   const response = new ForeignFetchResponse(body, init)
