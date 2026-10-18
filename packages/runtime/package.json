@@ -55,6 +55,12 @@
       "require": "./dist/internal/runtime-type.js",
       "default": "./dist/internal/runtime-type.js"
     },
+    "./internal/execution-budget": {
+      "types": "./dist/internal/execution-budget.d.ts",
+      "import": "./dist/internal/execution-budget.js",
+      "require": "./dist/internal/execution-budget.js",
+      "default": "./dist/internal/execution-budget.js"
+    },
     "./node": {
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js",

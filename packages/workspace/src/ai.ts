@@ -729,11 +729,18 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
         return await materializeWorkspaceSourcesTool(input, { path, sources })
       },
     }), { icon: "i-lucide-folder-sync", title: "Materialized Workspace sources" })
+    if (resolved.budget) markExecutionBudgetHandled(result.materialize_sources)
   }
 
   if (writeEnabled) {
     // SAFETY: writeEnabled is only set for a mutable Workspace with write operations.
-    Object.assign(result, createWriteTools(input as Workspace, resolved.write, resolved.budget))
+    const writeTools = createWriteTools(input as Workspace, resolved.write, resolved.budget)
+    Object.assign(result, writeTools)
+    if (resolved.budget) {
+      for (const writeTool of Object.values(writeTools)) {
+        if (writeTool) markExecutionBudgetHandled(writeTool)
+      }
+    }
   }
 
   // Resolved flags select the shell, materialize_sources, and write tool contracts declared by WorkspaceTools.

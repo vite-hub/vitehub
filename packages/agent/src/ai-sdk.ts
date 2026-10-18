@@ -1303,6 +1303,16 @@ async function createAgent(
   const observedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  const wrapLanguageModel = context.executionBudget ? aiSdk.wrapLanguageModel : undefined
+  if (context.executionBudget && !hasRuntimeType(wrapLanguageModel, "function")) {
+    throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
+  }
+  const instrumentedModel = context.executionBudget && wrapLanguageModel
+    ? wrapLanguageModel({
+        model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
+        middleware: executionBudgetMiddleware(context.executionBudget, hasRuntimeType(copyCallSettings(execution?.callSettings).maxRetries, "number") ? copyCallSettings(execution?.callSettings).maxRetries : undefined),
+      })
+    : observedModel
   const instructions = await composeInstructions(
     joinInstructions(
       await resolveInstructions(options, metadataContext),
@@ -1354,22 +1364,14 @@ async function createAgent(
     context: context.context,
     input: context.input,
     invoker: context.invoker,
-    model: observedModel,
+    model: instrumentedModel,
     run: context.runtime.run,
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  const remainingRetries = context.executionBudget?.snapshot().remaining.retries
-  const budgetedSettings = remainingRetries === undefined
-    ? settings
-    : {
-        ...settings,
-        maxRetries: Math.min(
-          typeof settings.maxRetries === "number" ? settings.maxRetries : remainingRetries,
-          remainingRetries,
-        ),
-      }
+  // The model wrapper owns retries; SDK retries would bypass or multiply accounting.
+  const budgetedSettings = context.executionBudget ? { ...settings, maxRetries: 0 } : settings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
@@ -1396,7 +1398,7 @@ async function createAgent(
             ...repairSettings,
             instructions,
             // SAFETY: AI SDK adapter normalization establishes the asserted model contract.
-            model: observedModel as never,
+            model: instrumentedModel as never,
             output: aiSdk.Output.object({ schema: jsonSchema(schema) }),
             ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
             stopWhen: isStepCount(1),
@@ -1439,7 +1441,7 @@ async function createAgent(
         ...repairSettings,
         instructions,
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-        model: observedModel as never,
+        model: instrumentedModel as never,
         ...(nativeOutput ? { output: nativeOutput } : {}),
         ...(prepareRepairCall ? { prepareCall: prepareRepairCall } : {}),
         stopWhen: isStepCount(1),
@@ -1489,7 +1491,7 @@ async function createAgent(
       ...commonSettings,
       instructions,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      model: observedModel as never,
+      model: instrumentedModel as never,
       ...(nativeOutput ? { output: nativeOutput } : {}),
       experimental_repairToolCall: undefined,
       // SAFETY: Repair selection above normalizes every supported repair callback to the AI SDK contract.
@@ -1499,7 +1501,7 @@ async function createAgent(
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
-    model: observedModel,
+    model: instrumentedModel,
     repairOutput,
     toolRepairUsageCaptures,
     tools: Object.keys(toolSet).length ? toolSet : undefined,
