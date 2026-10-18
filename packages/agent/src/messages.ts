@@ -67,6 +67,11 @@ export function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   }
 }
 
+export function arrayBufferByteLength(value: ArrayBuffer): number {
+  // SAFETY: The intrinsic ArrayBuffer byteLength getter reads the internal slot.
+  return Reflect.apply(arrayBufferByteLengthGetter!, value, []) as number
+}
+
 export function isUint8ArrayValue(value: unknown): value is Uint8Array {
   if (!ArrayBuffer.isView(value)) return false
   if (!typedArrayTagGetter) return false

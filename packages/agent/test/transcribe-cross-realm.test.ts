@@ -43,6 +43,13 @@ describe("Transcribe attachment portability", () => {
     await expect(audioBytes({ fetchData: () => data, mediaType: "audio/ogg", type: "audio" }, { maxBytes: 2 })).rejects.toThrow("exceeds maxBytes")
   })
 
+  it("uses the intrinsic ArrayBuffer size for maxBytes", async () => {
+    const data = new ArrayBuffer(100)
+    Object.defineProperty(data, "byteLength", { value: 0 })
+    await expect(audioBytes({ data, mediaType: "audio/ogg", type: "audio" }, { maxBytes: 1 })).rejects.toThrow("exceeds maxBytes")
+    await expect(audioBytes({ fetchData: () => data, mediaType: "audio/ogg", type: "audio" }, { maxBytes: 1 })).rejects.toThrow("exceeds maxBytes")
+  })
+
   it("preserves a spoofed Uint16Array's raw byte range", async () => {
     const data = new Uint16Array([0x1234, 0x5678, 0x9abc]).subarray(1, 2)
     Object.defineProperty(data, Symbol.toStringTag, { value: "Uint8Array" })

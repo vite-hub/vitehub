@@ -1,6 +1,6 @@
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { appendMessageText, attachmentStringByteLength, attachmentStringBytes, blobArrayBuffer, blobSize, isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "../messages.ts"
+import { appendMessageText, arrayBufferByteLength, attachmentStringByteLength, attachmentStringBytes, blobArrayBuffer, blobSize, isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { isTranscriptionAbortError, isTranscriptionError, transcriptionError } from "./transcription.ts"
 
@@ -157,7 +157,7 @@ function assertWithinMaxBytes(byteLength: number | undefined, maxBytes: number, 
 async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<AudioData | undefined> {
   assertWithinMaxBytes(audio.size, maxBytes, "audio")
   if (isBlobValue(audio.data)) assertWithinMaxBytes(blobSize(audio.data), maxBytes, "audio data")
-  else if (isArrayBufferValue(audio.data)) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
+  else if (isArrayBufferValue(audio.data)) assertWithinMaxBytes(arrayBufferByteLength(audio.data), maxBytes, "audio data")
   else if (ArrayBuffer.isView(audio.data)) assertWithinMaxBytes(audio.data.byteLength, maxBytes, "audio data")
   if (audio.data) return audio.data
   if (!audio.fetchData) return
@@ -172,7 +172,7 @@ async function resolveAudioData(audio: AudioPart, maxBytes: number): Promise<Aud
   }
   const data = await cached
   if (isBlobValue(data)) assertWithinMaxBytes(blobSize(data), maxBytes, "downloaded audio")
-  else if (isArrayBufferValue(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
+  else if (isArrayBufferValue(data)) assertWithinMaxBytes(arrayBufferByteLength(data), maxBytes, "downloaded audio")
   else if (ArrayBuffer.isView(data)) assertWithinMaxBytes(data.byteLength, maxBytes, "downloaded audio")
   else if (hasRuntimeType(data, "string") && !/^data:/i.test(data)) assertWithinMaxBytes(data.length, maxBytes, "downloaded audio")
   return data
