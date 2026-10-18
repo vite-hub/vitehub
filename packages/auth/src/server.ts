@@ -663,6 +663,11 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
 
 async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
+  // A native Response from this Fetch implementation is already safe to
+  // return, including responses whose body has been consumed or locked. The
+  // intrinsic status getter is a realm-independent internal-slot check and
+  // does not inspect body state.
+  if (isRuntimeResponse(value)) return value
   try {
     const candidate = Object(value)
     if (!await hasResponsePrototype(candidate)) return
