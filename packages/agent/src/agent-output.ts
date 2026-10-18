@@ -582,6 +582,19 @@ export async function resolveAgentUsageRecord(value: unknown, run?: Partial<Agen
   return await usageFromResult(value, run) ?? await usageFromResult(readableRecordValue(value, "raw"), run)
 }
 
+/** Resolve usage while a provider stream is still active without evaluating deferred getters. */
+export async function resolveAgentUsageRecordDuringStream(value: unknown, run?: Partial<AgentRunMetadata>): Promise<AgentUsageRecord | undefined> {
+  if (!isRecord(value)) return
+  const usageRecord = ownValue(value, "usageRecord")
+  if (isUsageRecord(usageRecord)) return withFallbackUsageMetadata(usageRecord, value, run)
+  return usageRecordFromUsage(
+    await resolveUsageValue(usageMetadataValue(value, "usage") ?? usageMetadataValue(value, "totalUsage")),
+    value,
+    undefined,
+    run,
+  )
+}
+
 function optionalMessageId(messageId: string | undefined): { messageId?: string } {
   return messageId ? { messageId } : {}
 }

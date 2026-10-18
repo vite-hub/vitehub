@@ -45,7 +45,7 @@ import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAge
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
-import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
+import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, resolveAgentUsageRecordDuringStream, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
 import { defineChatCapability, durableChatErrorFallbackTimeout, getAgentChatContext, getChatCapabilityOptions, isDurableChatErrorFallbackEffect, resolveChatMessageContextInstructions, resolveChatMessageRunMetadata, resolveDurableChatErrorFallbackIntents } from "./chat-trigger.ts"
 import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
@@ -5239,7 +5239,7 @@ function withEagerStreamUsageExtensions<
         const usageRecord = usageRecordFromStreamChunk(chunk, result)
         if (!usageRecord) {
           if (isRuntimeRecord(chunk) && chunk.type === "finish") {
-            const fallbackUsage = await runExtensions(await resolveAgentUsageRecord(result, context.run))
+            const fallbackUsage = await runExtensions(await resolveAgentUsageRecordDuringStream(result, context.run))
             if (fallbackUsage) yield { type: "usage", usageRecord: fallbackUsage }
           }
           yield chunk

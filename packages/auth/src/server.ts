@@ -455,10 +455,6 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
         // A name-only constructor is easy to spoof and does not establish a
         // native stream brand. Genuine stream prototypes own this link.
         if (typeof constructor !== "function" || constructor.prototype !== prototype) return
-        // Reject foreign stream implementations before invoking any
-        // caller-controlled reader methods; only the captured host brand is
-        // safe to bridge at this authorization boundary.
-        if (constructor !== ReadableStream) return
         const locked = Object.getOwnPropertyDescriptor(prototype, "locked")
         const nativeShape = locked?.get
           && Object.getOwnPropertyDescriptor(prototype, "cancel")?.value
