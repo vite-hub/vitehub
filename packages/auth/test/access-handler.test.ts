@@ -149,6 +149,22 @@ describe("Auth access handlers", () => {
     await expect(response?.text()).resolves.toBe("Policy rejected")
   })
 
+  it("rejects foreign responses with an inserted Headers prototype", async () => {
+    const foreignResponse = new ForeignResponse("Policy rejected", { status: 409 })
+    const headers = foreignResponse.headers
+    const nativePrototype = Object.getPrototypeOf(headers)
+    Object.setPrototypeOf(headers, {
+      get: () => "forged",
+      forEach: () => { throw new Error("forged forEach") },
+      __proto__: nativePrototype,
+    })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
+  })
+
   it.each([["local", Response], ["foreign", ForeignResponse]] as const)("preserves authorization responses without getSetCookie from the %s runtime", async (_runtime, ResponseConstructor) => {
     const response = new ResponseConstructor("Policy rejected", { status: 409 })
     Object.defineProperty(response.headers, "getSetCookie", { value: undefined })

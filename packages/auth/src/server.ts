@@ -471,15 +471,18 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // A proxy around a local Response cannot pass native accessors directly,
     // but its ordinary reads still provide a stable snapshot for normalization.
 
+    const headerPrototype = Object.getPrototypeOf(headerCarrier)
     const headerMethodOwners = ["get", "forEach"].map(key => {
-      if (Object.prototype.hasOwnProperty.call(headerCarrier, key)) return undefined
-      let current: object | null = Object.getPrototypeOf(headerCarrier)
-      for (let depth = 0; current && depth < authorizationResponsePrototypeLimit; depth++) {
-        const descriptor = Object.getOwnPropertyDescriptor(current, key)
-        if (descriptor) return typeof descriptor.value === "function" ? current : undefined
-        current = Object.getPrototypeOf(current)
-      }
-      return undefined
+      if (!headerPrototype || Object.prototype.hasOwnProperty.call(headerCarrier, key)) return undefined
+      const descriptor = Object.getOwnPropertyDescriptor(headerPrototype, key)
+      if (!descriptor || typeof descriptor.value !== "function") return undefined
+      // Native Headers prototypes inherit directly from their runtime's Object
+      // prototype. An inserted prototype layer would inherit from the native
+      // Headers prototype and could replace the methods we are about to invoke.
+      const parent = Object.getPrototypeOf(headerPrototype)
+      if (parent && (Object.prototype.hasOwnProperty.call(parent, key)
+        || Object.prototype.hasOwnProperty.call(parent, key === "get" ? "forEach" : "get"))) return undefined
+      return headerPrototype
     })
     const nativeHeaderMethods = headerMethodOwners.every(Boolean)
       && headerMethodOwners[0] === headerMethodOwners[1]
@@ -487,7 +490,9 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
     // a genuine cross-runtime response.
-    const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
+    const cookieDescriptor = headerPrototype
+      ? Object.getOwnPropertyDescriptor(headerPrototype, "getSetCookie")
+      : undefined
     const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
       || typeof cookieDescriptor.value === "function")
     if (!nativeHeaderMethods || !nativeCookieMethod) return
