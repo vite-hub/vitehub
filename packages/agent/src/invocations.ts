@@ -583,7 +583,6 @@ function boundedString(value: string | undefined): string | undefined {
 }
 
 function isDateValue(value: unknown): value is Date {
-  if (value instanceof Date) return true
   try {
     Date.prototype.getTime.call(value)
     return true

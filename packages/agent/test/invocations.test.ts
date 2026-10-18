@@ -2150,7 +2150,7 @@ describe("Agent Invocations", () => {
           data: new Uint8Array([1, 2, 3]),
           files: new Map([["README.md", 42]]),
           invalidDate: new Date(Number.NaN),
-          foreignInvalidDate: runInNewContext(`Object.assign(new Date(NaN), { toString() { throw new Error("foreign toString"); }, valueOf() { throw new Error("foreign valueOf"); }, [Symbol.toPrimitive]() { throw new Error("foreign primitive"); } })`),
+          foreignInvalidDate: runInNewContext(`(() => { const value = new Date(NaN); Object.defineProperties(value, { toString: { value() { throw new Error("foreign toString"); } }, valueOf: { value() { throw new Error("foreign valueOf"); } }, [Symbol.toPrimitive]: { value() { throw new Error("foreign primitive"); } } }); return value })()`),
           paths: new Set(["README.md", "package.json"]),
           pattern: /vitehub/gi,
         },
