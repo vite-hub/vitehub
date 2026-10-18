@@ -73,7 +73,7 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ),
     CONSOLE_DEVELOPMENT_ONLY: code(
       "console: true is development-only. It works only on the development server.",
-      "For production, set console: { auth: \"app\" } or console: { auth: { ... }, authorize }.",
+      "For production, set console: { auth: \"app\" }, console: { auth: { ... }, authorize }, or console: { authorize } for host-managed access.",
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),
@@ -90,8 +90,8 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "docs",
     ),
     CONSOLE_AUTHORIZE_REQUIRED: code(
-      "Console authorization is not configured.",
-      "Set console.authorize to a server authorization function.",
+      "Console access requires console.authorize.",
+      "Set console.authorize to defineConsoleAuthorize(() => true) in a server authorization function.",
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),
