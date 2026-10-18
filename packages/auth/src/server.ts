@@ -311,17 +311,14 @@ const nativeReaderMethods = Object.fromEntries(([
   "read", "cancel", "releaseLock",
 ] as const).map(key => [key, Object.getOwnPropertyDescriptor(ReadableStreamDefaultReader.prototype, key)?.value])) as Record<string, unknown>
 const nativeStreamGetReader = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "getReader")?.value
-const nativeUint8ArraySlice = Uint8Array.prototype.slice
 const nativeTypedArrayTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
 function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
   if (!ArrayBuffer.isView(value)) return false
   try {
-    // Slice creates a result with the source view's intrinsic typed-array brand.
-    // Check that result rather than a caller-controlled tag on the input.
-    const probe = Reflect.apply(nativeUint8ArraySlice, value, [0, 1]) as ArrayBufferView
-    return (probe.byteLength === 1 || (probe.byteLength === 0 && (value as ArrayBufferView).byteLength === 0))
-      && nativeTypedArrayTag !== undefined
-      && Reflect.apply(nativeTypedArrayTag, probe, []) === "Uint8Array"
+    // The captured %TypedArray%.prototype Symbol.toStringTag getter reads the
+    // value's intrinsic typed-array brand and does not consult species or tags.
+    return nativeTypedArrayTag !== undefined
+      && Reflect.apply(nativeTypedArrayTag, value, []) === "Uint8Array"
   }
   catch {
     return false
