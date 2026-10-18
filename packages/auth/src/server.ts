@@ -414,8 +414,14 @@ export function createAuthAccessHandler(
     index,
     authorize: route.authorize === true,
     method: route.method?.toUpperCase(),
-    path: resolveAuthMountPath(route.route.endsWith("/**") ? route.route.slice(0, -3) : route.route),
     recursive: route.route.endsWith("/**"),
+    path: (() => {
+      const recursive = route.route.endsWith("/**")
+      const path = resolveAuthMountPath(recursive ? route.route.slice(0, -3) : route.route)
+      // A root recursive rule (`/**`) resolves to the application base with a
+      // trailing slash. Trim it before building the descendant prefix below.
+      return recursive && path.endsWith("/") ? path.slice(0, -1) : path
+    })(),
   }))
 
   return async (input) => {
