@@ -318,7 +318,7 @@ function isIntrinsicUint8Array(value: unknown): value is Uint8Array {
     // Slice creates a result with the source view's intrinsic typed-array brand.
     // Check that result rather than a caller-controlled tag on the input.
     const probe = Reflect.apply(nativeUint8ArraySlice, value, [0, 1]) as ArrayBufferView
-    return probe.byteLength === 1
+    return (probe.byteLength === 1 || (probe.byteLength === 0 && (value as ArrayBufferView).byteLength === 0))
       && Object.prototype.toString.call(probe) === "[object Uint8Array]"
   }
   catch {
@@ -769,7 +769,8 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Preserve same-runtime Responses by identity, including bodies that are
     // intentionally locked by an outstanding reader. The intrinsic bodyUsed
     // checks above still reject consumed responses before this fast path.
-    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
+    if (value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod
+      && intrinsicBodyUsed === false) return value
     // A genuine stream from an arbitrary realm cannot safely donate its
     // reader methods across the boundary. The platform Response constructor
     // performs the source-runtime brand check and creates a host stream whose
