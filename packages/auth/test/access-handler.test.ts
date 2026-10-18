@@ -99,6 +99,17 @@ describe("Auth access handlers", () => {
     expect((await handler(new Request("https://app.example/admin/users")))?.status).toBe(403)
   })
 
+  it("accepts authorization routes without a current-realm Object prototype", async () => {
+    const authorize = vi.fn(() => true)
+    const route = Object.assign(Object.create(null), { route: "/private", authorize })
+    const handler = createAuthAccessHandler([{ route: "/private", authorize: true }], defineAuth({
+      access: { routes: [route] },
+    }))
+
+    await expect(handler(new Request("https://app.example/private"))).resolves.toBeUndefined()
+    expect(authorize).toHaveBeenCalledOnce()
+  })
+
   it("preserves missing runtime route diagnostics", async () => {
     const handler = createAuthAccessHandler([{ route: "/admin/**", authorize: true }], defineAuth(() => ({
       access: { routes: [] },
