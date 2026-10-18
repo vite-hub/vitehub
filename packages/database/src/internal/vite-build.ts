@@ -385,6 +385,7 @@ export async function generateProviderOutputs(
           wranglerConfigOwnership: { keys: ["d1_databases", "hyperdrive"] },
         }
       },
+      vercel: { serverFunctionName: options.serverFunctionName ?? "__server.func" },
     },
     rootDir: options.rootDir,
     sourceRootDir: options.appRootDir,
