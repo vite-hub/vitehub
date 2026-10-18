@@ -285,6 +285,11 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
   const normalized = normalizeUIMessageStreamResponse(response)
   if (!normalized) throw new TypeError("Expected a readable UI message stream Response")
   const body = normalized.body
+  // Registered foreign streams may expose `pipeThrough` through an instance
+  // proxy (or an overridden own property). Bridge through the validated reader
+  // operations instead of invoking that caller-controlled method directly.
+  const bridged = isResponse(response) ? bridgeUIMessageBody(body, true) : undefined
+  const streamBody = bridged?.stream ?? body
   const decoder = new TextDecoder()
   let buffer = ""
   const enqueueFrames = (controller: TransformStreamDefaultController<unknown>, flush = false) => {
@@ -300,11 +305,9 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
     }
   }
   // SAFETY: The local native stream is piped through a TransformStream whose output type is unknown.
-  const pipeThrough = isResponse(response)
-    ? Reflect.get(body, "pipeThrough")
-    : ReadableStream.prototype.pipeThrough
+  const pipeThrough = ReadableStream.prototype.pipeThrough
   if (!hasRuntimeType(pipeThrough, "function")) throw new TypeError("Expected a readable UI message stream Response")
-  return Reflect.apply(pipeThrough, body, [new TransformStream<Uint8Array, unknown>({
+  return Reflect.apply(pipeThrough, streamBody, [new TransformStream<Uint8Array, unknown>({
     flush(controller) {
       buffer += decoder.decode()
       if (buffer.trim()) buffer += "\n\n"
