@@ -406,11 +406,11 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
       !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
-    // Keep every packed first-party package available in the isolated fixture.
+    // Walk only the package under test and its reachable first-party edges.
     // Packed manifests can gain runtime edges during the build (for example,
-    // Agent's Forge adapter), so walking source manifests alone can omit a
-    // tarball that pnpm must resolve while installing a dependency closure.
-    const workspaceDependencies = new Set(Object.keys(specs))
+    // Agent's Forge adapter), so the closure must follow every source edge
+    // while keeping unrelated tarballs out of the isolated fixture.
+    const workspaceDependencies = new Set<string>()
     const pending = [info.packageName]
     while (pending.length) {
       const packageName = pending.pop()!
@@ -419,11 +419,19 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
       const dependencyInfo = packageInfos.find(candidate => candidate.packageName === packageName)
       if (!dependencyInfo) continue
       const dependencyManifest = await readManifest(join(repoRoot, "packages", dependencyInfo.name, "package.json"))
+      const packedManifest = specs[packageName]
+        ? parse(packageManifestSchema, JSON.parse((await run("tar", ["-xOf", specs[packageName]!.slice("file:".length), "package/package.json"], repoRoot)).stdout))
+        : {}
       const dependencies = [
         ...Object.keys(dependencyManifest.dependencies || {}),
         ...Object.keys(dependencyManifest.optionalDependencies || {}),
         ...Object.keys(dependencyManifest.peerDependencies || {}).filter(name =>
           !dependencyManifest.peerDependenciesMeta?.[name]?.optional,
+        ),
+        ...Object.keys(packedManifest.dependencies || {}),
+        ...Object.keys(packedManifest.optionalDependencies || {}),
+        ...Object.keys(packedManifest.peerDependencies || {}).filter(name =>
+          !packedManifest.peerDependenciesMeta?.[name]?.optional,
         ),
       ]
       for (const dependency of dependencies) {
