@@ -177,9 +177,11 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
             if (!factoryResult || typeof factoryResult !== "object"
               || objectToString.call(factoryResult) !== "[object Response]"
               || Object.prototype.hasOwnProperty.call(factoryResult, Symbol.toStringTag)
-              || !Object.prototype.hasOwnProperty.call(factoryResult, "status")
-              || !Object.prototype.hasOwnProperty.call(factoryResult, "headers")
-              || !Object.prototype.hasOwnProperty.call(factoryResult, "body")) {
+              // Native Fetch factories expose these fields through prototype
+              // accessors backed by internal slots rather than own properties.
+              || !("status" in factoryResult)
+              || !("headers" in factoryResult)
+              || !("body" in factoryResult)) {
               hasFactoryBrand = false
               break
             }
