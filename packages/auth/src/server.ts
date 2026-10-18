@@ -474,7 +474,7 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
         // streams are normalized through the host Response boundary below;
         // never cache or invoke methods obtained from a caller-controlled
         // foreign prototype.
-        if (constructor === ReadableStream && typeof descriptor.value === "function") {
+        if (typeof descriptor.value === "function") {
           // Probe the source runtime's reader prototype before acquiring the
           // caller's body lock. This lets malformed foreign readers fail
           // closed without relying on a host-realm releaseLock operation.
