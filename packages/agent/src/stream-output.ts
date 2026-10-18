@@ -216,9 +216,10 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
   if (!isRuntimeRecord(value)) return
   try {
     // This shape only selects compatibility candidates. It does not prove origin.
-    if (!hasResponsePrototype(value)) return
+    const registered = isResponse(value)
+    if (!registered && !hasResponsePrototype(value)) return
     const branded = responsePrototype(value)
-    if (!branded || !hasResponseBrand(value, branded)) return
+    if (!registered && (!branded || !hasResponseBrand(value, branded))) return
     const status: unknown = Reflect.get(value, "status")
     const statusText: unknown = Reflect.get(value, "statusText")
     const headers: unknown = Reflect.get(value, "headers")
@@ -229,7 +230,8 @@ export function normalizeUIMessageStreamResponse(value: unknown): (Response & { 
     if (!hasRuntimeType(type, "string")) return
     const snapshot = { status, statusText, headers, body, type }
     const markerGetter = headersDescriptor(headers, "get")?.value
-    if (!branded || !hasRuntimeType(markerGetter, "function")
+    if (!registered && !branded) return
+    if (!hasRuntimeType(markerGetter, "function")
       || Reflect.apply(markerGetter, headers, ["x-vercel-ai-ui-message-stream"]) !== "v1") return
     const nativeProperties = value instanceof intrinsicResponse && snapshot.type === type && hasResponsePrototype(value)
     const nativeHeaders = ["get", "forEach"].every(key =>
