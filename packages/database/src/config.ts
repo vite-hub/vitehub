@@ -9,7 +9,7 @@ import {
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
 } from "@vite-hub/internal/definition-catalog"
-import { findIdentifierCalls, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
+import { findDefaultExportCall, findMatching, splitTopLevel } from "@vite-hub/internal/source-scanner"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
@@ -49,10 +49,13 @@ const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 
 function readDefinitionObjectBody(file: string, exact = false) {
   const source = readFileSync(file, "utf8")
-  const calls = findIdentifierCalls(source, "defineDatabase")
-  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default\s*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
-    || calls[0]
-  const argument = call?.arguments[0]?.trim()
+  const exported = findDefaultExportCall(source, ["defineDatabase"])
+  let argument = exported?.argument?.trim()
+  while (argument?.startsWith("(")) {
+    const end = findMatching(argument, 0, "(", ")")
+    if (end === undefined || argument.slice(end + 1).trim()) break
+    argument = argument.slice(1, end).trim()
+  }
   if (!argument?.startsWith("{")) return
   const closeIndex = findMatching(argument, 0, "{", "}")
   return closeIndex === undefined || (exact && argument.slice(closeIndex + 1).trim()) ? undefined : argument.slice(1, closeIndex)

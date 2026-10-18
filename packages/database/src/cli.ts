@@ -10,6 +10,7 @@ import type { ViteHubCliContributor as SharedViteHubCliContributor } from "@vite
 import { dirname, isAbsolute, relative, resolve } from "pathe"
 
 import { resolveConfigValue } from "./config-value.ts"
+import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
 
 /** Refreshes generated artifacts. `strict` fails when a Database Definition cannot load to list its tables. */
 type ResolvedDBViteConfigProvider = (options: { strict: boolean }) => MaybePromise<ResolvedDBViteConfig | undefined>
@@ -124,7 +125,7 @@ async function ensureLocalSqliteDirectory(database: ResolvedDrizzleDatabaseConfi
   if (database.cloudflare?.http && database.cloudflare.databaseId) return
   const url = resolveConfigValue(database.connection?.url, context.env ?? process.env)
   if (!url || url === ":memory:" || /^(?:libsql:|https?:|wss?:)/i.test(url)) return
-  const path = url.replace(/^file:(?:\/\/(?=\/))?/, "").replace(/\?.*$/, "")
+  const path = resolveLocalSqlitePath(url)
   if (!path || path === ":memory:") return
   await mkdir(dirname(resolve(projectRoot, path)), { recursive: true })
 }

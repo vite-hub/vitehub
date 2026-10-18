@@ -120,6 +120,18 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
       if (usage) return usage
     }
   }
+  for (const statement of Array.isArray(program.body) ? program.body : []) {
+    if (!isNode(statement) || statement.type !== "ExportAllDeclaration" || !isNode(statement.source)) continue
+    const specifier = statement.source.value
+    if (typeof specifier !== "string" || !specifier.startsWith(".")) continue
+    const base = resolve(file, "..", specifier)
+    const candidates = [base, ...[".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"].map(ext => `${base}${ext}`), ...["index.ts", "index.tsx", "index.js", "index.jsx", "index.mts", "index.cts", "index.mjs", "index.cjs"].map(name => join(base, name))]
+    const target = candidates.find(candidate => existsSync(candidate))
+    if (target) {
+      const usage = readCmsPresetUsageInternal(readFileSync(target, "utf8"), target, projectRoot, parseAst, seen)
+      if (usage) return usage
+    }
+  }
   if (!cmsPresetModules.some(module => source.includes(module))) return
   const bindings = new Set<string>()
   const namespaces = new Set<string>()
