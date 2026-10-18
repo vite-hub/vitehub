@@ -58,9 +58,13 @@ export interface ConnectionProvider<TApis extends object = object> {
   /** Scopes added to each authorization request so the provider identifies the account. */
   readonly identityScopes?: readonly string[]
   readonly authorizationParams?: Readonly<Record<string, string>>
-  readonly apis: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
-  /** Read the account identity from the token response of an authorization code exchange. */
-  account: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
+  /** Typed API catalogs. Their root URLs receive the token. Default: none. */
+  readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /**
+   * Read the account identity from the token response of an authorization code exchange.
+   * Default: when `identityScopes` includes `openid`, the `sub` and `email` claims of the ID token.
+   */
+  account?: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
   /** Type-only method map. It has no runtime value. */
   readonly "~apis"?: TApis
 }
