@@ -59,12 +59,38 @@ function streamBody(read: () => ReadableStream): ReadableStream<Uint8Array> {
 
 const blobType = Object.getOwnPropertyDescriptor(Blob.prototype, "type")?.get
 
+function getForeignBlobMethods(value: object): { stream: (value: object) => ReadableStream; type: string } | undefined {
+  let prototype: object | null = Object.getPrototypeOf(value)
+  while (prototype) {
+    const stream = Object.getOwnPropertyDescriptor(prototype, "stream")?.value
+    const arrayBuffer = Object.getOwnPropertyDescriptor(prototype, "arrayBuffer")?.value
+    const text = Object.getOwnPropertyDescriptor(prototype, "text")?.value
+    const typeDescriptor = Object.getOwnPropertyDescriptor(prototype, "type")
+    const ownType = Object.getOwnPropertyDescriptor(value, "type")?.value
+    const slice = Object.getOwnPropertyDescriptor(prototype, "slice")?.value
+    const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
+    if (typeof stream === "function" && typeof arrayBuffer === "function" && typeof text === "function" &&
+      (typeof typeDescriptor?.get === "function" || typeof ownType === "string") && typeof slice === "function" &&
+      typeof constructor === "function" && constructor.name === "Blob" && value instanceof constructor) {
+      try {
+        const sliced = Reflect.apply(slice, value, [0, 0])
+        if (sliced === value || sliced === null || (typeof sliced !== "object" && typeof sliced !== "function")) return undefined
+        Reflect.apply(slice, sliced, [0, 0])
+        return {
+          stream: candidate => Reflect.apply(stream, candidate, []) as ReadableStream,
+          type: typeof typeDescriptor?.get === "function" ? String(Reflect.apply(typeDescriptor.get, value, [])) : String(ownType),
+        }
+      }
+      catch { return undefined }
+    }
+    prototype = Object.getPrototypeOf(prototype)
+  }
+  return undefined
+}
+
 function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
-    // The host Blob intrinsic performs the Web IDL brand check. Values from
-    // independent implementations remain on the JSON path because structural
-    // adapters cannot distinguish them safely from forged objects.
     const readStream: (value: object) => ReadableStream = candidate => Reflect.apply(Blob.prototype.stream, candidate, []) as ReadableStream
     if (typeof blobType !== "function") return undefined
     try {
@@ -73,7 +99,11 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
         body: () => streamBody(() => readStream(value)),
       }
     }
-    catch { return undefined }
+    catch {
+      const foreign = getForeignBlobMethods(value)
+      if (!foreign) return undefined
+      return { type: foreign.type, body: () => streamBody(() => foreign.stream(value)) }
+    }
   }
   catch {
     return undefined

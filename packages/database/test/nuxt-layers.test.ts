@@ -201,7 +201,7 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
-      `It does not set \`connection\`, which a layer sets:\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
+      `It does not set \`connection\`, which a layer sets.\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
     )
 
     await writeModule(appDefinition, [
@@ -229,7 +229,7 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
-      `ViteHub cannot read the options of these definitions:\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
+      `ViteHub cannot read the options of these definitions.\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
     )
   })
 
@@ -249,7 +249,7 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
-      `ViteHub cannot read the options of these definitions:\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
+      `ViteHub cannot read the options of these definitions.\n  - ${appDefinition}\n  - ${app.layerDefinition("blog")}`,
     )
   })
 
@@ -263,7 +263,7 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
-      `More than one Nuxt layer declares table "users" in database "default":\n  - ${app.layerDefinition("accounts")}\n  - ${app.layerDefinition("blog")}`,
+      `More than one Nuxt layer declares the table "users" in the database "default":\n  - ${app.layerDefinition("accounts")}\n  - ${app.layerDefinition("blog")}`,
     )
 
     await writeModule(join(app.appDir, "server/databases/config.ts"), [
@@ -283,7 +283,7 @@ describe("Database Definitions in Nuxt layers", () => {
     }
 
     expect(() => discoverDatabaseDefinitions(app.appDir, { serverDirs: app.serverDirs })).toThrow(
-      `More than one Nuxt layer sets options for database "default":\n  - ${app.layerDefinition("accounts")}\n  - ${app.layerDefinition("blog")}`,
+      `More than one Nuxt layer sets options for the database "default".\n  - ${app.layerDefinition("accounts")}\n  - ${app.layerDefinition("blog")}`,
     )
 
     const appDefinition = join(app.appDir, "server/databases/config.ts")

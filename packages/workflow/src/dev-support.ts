@@ -19,7 +19,7 @@ export const workflowDevLabel = "Workflow Dev"
 export const workflowDevOperations = ["start", "get", "cancel", "resume"] as const
 export type WorkflowDevOperation = typeof workflowDevOperations[number]
 
-export interface WorkflowDevOperationSupport {
+interface WorkflowDevOperationSupport {
   /** Explains what the Nitro dev runtime does, or why it cannot do the operation. */
   note: string
   supported: boolean
@@ -60,7 +60,7 @@ export interface WorkflowDevSignalView {
   provider: WorkflowProvider
 }
 
-export interface WorkflowDevErrorBody {
+interface WorkflowDevErrorBody {
   error: {
     code: string
     message: string

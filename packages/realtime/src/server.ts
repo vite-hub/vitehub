@@ -171,14 +171,13 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
       throw new RealtimeWriteRejected("Realtime update depends on state this room does not have.")
     }
     if (options.readOnly && !Y.equalSnapshots(before, Y.snapshot(candidate))) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- `readOnly` is a flag or a rejection message.
       throw new RealtimeWriteRejected(typeof options.readOnly === "string" ? options.readOnly : "This realtime connection is read-only.")
     }
     if (options.protectStatus !== false && realtimeStatusFingerprint(candidate) !== realtimeStatusFingerprint(document)) {
       throw new RealtimeWriteRejected("Realtime document status is written by the server.")
     }
     if (Y.encodeStateAsUpdate(candidate).byteLength > (options.maxStateBytes ?? maxRoomStateBytes)) {
-      throw realtimeErrorDiagnostics.REALTIME_R0005({ message: "Realtime document exceeds its 8 MiB room quota." })
+      throw realtimeErrorDiagnostics.REALTIME_DOCUMENT_TOO_LARGE()
     }
   }
   finally {
@@ -216,11 +215,10 @@ function isDocumentAdapter(document: RealtimeDefinition["document"]): document i
   return "load" in document && "save" in document
 }
 
-function duration(value: unknown, fallback: number, name: string): number {
+function duration(value: unknown, fallback: number, name: "debounce" | "maxWait"): number {
   if (value === undefined) return fallback
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persistence timing comes from an untyped definition module.
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw realtimeErrorDiagnostics.REALTIME_R0015({ message: `Realtime persistence.${name} must be a non-negative number of milliseconds.` })
+    throw realtimeErrorDiagnostics.REALTIME_INVALID_PERSISTENCE({ name, reason: "not-milliseconds" })
   }
   return value
 }
@@ -238,7 +236,7 @@ export function resolveRealtimeDefinition(definition: RealtimeDefinition): Resol
         maxWait: duration(definition.persistence?.maxWait, realtimePersistenceDefaults.maxWait, "maxWait"),
       }
   if (persistence && persistence.maxWait < persistence.debounce) {
-    throw realtimeErrorDiagnostics.REALTIME_R0015({ message: "Realtime persistence.maxWait must be at least persistence.debounce." })
+    throw realtimeErrorDiagnostics.REALTIME_INVALID_PERSISTENCE({ name: "maxWait", reason: "below-debounce" })
   }
   const configured = definition.editor ?? realtimeMarkdownEditor
   const editor = configured instanceof Function ? configured : () => configured
@@ -416,10 +414,12 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
     throw new HTTPError({ status: 400, message: "Realtime definition and document path are required." })
   }
   const documentId = documentParts.join("/")
+  let safePath: string | undefined
   try {
-    if (normalizeSafeWorkspacePath(documentId) !== documentId) throw realtimeErrorDiagnostics.REALTIME_R0007()
+    safePath = normalizeSafeWorkspacePath(documentId)
   }
-  catch {
+  catch {}
+  if (safePath !== documentId) {
     throw new HTTPError({ status: 400, message: "Realtime document paths must be safe Workspace paths." })
   }
   return {
@@ -431,7 +431,6 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
 }
 
 function text(value: unknown): string | undefined {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Identities and stored rows cross untyped boundaries.
   return typeof value === "string" && value ? value : undefined
 }
 
@@ -502,6 +501,26 @@ function localRefreshers(): Set<LocalRefreshRef> {
 export interface RealtimeDurableObjectNamespace {
   get(id: unknown): { fetch(request: Request): Promise<Response> }
   idFromName(name: string): unknown
+}
+
+function isRealtimeDurableObjectNamespace(value: unknown): value is RealtimeDurableObjectNamespace {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false
+  const constructor = (globalThis as Record<string, unknown>).DurableObjectNamespace
+  const callable = (method: unknown) => {
+    if (typeof method !== "function") return false
+    try { return Function.prototype.toString.call(method) !== "function () { [native code] }" } catch { return false }
+  }
+  try {
+    if (typeof constructor === "function") {
+      if (!(value instanceof constructor)) return false
+      const get = Object.getOwnPropertyDescriptor(value, "get")
+      const id = Object.getOwnPropertyDescriptor(value, "idFromName")
+      return get?.get === undefined && id?.get === undefined && callable(get?.value) && callable(id?.value)
+    }
+    const get = Object.getOwnPropertyDescriptor(value, "get")
+    const id = Object.getOwnPropertyDescriptor(value, "idFromName")
+    return get?.get === undefined && id?.get === undefined && callable(get?.value) && callable(id?.value)
+  } catch { return false }
 }
 
 export interface RealtimeRefreshOptions {
@@ -600,7 +619,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       get(id: unknown): { fetch(request: Request): Promise<Response> }
       idFromName(name: string): unknown
     } | undefined
-    if (!binding || (typeof context === "object" && context !== null && "storage" in context)) return
+    if (!binding || !isRealtimeDurableObjectNamespace(binding) || (typeof context === "object" && context !== null && "storage" in context)) return
     let request = event.req
     if (request.headers.has(internalRefreshHeader)) {
       // Only refreshRealtimeDocument() may send it, straight to the Durable Object.
@@ -1150,7 +1169,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     const { adapter, definition } = room.resolved
     const configured = definition.history?.checkpoint
     const saved = (await saveRoom(room, "request", true))!
-    if (!saved.digest) throw realtimeErrorDiagnostics.REALTIME_R0008({ message: "Realtime checkpoints require a stored document digest." })
+    if (!saved.digest) throw realtimeErrorDiagnostics.REALTIME_MISSING_DIGEST({ operation: "checkpoint" })
     let snapshot
     try {
       snapshot = await adapter.checkpoint!(room.context, {
