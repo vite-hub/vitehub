@@ -416,9 +416,9 @@ Read [Auth](/docs/auth/server-api#authorize-access-routes) for sign-in redirects
 
 When Agents are configured and no journal is set, the Console installs a fallback Agent Invocation journal at `.vitehub/data/console.sqlite`. It retains invocation records and selected searchable text, including prompts, messages, final text, progress updates, and generated session titles. A KV-only Console does not install the Agent journal or Agent read endpoints.
 
-Console image uploads use the configured Blob store. Before each fresh upload, the Console retries at most 100 pending rollback records. Malformed batch records move to `vitehub-console-attachment-quarantine/batch/<id>` with their original contents preserved. Fresh uploads continue, but stored attachment references remain unavailable while any quarantine record exists because its deletion ownership is unknown. Existing retained image bytes are not deleted by quarantine.
+Console image uploads use the configured Blob store. Before each fresh upload, the Console retries at most 100 pending rollback records. Malformed batch records move to `_vitehub/console/quarantine/batch/<id>` with their original contents preserved. Fresh uploads continue, but stored attachment references remain unavailable while any quarantine record exists because its deletion ownership is unknown. Existing retained image bytes are not deleted by quarantine.
 
-To repair a quarantined record, recover its original attachment UUIDs from trusted storage history and write their JSON array (1–10 UUIDs) to `vitehub-console-attachment-cleanup/batch/<id>`. After a later upload successfully drains that cleanup record, remove the corresponding quarantine object through the Blob provider. Keep the quarantine record if its original UUIDs cannot be recovered; guessing could delete retained images.
+To repair a quarantined record, recover its original attachment UUIDs from trusted storage history and write their JSON array (1–10 UUIDs) to the cleanup prefix that matches the quarantine record: use `_vitehub/console/cleanup/batch/<id>` for new quarantines and `vitehub-console-attachment-cleanup/<id>` for legacy quarantines. After a later upload successfully drains that cleanup record, remove the corresponding quarantine object through the Blob provider. Keep the quarantine record if its original UUIDs cannot be recovered; guessing could delete retained images.
 
 Set `observations` on the Console configuration when the fallback journal needs larger records or more time to drain pending writes:
 
@@ -464,7 +464,7 @@ The Console sends every read through the RPC route at `/_vitehub/rpc/**`. Its in
 
 KV inspection calls the configured store's paginated `list`, `get`, and `has` operations. It never calls `set`, `del`, or `clear`. Each key page returns at most 200 entries, and the Console passes the provider's opaque cursor when you load more. Selected values are rendered as text or formatted JSON and truncated at 256 KiB in the response. Listing and reading can still count as provider operations even though they do not change data.
 
-Blob inspection calls only the configured store's `list` operation. It returns at most 100 objects initially and 250 per request, follows provider cursors only when you choose **Load more**, and supports a pathname prefix. It does not call `get`, `head`, `serve`, `sign`, `put`, or `del`. Object contents and provider URLs never enter the Console response. Listing can still incur provider requests and cost.
+Blob inspection calls only the configured store's `list` operation. It returns at most 100 objects initially and 250 per request, follows provider cursors automatically while hidden ViteHub objects are skipped (up to ten provider pages per request), and follows the returned cursor when you choose **Load more**. It supports a pathname prefix. ViteHub keeps the objects it writes for itself, such as Workspace history and Console attachments, under `_vitehub/`. The Blob section hides those objects by default. Turn on **Show ViteHub files** to list them. A page can have fewer objects than its limit when it skips ViteHub objects. It does not call `get`, `head`, `serve`, `sign`, `put`, or `del`. Object contents and provider URLs never enter the Console response. Listing can still incur provider requests and cost.
 
 ## Inspect the Agent context
 
@@ -537,7 +537,7 @@ Use [Agent Invocations](/docs/agents/invocations) for custom stores and invocati
 
 Console image uploads require `console.invoke` to be enabled. The Agent and invoker profile selected when you submit stay fixed while images upload. If you switch Agents, the pending request does not redirect the input or open its result in the new Agent view.
 
-Images must be PNG, JPEG, WebP, or GIF, with at most ten images and 10 MiB combined per invocation. Blob storage must return an HTTP or relative serving URL. The Console rolls back new uploads if storage or invocation setup fails before the Agent takes ownership. Images handed to an Agent remain under `vitehub-console-attachments/` and follow your Blob storage retention policy.
+Images must be PNG, JPEG, WebP, or GIF, with at most ten images and 10 MiB combined per invocation. Blob storage must return an HTTP or relative serving URL. The Console rolls back new uploads if storage or invocation setup fails before the Agent takes ownership. Images handed to an Agent remain under `_vitehub/console/attachments/` and follow your Blob storage retention policy.
 
 ## Inspect capabilities
 

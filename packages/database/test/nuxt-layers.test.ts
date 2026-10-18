@@ -129,6 +129,41 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(nitroConfig.alias).toEqual({ "@vite-hub/database/drizzle": join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs") })
   })
 
+  it.each([
+    ["cloudflare-module", "cloudflare"],
+    ["vercel", "vercel"],
+  ])("gives the %s Postgres client the tables of every layer", async (preset, provider) => {
+    const app = await createLayeredApp()
+    for (const [name, table] of [["accounts", "users"], ["blog", "posts"]] as const) {
+      await writeModule(app.layerDefinition(name), [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "import { pgTable, serial } from 'drizzle-orm/pg-core'",
+        `export const ${table} = pgTable(${JSON.stringify(table)}, { id: serial('id').primaryKey() })`,
+        `export default defineDatabase({ dialect: 'postgresql', schema: { ${table} } })`,
+      ])
+    }
+    // postgres.js connects on the first query, so the client exists without a server.
+    await writeModule(join(app.appDir, "server/databases/config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({ dialect: 'postgresql', connection: { url: 'postgres://user:password@127.0.0.1:1/app' }, schema: {} })",
+    ])
+    const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
+    await hubDb()(undefined, {
+      hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
+        if (name === "nitro:config") hooks.push(callback)
+      },
+      options: { ...app.options, dev: false },
+    })
+    const nitroConfig: Record<string, unknown> = { alias: {}, preset }
+    for (const hook of hooks) await hook(nitroConfig)
+
+    const runtimeFile = join(app.appDir, `.vitehub/database/${provider}-runtime.mjs`)
+    expect(nitroConfig.alias).toMatchObject({ "@vite-hub/database/drizzle": runtimeFile })
+    const runtime = await import(pathToFileURL(runtimeFile).href) as { db: { query: Record<string, unknown> }, schema: Record<string, unknown> }
+    expect(Object.keys(runtime.schema).toSorted()).toEqual(["posts", "users"])
+    expect(Object.keys(runtime.db.query).toSorted()).toEqual(["posts", "users"])
+  }, 60_000)
+
   it("lets the application set options and replace a layer table", async () => {
     const app = await createLayeredApp()
     const appDefinition = join(app.appDir, "server/databases/config.ts")
