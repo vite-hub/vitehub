@@ -231,8 +231,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if ((await pullRequestInbox.metaNumber(key) ?? 0) > Date.now() - 6 * 60 * 60_000) return false;
     const ahead = await baseFixedSinceFailure(freshnessReader, snapshot, failedConclusions, signal);
     if (!ahead) return false;
-    await pullRequestInbox.setMeta(key, Date.now());
     if (!await updateBranch(owner, repository, number, head, signal)) return false;
+    await pullRequestInbox.setMeta(key, Date.now());
     schedulerEvent("babysitter.branch.retest", { ...owner, base_ahead: ahead });
     return true;
   }

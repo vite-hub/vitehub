@@ -1047,10 +1047,10 @@ export class PullRequestInbox {
       // only a host merge check, and a head whose checks all passed is close to it, so both come
       // before PRs that need a model pass. Then stack parents, weighted by their open children:
       // merging one unblocks every child based on its branch. The review lookup uses the meta key.
-      const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) AS base_repository FROM ${t.pullRequests} p
+      const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(CASE WHEN json_valid(p.value) THEN json_extract(p.value, '$.pr.base.repo.full_name') END, p.repository) AS base_repository FROM ${t.pullRequests} p
         WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
           AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
-        ORDER BY EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND json_extract(m.value, '$.head')=p.head_sha) DESC,
+        ORDER BY EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND CASE WHEN json_valid(m.value) THEN json_extract(m.value, '$.head') END=p.head_sha) DESC,
           COALESCE(CASE WHEN json_valid(p.summary) THEN json_extract(p.summary, '$.mergeReady') END, 0) DESC,
           (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
           p.dirty_at, p.number`, [this.scope, ...repositories.args, now, now, options.includeBlocked ? 1 : 0])
@@ -1060,7 +1060,7 @@ export class PullRequestInbox {
         // Stack children remain local; a parent merge's base push wakes them.
         if (candidate.base_ref !== null && candidate.base_ref !== undefined && (await tx.execute(`SELECT 1 FROM ${t.pullRequests}
           WHERE scope=? AND repository=? AND number<>? AND state='open' AND head_ref=?
-            AND json_extract(value, '$.pr.head.repo.full_name') = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
+            AND CASE WHEN json_valid(value) THEN json_extract(value, '$.pr.head.repo.full_name') END = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
         const s = await this.getRowIn(tx, candidate)
         if (!s) continue
         if (s.pr && !this.eligible(s.repository, s.pr)) continue

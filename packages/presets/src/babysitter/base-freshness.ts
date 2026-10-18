@@ -59,10 +59,9 @@ export async function staleBaseOverlap(reader: BaseFreshnessReader, snapshot: Sn
     checksTestedBase(reader, snapshot, live.head.sha, live.base.ref, new Set(["success"]), signal),
   ]);
   const changed = new Set(files.flatMap(entry => Array.isArray(entry) ? entry : [entry]).filter(file => hasRuntimeType(file, "string")));
-  // Without an exact Actions run base, status-only or external checks do not
-  // prove that the base changed after testing. Do not force an update solely
-  // because provider metadata is unavailable.
-  if (!testedBase) return [];
+  // Without an exact Actions run base, checks do not prove that the current
+  // base was tested. Force a retest before allowing a direct merge.
+  if (!testedBase) return [...changed];
   // The first page has the complete file list; later pages only add commits.
   const compare = await reader.page(`repos/${repository}/compare/${testedBase}...${encodeURIComponent(live.base.ref)}?per_page=1`,
     "{ahead: .ahead_by, files: [.files[]? | .filename, .previous_filename]}", signal);
