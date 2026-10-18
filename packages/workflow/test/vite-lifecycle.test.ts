@@ -79,14 +79,12 @@ import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { hubWorkflow } from "../src/vite.ts"
 
 function functionHook(hook: unknown, name: string): (...args: unknown[]) => unknown {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects at this test boundary.
   if (typeof hook !== "function") throw new TypeError(`Expected ${name} hook`)
   // SAFETY: The runtime check above proves this Vite hook is callable.
   return hook as (...args: unknown[]) => unknown
 }
 
 function closeBundleHook(plugin: ReturnType<typeof hubWorkflow>): (...args: unknown[]) => unknown {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vite exposes hooks as either functions or handler objects at this test boundary.
   if (!plugin.closeBundle || typeof plugin.closeBundle === "function") throw new TypeError("Expected closeBundle object hook")
   return functionHook(plugin.closeBundle.handler, "closeBundle")
 }

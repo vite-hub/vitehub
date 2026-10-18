@@ -1,6 +1,6 @@
 import { ConnectionError } from "./errors.ts"
 
-import type { ConnectionApiCatalog, ConnectionApiKeyProvider, ConnectionApiKeyVerification, ConnectionApiKeyVerifyContext, ConnectionDefinition } from "./types.ts"
+import type { ConnectionApiCatalog, ConnectionApiKeyFallback, ConnectionApiKeyProvider, ConnectionApiKeyVerification, ConnectionApiKeyVerifyContext, ConnectionDefinition, ConnectionRequestPolicy } from "./types.ts"
 
 export interface ApiKeyProviderOptions<TApis extends object = object> {
   /** Provider id shown in inspection and the Console. Default: `"api-key"`. */
@@ -16,6 +16,18 @@ export interface ApiKeyProviderOptions<TApis extends object = object> {
   origins: readonly string[]
   /** Typed API catalogs. Their root URLs also receive the key. */
   apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /** The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The key is also sent there. */
+  mcp?: string
+  /** Pacing, retries, and a timeout for provider requests. */
+  requests?: ConnectionRequestPolicy
+  /**
+   * The key to use while no key was ever set in the Console or with `vitehub connections set-key`,
+   * for example `() => useServerEnv().example.token`. A sealed Server Env secret is unsealed. It also
+   * applies when the Connections store cannot open, such as a deployment without `VITEHUB_CONNECTIONS_KEY`.
+   * A key that an admin sets always wins, and so does a revoke: a revoked Connection stays disconnected.
+   * Set a key again to reconnect it.
+   */
+  fallback?: ConnectionApiKeyFallback
   /**
    * Check a new key before ViteHub stores it, for example with `context.fetch`.
    * Return `false` to reject the key, or `{ account }` to label the Connection.
@@ -32,7 +44,7 @@ export function isLoopbackHost(hostname: string): boolean {
 }
 
 /** Normalize an API key origin. Returns `undefined` for a URL with a path, query, credentials, or plain `http` to a remote host. */
-export function apiKeyOrigin(value: string): string | undefined {
+function apiKeyOrigin(value: string): string | undefined {
   let url: URL
   try {
     url = new URL(value)
@@ -45,15 +57,24 @@ export function apiKeyOrigin(value: string): string | undefined {
   return url.origin
 }
 
+/** Whether a credential may go to this endpoint URL: HTTPS or loopback, without credentials, query, or fragment. */
+export function isSafeEndpoint(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return !url.username && !url.password && !url.search && !url.hash && apiKeyOrigin(url.origin) !== undefined
+  }
+  catch {
+    return false
+  }
+}
+
 /** Whether the provider header and origins can carry a key safely. */
 export function isValidApiKeyProvider(provider: { header: string, origins: readonly string[], scheme?: string }): boolean {
   try {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This public validator checks untrusted provider shapes at the boundary.
     if (!provider || typeof provider !== "object" || Array.isArray(provider)) return false
     const header = provider.header
     const candidateOrigins = provider.origins
     const scheme = provider.scheme
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This public validator checks untrusted provider fields at the boundary.
     if (typeof header !== "string" || !Array.isArray(candidateOrigins)) return false
     // structuredClone rejects Proxy values and gives us a stable, ordinary-array snapshot.
     const origins = structuredClone(candidateOrigins)
@@ -64,7 +85,6 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
     })
     if (originIndexes.length !== origins.length) return false
     for (const key of originIndexes) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Each untrusted origin must be a string before URL policy validation.
       if (typeof origins[Number(key)] !== "string") return false
     }
     for (const key of originIndexes) {
@@ -74,7 +94,6 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
     return tokenPattern.test(header)
       && header === header.toLowerCase()
       && (scheme === undefined || (() => {
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject non-string authentication schemes at the validation boundary.
         if (typeof scheme !== "string") return false
         return tokenPattern.test(scheme)
       })())
@@ -104,6 +123,9 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
     apis: options.apis ?? ({} as ConnectionApiKeyProvider<TApis>["apis"]),
   }
   if (scheme !== undefined) Object.assign(provider, { scheme })
+  if (options.mcp !== undefined) Object.assign(provider, { mcp: options.mcp })
+  if (options.requests !== undefined) Object.assign(provider, { requests: options.requests })
+  if (options.fallback) provider.fallback = options.fallback
   if (options.verify) provider.verify = options.verify
   // SAFETY: The provider API map is constrained by the generic catalog contract.
   const catalogsSafe = (Object.values(provider.apis) as ConnectionApiCatalog[]).every(catalog => {
@@ -117,6 +139,9 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
   })
   if (!/^\S+$/.test(id) || origins.includes(undefined) || !catalogsSafe || !isValidApiKeyProvider(provider)) {
     throw new ConnectionError("invalid", "The API key provider needs a token header name, a token scheme, and HTTPS or loopback origins without a path.")
+  }
+  if (options.mcp !== undefined && !isSafeEndpoint(options.mcp)) {
+    throw new ConnectionError("invalid", "The API key provider mcp endpoint must be an HTTPS or loopback URL without credentials, query, or fragment.")
   }
   return provider
 }

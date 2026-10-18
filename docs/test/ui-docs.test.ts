@@ -119,25 +119,15 @@ describe("UI documentation", () => {
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
-  it("renders component references through the shared article layout", () => {
+
+  it("gives component pages the shared article layout and page outline", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
     const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
 
     expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain('<ContentRenderer :value="page" />');
-    expect(article).toContain('v-if="tocLinks.length"');
+    expect(article).toContain("UContentToc");
     expect(article).toContain('aria-label="Page outline"');
-    expect(article).toContain("max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 6rem)");
-  });
-
-  it("uses the wide component layout without the desktop outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
-
-    expect(page).toContain("<DocsArticle v-else-if=\"page\"");
-    expect(layout).toContain("vh-docs-main");
-    expect(layout).toContain("lg:!flex lg:!flex-row");
-    expect(layout).toContain("max-width: none;");
+    expect(article).toContain("min-w-0");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -180,17 +170,21 @@ describe("UI documentation", () => {
     const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
     const sidebarPanel = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
 
-    expect(sidebar).toContain("flex: 1 1 0");
+    expect(sidebar).toContain("vh-docs-sidebar-nav");
     expect(sidebar).toContain("min-height: 0");
     expect(sidebar).not.toContain("<details");
     expect(sidebar).not.toContain("<summary");
+    expect(sidebarPanel).toContain("vh-docs-aside");
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
-    expect(sidebarPanel).toContain("overflow: hidden;");
-    expect(layout).toContain("overflow: hidden;");
-    expect(layout).toContain(".vh-docs-aside");
-    expect(layout).toMatch(/<UPageAside class="vh-docs-aside(?: hidden lg:block)?">/);
-    expect(layout).toContain("flex-direction: column;");
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-aside \{[^}]*display: flex;/);
+    const desktopStyles = layout.slice(layout.indexOf("@media (min-width: 64rem)"));
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*>\s*\.vh-docs-desktop-nav\s*\{[^}]*display: flex;/);
+    expect(desktopStyles).toMatch(/\.vh-docs-shell\s*\{[^}]*display: flex;/);
+    expect(sidebarPanel).toContain("overflow: auto;");
+    expect(layout).toContain("overflow-x: clip;");
+
+    expect(layout).toContain("overflow: visible;");
+    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*\.vh-docs-shell > \.vh-docs-desktop-nav \{[^}]*display: flex;/);
+    expect(layout).toContain(".vh-docs-shell > .vh-docs-desktop-nav");
     expect(layout).toContain("flex: 1;");
   });
 
@@ -200,5 +194,6 @@ describe("UI documentation", () => {
     expect(page).not.toContain("navigation: false");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
+    expect(page).toMatch(/server primitives/i);
   });
 });

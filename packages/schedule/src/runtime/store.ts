@@ -48,14 +48,6 @@ function trimPrefix(prefix: string): string {
   return prefix.replace(/^\/+|\/+$/g, "")
 }
 
-/**
- * Decoded trailing segments of a listed key. Some KV stores, such as unstorage, list keys with `:` instead of `/`.
- * Encoded parts contain neither, so both separators are safe to split on.
- */
-function keySegments(key: string, count: number): string[] {
-  return key.split(/[/:]/).slice(-count).map(decodeURIComponent)
-}
-
 function joinKey(prefix: string, ...parts: string[]): string {
   const base = trimPrefix(prefix)
   const suffix = parts.map(encodeURIComponent).join("/")
@@ -75,7 +67,7 @@ function scheduleRunAttemptKey(prefix: string, id: string): string {
 }
 
 function runtimeScheduleBase(prefix: string): string {
-  return joinKey(prefix, "runtime-schedules")
+  return `${joinKey(prefix, "runtime-schedules")}/`
 }
 
 function scheduleRunBase(prefix: string): string {
@@ -391,7 +383,7 @@ function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions =
 /** Index keys carry metadata from the stored record, independent of caller-selected run IDs. */
 function runIndexMetadata(key: string): { id: string, scheduleId: string, scheduledAt: number } | undefined {
   try {
-    const parts = keySegments(key, 3)
+    const parts = key.split(/[/:]/).slice(-3).map(decodeURIComponent)
     const scheduledAt = Date.parse(parts[2]!)
     if (!Number.isFinite(scheduledAt)) return
     return { id: parts[0]!, scheduleId: parts[1]!, scheduledAt }
@@ -399,6 +391,11 @@ function runIndexMetadata(key: string): { id: string, scheduleId: string, schedu
   catch {
     return undefined
   }
+}
+
+function decodeKeySegment(key: string): string {
+  const separator = Math.max(key.lastIndexOf("/"), key.lastIndexOf(":"))
+  return decodeURIComponent(key.slice(separator + 1))
 }
 
 export function createKVScheduleRunStore(options: KVScheduleStoreOptions): ScheduleRunStore {
@@ -450,7 +447,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     for (const key of keys) {
       let id: string
       try {
-        id = keySegments(key, 1)[0]!
+        id = decodeKeySegment(key)
       }
       catch {
         unknown.push(key)
@@ -560,14 +557,14 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       const runByAttemptId = new Map<string, string>()
       for (const key of indexKeys) {
         try {
-          const parts = keySegments(key, 2)
+          const parts = key.split(/[/:]/).slice(-2).map(decodeURIComponent)
           runByAttemptId.set(parts[1]!, parts[0]!)
         }
         catch {}
       }
       const selectedKeys = keys.filter((key) => {
         try {
-          const id = keySegments(key, 1)[0]!
+          const id = decodeKeySegment(key)
           const indexedRunId = runByAttemptId.get(id)
           return indexedRunId === undefined || indexedRunId === runId
         }

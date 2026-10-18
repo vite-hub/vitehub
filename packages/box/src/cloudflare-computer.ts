@@ -181,7 +181,30 @@ function createCloudflareComputerSession(
     async readBinaryFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
       try {
-        return await readStream(await workspace.fs.readFile(path), abortSignal);
+        const pending = workspace.fs.readFile(path);
+        const stream = abortSignal
+          ? await new Promise<ReadableStream<Uint8Array>>((resolve, reject) => {
+              let settled = false;
+              const abort = () => {
+                settled = true;
+                reject(abortSignal.reason);
+              };
+              abortSignal.addEventListener("abort", abort, { once: true });
+              void pending.then((value) => {
+                abortSignal.removeEventListener("abort", abort);
+                if (settled || abortSignal.aborted) {
+                  void value.cancel(abortSignal.reason).catch(() => {});
+                  return;
+                }
+                resolve(value);
+              }, (error) => {
+                abortSignal.removeEventListener("abort", abort);
+                if (!settled) reject(error);
+              });
+              if (abortSignal.aborted) abort();
+            })
+          : await pending;
+        return await readStream(stream, abortSignal);
       } catch (error) {
         if (isMissingFile(error)) return null;
         throw error;
@@ -312,14 +335,24 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
   const chunks: Uint8Array[] = [];
   let size = 0;
   let abort: (() => void) | undefined;
-  if (signal) {
-    abort = () => { void reader.cancel(signal.reason).catch(() => {}); };
-    signal.addEventListener("abort", abort, { once: true });
-  }
+  let wasAborted = false;
+  let cancellation: Promise<void> | undefined;
+  const aborted = signal
+    ? new Promise<never>((_resolve, reject) => {
+        const cancel = () => cancellation ??= reader.cancel(signal.reason).catch(() => {});
+        abort = () => {
+          if (wasAborted) return;
+          wasAborted = true;
+          void cancel().then(() => reject(signal.reason));
+        };
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted) abort();
+      })
+    : undefined;
   try {
     while (true) {
       signal?.throwIfAborted();
-      const { done, value } = await readChunk(reader, signal);
+      const { done, value } = await (aborted ? Promise.race([reader.read(), aborted]) : reader.read());
       signal?.throwIfAborted();
       if (done) break;
       chunks.push(value);
@@ -327,7 +360,7 @@ async function readStream(stream: ReadableStream<Uint8Array>, signal: AbortSigna
     }
   } finally {
     if (abort) signal?.removeEventListener("abort", abort);
-    if (signal?.aborted) await reader.cancel(signal.reason).catch(() => {});
+    if (signal?.aborted) await (cancellation ?? reader.cancel(signal.reason).catch(() => {}));
     reader.releaseLock();
   }
   const result = new Uint8Array(size);

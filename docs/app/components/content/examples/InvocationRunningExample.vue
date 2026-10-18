@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { AgentInvocationView } from "@vite-hub/ui";
-import { onMounted, reactive } from "vue";
+
+import { onMounted } from "vue";
 
 const now = useState("ui-running-clock", () => Date.now());
 const initialNow = now.value;

@@ -14,11 +14,7 @@ import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
 import { runAgentChannelSyncCli } from "../src/internal/channel-sync-cli.ts"
 import { getGmailMessage, getGmailThread, gmailMessagePrompt, gmailMessageSchema, gmailSettings, splitAddresses, verifyGoogleOidcToken, syncGmailMailbox, gmailClientFromSettings } from "../src/internal/gmail-channel.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
-import { channelMessageRunId, channelReplayRunId, createMemoryAgentInvocationStore, defineAgentInvocations, replayChannel } from "../src/server.ts"
-
-it("preserves the channel replay run ID compatibility export from the server entrypoint", () => {
-  expect(channelReplayRunId("gmail", "message-1")).toBe(channelMessageRunId("gmail", "message-1"))
-})
+import { channelMessageRunId, createMemoryAgentInvocationStore, defineAgentInvocations, replayChannel } from "../src/server.ts"
 
 import type { Lock, StateAdapter } from "chat"
 import type { GmailClient } from "../src/internal/gmail-channel.ts"

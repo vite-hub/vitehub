@@ -224,7 +224,6 @@ async function loadVercelSandbox() {
 
 function isMissingFile(error: unknown) {
   return error !== null
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Parse an unknown provider rejection before checking its own ENOENT code.
     && typeof error === "object"
     && Object.hasOwn(error, "code")
     && Reflect.get(error, "code") === "ENOENT";

@@ -6,7 +6,7 @@ import { createWorkflow } from "../../workflow/src/index.ts"
 import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../../workflow/src/runtime/state.ts"
 import { setVercelWorkflowRuntimeLoader, type VercelRun, type VercelWorkflowRuntime } from "../../workflow/src/runtime/vercel.ts"
 import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
-import { channelReplayRunId, replayChannel } from "../src/channel-replay.ts"
+import { channelMessageRunId, replayChannel } from "../src/channel-replay.ts"
 import { agentEnvAccess } from "@vite-hub/env/internal/agent"
 import { defineAgent, runAgentInline, workflow } from "../src/index.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
@@ -85,7 +85,7 @@ it("uses provider IDs with the real native Vercel adapter and omits caller IDs f
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ processed: 1, failed: 0 })
   expect(test.primaryStarts()).toHaveLength(1)
   expect(test.start).toHaveBeenCalledTimes(2)
-  expect(await test.invocations.getByRunId(channelReplayRunId("mailbox", "m1"), test.name)).toMatchObject({
+  expect(await test.invocations.getByRunId(channelMessageRunId("mailbox", "m1"), test.name)).toMatchObject({
     workflow: { name: test.name, provider: "vercel", id: "wrun_1" }, annotations: { [pendingAgentInvocationAnnotation]: false },
   })
 })
@@ -94,12 +94,12 @@ it("recovers failed dispatch confirmation by physical provider ID without a seco
   const test = fixture({ failConfirmation: true })
   vi.useFakeTimers()
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ processed: 1 })
-  expect(await test.invocations.getByRunId(channelReplayRunId("mailbox", "m1"), test.name)).toMatchObject({ workflow: { id: "wrun_1" }, annotations: { [pendingAgentInvocationAnnotation]: true } })
+  expect(await test.invocations.getByRunId(channelMessageRunId("mailbox", "m1"), test.name)).toMatchObject({ workflow: { id: "wrun_1" }, annotations: { [pendingAgentInvocationAnnotation]: true } })
   await vi.advanceTimersByTimeAsync(30_001)
   test.allowConfirmation()
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ skipped: 1, failed: 0 })
   expect(test.getRun).toHaveBeenCalledWith("wrun_1")
-  expect(test.getRun).not.toHaveBeenCalledWith(channelReplayRunId("mailbox", "m1"))
+  expect(test.getRun).not.toHaveBeenCalledWith(channelMessageRunId("mailbox", "m1"))
   expect(test.primaryStarts()).toHaveLength(1)
 })
 
@@ -107,7 +107,7 @@ it("blocks duplicate submission when native SDK acceptance loses its acknowledge
   const test = fixture({ rejectAcknowledgement: true })
   vi.useFakeTimers()
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ failed: 1 })
-  expect(await test.invocations.getByRunId(channelReplayRunId("mailbox", "m1"), test.name)).toMatchObject({ workflow: { name: test.name, provider: "vercel" }, annotations: { [pendingAgentInvocationAnnotation]: true } })
+  expect(await test.invocations.getByRunId(channelMessageRunId("mailbox", "m1"), test.name)).toMatchObject({ workflow: { name: test.name, provider: "vercel" }, annotations: { [pendingAgentInvocationAnnotation]: true } })
   await vi.advanceTimersByTimeAsync(30_001)
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ failed: 1 })
   expect(test.primaryStarts()).toHaveLength(1)
@@ -118,7 +118,7 @@ it("keeps worker acknowledgement on the logical journal when the worker owns the
   const test = fixture({ executeWorker: true })
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ processed: 1, failed: 0 })
   expect(test.driver).toHaveBeenCalledOnce()
-  expect(await test.invocations.getByRunId(channelReplayRunId("mailbox", "m1"), test.name)).toMatchObject({ status: "completed", workflow: { id: "wrun_1" } })
+  expect(await test.invocations.getByRunId(channelMessageRunId("mailbox", "m1"), test.name)).toMatchObject({ status: "completed", workflow: { id: "wrun_1" } })
   expect(await test.invocations.getByRunId("wrun_1", test.name)).toBeUndefined()
 })
 
@@ -138,7 +138,7 @@ it("cancels the physical provider run and reconciles the logical journal through
   const recoveryContext = vi.mocked(test.start).mock.calls[1]![1][0] as Parameters<typeof runAgentWorkflowDefinition>[1]
   await runAgentWorkflowDefinition(test.agent, { ...recoveryContext, id: "wrun_2", provider: "vercel" }, (definition, runtime, input) => runAgentInline(definition, runtime, input))
   expect(test.getRun).toHaveBeenCalledWith("wrun_1")
-  expect(await test.invocations.getByRunId(channelReplayRunId("mailbox", "m1"), test.name)).toMatchObject({ status: "cancelled", workflow: { id: "wrun_1" } })
+  expect(await test.invocations.getByRunId(channelMessageRunId("mailbox", "m1"), test.name)).toMatchObject({ status: "cancelled", workflow: { id: "wrun_1" } })
   expect(test.driver).not.toHaveBeenCalled()
 })
 
@@ -147,7 +147,7 @@ it("records a definitive failure when the native SDK cannot load before dispatch
   const test = fixture({ failRuntimeLoad: true })
   expect(await replayChannel(test.agent, "mailbox", { runtime: test.runtime })).toMatchObject({ failed: 1 })
   expect(test.start).not.toHaveBeenCalled()
-  expect(await test.invocations.getByRunId(channelReplayRunId("mailbox", "m1"), test.name)).toMatchObject({ status: "failed" })
+  expect(await test.invocations.getByRunId(channelMessageRunId("mailbox", "m1"), test.name)).toMatchObject({ status: "failed" })
 })
 
 it("starts independent forced native replays with fresh logical IDs and provider-assigned physical IDs", async () => {
@@ -159,7 +159,7 @@ it("starts independent forced native replays with fresh logical IDs and provider
   expect(second).toMatchObject({ processed: 1, failed: 0 })
   const firstId = first.items[0]!.id
   const secondId = second.items[0]!.id
-  expect(firstId).not.toBe(channelReplayRunId("mailbox", "m1"))
+  expect(firstId).not.toBe(channelMessageRunId("mailbox", "m1"))
   expect(firstId).not.toBe(secondId)
   const firstJournal = await test.invocations.getByRunId(firstId, test.name)
   const secondJournal = await test.invocations.getByRunId(secondId, test.name)
@@ -183,7 +183,7 @@ it.each([false, true])("keeps discovery-default replay out of inline execution a
   const worker = test.primaryStarts()[0]![1][0] as Parameters<typeof runAgentWorkflowDefinition>[1]
   await runAgentWorkflowDefinition(test.agent, { ...worker, id: "wrun_1", name: test.name, provider: "vercel" }, (definition, workerRuntime, input) => runAgentInline(definition, workerRuntime, input))
   expect(test.driver).toHaveBeenCalledOnce()
-  expect(await test.invocations.getByRunId(channelReplayRunId("mailbox", "m1"), test.name)).toMatchObject({ status: "completed" })
+  expect(await test.invocations.getByRunId(channelMessageRunId("mailbox", "m1"), test.name)).toMatchObject({ status: "completed" })
 })
 
 it.each(["default", "false"])("executes a fresh %s runtime replay inline without a discovered identity", async mode => {
@@ -227,7 +227,7 @@ it("does not execute an existing native dispatch inline after runtime is explici
 it("skips metadata-less pending discovery-default reservations without Agent identity", async () => {
   const test = fixture({ discoveryDefault: true })
   vi.useFakeTimers()
-  const id = channelReplayRunId("mailbox", "m1")
+  const id = channelMessageRunId("mailbox", "m1")
   const reservation = await bindAgentInvocations(test.invocations, { ...test.runtime, run: { runId: id, annotations: { [pendingAgentInvocationAnnotation]: true } } }, { agentName: test.name, recoverPending: true })
   expect(await reservation?.handoffClaim()).toBeTypeOf("string")
   await vi.advanceTimersByTimeAsync(30_001)
