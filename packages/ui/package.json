@@ -34,6 +34,12 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./code-block": {
+      "types": "./dist/code-block.d.ts",
+      "import": "./dist/code-block.js",
+      "require": "./dist/code-block.js",
+      "default": "./dist/code-block.js"
+    },
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js",
