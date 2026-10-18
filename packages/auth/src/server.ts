@@ -473,6 +473,22 @@ function hasNativeAuthorizationReaderPrototype(reader: object): boolean {
   return false
 }
 
+function hasNativeHeaderMethods(value: object): boolean {
+  try {
+    for (const key of ["get", "forEach"] as const) {
+      const descriptor = responsePropertyDescriptor(value, key)
+      if (!descriptor || typeof descriptor.value !== "function") return false
+      try { Reflect.apply(descriptor.value, {}, []) ; return false }
+      catch { /* native Headers methods reject unbranded receivers */ }
+      Reflect.apply(descriptor.value, value, key === "forEach" ? [() => {}] : ["__vitehub_probe__"])
+    }
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 
 async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: object) => ReadableStreamDefaultReader<Uint8Array>) | undefined> {
   if (body === null || typeof body !== "object") return
@@ -799,26 +815,37 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     }
     const nativeHeaderMethods = ["get", "forEach"].every(key =>
       responsePropertyDescriptor(headerCarrier, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
+    const brandedHeaderMethods = hasNativeHeaderMethods(headerCarrier)
     // A foreign implementation must carry its own native Headers methods.
     // Accepting a foreign Response prototype paired with current-realm Headers
     // would make a user-defined Response-shaped object indistinguishable from
     // a genuine cross-runtime response.
     const cookieDescriptor = responsePropertyDescriptor(headerCarrier, "getSetCookie")
-    const nativeCookieMethod = !cookieDescriptor?.get && (cookieDescriptor?.value === undefined
-      || cookieDescriptor.value === Object.getOwnPropertyDescriptor(Headers.prototype, "getSetCookie")?.value)
+    let nativeCookieMethod = !cookieDescriptor?.get
+    if (nativeCookieMethod && typeof cookieDescriptor?.value === "function") {
+      try {
+        Reflect.apply(cookieDescriptor.value, {})
+        nativeCookieMethod = false
+      }
+      catch {
+        try { nativeCookieMethod = Array.isArray(Reflect.apply(cookieDescriptor.value, headerCarrier, [])) }
+        catch { nativeCookieMethod = false }
+      }
+    }
 
     // A null body cannot be bridged. A foreign `Response.error()` has no
     // stream to transfer, but its intrinsic snapshot is still a valid
     // authorization response and must retain its status-zero semantics.
-    let nativeBodyReader = body === null
-      ? (() => { throw new Error("A null body has no reader") })
-      : await getNativeAuthorizationBodyReader(body)
+    // Null-body responses have no stream reader to validate. Keep this as
+    // undefined so status-zero `Response.error()` values can use the snapshot
+    // path below instead of throwing before their headers are inspected.
+    const nativeBodyReader = body === null ? undefined : await getNativeAuthorizationBodyReader(body)
     if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
     // A genuine stream from an arbitrary realm cannot safely donate its
     // reader methods across the boundary. The platform Response constructor
     // performs the source-runtime brand check and creates a host stream whose
     // captured intrinsics can be bridged without executing foreign methods.
-    if (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader)) return
+    if (body !== null && (!nativeBodyReader || !isSerializableAuthorizationBody(body, nativeBodyReader))) return
 
     // Reader validation yields to the event loop. Re-read the source
     // response's intrinsic disturbed state immediately before acquiring the
@@ -881,7 +908,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // below from acquiring it again.
     if (body === null) {
       const emptyError = status === 0 && statusText === "" && [...normalizedHeaders].length === 0
-      const nativeForeignError = emptyError && nativeHeaderMethods && nativeCookieMethod
+      const nativeForeignError = emptyError && brandedHeaderMethods && nativeCookieMethod
       if (!(value instanceof Response && nativeProperties && nativeHeaderMethods && nativeCookieMethod) && !nativeForeignError) return
       return emptyError ? Response.error() : new Response(null, { status, statusText, headers: normalizedHeaders })
     }
