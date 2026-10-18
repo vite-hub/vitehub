@@ -1192,8 +1192,8 @@ function inspectorDisclosure(
 function renderConfiguration(
   configuration: AgentInvocationConfiguration,
   invocation: AgentInvocationView,
-  showCapabilities: boolean,
   showSources: boolean,
+  showCapabilities: boolean,
   selectTool: (name: string) => void,
 ) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
@@ -1790,7 +1790,7 @@ export const AgentInvocationInspector = defineComponent({
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,
 
-            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities, props.showSources, selectTool) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showSources, props.showCapabilities, selectTool) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",

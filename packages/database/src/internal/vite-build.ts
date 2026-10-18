@@ -6,7 +6,7 @@ import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { isStaticD1HttpDefinition, serializeGeneratedRegistry } from "../config.ts"
-import { resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./cloudflare.ts"
+import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 import { renderDatabaseRuntimeModule } from "./runtime-module.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesPostgres, usesSqlite } from "./runtime-config-expression.ts"
 
@@ -135,10 +135,13 @@ function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig, 
 
 function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return runtimeConfig.databaseNames.filter((name) => {
-    if (runtimeConfig.databases[name]?.dialect === "postgresql") return false
+    const database = runtimeConfig.databases[name]
+    if (database?.dialect === "postgresql") return false
     const cloudflare = runtimeConfig.databases[name]?.cloudflare
     return hasConfigValue(resolveDatabaseId(runtimeConfig, name, provisionState))
       && !hasConfigValue(resolveConfigValue(cloudflare?.databaseName))
+      && !cloudflare?.http
+      && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
 }
 

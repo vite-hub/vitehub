@@ -1,12 +1,12 @@
 import { readFile, readdir } from "node:fs/promises"
 import { basename, extname, join, relative, resolve } from "node:path"
 
-import { createSourceScanner } from "@vite-hub/internal/source-scanner"
+import { argumentExpression, findCalls, findProperty, scanModule, staticValue } from "@vite-hub/internal/build/scan-module"
 import { findExportNames } from "mlly"
 
 import { sourceErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { IdentifierCall } from "@vite-hub/internal/source-scanner"
+import type { CallExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
 export interface CollectionDiscoveryOptions {
   projectRoot: string
@@ -15,97 +15,63 @@ export interface CollectionDiscoveryOptions {
 
 export interface DiscoveredCollection {
   /** The exported `defineCollection(...)` call, when it can be found without running the module. */
-  definition?: IdentifierCall
+  definition?: CallExpression
   exportName: string
   file: string
   name: string
   route: boolean
 }
 
-/** Finds the `defineCollection(...)` call that initializes the named export. */
-function findCollectionDefinitionCall(source: string, exportName: string, file: string): IdentifierCall | undefined {
-  const scanner = createSourceScanner(file)
-  const masked = scanner.maskSourceLiterals(source)
-  const escapedExportName = exportName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const identifier = String.raw`[$\p{ID_Start}_][$\p{ID_Continue}]*`
-  // Bind the call to the exported declaration itself. Looking only at the
-  // prefix up to a call can accidentally select an earlier local declaration
-  // with the same name, so first locate the exported initializer and then
-  // inspect calls inside that initializer.
-  const declaration = new RegExp(`(?:^|[;\\n])\\s*export\\s+(?:const|let|var)\\s+${escapedExportName}(?:\\s*:\\s*[^=;]+)?\\s*=`, "g")
-  const calls = scanner.findIdentifierCalls(source, "defineCollection")
-  let call
-  const findDeclarationCall = (initializerStart: number) => {
-    // Scan only this initializer. Matched groups retain nested calls and
-    // semicolons inside IIFEs, while top-level separators end the binding.
-    let end = initializerStart
-    let previous = ""
-    for (; end < masked.length; end++) {
-      const char = masked[end]!
-      if (char === ";" || char === ",") break
-      if (char === "\n" && previous) {
-        const next = masked.slice(end).trimStart()
-        // A newline can continue an expression after an operator or before
-        // a member access/call/operator; otherwise automatic semicolon
-        // insertion ends the initializer before the next statement.
-        if (!/[=?:+\-*/%&|^!<>.]/.test(previous)
-          && !/^(?:[.([?+\-*/%&|^<>=]|as\b|satisfies\b)/.test(next)) break
-      }
-      const close = char === "(" ? ")" : char === "[" ? "]" : char === "{" ? "}" : undefined
-      if (close) {
-        const matched = scanner.findMatching(source, end, char, close)
-        if (matched === undefined) return undefined
-        end = matched
-        previous = close
-      }
-      else if (!/\s/.test(char)) previous = char
-    }
-    const matches = calls.filter(candidate => candidate.start >= initializerStart && candidate.closeParen < end)
-    // A conditional (or other expression) can contain more than one
-    // defineCollection call. Without evaluating user code we cannot know
-    // which branch initializes the export, so avoid reporting metadata from
-    // an arbitrary branch.
-    return matches.length === 1 ? matches[0] : undefined
-  }
-  for (const match of masked.matchAll(declaration)) {
-    const initializerStart = (match.index ?? 0) + match[0].length
-    call = findDeclarationCall(initializerStart)
-    if (call) break
-  }
-  // Named exports may also re-export a local binding (`export { articles }`).
-  // Resolve that binding before inspecting its initializer so route metadata
-  // stays attached to the Collection that discovery imports.
-  if (!call) {
-    const exportList = new RegExp(`\\bexport\\s*\\{([^}]*)\\}`, "g")
-    for (const match of masked.matchAll(exportList)) {
-      const localName = match[1]
-        .split(",")
-        .map(entry => entry.trim().match(new RegExp(`^(${identifier})\\s+as\\s+${escapedExportName}$|^${escapedExportName}$`, "u")))
-        .find(Boolean)?.[1] ?? (match[1].split(",").map(entry => entry.trim()).find(entry => entry === exportName) ? exportName : undefined)
-      if (!localName) continue
-      // The export list may appear before or after the local declaration. Include
-      // `export const` declarations as well, then bind the name to its own
-      // initializer rather than relying on statement order.
-      const escapedLocalName = localName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      const localDeclaration = new RegExp(`(?:^|[;\\n])\\s*(?:export\\s+)?(?:const|let|var)\\s+${escapedLocalName}(?:\\s*:\\s*[^=;]+)?\\s*=`, "g")
-      for (const declarationMatch of masked.matchAll(localDeclaration)) {
-        const initializerStart = (declarationMatch.index ?? 0) + declarationMatch[0].length
-        const candidateCall = findDeclarationCall(initializerStart)
-        if (candidateCall) {
-          call = candidateCall
-          break
-        }
-      }
-      if (call) break
-    }
-  }
-  return call
+/** The initializers of top-level `const`, `let`, and `var` declarations named `name`. */
+function declarationInitializers(module: ScannedModule, name: string, exportedOnly: boolean) {
+  return module.program.body.flatMap((statement) => {
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : exportedOnly ? undefined : statement
+    if (declaration?.type !== "VariableDeclaration") return []
+    return declaration.declarations.flatMap(declarator => declarator.id.type === "Identifier" && declarator.id.name === name && declarator.init ? [declarator.init] : [])
+  })
 }
 
-function collectionRouteDisabled(call: IdentifierCall | undefined, file: string): boolean {
+/** The local binding that `export { local as exportName }` exports, without a module source. */
+function exportedLocalName(module: ScannedModule, exportName: string): string | undefined {
+  for (const statement of module.program.body) {
+    if (statement.type !== "ExportNamedDeclaration" || statement.source || statement.exportKind === "type") continue
+    for (const specifier of statement.specifiers) {
+      const exported = specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value
+      if (exported === exportName && specifier.local.type === "Identifier") return specifier.local.name
+    }
+  }
+}
+
+/**
+ * Finds the `defineCollection(...)` call that initializes the named export. An initializer with more than one call,
+ * such as a conditional, has no known call: the scanner cannot know which branch runs.
+ */
+function findCollectionDefinitionCall(source: string, exportName: string, file: string): CallExpression | undefined {
+  const module = scanModule(source, file)
+  const calls = findCalls(module, ["defineCollection"])
+  const callIn = (initializer: { end: number, start: number }) => {
+    const matches = calls.filter(call => call.start >= initializer.start && call.end <= initializer.end)
+    return matches.length === 1 ? matches[0] : undefined
+  }
+  for (const initializer of declarationInitializers(module, exportName, true)) {
+    const call = callIn(initializer)
+    if (call) return call
+  }
+  // Named exports may also re-export a local binding (`export { articles }`). Resolve that binding so route metadata
+  // stays attached to the Collection that discovery imports.
+  const localName = exportedLocalName(module, exportName)
+  if (localName === undefined) return
+  for (const initializer of declarationInitializers(module, localName, false)) {
+    const call = callIn(initializer)
+    if (call) return call
+  }
+}
+
+function collectionRouteDisabled(call: CallExpression | undefined): boolean {
   if (!call) return false
-  const options = call.arguments[1] ?? call.arguments[0]
-  return options !== undefined && createSourceScanner(file).readObjectProperty(options, "route") === "false"
+  const options = argumentExpression(call.arguments[1] ?? call.arguments[0])
+  const route = options?.type === "ObjectExpression" ? findProperty(options, "route")?.value : undefined
+  return route !== undefined && staticValue(route) === false
 }
 
 export async function collectCollectionFiles(directory: string): Promise<string[]> {
@@ -145,7 +111,7 @@ export async function discoverCollections(options: CollectionDiscoveryOptions): 
         throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
       }
       const definition = findCollectionDefinitionCall(source, exportName, file)
-      return { definition, exportName, file, name, route: !collectionRouteDisabled(definition, file) }
+      return { definition, exportName, file, name, route: !collectionRouteDisabled(definition) }
     }))
   }))).flat().sort((left, right) => left.name.localeCompare(right.name))
 
