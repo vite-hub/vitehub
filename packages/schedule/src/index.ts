@@ -32,5 +32,8 @@ export type {
   ScheduleRunStore,
   ScheduleTargetDefinition,
   ScheduleTargetDefinitionInput,
+  RegisteredScheduleTargetName,
+  ScheduleTargetInput,
+  ScheduleTargetRegistry,
   ScheduleTargetName,
 } from "./types.ts"

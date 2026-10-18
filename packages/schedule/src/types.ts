@@ -53,12 +53,8 @@ export interface ScheduleDefinitionRegistry {
 /** Discovered targets that allow Runtime Schedules. */
 export interface ScheduleTargetRegistry {}
 
-/**
- * Targets declared by generated or consumer type augmentation, plus names
- * discovered only at runtime. The latter keeps the public client usable when
- * a generated registry cannot provide a declaration file.
- */
-export type RegisteredScheduleTargetName = Extract<keyof ScheduleTargetRegistry, string> | ScheduleTargetName
+/** Target names declared by generated or consumer type augmentation. */
+export type RegisteredScheduleTargetName = Extract<keyof ScheduleTargetRegistry, string>
 export type ScheduleTargetInput<TTarget extends RegisteredScheduleTargetName> = TTarget extends keyof ScheduleTargetRegistry
   ? ScheduleTargetRegistry[TTarget] extends { handler: (context: infer TContext) => unknown }
   ? TContext extends ScheduleRunContext<infer TInput> ? TInput : never
