@@ -240,8 +240,8 @@ describe("KV Vite output", () => {
       run: () => Promise<unknown>
     }
     await expect(worker.run()).rejects.toMatchObject({
-      code: "KV_R0015",
-      message: '[vitehub] Unknown KV store "constructor".',
+      code: "KV_STORE_NOT_FOUND",
+      message: 'The KV store "constructor" is not configured.',
     })
   })
 

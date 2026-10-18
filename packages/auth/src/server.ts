@@ -545,25 +545,6 @@ async function isSerializableAuthorizationBody(body: unknown): Promise<boolean> 
   }
 }
 
-function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
-  if (body === null) return true
-  if (Object(body) !== body) return false
-  const bodyObject = body as object
-
-  // A stream's reader method must come from its intrinsic prototype. An own
-  // method can forge the serialization boundary and is bypassed by the native
-  // bridge below.
-  if (Object.hasOwn(bodyObject, "getReader")) return false
-
-  // Read the stream's own intrinsic accessors so bodies from another runtime
-  // or realm are accepted without applying this realm's brand checks.
-  const locked = responsePropertyDescriptor(body, "locked")?.get
-  const getReader = responsePropertyDescriptor(body, "getReader")?.value
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Cross-realm stream accessors must be validated before invocation.
-  if (typeof locked !== "function" || typeof getReader !== "function") return false
-  return !Reflect.apply(locked, body, [])
-}
-
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   // Use native operations on native stream state, never caller-supplied reader methods.
@@ -604,7 +585,7 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
   return { stream, release }
 }
 
-function normalizeAuthorizationResponse(value: unknown): Response | undefined {
+async function normalizeAuthorizationResponse(value: unknown): Promise<Response | undefined> {
   if (value === null || Object(value) !== value) return
   try {
     const candidate = Object(value)
@@ -652,7 +633,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       const getter = responsePropertyDescriptor(Object.getPrototypeOf(candidate), "bodyUsed")?.get
       if (!getter || Reflect.apply(getter, candidate, []) !== false) return
     }
-    if (!isSerializableAuthorizationBody(body)) return
+    if (!(await isSerializableAuthorizationBody(body))) return
     // Some foreign stream implementations expose `locked` as false after a
     // reader is released even though the stream is already disturbed. Let the
     // native constructor perform its intrinsic disturbed-state check before
@@ -677,7 +658,7 @@ function normalizeAuthorizationResponse(value: unknown): Response | undefined {
       ? Response.error()
       : new Response(body, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
-    const bridgedBody = bridgeAuthorizationBody(body)
+    const bridgedBody = bridgeAuthorizationBody(body as ReadableStream<Uint8Array>)
     try {
       return new Response(bridgedBody.stream, { status, statusText, headers: normalizedHeaders })
     }

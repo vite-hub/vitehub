@@ -191,9 +191,11 @@ describe("Auth access handlers", () => {
       body: null,
       [Symbol.toStringTag]: "Response",
     }
-    finally {
-      reader.releaseLock()
-    }
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => spoof }] },
+    }))
+
+    await expect(handler(new Request("https://app.example/"))).resolves.toMatchObject({ status: 403 })
   })
 
   it("rejects a forged Response prototype without reading its getters", async () => {
