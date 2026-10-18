@@ -44,7 +44,6 @@ function isRequest(value: unknown): value is Request {
       nativeGetter.call(value)
       return true
     } catch {
-      if (Object.prototype.toString.call(value) !== "[object Request]") return false
       let prototype: object | null = value
       const visited = new Set<object>()
       while (prototype !== null) {
@@ -55,6 +54,10 @@ function isRequest(value: unknown): value is Request {
         const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
         if (typeof constructor === "function" && constructor.name === "Request"
           && constructor.prototype === prototype && typeof bodyGetter === "function") {
+          // Read the Web IDL tag only after the bounded prototype walk has
+          // established a concrete candidate. A proxy can otherwise recurse
+          // while resolving Symbol.toStringTag before cycle detection runs.
+          if (Object.prototype.toString.call(value) !== "[object Request]") return false
           const descriptors = Object.getOwnPropertyDescriptors(prototype)
           const accessorNames = ["body", "headers", "method", "url", "signal"] as const
           if (accessorNames.some(name => {
