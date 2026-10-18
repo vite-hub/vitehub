@@ -47,7 +47,7 @@ export function serializeGeneratedRegistry(value: unknown): string {
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 const identifierPattern = /^[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*$/u
-const identifierCapturePattern = "([$\\u200C\\u200D\\p{ID_Start}][$\\u200C\\u200D\\p{ID_Continue}]*)"
+const identifierCapturePattern = "([$_\\u200C\\u200D\\p{ID_Start}][$_\\u200C\\u200D\\p{ID_Continue}]*)"
 
 function isLineTerminator(char: string): boolean {
   return char === "\n" || char === "\r" || char === "\u2028" || char === "\u2029"
@@ -354,6 +354,11 @@ const staticStringEscapes = new Map([["b", "\b"], ["f", "\f"], ["n", "\n"], ["r"
 
 function readStaticStringLiteral(expression: string): string | undefined {
   let normalized = stripStaticTypeAssertions(stripExpressionComments(expression))
+  while (normalized.endsWith("!")) normalized = normalized.slice(0, -1).trim()
+  if (normalized.startsWith("<")) {
+    const closeIndex = findAngleAssertionClose(normalized)
+    if (closeIndex !== undefined) normalized = normalized.slice(closeIndex + 1).trim()
+  }
   while (normalized.startsWith("(") && findMatching(normalized, 0, "(", ")") === normalized.length - 1) normalized = normalized.slice(1, -1).trim()
   const quote = normalized[0]
   if (normalized.length < 2 || (quote !== "'" && quote !== '"') || normalized.at(-1) !== quote) return
