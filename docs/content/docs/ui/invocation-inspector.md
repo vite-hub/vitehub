@@ -49,7 +49,7 @@ Set `:show-timeline="false"` to hide the timeline. Set `show-capabilities` to in
 ::component-preview{name="InvocationInspectorCompactExample" reset}
 ::
 
-The default keeps all recorded tool contracts in the inspector. Use the separate [Capability inspector](/docs/ui/capability-inspector) for Capability details, as in the Console. Set `showCapabilities` to `true` to embed them in a standalone inspector.
+The default keeps all recorded tool contracts and the embedded Capability summary in the inspector. Set `showCapabilities` to `false` to hide Capability details, or use the separate [Capability inspector](/docs/ui/capability-inspector) as in the Console.
 
 ## Captured configuration
 
