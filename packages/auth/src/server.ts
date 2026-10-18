@@ -291,11 +291,11 @@ async function runAccessAuthorize(
 function isResponseLike(value: unknown): value is Response {
   if (value === null || typeof value !== "object") return false
   try {
-    const tag = Object.prototype.toString.call(value)
-    if (tag !== "[object Response]") return false
-    const status = (value as { status?: unknown }).status
-    const headers = (value as { headers?: unknown }).headers
-    return typeof status === "number" && headers !== null && typeof headers === "object"
+    // Accessing the native getter performs the intrinsic-slot check, so
+    // structural lookalikes (including spoofed Symbol.toStringTag values)
+    // cannot be returned as authorization responses.
+    const status = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get?.call(value)
+    return typeof status === "number"
   }
   catch {
     return false

@@ -383,7 +383,7 @@ function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions =
 /** Index keys carry metadata from the stored record, independent of caller-selected run IDs. */
 function runIndexMetadata(key: string): { id: string, scheduleId: string, scheduledAt: number } | undefined {
   try {
-    const parts = key.split("/").slice(-3).map(decodeURIComponent)
+    const parts = key.split(/[/:]/).slice(-3).map(decodeURIComponent)
     const scheduledAt = Date.parse(parts[2]!)
     if (!Number.isFinite(scheduledAt)) return
     return { id: parts[0]!, scheduleId: parts[1]!, scheduledAt }
