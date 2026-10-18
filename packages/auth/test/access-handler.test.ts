@@ -581,7 +581,7 @@ describe("Auth access handlers", () => {
     expect(cancel).toHaveBeenCalledWith("client disconnected")
   })
 
-  it("bridges native stream state across distinct inherited reader methods", async () => {
+  it("rejects stream bodies with split intrinsic owners", async () => {
     const source = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new Uint8Array([65, 66]))
@@ -599,8 +599,7 @@ describe("Auth access handlers", () => {
 
     const response = await handler(new Request("https://app.example/"))
 
-    expect(response?.body?.getReader).toBe(ReadableStream.prototype.getReader)
-    await expect(response?.text()).resolves.toBe("AB")
+    expect(response?.status).toBe(403)
     expect(overriddenReader).not.toHaveBeenCalled()
     expect(source.locked).toBe(false)
   })
