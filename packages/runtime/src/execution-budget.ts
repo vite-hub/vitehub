@@ -59,6 +59,7 @@ export interface ExecutionBudget {
 
 interface BudgetState {
   readonly controller: AbortController
+  readonly sharedController: AbortController
   readonly limits: ExecutionBudgetLimits
   readonly usage: ExecutionBudgetUsage
 }
@@ -68,6 +69,7 @@ export function createExecutionBudget(options: ExecutionBudgetOptions = {}): Exe
   const controller = new AbortController()
   const state: BudgetState = {
     controller,
+    sharedController: new AbortController(),
     limits,
     usage: { inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 },
   }
@@ -86,7 +88,10 @@ function scheduleDeadline(controller: AbortController, deadlineAt: number) {
     if (controller.signal.aborted) return
     const remaining = deadlineAt - Date.now()
     if (remaining <= 0) controller.abort(new DOMException("Execution budget deadline exceeded.", "TimeoutError"))
-    else timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647))
+    else {
+      timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647))
+      if (typeof timer === "object" && timer !== null && "unref" in timer && typeof timer.unref === "function") timer.unref()
+    }
   }
   controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true })
   schedule()
@@ -94,12 +99,20 @@ function scheduleDeadline(controller: AbortController, deadlineAt: number) {
 
 function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController): ExecutionBudget {
   function assertAvailable(counter: ExecutionBudgetCounter, amount: number) {
-    state.controller.signal.throwIfAborted()
-    controller.signal.throwIfAborted()
+    const stateReason = state.controller.signal.reason
+    const controllerReason = controller.signal.reason
+    if (state.controller.signal.aborted && !(stateReason instanceof ExecutionBudgetExceededError)) state.controller.signal.throwIfAborted()
+    if (controller.signal.aborted && !(controllerReason instanceof ExecutionBudgetExceededError)) controller.signal.throwIfAborted()
     if (!Number.isFinite(amount) || amount < 0) throw new RangeError(`[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`)
     const next = state.usage[counter] + amount
     const limit = limitFor(counter, limits)
-    if (limit !== undefined && next > limit) throw new ExecutionBudgetExceededError(counter, limit)
+    if (limit !== undefined && next > limit) {
+      const error = new ExecutionBudgetExceededError(counter, limit)
+      state.sharedController.abort(error)
+      throw error
+    }
+    if (stateReason instanceof ExecutionBudgetExceededError) throw stateReason
+    if (controllerReason instanceof ExecutionBudgetExceededError) throw controllerReason
   }
 
   function consume(counter: ExecutionBudgetCounter, amount = 1) {
@@ -108,16 +121,24 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
   }
 
   return {
-    signal: controller.signal,
+    signal: AbortSignal.any([controller.signal, state.sharedController.signal]),
     child(options = {}) {
       const childLimits = normalizeLimits(options)
       const childController = new AbortController()
       const abortChild = (reason?: unknown) => childController.abort(reason)
-      if (state.controller.signal.aborted) abortChild(state.controller.signal.reason)
-      else state.controller.signal.addEventListener("abort", () => abortChild(state.controller.signal.reason), { once: true })
+      const abortParent = () => abortChild(state.controller.signal.reason)
+      if (state.controller.signal.aborted) abortParent()
+      else {
+        state.controller.signal.addEventListener("abort", abortParent, { once: true })
+        childController.signal.addEventListener("abort", () => state.controller.signal.removeEventListener("abort", abortParent), { once: true })
+      }
       if (options.signal) {
-        if (options.signal.aborted) abortChild(options.signal.reason)
-        else options.signal.addEventListener("abort", () => abortChild(options.signal?.reason), { once: true })
+        const abortExternal = () => abortChild(options.signal?.reason)
+        if (options.signal.aborted) abortExternal()
+        else {
+          options.signal.addEventListener("abort", abortExternal, { once: true })
+          childController.signal.addEventListener("abort", () => options.signal?.removeEventListener("abort", abortExternal), { once: true })
+        }
       }
       const deadlineAt = minDefined(limits.deadlineAt, childLimits.deadlineAt)
       if (deadlineAt !== undefined) scheduleDeadline(childController, deadlineAt)
