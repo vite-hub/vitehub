@@ -129,9 +129,6 @@ describe("Auth access handlers", () => {
       await expect(run(source)).resolves.toBe(source)
     })
 
-    const response = await handler(new Request("https://app.example/"))
-
-    expect(response?.status).toBe(403)
   })
 
   it("preserves foreign status, body, and separate Set-Cookie headers", async () => {

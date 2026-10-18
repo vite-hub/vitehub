@@ -617,6 +617,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       responsePropertyDescriptor(candidate, key)?.get === nativeResponseDescriptors[key]?.get)
     let nativeProperties = false
     let nativeBodyUnused = false
+    let foreignBodyUnused = true
     try {
       nativeProperties = nativeDescriptors && authorizationResponseProperties.every(key => {
         const getter = nativeResponseDescriptors[key]?.get
@@ -626,6 +627,19 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
       const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
       nativeBodyUnused = Boolean(bodyUsedGetter && !Reflect.apply(bodyUsedGetter, candidate, []))
         && (body === null || Boolean(lockedGetter && !Reflect.apply(lockedGetter, body, [])))
+      if (!(value instanceof Response)) {
+        let prototype: object | null = Object.getPrototypeOf(candidate)
+        let foreignBodyUsedGetter: ((this: object) => boolean) | undefined
+        for (let depth = 0; prototype && depth < authorizationResponsePrototypeLimit; depth++) {
+          const descriptor = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")
+          if (descriptor?.get) {
+            foreignBodyUsedGetter = descriptor.get as (this: object) => boolean
+            break
+          }
+          prototype = Object.getPrototypeOf(prototype)
+        }
+        foreignBodyUnused = Boolean(foreignBodyUsedGetter && !Reflect.apply(foreignBodyUsedGetter, candidate, []))
+      }
     }
     catch {
       // A proxy can expose native descriptors without owning native response state.
@@ -642,6 +656,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
 
     const nativeBodyReader = body === null ? true : getNativeAuthorizationBodyReader(body)
     if (value instanceof Response && nativeProperties && nativeBodyUnused && nativeHeaderMethods && nativeCookieMethod && nativeBodyReader) return value
+    if (!(value instanceof Response) && !foreignBodyUnused) return
     if (body !== null && typeof nativeBodyReader !== "function") return
     const forEach = Reflect.get(headerCarrier, "forEach")
     const getSetCookie = Reflect.get(headerCarrier, "getSetCookie")
