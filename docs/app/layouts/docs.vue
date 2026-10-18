@@ -70,7 +70,9 @@ const docsShellUi = {
 }
 
 .vh-docs-landing {
+  --vh-landing-width: 84rem;
   max-width: var(--vh-landing-width);
+  margin-inline: auto;
 }
 
 /* On wide screens the rail and the page panel stay at the left edge. The page fills the remaining space. */

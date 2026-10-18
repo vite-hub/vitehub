@@ -5,16 +5,12 @@ import {
   getDocsPageByPath,
   normalizeDocsPath,
 } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import {
-  getDocsCatalog,
-  getDocsRelatedSections,
-  getDocsSectionForPath,
-  getDocsSidebarGroups,
-} from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { getDocsCatalog, getDocsRelatedSections, getDocsSidebarGroups } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { useDocsSection } from "../composables/useDocsSection";
 
 const route = useRoute();
 const currentPath = computed(() => normalizeDocsPath(route.path));
-const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
+const section = useDocsSection();
 const pageGroups = computed(() => {
   if (!section.value) return [];
   const groups = getDocsSidebarGroups(section.value);
