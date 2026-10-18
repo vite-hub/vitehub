@@ -82,13 +82,14 @@ async function runDrizzleKit(
   getConfig?: ResolvedDBViteConfigProvider,
 ): Promise<number> {
   const config = await getConfig?.({ strict: feature === "generate" })
+  const rootDir = config?.rootDir ?? context.rootDir
   const runs = config && config.databaseNames.length > 1
     ? config.databaseNames.map(name => ({ configFile: config.generatedDrizzleConfigFilesByDatabase[name]!, database: config.databases?.[name] }))
     : [{ configFile: config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts", database: config?.databases?.[config.databaseNames[0]!] }]
 
   for (const { configFile, database } of runs) {
-    if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, context)
-    const result = await runDrizzleKitWithConfig(feature, args, context, toConfigPath(context.rootDir, configFile))
+    if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, { ...context, rootDir })
+    const result = await runDrizzleKitWithConfig(feature, args, { ...context, rootDir }, toConfigPath(rootDir, configFile))
     if (result !== 0) return result
   }
   return 0

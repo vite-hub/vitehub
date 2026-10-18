@@ -1,29 +1,24 @@
-export interface ScheduleRunContext {
+export interface ScheduleRunContext<TInput = unknown> {
   id: string
   attemptId?: string
+  input?: TInput
   runId?: string
   scheduleId?: string
   scheduledAt: Date
-  /** Name of the Schedule Definition that runs. */
-  target?: string
+  target?: ScheduleTargetName
   waitUntil(promise: PromiseLike<unknown>): void
 }
 
-export type ScheduleHandler<TResult = unknown> = {
-  bivarianceHack(context: ScheduleRunContext): TResult | Promise<TResult>
+export type ScheduleHandler<TResult = unknown, TInput = unknown> = {
+  bivarianceHack(context: ScheduleRunContext<TInput>): TResult | Promise<TResult>
 }["bivarianceHack"]
 
 export interface ScheduleDefinitionInput<TResult = unknown> {
   /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
   manual?: boolean
   allowRuntimeSchedules?: boolean
-  /** Five-field cron expression, evaluated in `timeZone`. */
   cron: string
   handler: ScheduleHandler<TResult>
-  /**
-   * IANA time zone of `cron`, such as `"Europe/Madrid"`. Defaults to `"UTC"`. The process driver follows daylight
-   * saving time. Provider cron output (Cloudflare, Vercel, Netlify, Deno) supports only UTC.
-   */
   timeZone?: string
 }
 
@@ -31,22 +26,97 @@ export interface ScheduleDefinitionOptions {
   /** Allows `runSchedule()`, the Console, and `vitehub schedule run` to start this definition outside its cron. */
   manual?: boolean
   allowRuntimeSchedules?: boolean
-  /** IANA time zone of the cron, such as `"Europe/Madrid"`. Defaults to `"UTC"`. */
   timeZone?: string
 }
 
 export interface ScheduleDefinition<TResult = unknown> {
   cron: string
   handler: ScheduleHandler<TResult>
-  /** IANA time zone of `cron`. Absent means UTC. */
+  options?: ScheduleDefinitionOptions
   timeZone?: string
-  options?: Omit<ScheduleDefinitionOptions, "timeZone">
 }
 
-export type ScheduleRegistryDefinition = ScheduleDefinition
+export interface ScheduleTargetDefinitionInput<TInput = unknown, TResult = unknown> {
+  handler: ScheduleHandler<TResult, TInput>
+}
+
+export interface ScheduleTargetDefinition<TInput = unknown, TResult = unknown> {
+  handler: ScheduleHandler<TResult, TInput>
+  options: {
+    allowRuntimeSchedules: true
+  }
+}
+
+export type ScheduleRegistryDefinition = ScheduleDefinition | ScheduleTargetDefinition
 
 export interface ScheduleDefinitionRegistry {
   [name: string]: () => Promise<{ default?: ScheduleRegistryDefinition } | ScheduleRegistryDefinition>
+}
+
+/** Discovered targets that allow Runtime Schedules. */
+export interface ScheduleTargetRegistry {}
+
+export type RegisteredScheduleTargetName = Extract<keyof ScheduleTargetRegistry, string>
+export type ScheduleTargetInput<TTarget extends RegisteredScheduleTargetName> = ScheduleTargetRegistry[TTarget] extends { handler: (context: infer TContext) => unknown }
+  ? TContext extends ScheduleRunContext<infer TInput> ? TInput : never
+  : never
+
+// Durable records and operational calls can reference targets outside this build.
+export type ScheduleTargetName = string & {}
+
+export interface RuntimeScheduleMetadata {
+  createdAt: Date
+  updatedAt: Date
+}
+
+/** Console options for one Runtime Schedule. */
+export interface ScheduleConsoleOptions {
+  /** Shows the Runtime Schedule in the Console. Defaults to `true`. `vitehub schedule` still lists it. */
+  enabled?: boolean
+  /** Stored for Console run actions. The Console is read-only, so it only shows this value. */
+  dispatch?: boolean
+}
+
+export interface RuntimeScheduleRecord<TInput = unknown> extends RuntimeScheduleMetadata {
+  console?: ScheduleConsoleOptions
+  cron: string
+  enabled: boolean
+  id: string
+  input?: TInput
+  target: ScheduleTargetName
+  timeZone?: string
+}
+
+export interface RuntimeScheduleWake {
+  scheduleId: string
+  scheduledAt: Date
+}
+
+export interface RuntimeScheduleCreateInput<TTarget extends ScheduleTargetName = ScheduleTargetName, TInput = unknown> {
+  console?: ScheduleConsoleOptions
+  cron: string
+  enabled?: boolean
+  id?: string
+  input?: TInput
+  target: TTarget
+  timeZone?: string
+}
+
+export interface RuntimeScheduleUpdateInput<TTarget extends ScheduleTargetName = ScheduleTargetName, TInput = unknown> {
+  console?: ScheduleConsoleOptions
+  cron?: string
+  enabled?: boolean
+  input?: TInput
+  target?: TTarget
+  timeZone?: string
+}
+
+export interface RuntimeScheduleStore {
+  create: (record: RuntimeScheduleRecord) => Promise<RuntimeScheduleRecord> | RuntimeScheduleRecord
+  delete: (id: string) => Promise<boolean> | boolean
+  get: (id: string) => Promise<RuntimeScheduleRecord | undefined> | RuntimeScheduleRecord | undefined
+  list: () => Promise<RuntimeScheduleRecord[]> | RuntimeScheduleRecord[]
+  update: (id: string, patch: RuntimeScheduleUpdateInput & { updatedAt: Date }) => Promise<RuntimeScheduleRecord | undefined> | RuntimeScheduleRecord | undefined
 }
 
 export type ScheduleRunStatus = "pending" | "running" | "succeeded" | "failed"
@@ -73,8 +143,7 @@ export interface ScheduleRunRecord {
   scheduledAt: Date
   startedAt?: Date
   status: ScheduleRunStatus
-  /** Name of the Schedule Definition that ran. */
-  target: string
+  target: ScheduleTargetName
   updatedAt: Date
 }
 
@@ -92,6 +161,8 @@ export interface ScheduleRunAttemptRecord {
 export interface ScheduleRunListOptions {
   /** Maximum number of records, newest scheduled occurrence first. */
   limit?: number
+  /** Includes only Runtime Schedule runs when true. */
+  runtimeOnly?: boolean
   scheduleId?: string
 }
 
@@ -110,12 +181,10 @@ export interface ScheduleRunStore {
 
 export interface DiscoveredScheduleDefinition {
   manual?: boolean
-  /** Plugin that contributed the Definition through `vitehub.schedules`. Only set for contributed Definitions. */
-  contributor?: string
+  allowRuntimeSchedules?: boolean
   handler: string
   name: string
-  /** Why the plugin contributed the Definition. Only set for contributed Definitions. */
-  reason?: string
-  source?: "server-schedules" | "vite-plugin-contribution" | "vite-suffix"
+  runtimeOnly?: boolean
+  source?: "server-schedules" | "vite-suffix"
 }
 import type { SerializedResponse } from "@vite-hub/runtime"

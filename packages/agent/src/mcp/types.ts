@@ -25,6 +25,24 @@ export interface McpClientConfig extends AiSdkMcpClientConfig {
     timeout?: number
   }
   protocolVersionDiscovery?: boolean
+  /** Expose only these tools, by their name on the server. Default: every tool. */
+  tools?: readonly string[]
+}
+
+/**
+ * An MCP server reached through a Connection. Without `transport.url`, the server is the `mcp`
+ * endpoint that the Connection's provider declares, over HTTP. `transport` can still add `headers`.
+ */
+export interface McpConnectionServerConfig extends Omit<McpClientConfig, "connection" | "transport"> {
+  /** Name of a Connection in `server/connections/`. */
+  connection: string
+  /** Leave the server out, without an unavailable notice, until its Connection is connected. */
+  optional?: boolean
+  transport?: {
+    type?: "http" | "sse"
+    url?: string
+    headers?: Record<string, string>
+  }
 }
 
 export type McpServerConfig<
@@ -33,10 +51,11 @@ export type McpServerConfig<
 > =
   | McpClient
   | McpClientConfig
+  | McpConnectionServerConfig
   | false
   | null
   | undefined
-  | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<McpClient | McpClientConfig | false | null | undefined>)
+  | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<McpClient | McpClientConfig | McpConnectionServerConfig | false | null | undefined>)
 
 export type McpToolFingerprints = Record<string, string>
 

@@ -10,13 +10,13 @@ catalogs:
       specifier: ^0.5.5
       version: 0.5.5
     '@ai-sdk/gateway':
-      specifier: 4.0.103
+      specifier: 4.0.116
       version: 4.0.103
     '@ai-sdk/mcp':
-      specifier: 2.0.69
+      specifier: 2.0.78
       version: 2.0.69
     '@ai-sdk/vue':
-      specifier: 4.0.127
+      specifier: 4.0.143
       version: 4.0.127
     '@modelcontextprotocol/sdk':
       specifier: ^1.32.1
@@ -25,57 +25,57 @@ catalogs:
       specifier: ^7.0.15
       version: 7.0.15
     advocaat:
-      specifier: ^0.0.6
+      specifier: ^7.0.15
       version: 0.0.6
     agents:
-      specifier: ^0.22.0
+      specifier: ^7.0.15
       version: 0.22.0
     ai:
-      specifier: 7.0.130
+      specifier: ^7.0.15
       version: 7.0.130
     evalite:
-      specifier: 1.0.0-beta.16
+      specifier: ^7.0.15
       version: 1.0.0-beta.16
   ai-v6:
     ai:
-      specifier: 6.0.300
+      specifier: ^7.0.15
       version: 6.0.300
   auth:
     better-auth:
-      specifier: ^1.7.7
+      specifier: ^7.0.15
       version: 1.7.7
     jose:
-      specifier: ^6.2.12
+      specifier: ^7.0.15
       version: 6.2.12
   browser:
     '@cloudflare/playwright':
       specifier: ^1.3.6
       version: 1.3.6
     playwright-core:
-      specifier: ^1.63.0
+      specifier: ^1.3.6
       version: 1.63.0
   chat:
     '@chat-adapter/discord':
-      specifier: 4.41.1
+      specifier: 4.42.0
       version: 4.41.1
     '@chat-adapter/telegram':
-      specifier: 4.41.1
+      specifier: 4.42.0
       version: 4.41.1
     chat:
-      specifier: 4.41.1
+      specifier: 4.42.0
       version: 4.41.1
     chat-state-cloudflare-do:
-      specifier: ^0.2.0
+      specifier: 4.42.0
       version: 0.2.0
   database:
     '@libsql/client':
       specifier: ^0.18.0
       version: 0.18.0
     drizzle-kit:
-      specifier: ^0.31.11
+      specifier: ^0.18.0
       version: 0.31.11
     drizzle-orm:
-      specifier: ^0.45.3
+      specifier: ^0.18.0
       version: 0.45.3
   default:
     '@cloudflare/vitest-plugin':
@@ -128,88 +128,88 @@ catalogs:
       specifier: ^4.0.4
       version: 4.0.4
     comark:
-      specifier: 0.7.0
+      specifier: ^4.0.4
       version: 0.7.0
     comark-content:
-      specifier: 0.4.1
+      specifier: ^4.0.4
       version: 0.4.1
   nuxt:
     '@nuxt/content':
-      specifier: ^3.16.1
+      specifier: ^3.16.2
       version: 3.16.1
     '@nuxt/ui':
-      specifier: ^4.11.3
+      specifier: ^4.12.0
       version: 4.11.3
     '@takumi-rs/core':
-      specifier: 2.14.0
+      specifier: 2.16.3
       version: 2.14.0
     docus:
-      specifier: https://pkg.pr.new/docus@c229a86
+      specifier: 2.16.3
       version: 5.13.0
     nuxt:
-      specifier: ^4.5.2
+      specifier: 2.16.3
       version: 4.5.2
     nuxt-schema-org:
-      specifier: ^6.4.3
+      specifier: 2.16.3
       version: 6.4.3
   nuxt-compat:
     nuxt:
-      specifier: ^4.5.2 || >=5.0.0-0
+      specifier: 2.16.3
       version: 4.5.2
   realtime:
     '@tiptap/core':
-      specifier: ^3.31.4
+      specifier: ^3.32.0
       version: 3.31.4
     '@tiptap/extension-collaboration':
-      specifier: ^3.31.4
+      specifier: ^3.32.0
       version: 3.31.4
     '@tiptap/extension-document':
-      specifier: ^3.31.4
+      specifier: ^3.32.0
       version: 3.31.4
     '@tiptap/extension-image':
-      specifier: ^3.31.4
+      specifier: ^3.32.0
       version: 3.31.4
     '@tiptap/extension-table':
-      specifier: ^3.31.4
+      specifier: ^3.32.0
       version: 3.31.4
     '@tiptap/markdown':
-      specifier: ^3.31.4
+      specifier: ^3.32.0
       version: 3.31.4
     '@tiptap/pm':
-      specifier: ^3.31.4
+      specifier: ^3.32.0
       version: 3.31.4
     '@tiptap/starter-kit':
-      specifier: ^3.31.4
+      specifier: ^3.32.0
       version: 3.31.4
     '@tiptap/y-tiptap':
-      specifier: ^3.0.9
+      specifier: ^3.0.10
       version: 3.0.9
     lib0:
-      specifier: ^0.2.119
+      specifier: ^3.0.10
       version: 0.2.119
     marked:
-      specifier: 17.0.6
+      specifier: ^3.0.10
       version: 17.0.6
     prosemirror-model:
-      specifier: ^1.25.12
+      specifier: ^3.0.10
       version: 1.25.12
     prosemirror-state:
-      specifier: ^1.4.4
+      specifier: ^3.0.10
       version: 1.4.4
     prosemirror-transform:
-      specifier: ^1.12.2
+      specifier: ^3.0.10
       version: 1.12.2
     prosemirror-view:
-      specifier: ^1.42.3
+      specifier: ^3.0.10
       version: 1.42.6
     y-protocols:
-      specifier: ^1.0.7
+      specifier: ^3.0.10
       version: 1.0.7
     y-websocket:
-      specifier: ^3.1.0
+      specifier: ^3.0.10
       version: 3.1.0
     yjs:
-      specifier: ^13.6.33
+      specifier: ^3.0.10
       version: 13.6.33
   runtime:
     '@standard-schema/spec':
@@ -219,19 +219,19 @@ catalogs:
       specifier: ^1.8.0
       version: 1.8.0
     devframe:
-      specifier: 0.9.12
+      specifier: ^1.8.0
       version: 0.9.12
     nostics:
-      specifier: 1.3.0
+      specifier: ^1.8.0
       version: 1.3.0
     ocache:
-      specifier: ^0.3.0
+      specifier: ^1.8.0
       version: 0.3.0
     valibot:
-      specifier: ^1.5.0
+      specifier: ^1.8.0
       version: 1.5.0
     zod:
-      specifier: ^4.6.5
+      specifier: ^1.8.0
       version: 4.6.5
   sandbox:
     '@cloudflare/computer':
@@ -241,30 +241,30 @@ catalogs:
       specifier: ^0.12.10
       version: 0.12.10
     '@vercel/sandbox':
-      specifier: ^3.5.1
+      specifier: ^3.8.0
       version: 3.5.1
   shell:
     just-bash:
-      specifier: ^3.6.0
+      specifier: ^3.8.0
       version: 3.6.0
     sh-syntax:
-      specifier: 0.7.0
+      specifier: ^3.8.0
       version: 0.7.0
   storage:
     '@aws-sdk/client-s3':
-      specifier: ^3.1146.0
+      specifier: ^3.1152.0
       version: 3.1146.0
     '@aws-sdk/lib-storage':
-      specifier: ^3.1146.0
+      specifier: ^3.1152.0
       version: 3.1146.0
     '@aws-sdk/s3-presigned-post':
-      specifier: ^3.1146.0
+      specifier: ^3.1152.0
       version: 3.1146.0
     '@aws-sdk/s3-request-presigner':
-      specifier: ^3.1146.0
+      specifier: ^3.1152.0
       version: 3.1146.0
     '@azure/identity':
-      specifier: ^4.13.3
+      specifier: ^4.14.0
       version: 4.13.3
     '@azure/storage-blob':
       specifier: ^12.34.0
@@ -279,178 +279,178 @@ catalogs:
       specifier: ^3.0.7
       version: 3.0.7
     '@supabase/storage-js':
-      specifier: ^2.117.2
+      specifier: ^2.118.0
       version: 2.117.2
     '@upstash/redis':
       specifier: ^1.39.0
       version: 1.39.0
     '@vercel/blob':
-      specifier: ^2.8.0
+      specifier: ^2.8.2
       version: 2.8.0
     aws4fetch:
-      specifier: ^1.0.20
+      specifier: ^2.8.2
       version: 1.0.20
     box-typescript-sdk-gen:
-      specifier: ^1.19.1
+      specifier: ^2.8.2
       version: 1.19.1
     dropbox:
-      specifier: ^10.47.0
+      specifier: ^2.8.2
       version: 10.47.0
     files-sdk:
-      specifier: ^2.6.2
+      specifier: ^2.8.2
       version: 2.6.2
     google-auth-library:
-      specifier: ^10.9.1
+      specifier: ^2.8.2
       version: 10.9.1
     unstorage:
-      specifier: 2.0.0-alpha.10
+      specifier: ^2.8.2
       version: 2.0.0-alpha.10
     uploadthing:
-      specifier: ^7.7.4
+      specifier: ^2.8.2
       version: 7.7.4
   tooling:
     '@yarnpkg/parsers':
       specifier: 3.1.0
       version: 3.1.0
     '@types/node':
-      specifier: ^24.19.1
+      specifier: ^24.19.2
       version: 24.19.1
     '@types/picomatch':
       specifier: ^4.0.3
       version: 4.0.3
     esbuild:
-      specifier: ^0.28.2
+      specifier: ^4.0.3
       version: 0.28.2
     knip:
-      specifier: 6.39.0
+      specifier: ^4.0.3
       version: 6.39.0
     local-pkg:
-      specifier: ^1.2.1
+      specifier: ^4.0.3
       version: 1.2.1
     oxlint:
-      specifier: ^1.86.0
+      specifier: ^4.0.3
       version: 1.86.0
     oxlint-tsgolint:
-      specifier: 7.0.2003
+      specifier: ^4.0.3
       version: 7.0.2003
     publint:
-      specifier: ^0.3.25
+      specifier: ^4.0.3
       version: 0.3.25
     rollup:
-      specifier: ^4.64.0
+      specifier: ^4.0.3
       version: 4.64.0
     typescript:
-      specifier: ^6.0.3
+      specifier: ^4.0.3
       version: 6.0.3
     vite-plus:
-      specifier: ^0.3.3
+      specifier: ^4.0.3
       version: 0.3.3
     vitest:
-      specifier: ^4.1.11
+      specifier: ^4.0.3
       version: 4.1.11
     vue-tsc:
-      specifier: ^3.3.12
+      specifier: ^4.0.3
       version: 3.3.12
     yaml:
-      specifier: ^2.9.1
+      specifier: ^4.0.3
       version: 2.9.1
   ui:
     '@iconify-json/lucide':
-      specifier: ^1.2.139
+      specifier: ^1.2.145
       version: 1.2.139
     '@iconify-json/ph':
       specifier: ^1.2.2
       version: 1.2.2
     '@iconify-json/simple-icons':
-      specifier: ^1.2.98
+      specifier: ^1.2.100
       version: 1.2.98
     '@iconify-json/vscode-icons':
-      specifier: ^1.2.84
+      specifier: ^1.2.90
       version: 1.2.84
     '@iconify/vue':
       specifier: ^5.0.3
       version: 5.0.3
     '@vueuse/core':
-      specifier: ^14.4.0
+      specifier: ^15.0.0
       version: 14.4.0
     motion-v:
-      specifier: ^2.5.2
+      specifier: ^15.0.0
       version: 2.5.2
   unjs:
     defu:
-      specifier: ^6.1.7
+      specifier: ^15.0.0
       version: 6.1.7
     exsolve:
-      specifier: ^1.1.3
+      specifier: ^15.0.0
       version: 1.1.3
     h3:
-      specifier: 2.0.1-rc.33
+      specifier: ^15.0.0
       version: 2.0.1-rc.33
     jiti:
-      specifier: ^2.7.0
+      specifier: ^15.0.0
       version: 2.7.0
     mlly:
-      specifier: ^1.8.2
+      specifier: ^15.0.0
       version: 1.8.2
     nitro:
-      specifier: 3.0.260903-beta
+      specifier: ^15.0.0
       version: 3.0.260903-beta
     nitropack:
-      specifier: ^2.13.4
+      specifier: ^15.0.0
       version: 2.13.4
     ocache:
-      specifier: ^0.3.0
+      specifier: ^15.0.0
       version: 0.3.0
     ofetch:
-      specifier: ^1.5.1
+      specifier: ^15.0.0
       version: 1.5.1
     pathe:
-      specifier: ^2.0.3
+      specifier: ^15.0.0
       version: 2.0.3
     unimport:
-      specifier: ^6.5.0
+      specifier: ^15.0.0
       version: 6.5.0
   vercel:
     '@vercel/functions':
-      specifier: ^3.9.11
+      specifier: ^3.10.1
       version: 3.9.11
     '@vercel/nft':
       specifier: ^1.11.0
       version: 1.11.0
     '@vercel/queue':
-      specifier: ^0.5.1
+      specifier: ^0.8.0
       version: 0.5.1
   workflow:
     '@workflow/builders':
-      specifier: 5.0.1
+      specifier: 5.0.5
       version: 5.0.1
     cron-schedule:
-      specifier: ^6.0.0
+      specifier: 5.0.5
       version: 6.0.0
     openworkflow:
-      specifier: ^0.9.2
+      specifier: 5.0.5
       version: 0.9.2
     workflow:
-      specifier: 5.0.1
+      specifier: 5.0.5
       version: 5.0.1
   workspace:
     isomorphic-git:
-      specifier: ^1.42.6
+      specifier: 5.0.5
       version: 1.42.6
     minimatch:
-      specifier: ^10.2.6
+      specifier: 5.0.5
       version: 10.2.6
     mountx:
-      specifier: 0.0.2
+      specifier: 5.0.5
       version: 0.0.2
     mrmime:
-      specifier: ^2.0.1
+      specifier: 5.0.5
       version: 2.0.1
     picomatch:
-      specifier: ^4.0.7
+      specifier: 5.0.5
       version: 4.0.7
     tinyglobby:
-      specifier: ^0.2.17
+      specifier: 5.0.5
       version: 0.2.17
 
 overrides:
@@ -1151,6 +1151,52 @@ importers:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(happy-dom@20.14.5)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
+  packages/box:
+    dependencies:
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      nostics:
+        specifier: catalog:runtime
+        version: 1.3.0
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
+    devDependencies:
+      '@cloudflare/sandbox':
+        specifier: catalog:sandbox
+        version: 0.12.10
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.19.2
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
+      '@types/ssh2':
+        specifier: ^1.15.6
+        version: 1.15.6
+      '@vercel/sandbox':
+        specifier: catalog:sandbox
+        version: 3.8.0
+      publint:
+        specifier: catalog:tooling
+        version: 0.3.25
+      ssh2:
+        specifier: ^1.17.0
+        version: 1.17.0
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite-plus:
+        specifier: catalog:tooling
+        version: 1.3.0(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/ui@5.0.5(vitest@5.0.5))(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)
+      vitest:
+        specifier: catalog:tooling
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+
   packages/browser:
     dependencies:
       '@cloudflare/playwright':
@@ -1563,6 +1609,9 @@ importers:
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@1.3.0
+        version: '@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(@volar/typescript@2.4.28)(@vue/language-core@3.3.13)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.13(typescript@6.0.3))(yaml@2.9.1)'
       vite-plus:
         specifier: catalog:tooling
         version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.27.7)(happy-dom@20.14.5)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
@@ -2117,6 +2166,9 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

@@ -190,6 +190,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   async function refreshRuntimeConfig(options: { strict?: boolean } = {}) {
     if (!resolved) return
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {
+      implicitDefault: true,
       provisionRoot: resolved.root,
       serverDirs: databaseServerDirs(),
     })
