@@ -28,11 +28,11 @@ const runtimeScheduleUpdateInputKeys = new Set(["console", "cron", "enabled", "i
 
 function parseCronNumber(value: string, range: { min: number, max: number }): number {
   if (!/^\d+$/.test(value)) {
-    throw createScheduleError("SCHEDULE_INVALID_CRON", { details: invalidScheduleValueDetails("cron", part) })
+    throw createScheduleError("SCHEDULE_INVALID_CRON", { details: invalidScheduleValueDetails("cron", value) })
   }
   const parsed = Number(value)
   if (!Number.isInteger(parsed) || parsed < range.min || parsed > range.max) {
-    throw createScheduleError("SCHEDULE_INVALID_CRON", { details: invalidScheduleValueDetails("cron", part) })
+    throw createScheduleError("SCHEDULE_INVALID_CRON", { details: invalidScheduleValueDetails("cron", value) })
   }
   return parsed
 }
@@ -84,7 +84,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
   try {
     fields.forEach((field, index) => {
       if (field.length === 0) {
-        throw createScheduleError("SCHEDULE_INVALID_CRON", { details: invalidScheduleValueDetails("cron", part) })
+        throw createScheduleError("SCHEDULE_INVALID_CRON", { details: invalidScheduleValueDetails("cron", field) })
       }
       for (const part of field.split(",")) {
         validateCronPart(part, cronFieldRanges[index]!)
