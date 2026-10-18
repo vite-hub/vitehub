@@ -140,15 +140,21 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       const childController = new AbortController()
       const abortChild = (reason?: unknown) => childController.abort(reason)
       const abortParent = () => abortChild(state.controller.signal.reason)
-      if (state.controller.signal.aborted) abortParent()
+      const abortShared = () => abortChild(state.sharedController.signal.reason)
+      if (state.sharedController.signal.aborted) abortShared()
+      else if (state.controller.signal.aborted) abortParent()
       else {
         state.controller.signal.addEventListener("abort", abortParent, { once: true })
-        childController.signal.addEventListener("abort", () => state.controller.signal.removeEventListener("abort", abortParent), { once: true })
+        state.sharedController.signal.addEventListener("abort", abortShared, { once: true })
+        childController.signal.addEventListener("abort", () => {
+          state.controller.signal.removeEventListener("abort", abortParent)
+          state.sharedController.signal.removeEventListener("abort", abortShared)
+        }, { once: true })
       }
       if (options.signal) {
         const abortExternal = () => abortChild(options.signal?.reason)
         if (options.signal.aborted) abortExternal()
-        else {
+        else if (!childController.signal.aborted) {
           options.signal.addEventListener("abort", abortExternal, { once: true })
           const removeExternalListener = () => options.signal?.removeEventListener("abort", abortExternal)
           childController.signal.addEventListener("abort", removeExternalListener, { once: true })
