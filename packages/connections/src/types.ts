@@ -47,6 +47,36 @@ export interface ConnectionAccount {
   id: string
 }
 
+/**
+ * How ViteHub sends requests to a provider. It applies to `fetch` and API method calls of the
+ * Connection, on the server. Omit it to send each request once, without pacing or a timeout.
+ */
+export interface ConnectionRequestPolicy {
+  /**
+   * Connections with the same bucket share one request schedule and one 429 pause, for example
+   * two keys for the same provider account. Default: the Connection name.
+   */
+  bucket?: string
+  /** Space request starts evenly. `{ limit: 5, perMs: 1000 }` starts one request every 200 ms. */
+  rate?: { intervalMs: number } | { limit: number, perMs: number }
+  /** Retry failed requests. Omit to send each request once. */
+  retry?: {
+    /** Attempts in total, including the first. Default: `3`. */
+    attempts?: number
+    /** Methods retried after a network error or a 5xx response. Default: `["GET", "HEAD", "OPTIONS"]`. */
+    methods?: readonly string[]
+    /** First backoff after a network error or a 5xx response. It doubles per attempt. Default: `250`. */
+    delayMs?: number
+    /**
+     * A 429 is retried for every method after `Retry-After`, and pauses every request in the
+     * bucket until then. `minDelayMs` sets the shortest pause, for providers that require one.
+     */
+    on429?: { minDelayMs?: number }
+  }
+  /** Abort each attempt after this many milliseconds, also while the caller reads the body. */
+  timeoutMs?: number
+}
+
 /** An OAuth 2.0 provider with authorization code, PKCE, and refresh token support. */
 export interface ConnectionProvider<TApis extends object = object> {
   readonly id: string
@@ -60,6 +90,13 @@ export interface ConnectionProvider<TApis extends object = object> {
   readonly authorizationParams?: Readonly<Record<string, string>>
   /** Typed API catalogs. Their root URLs receive the token. Default: none. */
   readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /**
+   * The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The token is also sent there,
+   * and `mcp({ servers: { name: { connection } } })` connects to it.
+   */
+  readonly mcp?: string
+  /** Pacing, retries, and a timeout for provider requests. */
+  readonly requests?: ConnectionRequestPolicy
   /**
    * Read the account identity from the token response of an authorization code exchange.
    * Default: when `identityScopes` includes `openid`, the `sub` and `email` claims of the ID token.
@@ -125,9 +162,13 @@ export interface ConnectionApiKeyProvider<TApis extends object = object> {
   readonly header: string
   /** Text before the key in the header value, for example `Bearer`. Omit to send the bare key. */
   readonly scheme?: string
-  /** Origins that `fetch` may send the key to. API catalog root URLs are also allowed. */
+  /** Origins that `fetch` may send the key to. API catalog root URLs and the `mcp` endpoint are also allowed. */
   readonly origins: readonly string[]
   readonly apis: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /** The provider's MCP endpoint. The key is also sent there. */
+  readonly mcp?: string
+  /** Pacing, retries, and a timeout for provider requests. */
+  readonly requests?: ConnectionRequestPolicy
   /** The key to use while no key was ever stored, or while the store cannot open. A revoked key does not fall back. */
   fallback?: ConnectionApiKeyFallback
   /** Check a new key before ViteHub stores it. */
@@ -289,6 +330,8 @@ export interface ConnectionInspection {
   connectedAt?: string
   /** `oauth2` Connections connect through the provider. `api-key` Connections store a key that an admin sets. */
   credential: "api-key" | "oauth2"
+  /** The provider's MCP endpoint, when it declares one. */
+  mcp?: string
   /** Where the key of a connected API key Connection comes from: a key that an admin set, or the provider `fallback`. */
   keySource?: "fallback" | "stored"
   name: string
