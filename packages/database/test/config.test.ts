@@ -402,6 +402,20 @@ describe("resolveDBViteConfig", () => {
     }))
   })
 
+  it("does not compare PostgreSQL Definitions as native D1 bindings", async () => {
+    const rootDir = await createTempProject()
+    const postgresFile = join(rootDir, "server/databases/foo-bar/config.ts")
+    await mkdir(dirname(postgresFile), { recursive: true })
+    await writeFile(postgresFile, [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "export default defineDatabase({ dialect: 'postgresql', connection: { url: 'postgres://localhost/db' }, cloudflare: { binding: 'DB_FOO_BAR' }, schema: {} })",
+      "",
+    ].join("\n"))
+    await writeDefinition(rootDir, "server/databases/foo_bar/config.ts", "accounts")
+
+    expect(() => resolveDBViteConfig(undefined, rootDir)).not.toThrow()
+  })
+
   it.each(["reference", "spread"] as const)("does not check opaque %s resources as native D1 bindings", async (form) => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {

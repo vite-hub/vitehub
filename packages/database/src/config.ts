@@ -980,6 +980,10 @@ export function resolveDBViteConfig(
 
   const cloudflareBindings = new Map<string, string>()
   for (const definition of definitions) {
+    // PostgreSQL Definitions never emit native D1 bindings. Their Cloudflare
+    // field is reserved for Hyperdrive settings, so exclude them from this
+    // SQLite/D1 collision check.
+    if (readDatabaseDefinitionDialect(definition.handler) === "postgresql") continue
     const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
     // Opaque definitions that prove resource ownership or HTTP-only behavior
     // do not emit native D1 bindings and must stay out of this check.
