@@ -201,11 +201,17 @@ function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cr
   const scheduledTime = event.controller?.scheduledTime ?? event.scheduledTime
   let scheduledAt: Date
   try {
-    scheduledAt = scheduledTime === undefined
-      ? new Date()
-      : scheduledTime instanceof Date
-        ? new Date(Date.prototype.getTime.call(scheduledTime))
-        : new Date(scheduledTime)
+    if (scheduledTime === undefined) {
+      scheduledAt = new Date()
+    }
+    else {
+      try {
+        scheduledAt = new Date(Date.prototype.getTime.call(scheduledTime))
+      }
+      catch {
+        scheduledAt = new Date(scheduledTime)
+      }
+    }
     if (Number.isNaN(Date.prototype.getTime.call(scheduledAt))) throw new Error("invalid date")
   }
   catch {

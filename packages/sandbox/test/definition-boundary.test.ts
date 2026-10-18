@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveBox } from "../src/index.ts";
+import { resolveSandbox } from "../src/index.ts";
 
-describe("Box definition boundaries", () => {
+describe("Sandbox definition boundaries", () => {
   it.each(["from", "contents"] as const)(
     "rejects file declarations with inherited %s",
     async (key) => {
@@ -12,7 +12,7 @@ describe("Box definition boundaries", () => {
       );
 
       await expect(
-        resolveBox({
+        resolveSandbox({
           home: { files: { credential: inherited } },
           runtime: "trusted-host",
         }, {}),
@@ -27,7 +27,7 @@ describe("Box definition boundaries", () => {
     const value = Object.assign(Object.create({ [key]: key === "from" ? "package.json" : "secret" }), own);
 
     await expect(
-      resolveBox({ home: { files: { credential: value } }, runtime: "trusted-host" }, {}),
+      resolveSandbox({ home: { files: { credential: value } }, runtime: "trusted-host" }, {}),
     ).rejects.toThrow("requires exactly one of from or contents");
   });
 });

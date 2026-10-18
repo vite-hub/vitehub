@@ -584,7 +584,7 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     // Validate status and native body state before acquiring reader ownership.
     const normalizedResponse = status === 0 && statusText === "" && body === null && [...normalizedHeaders].length === 0
       ? Response.error()
-      : new Response(body, { status, statusText, headers: normalizedHeaders })
+      : new Response(null, { status, statusText, headers: normalizedHeaders })
     if (body === null) return normalizedResponse
     const bridgedBody = bridgeAuthorizationBody(body)
     try {
