@@ -471,9 +471,9 @@ async function getNativeAuthorizationBodyReader(body: unknown): Promise<((this: 
           parent = Object.getPrototypeOf(parent)
         }
         // The host bridge invokes only the captured host intrinsics. Foreign
-        // streams are normalized through the host Response boundary below;
-        // never cache or invoke methods obtained from a caller-controlled
-        // foreign prototype.
+        // streams are accepted only when their own native reader operations
+        // pass validation; unsupported foreign streams are rejected rather
+        // than converted through the host Response constructor.
         if (constructor === ReadableStream && typeof descriptor.value === "function") {
           // Probe the source runtime's reader prototype before acquiring the
           // caller's body lock. This lets malformed foreign readers fail
