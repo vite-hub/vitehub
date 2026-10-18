@@ -21,7 +21,7 @@ export type ConfiguredAgentDefinition<TOptions extends object, TDefinition = Age
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 
 /** Resolve a local name before the normal Agent layer composition. */
-export function resolveNamedAgentPresetOptions(input: unknown): unknown {
+function resolveNamedAgentPresetOptions(input: unknown): unknown {
   if (!isRuntimeRecord(input)) return input
   if (!("presets" in input) && !("preset" in input)) return input
   const { preset, presets, ...options } = input

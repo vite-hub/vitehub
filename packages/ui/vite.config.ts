@@ -1,5 +1,5 @@
 import { defineConfig } from "vite-plus";
-import { componentEntryName, componentNames } from "./src/component-entries.ts";
+import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 
 export default defineConfig({
   pack: {
@@ -22,7 +22,6 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
-      ...componentNames.map((name) => `src/${componentEntryName(name)}.ts`),
       "src/index.ts",
       "src/headless.ts",
       "src/nuxt.ts",
@@ -40,7 +39,7 @@ export default defineConfig({
               return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }];
             }),
         );
-        return { ...publicExports, "./styles.css": "./dist/styles.css" };
+        return { ...normalizePackageExports(publicExports), "./styles.css": "./dist/styles.css" };
       },
       inlinedDependencies: false,
     },

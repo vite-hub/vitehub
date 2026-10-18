@@ -27,7 +27,7 @@ describe("vitehub/no-internal-imports", () => {
         "import { kv } from \"vite-hub/_internal/kv\"",
         "import { isPlainObject } from \"@vite-hub/internal/object\"",
         "import state from \"@vite-hub/queue/internal/runtime/state\"",
-        "export * from \"@vite-hub/sandbox/_internal/runtime\"",
+        "export * from \"@vite-hub/sandbox-task/_internal/runtime\"",
         "const env = await import(\"../../.vitehub/env/server.ts\")",
         "export { kv, isPlainObject, state, env }",
       ].join("\n"),
