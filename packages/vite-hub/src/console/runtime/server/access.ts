@@ -113,6 +113,9 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
 export function consoleRequest(event: ConsoleRequestEvent): Request {
   if (event.req instanceof Request) return event.req
   const headers = new Headers()
+  for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
+    if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value)
+  }
   const requestHeaders = event.req?.headers ?? event.headers
   const iterableHeaders = requestHeaders as (ConsoleHeaders & { [Symbol.iterator]?: () => IterableIterator<[string, string]> }) | undefined
   const iterate = iterableHeaders?.[Symbol.iterator]
@@ -126,9 +129,6 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
       const value = requestHeaders.get(name)
       if (value !== null) headers.set(name, value)
     }
-  }
-  for (const [name, value] of Object.entries(event.node?.req?.headers ?? {})) {
-    if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value)
   }
   return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
 }
