@@ -169,10 +169,12 @@ describe("Auth access handlers", () => {
 
   it("normalizes Response subclasses that override body", async () => {
     class BodyOverridingResponse extends ForeignResponse {
-      override get body() {
-        return super.body
-      }
     }
+    Object.defineProperty(BodyOverridingResponse.prototype, "body", {
+      get() {
+        return Object.getOwnPropertyDescriptor(ForeignResponse.prototype, "body")!.get!.call(this)
+      },
+    })
     const foreignResponse = new BodyOverridingResponse("Policy rejected", { status: 409 })
     const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
       access: { routes: [{ route: "/**", authorize: () => foreignResponse as never }] },

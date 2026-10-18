@@ -374,7 +374,18 @@ async function hasResponsePrototype(value: unknown): Promise<boolean> {
   }
 }
 
-function streamIntrinsics(body: object) {
+type AuthorizationStreamIntrinsics = {
+  locked: (this: object) => boolean
+  getReader: (this: object) => unknown
+  read: (this: object) => Promise<unknown>
+  cancel: (this: object, reason?: unknown) => Promise<unknown>
+  releaseLock: (this: object) => void
+  reader: object
+}
+
+const validatedAuthorizationReaders = new WeakMap<object, AuthorizationStreamIntrinsics>()
+
+function streamIntrinsics(body: object): AuthorizationStreamIntrinsics | undefined {
   let prototype: object | null = Object.getPrototypeOf(body)
   let locked: ((this: object) => boolean) | undefined
   let intrinsicPrototype: object | null = null
@@ -411,19 +422,11 @@ function streamIntrinsics(body: object) {
   }
   try {
     if (!Reflect.apply(locked, body, [])) return
-    Reflect.apply(releaseLock, reader, [])
-    // A forged or stateful getReader() may return a reader from another
-    // stream on a later call. Probe a second acquisition so the reader used by
-    // bridging is guaranteed to lock and release this candidate stream.
-    if (Reflect.apply(locked, body, [])) return
-    const secondReader = Object(Reflect.apply(getReader, body, []))
-    if (Object(secondReader) !== secondReader) return
-    if (!Reflect.apply(locked, body, [])) return
-    Reflect.apply(releaseLock, secondReader, [])
-    if (Reflect.apply(locked, body, [])) return
+    // Keep this ownership-verified reader for the bridge. Acquiring again
+    // later would allow a stateful getReader() to return another stream.
   }
   catch { return }
-  return { locked, getReader, read, cancel, releaseLock }
+  return { locked, getReader, read, cancel, releaseLock, reader }
 }
 
 function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<Uint8Array> | null {
@@ -432,7 +435,9 @@ function isSerializableAuthorizationBody(body: unknown): body is ReadableStream<
   try {
     const candidate = Object(body)
     const intrinsics = streamIntrinsics(candidate)
-    return !!intrinsics && !Reflect.apply(intrinsics.locked, candidate, [])
+    if (!intrinsics || !Reflect.apply(intrinsics.locked, candidate, [])) return false
+    validatedAuthorizationReaders.set(candidate, intrinsics)
+    return true
   }
   catch {
     return false
@@ -473,7 +478,8 @@ function bridgeAuthorizationBody(
   let cancel: ((...args: [unknown?]) => Promise<void>) | undefined
   let releaseLock: (() => void) | undefined
   let released = false
-  const acquired = Reflect.apply(getReader, body, [])
+  const validated = validatedAuthorizationReaders.get(body)
+  const acquired = validated?.reader ?? Reflect.apply(getReader, body, [])
   if (Object(acquired) !== acquired || Object.prototype.hasOwnProperty.call(acquired, "read") || Object.prototype.hasOwnProperty.call(acquired, "cancel") || Object.prototype.hasOwnProperty.call(acquired, "releaseLock")) throw new Error("Malformed authorization reader")
   let prototype: object | null = Object.getPrototypeOf(acquired)
   const seen = new Set<object>()
@@ -494,6 +500,12 @@ function bridgeAuthorizationBody(
   for (let depth = 0; lockedPrototype && depth < authorizationResponsePrototypeLimit; depth++, lockedPrototype = Object.getPrototypeOf(lockedPrototype)) {
     locked = Object.getOwnPropertyDescriptor(lockedPrototype, "locked")?.get as typeof locked
     if (typeof locked === "function") break
+  }
+  if (validated) {
+    read = validated.read as typeof read
+    cancel = validated.cancel as typeof cancel
+    releaseLock = validated.releaseLock
+    locked = validated.locked
   }
   if (!read || !cancel || !releaseLock || typeof locked !== "function" || !Reflect.apply(locked, body, [])) {
     try { if (releaseLock) Reflect.apply(releaseLock, acquired as object, []) } catch {}
@@ -565,10 +577,10 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     let nativeBodyState = false
     try {
       const bodyUsed = Object.getOwnPropertyDescriptor(Response.prototype, "bodyUsed")?.get
-      const bodyIntrinsics = body === null ? undefined : streamIntrinsics(Object(body))
+      const lockedGetter = Object.getOwnPropertyDescriptor(ReadableStream.prototype, "locked")?.get
       nativeBodyState = bodyUsed !== undefined
         && !Reflect.apply(bodyUsed, candidate, [])
-        && (body === null || (!!bodyIntrinsics && !Reflect.apply(bodyIntrinsics.locked, body, [])))
+        && (body === null || (typeof lockedGetter === "function" && !Reflect.apply(lockedGetter, Object(body), [])))
     }
     catch {
       // A proxy can expose native descriptors without owning native response state.
