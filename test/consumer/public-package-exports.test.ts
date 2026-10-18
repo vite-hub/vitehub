@@ -415,7 +415,14 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
       const dependencyInfo = packageInfos.find(candidate => candidate.packageName === packageName)
       if (!dependencyInfo) continue
       const dependencyManifest = await readManifest(join(repoRoot, "packages", dependencyInfo.name, "package.json"))
-      for (const dependency of Object.keys(dependencyManifest.dependencies || {})) {
+      const dependencies = [
+        ...Object.keys(dependencyManifest.dependencies || {}),
+        ...Object.keys(dependencyManifest.optionalDependencies || {}),
+        ...Object.keys(dependencyManifest.peerDependencies || {}).filter(name =>
+          !dependencyManifest.peerDependenciesMeta?.[name]?.optional,
+        ),
+      ]
+      for (const dependency of dependencies) {
         if (specs[dependency]) pending.push(dependency)
       }
     }

@@ -168,6 +168,9 @@
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "postgres": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }
