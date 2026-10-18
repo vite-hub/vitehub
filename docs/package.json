@@ -17,6 +17,7 @@
     "test:links": "nuxi prepare && node scripts/check-doc-links.mjs",
     "test:links:external": "node scripts/check-example-links.mjs",
     "test:artifact": "node scripts/artifact-smoke.mjs",
+    "eval:agent-docs": "node evals/agent-docs/run.mjs",
     "typecheck": "nuxi prepare && node scripts/typecheck.mjs",
     "generate": "NODE_OPTIONS='--max-old-space-size=8192' nuxi generate",
     "preview": "nuxi preview",

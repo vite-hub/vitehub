@@ -427,6 +427,12 @@ function getAuthorizationStreamOperations(body: unknown): AuthorizationStreamOpe
 
 function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, operations: AuthorizationStreamOperations) {
   const reader = Reflect.apply(operations.getReader, body, []) as ReadableStreamDefaultReader<Uint8Array>
+  // A stateful replacement may return a reader belonging to another stream.
+  // The native locked brand check must observe the exact body as locked after
+  // acquisition; otherwise fail closed before reading unrelated data.
+  if (!Reflect.apply(operations.isLocked, body, [])) {
+    throw new TypeError("Authorization reader is not associated with its body")
+  }
   const read = authorizationReaderRead
   const cancel = authorizationReaderCancel
   const releaseLock = authorizationReaderReleaseLock

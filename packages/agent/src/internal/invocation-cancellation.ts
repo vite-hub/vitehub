@@ -30,7 +30,7 @@ export interface LocalAgentInvocationCancellation {
 
 const cancellationHandlesKey = Symbol.for("vitehub.agentInvocationCancellations")
 
-export const agentInvocationCancellationCode = "AGENT_R0970"
+const agentInvocationCancellationCode = "AGENT_R0970"
 const cancellationInvocationId = Symbol.for("vitehub.agentInvocationCancellationId")
 const observedCancellationFailures = new WeakMap<object, Set<string>>()
 

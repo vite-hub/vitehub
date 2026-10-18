@@ -62,7 +62,6 @@ function hasInvalidSupportedWindows(value: unknown): boolean {
   if (!Array.isArray(value)) return true
   for (let index = 0; index < value.length; index++) {
     const window: unknown = value[index]
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Driver capabilities cross a provider boundary as unknown values.
     if (typeof window !== "number" || !Number.isInteger(window) || window <= 0 || window > 8.64e15) return true
   }
   return false
@@ -144,7 +143,6 @@ function assertKey(input: RateLimitConsumeInput, operation: "peek" | "reset"): v
 }
 
 function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Limiter options are opaque runtime inputs; reject primitives before guarded driver inspection.
   if (!value || typeof value !== "object") return false
   try {
     return !Array.isArray(value)
@@ -152,6 +150,11 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
   catch {
     return false
   }
+}
+
+// A prototype must not set a policy field, so read only own properties.
+function ownOption(options: CreateRateLimiterOptions, key: "enforcement" | "failure" | "limit" | "window"): unknown {
+  return Object.hasOwn(options, key) ? Reflect.get(options, key) : undefined
 }
 
 function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
@@ -164,23 +167,24 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
 } {
   const driver = Reflect.get(options, "driver") as CreateRateLimiterOptions["driver"]
   const consume = Reflect.get(driver, "consume") as CreateRateLimiterOptions["driver"]["consume"]
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Driver methods cross provider and JavaScript realm boundaries.
   if (typeof consume !== "function") {
     throw new TypeError("Rate Limit driver consume() must be callable")
   }
   const peek = Reflect.get(driver, "peek") as CreateRateLimiterOptions["driver"]["peek"]
   const reset = Reflect.get(driver, "reset") as CreateRateLimiterOptions["driver"]["reset"]
+  // SAFETY: normalizeRateLimitPolicy() validates every policy field of this snapshot.
+  const policy = {
+    driver,
+    limit: ownOption(options, "limit"),
+    window: ownOption(options, "window"),
+    enforcement: ownOption(options, "enforcement"),
+    failure: ownOption(options, "failure"),
+    name: Reflect.get(options, "name"),
+  } as CreateRateLimiterOptions
   const capabilities = Reflect.get(driver, "capabilities") as RateLimitDriverCapabilities
   if (!capabilities || typeof capabilities !== "object") {
     return {
-      policy: {
-        driver,
-        limit: Reflect.get(options, "limit"),
-        window: Reflect.get(options, "window"),
-        enforcement: Reflect.get(options, "enforcement"),
-        failure: Reflect.get(options, "failure"),
-        name: Reflect.get(options, "name"),
-      },
+      policy,
       capabilities,
       driverName: Reflect.get(driver, "name"),
       consume,
@@ -196,14 +200,7 @@ function inspectRateLimiterOptions(options: CreateRateLimiterOptions): {
   }
   if (windows !== undefined) Object.assign(inspectedCapabilities, { windows })
   return {
-    policy: {
-      driver,
-      limit: Reflect.get(options, "limit"),
-      window: Reflect.get(options, "window"),
-      enforcement: Reflect.get(options, "enforcement"),
-      failure: Reflect.get(options, "failure"),
-      name: Reflect.get(options, "name"),
-    },
+    policy,
     capabilities: inspectedCapabilities,
     driverName: Reflect.get(driver, "name"),
     consume,
