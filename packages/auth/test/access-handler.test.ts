@@ -552,6 +552,20 @@ describe("Auth access handlers", () => {
     expect(source.locked).toBe(false)
   })
 
+  it("rejects foreign response bodies that yield non-byte chunks", async () => {
+    const source = new ReadableStream({
+      start(controller) { controller.enqueue("not bytes" as never); controller.close() },
+    })
+    const foreign = new ForeignResponse(source, { status: 409 })
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({
+      access: { routes: [{ route: "/**", authorize: () => foreign as never }] },
+    }))
+
+    const response = await handler(new Request("https://app.example/"))
+    expect(response).toMatchObject({ status: 409 })
+    await expect(response?.text()).rejects.toThrow(TypeError)
+  })
+
   it("forwards cancellation while a native read is pending and releases ownership", async () => {
     const cancel = vi.fn()
     const source = new ReadableStream<Uint8Array>({ cancel }, { highWaterMark: 0 })

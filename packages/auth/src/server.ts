@@ -443,7 +443,20 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>) {
       try {
         const result = await Reflect.apply(read, reader, [])
         if (result.done) { release(); controller.close() }
-        else controller.enqueue(result.value)
+        else {
+          // A default ReadableStream may yield arbitrary values even though
+          // Fetch response bodies are required to produce byte chunks. Keep
+          // malformed chunks from crossing the adapter boundary.
+          try {
+            Reflect.apply(Uint8Array.prototype.subarray, result.value, [0, 0])
+          }
+          catch {
+            release()
+            controller.error(new TypeError("Authorization response body yielded a non-byte chunk"))
+            return
+          }
+          controller.enqueue(result.value)
+        }
       }
       catch (error) { release(); controller.error(error) }
     },
