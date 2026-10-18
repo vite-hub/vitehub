@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -18,6 +19,7 @@ async function executePackageEntry(definitionSource: string, options: {
   input?: unknown
   inputFiles?: Record<number, Uint8Array>
   inputJson?: string
+  prelude?: string
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-task-package-entry-"))
   tempDirs.push(root)
@@ -27,7 +29,7 @@ async function executePackageEntry(definitionSource: string, options: {
   const outputPath = join(root, "output.json")
   await Promise.all([
     writeFile(definitionPath, definitionSource, "utf8"),
-    writeFile(entryPath, createEntrySource(definitionPath, "module"), "utf8"),
+    writeFile(entryPath, (options.prelude ?? "") + createEntrySource(definitionPath, "module"), "utf8"),
     writeFile(inputPath, options.inputJson ?? JSON.stringify(options.input ?? { context: {}, payload: {} }), "utf8"),
   ])
   if (options.inputFiles) {
@@ -56,6 +58,173 @@ async function executePackageEntry(definitionSource: string, options: {
 }
 
 describe("package entry result transport", () => {
+  it.each([
+    ["binary", "new Response(new Uint8Array([0, 127, 255]), { status: 201 })", [0, 127, 255]],
+    ["streaming", "new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array([0, 127])); controller.enqueue(new Uint8Array([255])); controller.close() } }), { status: 201 })", [0, 127, 255]],
+    ["null", "new Response(null, { status: 204 })", []],
+  ])("clones a native %s response only once during detection", async (_label, expression, bytes) => {
+    const execution = await executePackageEntry(`export default () => ${expression}`, {
+      prelude: [
+        "const proofNativeClone = Response.prototype.clone",
+        "let proofCloneCount = 0",
+        "Response.prototype.clone = function (...args) {",
+        "  this.headers.set('x-clone-count', String(++proofCloneCount))",
+        "  return Reflect.apply(proofNativeClone, this, args)",
+        "}",
+        "",
+      ].join("\n"),
+    })
+
+    expect(execution.code).toBe(0)
+    const sandbox = {} as Parameters<typeof decodeSandboxValue>[0]
+    const response = await decodeSandboxValue(sandbox, execution.output.result, "", "result")
+    if (!(response instanceof Response)) throw new TypeError("Expected Response")
+    expect(response.headers.get("x-clone-count")).toBe("1")
+    expect(response.status).toBe(bytes.length ? 201 : 204)
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(bytes))
+  })
+
+  it("preserves a Response from another realm across the child process", async () => {
+    const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url))
+    const undiciDirectory = (await readdir(join(workspaceRoot, "node_modules/.pnpm"))).find(name => name.startsWith("undici@"))
+    if (!undiciDirectory) throw new Error("undici package not found")
+    const foreignResponseModule = pathToFileURL(join(workspaceRoot, "node_modules/.pnpm", undiciDirectory, "node_modules/undici/index.js")).href
+    const execution = await executePackageEntry([
+      `import { Response as ForeignResponse } from ${JSON.stringify(foreignResponseModule)}`,
+      `export default () => new ForeignResponse(new Uint8Array([0, 127, 255]), { status: 201, statusText: 'Created', headers: { 'x-result': 'preserved' } })`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    const sandbox = {} as Parameters<typeof decodeSandboxValue>[0]
+    const response = await decodeSandboxValue(sandbox, execution.output.result, "", "result")
+
+    expect(response).toBeInstanceOf(Response)
+    if (!(response instanceof Response)) throw new TypeError("Expected Response")
+    expect(response.status).toBe(201)
+    expect(response.statusText).toBe("Created")
+    expect(response.headers.get("x-result")).toBe("preserved")
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([0, 127, 255]))
+  })
+
+  it("preserves response-shaped objects with only an enumerable symbol", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = { clone() { return this }, get body() { return null } }`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers })`,
+      `  return Object.defineProperties(value, { [Symbol('state')]: { value: 'preserved', enumerable: true }, arrayBuffer: { value: async () => new ArrayBuffer() } })`,
+      `}`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ status: 201, statusText: "Created" })
+    expect(execution.output.result).not.toHaveProperty(SANDBOX_VALUE_MARKER)
+  })
+
+  it("rejects non-enumerable spoofs with a structurally valid clone result", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = {}`,
+      `  Object.defineProperties(prototype, { clone: { value() { return { status: 201, statusText: 'Created', headers, arrayBuffer: async () => new ArrayBuffer(), [Symbol.toStringTag]: 'Response' } } }, body: { get() { return null } } })`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers })`,
+      `  return Object.defineProperty(value, 'arrayBuffer', { value: async () => new ArrayBuffer() })`,
+      `}`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ status: 201, statusText: "Created" })
+    expect(execution.output.result).not.toHaveProperty(SANDBOX_VALUE_MARKER)
+  })
+
+  it("rejects spoofs with an own forged constructor", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = {}`,
+      `  Object.defineProperties(prototype, { clone: { value() { return Object.create(prototype) } }, body: { get() { return null } } })`,
+      `  const constructor = function Response() {}`,
+      `  constructor.prototype = prototype`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers })`,
+      `  Object.defineProperties(value, { arrayBuffer: { value: async () => new ArrayBuffer() }, constructor: { value, enumerable: false } })`,
+      `  return value`,
+      `}`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ status: 201, statusText: "Created" })
+    expect(execution.output.result).not.toHaveProperty(SANDBOX_VALUE_MARKER)
+  })
+
+  it("preserves objects with an inherited forged constructor", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = {}`,
+      `  const constructor = function Response() {}`,
+      `  constructor.prototype = prototype`,
+      `  Object.defineProperties(prototype, { constructor: { value: constructor }, clone: { value() { return Object.create(prototype) } }, body: { get() { return null } } })`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers, requestId: 'kept' })`,
+      `  return Object.defineProperty(value, 'arrayBuffer', { value: async () => new ArrayBuffer() })`,
+      `}`,
+    ].join("\n"))
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ requestId: "kept" })
+  })
+
+  it("preserves objects forged with a Response class constructor", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = { clone() { return Object.create(prototype) }, get body() { return null } }`,
+      `  class Response { static error() {}; static json() {}; static redirect() {} }`,
+      `  Response.prototype = prototype`,
+      `  Object.defineProperty(prototype, 'constructor', { value: Response })`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers, requestId: 'kept' })`,
+      `  return Object.defineProperty(value, 'arrayBuffer', { value: async () => new ArrayBuffer() })`,
+      `}`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ requestId: "kept" })
+  })
+
+  it("preserves ordinary objects with non-enumerable response-like prototype members", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = {}`,
+      `  Object.defineProperties(prototype, { clone: { value() { return {} } }, body: { get() { return null } } })`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers, extra: 'kept' })`,
+      `  return Object.defineProperty(value, 'arrayBuffer', { value: async () => new ArrayBuffer() })`,
+      `}`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ status: 201, statusText: "Created", extra: "kept" })
+  })
+
+  it("preserves response-shaped ordinary objects", async () => {
+    const execution = await executePackageEntry([
+      `export default () => {`,
+      `  const headers = {}`,
+      `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
+      `  const prototype = { clone() { return this }, get body() { return null } }`,
+      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers, extra: 'kept' })`,
+      `  return Object.defineProperties(value, { [Symbol.toStringTag]: { value: 'Response' }, [Symbol('spoofed')]: { value: 'preserved', enumerable: true }, arrayBuffer: { value: async () => new ArrayBuffer() } })`,
+      `}`,
+    ].join("\n"))
+
+    expect(execution.code).toBe(0)
+    expect(execution.output.result).toMatchObject({ status: 201, statusText: "Created", extra: "kept" })
+  })
+
   it.each([
     ["subclass tag", "new (class extends Uint8Array { get [Symbol.toStringTag]() { return 'Bytes' } })([0, 1, 2, 3, 4]).subarray(1, 4)"],
     ["own tag", "Object.defineProperty(new Uint8Array([0, 1, 2, 3, 4]).subarray(1, 4), Symbol.toStringTag, { value: 'Bytes' })"],

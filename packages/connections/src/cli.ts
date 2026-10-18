@@ -104,6 +104,7 @@ const inspectionSchema = v.looseObject({
   account: v.optional(v.looseObject({ email: v.optional(v.string()), id: v.string() })),
   actions: v.array(v.looseObject({ highRisk: v.boolean(), id: v.string(), method: v.string(), write: v.boolean() })),
   credential: v.picklist(["api-key", "oauth2"]),
+  keySource: v.optional(v.picklist(["fallback", "stored"])),
   name: v.string(),
   provider: v.string(),
   scopes: v.looseObject({ declared: v.array(v.string()), granted: v.array(v.string()), missing: v.array(v.string()) }),
@@ -167,6 +168,7 @@ function describeConnection(connection: ConnectionInspection): string {
   const lines = [
     `${connection.name}  ${connection.provider}  ${connection.status}${connection.account?.email ? `  ${connection.account.email}` : ""}`,
   ]
+  if (connection.keySource === "fallback") lines.push("  key: provider fallback")
   if (connection.scopes.missing.length) lines.push(`  missing scopes: ${connection.scopes.missing.join(" ")}`)
   return lines.join("\n")
 }

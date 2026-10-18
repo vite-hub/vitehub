@@ -52,7 +52,7 @@ Typed catalog methods and `useConnection().fetch()` can send the Connection toke
 
 ## Use an API key
 
-Use `apiKey()` when the provider gives a static key instead of OAuth. An admin sets the key at runtime, so it never appears in code or Server Env:
+Use `apiKey()` when the provider gives a static key instead of OAuth. An admin sets the key at runtime, so it never appears in code:
 
 ```ts
 // server/connections/executor.ts
@@ -71,6 +71,7 @@ export default defineConnection({
 | `scheme` | `Bearer` for `authorization`, none for other headers | Text before the key. Set `""` to send the bare key. |
 | `apis` | `{}` | Typed API catalogs, as for OAuth providers. |
 | `verify` | none | Check a new key before it is stored. It receives the runtime `fetch` and a 30-second abort signal. Return `false` to reject the key, or `{ account }` to label the Connection. |
+| `fallback` | none | Return the key to use until an admin sets one, for example `() => useServerEnv().github.token`. A sealed Server Env secret is unsealed. |
 | `id` | `"api-key"` | Provider id in inspection and the Console. |
 
 Set the key in the Console with **Set key**, or pipe it to the CLI. The CLI reads the key only from stdin and sends it only over HTTPS or to a loopback host:
@@ -80,6 +81,8 @@ printf %s "$EXECUTOR_API_KEY" | vitehub connections set-key executor
 ```
 
 ViteHub seals the key like an OAuth token, and access rules, approvals, dry run, and activity work the same way. An API key has no scopes and no refresh: a `401` response does not change the Connection status. When a redirect leaves the first origin, ViteHub removes the key header. Revoking an API key Connection deletes the stored key. Revoke the key at the provider too.
+
+The `fallback` key applies only when no key was ever set for the Connection, or when the store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key set in the Console or with `set-key` always wins, and so does a revoke: a revoked Connection does not fall back. The fallback key must pass the stored key format check. Requests with it use the same access rules and approvals and are recorded as activity while the store is open. An approval requested with the fallback key does not run after an admin sets a key. `inspect()` reports `keySource: "fallback"` or `"stored"` for a connected API key Connection.
 
 ## Use a custom store
 
@@ -102,6 +105,8 @@ An expired unresolved lease blocks every token revision. A replacement token can
 
 Custom stores must implement atomic `refreshLeases.claim()` and owner-fenced `refreshLeases.release()`. The name remains for compatibility, but the lease covers all token mutations. `claim()` returns `acquired`, `busy`, or `expired`; it must never replace an expired unresolved lease, even when the token revision changed. A lost refresh response or failed token write requires reconnecting rather than reusing the old grant. An unconfirmed callback exchange or revoke keeps its lease until the provider outcome is confirmed and the store is repaired. A successful callback exchange stays fenced through account extraction and token/state persistence. Failures during those steps quarantine the current token revision as `reauth_required`.
 
+The default store prunes activity in the `connections` namespace of `vitehub_env_activity` after each event. One `DELETE` drops events older than `maxAgeMs` and events past the newest `maxRecords`. A failed prune logs a warning and does not fail the request. Pass `activityRetention` to `createDatabaseConnectionStore()` to change the limits, or `false` to keep all activity.
+
 A custom Connections store must supply the token revision as the second `bridge.use()` callback argument. Revocation requires a provider `revocationEndpoint` and uses that revision to replace the token with a revoked marker. A provider without that endpoint rejects revocation and keeps the stored grant. The default Env Bridge supplies it. Connections has no standing administrator access to its bridge. For each call, Env gives it a context for one Connection token and one permission.
 
 ## Vite integration
@@ -110,6 +115,7 @@ A custom Connections store must supply the token revision as the second `bridge.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
+| `activityRetention` | `{ maxAgeMs: 1209600000, maxRecords: 10000 }` | How long the database keeps activity, one event per provider request: 14 days and 10,000 events. Each limit is a positive integer. `false` keeps all activity. |
 | `actor` | none | Module whose default export is the access policy of the management API, in development and production. `vite-hub` sets it to the Console actor module when the Console shows Connections. |
 | `database` | `false` | Module that exports the SQLite Drizzle database as `db`. |
 | `management` | `false` | Mount the management API in production. Production requires an actor module, from `actor` or `management: { actor }`. |
