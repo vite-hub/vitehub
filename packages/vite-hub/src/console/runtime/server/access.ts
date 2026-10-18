@@ -175,11 +175,12 @@ async function authorizationResponse(value: unknown): Promise<Response | typeof 
         // cannot claim that implementation-owned base without also being the
         // implementation itself. Keep native constructors on their intrinsic
         // path and require this marker for non-native derived classes.
-        const hasImplementationBase = constructorSource.includes("ResponseImplementation")
-          || constructorSource.includes("class _Response")
+        // Accept only implementation markers in the constructor header. A marker
+        // in a comment, string, or method body is caller-controlled text and does
+        // not establish provenance for the Fetch implementation.
+        const hasImplementationBase = /^class(?:\s+[^\s{]+)?\s+extends\s+(?:ResponseImplementation|_Response)(?:\s|\{)/.test(constructorSource)
         hasNativeConstructorLineage = (constructorSource.includes("[native code]")
-          || (isDerivedClassConstructor && hasImplementationBase)
-          || (isClassConstructor && !isDerivedClassConstructor && hasImplementationBase))
+          || (isDerivedClassConstructor && hasImplementationBase))
           && typeof parentConstructor === "function"
           && parentConstructor.prototype === constructorParent
           && parentConstructor.name === "Function"
