@@ -410,41 +410,49 @@ async function validateAuthorizationBody(
   if (!isSerializableAuthorizationBody(body)) return;
   const source = new Response(body).body;
   if (!source) return;
-  const reader = source.getReader();
   type Chunk = { done: false; value: unknown } | { done: true; value?: undefined };
-  let first: Chunk;
-  try {
-    first = await reader.read();
-  } catch {
-    await reader.cancel().catch(() => {});
-    return;
-  }
-  if (!first.done && !(first.value instanceof Uint8Array)) {
-    await reader.cancel().catch(() => {});
-    return;
-  }
-  let pending: Chunk | undefined = first;
+  let reader: ReadableStreamDefaultReader<unknown> | undefined;
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
-      if (pending) {
-        const result = pending;
-        pending = undefined;
-        if (result.done) controller.close();
-        else controller.enqueue(result.value as Uint8Array);
-        return;
-      }
-      const result = (await reader.read()) as Chunk;
-      if (result.done) controller.close();
-      else if (result.value instanceof Uint8Array) controller.enqueue(result.value);
-      else {
-        await reader.cancel().catch(() => {});
-        controller.error(new TypeError("Authorization body chunk must be a Uint8Array"));
+      try {
+        // Acquire only when the returned response starts consuming. This keeps
+        // authorization from blocking on a producer that waits for downstream
+        // consumption and leaves the source unlocked while the response is idle.
+        reader ??= (ReadableStream.prototype.getReader.call(source) as unknown) as ReadableStreamDefaultReader<unknown>;
+        const currentReader = reader;
+        const result = (await currentReader.read()) as Chunk;
+        if (result.done) {
+          controller.close();
+        } else if (isUint8ArrayChunk(result.value)) {
+          controller.enqueue(result.value);
+        } else {
+          await currentReader.cancel().catch(() => {});
+          reader = undefined;
+          controller.error(new TypeError("Authorization body chunk must be a Uint8Array"));
+        }
+      } catch (error) {
+        await reader?.cancel().catch(() => {});
+        reader = undefined;
+        controller.error(error);
       }
     },
     async cancel(reason) {
-      await reader.cancel(reason).catch(() => {});
+      if (reader) {
+        await reader.cancel(reason).catch(() => {});
+        reader = undefined;
+      } else {
+        await ReadableStream.prototype.cancel.call(source, reason).catch(() => {});
+      }
     },
   });
+}
+
+function isUint8ArrayChunk(value: unknown): value is Uint8Array {
+  return (
+    ArrayBuffer.isView(value) &&
+    Object.prototype.toString.call(value) === "[object Uint8Array]" &&
+    (value as { BYTES_PER_ELEMENT?: unknown }).BYTES_PER_ELEMENT === 1
+  );
 }
 
 function hasNativeStreamBrand(body: object): boolean {
