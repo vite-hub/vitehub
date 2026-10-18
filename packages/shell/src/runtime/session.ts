@@ -88,7 +88,6 @@ class RuntimeShellSession implements ShellSession {
     }
 
     this.#shellCalls += 1
-    options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
     const started = Date.now()
     const signal = options.budget && options.signal
       ? AbortSignal.any([options.signal, options.budget.signal])

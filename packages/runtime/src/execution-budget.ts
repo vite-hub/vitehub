@@ -150,7 +150,11 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     if (!Number.isFinite(amount) || amount < 0) throw new RangeError(`[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`)
     const next = state.usage[counter] + amount
     const limit = limitFor(counter, limits)
-    if (limit !== undefined && next > limit) throw new ExecutionBudgetExceededError(counter, limit)
+    if (limit !== undefined && next > limit) {
+      const error = new ExecutionBudgetExceededError(counter, limit)
+      state.controller.abort(error)
+      throw error
+    }
   }
 
   function consume(counter: ExecutionBudgetCounter, amount = 1) {

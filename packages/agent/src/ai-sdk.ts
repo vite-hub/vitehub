@@ -1359,16 +1359,17 @@ async function createAgent(
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
   })
   const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
-  const remainingRetries = context.executionBudget?.snapshot().remaining.retries
-  const budgetedSettings = remainingRetries === undefined
-    ? settings
-    : {
-        ...settings,
-        maxRetries: Math.min(
-          typeof settings.maxRetries === "number" ? settings.maxRetries : remainingRetries,
-          remainingRetries,
-        ),
-      }
+  const wrapLanguageModel = context.executionBudget ? aiSdk.wrapLanguageModel : undefined
+  if (context.executionBudget && !hasRuntimeType(wrapLanguageModel, "function")) {
+    throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
+  }
+  const instrumentedModel = context.executionBudget && wrapLanguageModel
+    ? wrapLanguageModel({
+        model: observedModel as Parameters<typeof aiSdk.wrapLanguageModel>[0]["model"],
+        middleware: executionBudgetMiddleware(context.executionBudget, hasRuntimeType(settings.maxRetries, "number") ? settings.maxRetries : undefined),
+      })
+    : observedModel
+  const budgetedSettings = context.executionBudget ? { ...settings, maxRetries: 0 } : settings
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
