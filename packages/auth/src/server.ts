@@ -172,6 +172,18 @@ function isRequestLike(value: AuthRequest): value is Request {
             if (symbols.length !== 4 || !["dispatcher", "state", "signal", "headers"].every(name => symbolNames.has(name))) {
               return false
             }
+            // Undici's private slots carry host state, rather than merely
+            // marker symbols. Require the expected object shape so a
+            // lookalike cannot pass by attaching four arbitrary symbols.
+            const privateState = new Map(symbols.map(symbol => [symbol.description, Reflect.get(value, symbol)]))
+            const dispatcher = privateState.get("dispatcher")
+            const requestState = privateState.get("state")
+            const privateSignal = privateState.get("signal")
+            const privateHeaders = privateState.get("headers")
+            if (!dispatcher || typeof dispatcher !== "object" || typeof Reflect.get(dispatcher, "dispatch") !== "function"
+              || !requestState || typeof requestState !== "object"
+              || !privateSignal || typeof privateSignal !== "object"
+              || !privateHeaders || typeof privateHeaders !== "object") return false
             // A genuine Web IDL accessor checks its internal slot even when
             // invoked on an object carrying the same prototype. Structural
             // spoofs commonly only throw for the null-prototype probe.
