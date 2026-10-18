@@ -88,7 +88,8 @@ export interface ConnectionProvider<TApis extends object = object> {
   /** Scopes added to each authorization request so the provider identifies the account. */
   readonly identityScopes?: readonly string[]
   readonly authorizationParams?: Readonly<Record<string, string>>
-  readonly apis: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
+  /** Typed API catalogs. Their root URLs receive the token. Default: none. */
+  readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
   /**
    * The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The token is also sent there,
    * and `mcp({ servers: { name: { connection } } })` connects to it.
@@ -96,8 +97,11 @@ export interface ConnectionProvider<TApis extends object = object> {
   readonly mcp?: string
   /** Pacing, retries, and a timeout for provider requests. */
   readonly requests?: ConnectionRequestPolicy
-  /** Read the account identity from the token response of an authorization code exchange. */
-  account: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
+  /**
+   * Read the account identity from the token response of an authorization code exchange.
+   * Default: when `identityScopes` includes `openid`, the `sub` and `email` claims of the ID token.
+   */
+  account?: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
   /** Type-only method map. It has no runtime value. */
   readonly "~apis"?: TApis
 }

@@ -6,6 +6,8 @@ const DEFAULT_METHODS = ["GET", "HEAD", "OPTIONS"]
 
 /** One request schedule and one 429 pause, shared by every Connection in the bucket. */
 interface Bucket {
+  /** The fixed pacing interval for this bucket. */
+  intervalMs?: number
   /** The earliest start of the next request. */
   nextAt: number
   /** No request in the bucket starts before this time, after a 429. */
@@ -67,13 +69,17 @@ export function createRequestScheduler() {
     const key = requests.bucket ?? name
     let bucket = buckets.get(key)
     if (!bucket) buckets.set(key, bucket = { nextAt: 0, pausedUntil: 0 })
-    const rate = requests.rate
+    const intervalMs = !requests.rate ? 0 : "intervalMs" in requests.rate ? requests.rate.intervalMs : requests.rate.perMs / requests.rate.limit
+    if (bucket.intervalMs === undefined) bucket.intervalMs = intervalMs
+    else if (bucket.intervalMs !== intervalMs) {
+      throw new Error(`Connections sharing request bucket "${key}" must use the same rate interval.`)
+    }
     const retry = requests.retry
     return {
       attempts: retry ? retry.attempts ?? DEFAULT_ATTEMPTS : 1,
       bucket,
       delayMs: retry?.delayMs ?? DEFAULT_DELAY_MS,
-      intervalMs: !rate ? 0 : "intervalMs" in rate ? rate.intervalMs : rate.perMs / rate.limit,
+      intervalMs,
       methods: (retry?.methods ?? DEFAULT_METHODS).map(method => method.toUpperCase()),
       minPauseMs: retry?.on429?.minDelayMs ?? 0,
       retry: retry !== undefined,

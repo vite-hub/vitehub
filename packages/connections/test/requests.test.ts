@@ -83,6 +83,14 @@ describe("Connection request policy", () => {
     expect(provider.starts.map(start => start.at)).toEqual([0, 0, 100])
   })
 
+  it("rejects conflicting intervals in a shared bucket", () => {
+    const scheduler = createRequestScheduler()
+    const provider = fakeFetch()
+    transport(provider.request, { bucket: "base", rate: { intervalMs: 1000 } }, { name: "slow", scheduler })
+    expect(() => transport(provider.request, { bucket: "base", rate: { intervalMs: 1 } }, { name: "fast", scheduler }))
+      .toThrow('Connections sharing request bucket "base" must use the same rate interval.')
+  })
+
   it("pauses the whole bucket after a 429 and retries every method after Retry-After", async () => {
     const scheduler = createRequestScheduler()
     const provider = fakeFetch([status(429, { "retry-after": "2" })])
