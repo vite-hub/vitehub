@@ -179,13 +179,23 @@ function bridgeUIMessageBody(body: ReadableStream<Uint8Array>, registered = fals
   // SAFETY: readableStreamDescriptor only returns the branded ReadableStream prototype's getReader method.
   const getReader = (registered ? Reflect.get(body, "getReader") : readableStreamDescriptor(body, "getReader")?.value) as () => ReadableStreamDefaultReader<Uint8Array>
   const reader = Reflect.apply(getReader, body, [])
-  const readerPrototype = Object.getPrototypeOf(reader)
-  // SAFETY: readerPrototype is the native prototype of the reader returned by the branded stream.
-  const read = Object.getOwnPropertyDescriptor(readerPrototype, "read")?.value as ReadableStreamDefaultReader<Uint8Array>["read"]
-  // SAFETY: readerPrototype is the native prototype of the reader returned by the branded stream.
-  const cancel = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")?.value as ReadableStreamDefaultReader<Uint8Array>["cancel"]
-  // SAFETY: readerPrototype is the native prototype of the reader returned by the branded stream.
-  const releaseLock = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")?.value as ReadableStreamDefaultReader<Uint8Array>["releaseLock"]
+  let readerPrototype: object | null = Object.getPrototypeOf(reader)
+  let read: ReadableStreamDefaultReader<Uint8Array>["read"] | undefined
+  let cancel: ReadableStreamDefaultReader<Uint8Array>["cancel"] | undefined
+  let releaseLock: ReadableStreamDefaultReader<Uint8Array>["releaseLock"] | undefined
+  const seenReaderPrototypes = new Set<object>()
+  for (let depth = 0; readerPrototype && depth < responsePrototypeLimit; depth++) {
+    if (seenReaderPrototypes.has(readerPrototype)) break
+    seenReaderPrototypes.add(readerPrototype)
+    const readDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "read")
+    const cancelDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "cancel")
+    const releaseDescriptor = Object.getOwnPropertyDescriptor(readerPrototype, "releaseLock")
+    if (!read && hasRuntimeType(readDescriptor?.value, "function")) read = readDescriptor.value as typeof read
+    if (!cancel && hasRuntimeType(cancelDescriptor?.value, "function")) cancel = cancelDescriptor.value as typeof cancel
+    if (!releaseLock && hasRuntimeType(releaseDescriptor?.value, "function")) releaseLock = releaseDescriptor.value as typeof releaseLock
+    readerPrototype = Object.getPrototypeOf(readerPrototype) as object | null
+  }
+  if (!read || !cancel || !releaseLock) throw new TypeError("Foreign stream reader is incomplete")
   let released = false
   const release = () => {
     if (released) return
