@@ -41,6 +41,7 @@ interface PressurePolicy {
 }
 
 interface ProcessResourceSample {
+  cgroupAvailable: boolean
   hostAvailableMemory: number
   availableMemory: number
   cpuPressure: number
@@ -112,7 +113,7 @@ export function createProcessAgentCapacity(options: ProcessAgentCapacityOptions)
         lastMemoryHighEvents !== undefined &&
         resources.memoryHighEvents > lastMemoryHighEvents &&
         resources.memoryReclaimable < memory.perInvocationBytes
-      lastMemoryHighEvents = resources.memoryHighEvents
+      if (resources.cgroupAvailable) lastMemoryHighEvents = resources.memoryHighEvents
 
       if (pressurePaused) {
         pressurePaused =
@@ -185,6 +186,7 @@ async function readProcessResources(signal: AbortSignal): Promise<ProcessResourc
   // libuv subtracts the process cgroup's memory.current, page cache included.
   const nodeAvailable = process.availableMemory() + (cgroup?.ownReclaimable ?? 0)
   return {
+    cgroupAvailable: cgroup !== undefined,
     availableMemory: nodeAvailable,
     hostAvailableMemory: hostAvailable ? Number(hostAvailable[1]) * 1024 : nodeAvailable,
     cpuPressure: Math.max(cgroup?.cpuPressure ?? 0, parsePressure(cpu ?? "")),

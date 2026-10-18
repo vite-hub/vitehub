@@ -13,7 +13,7 @@ const docsShellUi = {
 </script>
 
 <template>
-  <UMain class="vh-docs-shell">
+  <UMain class="vh-docs-shell" :class="{ 'vh-docs-shell-support': isSupportMatrix }">
     <UPage v-if="isSupportMatrix" :ui="docsShellUi" class="vh-docs-page">
       <template #left>
         <UPageAside class="vh-docs-aside hidden lg:flex">
@@ -26,9 +26,17 @@ const docsShellUi = {
       </div>
     </UPage>
 
-    <div v-else-if="isLanding" class="vh-docs-content vh-docs-landing">
-      <slot />
-    </div>
+    <UPage v-else-if="isLanding" :ui="docsShellUi" class="vh-docs-page">
+      <template #left>
+        <UPageAside class="vh-docs-aside hidden lg:flex">
+          <DocsSidebars panel />
+        </UPageAside>
+      </template>
+      <div class="vh-docs-main vh-docs-landing">
+        <AnnouncementBanner />
+        <slot />
+      </div>
+    </UPage>
 
     <UPage v-else :ui="docsShellUi" class="vh-docs-page">
       <template #left>
@@ -70,6 +78,7 @@ const docsShellUi = {
   .vh-docs-main, .vh-docs-landing { padding: 0 2rem; }
 }
 @media (min-width: 64rem) {
+  .vh-docs-shell:not(.vh-docs-shell-support) { --ui-header-height: 0px; }
   .vh-docs-shell { overflow-x: clip; }
   .vh-docs-aside {
     position: sticky;
@@ -87,5 +96,8 @@ const docsShellUi = {
     border-right: 1px solid var(--ui-border);
   }
   :deep(.vh-docs-panel) { max-height: calc(100dvh - var(--ui-header-height)); }
+}
+@media (min-width: 80rem) {
+  .vh-docs-main:has(.has-code-panel) { max-width: none; }
 }
 </style>
