@@ -124,11 +124,11 @@ describe("UI documentation", () => {
     const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
     const styles = readFileSync(resolve(docsRoot, "app/assets/main.css"), "utf8");
 
-    expect(page).toContain('path.startsWith("/docs/ui/")');
-    expect(page).toContain('root: "lg:!grid-cols-1 lg:!gap-0"');
-    expect(page).toContain('<DocsAsideRight v-if="!isUiPage"');
-    expect(styles).toContain(".docs-ui-page-shell");
-    expect(styles).toContain("max-width: 68rem");
+    expect(page).toContain('<DocsArticle v-else-if="page"');
+    expect(page).toContain('layout: "docs"');
+    expect(page).toContain("<DocsProductLanding");
+    expect(styles).toContain(".docs-content");
+    expect(styles).toContain("--vh-content-width: 46rem");
   });
 
   it("gives invocation previews fixed-height containing blocks", () => {
@@ -144,11 +144,12 @@ describe("UI documentation", () => {
     expect(inspector).toContain('class="h-full border-x border-default"');
   });
 
-  it("uses a static context link instead of a product disclosure control", () => {
+  it("keeps only search in the sidebar head", () => {
     const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
 
-    expect(sidebarTop).toContain("vh-docs-context");
-    expect(sidebarTop).toContain('<NuxtLink');
+    expect(sidebarTop).toContain("UContentSearchButton");
+    expect(sidebarTop).toContain("vh-sidebar-search");
+    expect(sidebarTop).not.toContain("vh-docs-context");
     expect(sidebarTop).not.toContain("USelectMenu");
     expect(sidebarTop).not.toContain("getDocsSectionSelectItems");
   });
@@ -159,9 +160,8 @@ describe("UI documentation", () => {
 
     expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
     expect(rail).toContain("<template #header");
-    expect(rail).toContain('{ label: "Tutorials", to: "/tutorials"');
-    expect(rail).toContain('{ label: "Projects", to: "/projects"');
-    expect(rail).toContain('{ label: "Templates", to: "/templates"');
+    expect(rail).toContain("getDocsRailCatalog(docsManifest.sections)");
+    expect(rail).toContain("getUncategorizedDocsSections(docsManifest.sections)");
     expect(rail).toContain("<template #default");
   });
 
@@ -182,7 +182,7 @@ describe("UI documentation", () => {
     expect(layout).toContain("overflow: visible;")
     expect(layout).toContain('<DocsSidebars class="vh-docs-desktop-nav"');
     expect(layout).toMatch(/\.vh-docs-shell > \.vh-docs-desktop-nav \{\s*display: none;/);
-    expect(layout).toMatch(/@media \(min-width: 64rem\)[\s\S]*:deep\(\.vh-docs-aside\) \{[^}]*display: flex;/);
+    expect(layout).toMatch(/\.vh-docs-shell > \.vh-docs-desktop-nav :deep\(\.vh-docs-aside\) \{[^}]*display: flex;/);
 
   });
 

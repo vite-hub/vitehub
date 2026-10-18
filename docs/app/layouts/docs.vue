@@ -110,6 +110,4 @@ const hasPanel = computed(
     border-right: 1px solid var(--ui-border);
   }
 }
-
-}
 </style>
