@@ -642,7 +642,10 @@ function bridgeAuthorizationBody(body: ReadableStream<Uint8Array>, getReader: (t
           release()
           controller.close()
         }
-        else controller.enqueue(result.value as Uint8Array)
+        else {
+          if (!(result.value instanceof Uint8Array)) throw new TypeError("Authorization response body yielded a non-byte chunk")
+          controller.enqueue(result.value)
+        }
       }
       catch (error) {
         release()
@@ -672,16 +675,6 @@ async function normalizeAuthorizationResponse(value: unknown): Promise<Response 
     const headers: unknown = Reflect.get(candidate, "headers")
     let body: unknown = Reflect.get(candidate, "body")
     const bodyUsed: unknown = Reflect.get(candidate, "bodyUsed")
-    // Preserve genuine local Response identity, including consumed or locked
-    // bodies. The local branded response path is intentionally exempt from
-    // foreign-body snapshot validation below.
-    if (value instanceof Response) {
-      const localIdentity = authorizationResponseProperties.every(key =>
-        responsePropertyDescriptor(candidate, key)?.get === Object.getOwnPropertyDescriptor(Response.prototype, key)?.get)
-      const localHeaders = headers instanceof Headers && ["get", "forEach"].every(key =>
-        responsePropertyDescriptor(headers, key)?.value === Object.getOwnPropertyDescriptor(Headers.prototype, key)?.value)
-      if (localIdentity && localHeaders) return value
-    }
     // Read the response's intrinsic bodyUsed getter as well as the ordinary
     // snapshot. A consumed stream may release its reader and shadow bodyUsed
     // with false; the source-runtime getter still reports its disturbed state
