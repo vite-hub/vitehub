@@ -231,7 +231,67 @@
       "default": "./dist/console/runtime/server/sections.js"
     },
     "./ui/styles.css": "./dist/ui/styles.css",
-    "./tsconfig": "./tsconfig.json"
+    "./tsconfig": "./tsconfig.json",
+    "./_internal/agent/invocations": {
+      "types": "./dist/_internal/agent/invocations.d.ts",
+      "import": "./dist/_internal/agent/invocations.js",
+      "require": "./dist/_internal/agent/invocations.js",
+      "default": "./dist/_internal/agent/invocations.js"
+    },
+    "./_internal/sandbox-task/runtime/state": {
+      "types": "./dist/_internal/sandbox-task/runtime/state.d.ts",
+      "import": "./dist/_internal/sandbox-task/runtime/state.js",
+      "require": "./dist/_internal/sandbox-task/runtime/state.js",
+      "default": "./dist/_internal/sandbox-task/runtime/state.js"
+    },
+    "./_internal/workspace/internal/runtime/history-dev": {
+      "types": "./dist/_internal/workspace/internal/runtime/history-dev.d.ts",
+      "import": "./dist/_internal/workspace/internal/runtime/history-dev.js",
+      "require": "./dist/_internal/workspace/internal/runtime/history-dev.js",
+      "default": "./dist/_internal/workspace/internal/runtime/history-dev.js"
+    },
+    "./agent/process-host": {
+      "types": "./dist/agent/process-host.d.ts",
+      "import": "./dist/agent/process-host.js",
+      "require": "./dist/agent/process-host.js",
+      "default": "./dist/agent/process-host.js"
+    },
+    "./presets/babysitter": {
+      "types": "./dist/presets/babysitter.d.ts",
+      "import": "./dist/presets/babysitter.js",
+      "require": "./dist/presets/babysitter.js",
+      "default": "./dist/presets/babysitter.js"
+    },
+    "./presets/babysitter/server": {
+      "types": "./dist/presets/babysitter/server.d.ts",
+      "import": "./dist/presets/babysitter/server.js",
+      "require": "./dist/presets/babysitter/server.js",
+      "default": "./dist/presets/babysitter/server.js"
+    },
+    "./presets/labeller": {
+      "types": "./dist/presets/labeller.d.ts",
+      "import": "./dist/presets/labeller.js",
+      "require": "./dist/presets/labeller.js",
+      "default": "./dist/presets/labeller.js"
+    },
+    "./presets/workspace": {
+      "types": "./dist/presets/workspace.d.ts",
+      "import": "./dist/presets/workspace.js",
+      "require": "./dist/presets/workspace.js",
+      "default": "./dist/presets/workspace.js"
+    },
+    "./sandbox/ssh": {
+      "types": "./dist/sandbox/ssh.d.ts",
+      "import": "./dist/sandbox/ssh.js",
+      "require": "./dist/sandbox/ssh.js",
+      "default": "./dist/sandbox/ssh.js"
+    },
+    "./sandbox-task": {
+      "types": "./dist/sandbox-task.d.ts",
+      "import": "./dist/sandbox-task.js",
+      "require": "./dist/sandbox-task.js",
+      "default": "./dist/sandbox-task.js"
+    }
   },
   "vitehub": {
     "agent": {
