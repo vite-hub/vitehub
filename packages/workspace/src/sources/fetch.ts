@@ -118,7 +118,7 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSour
 function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: FetchSourceOptions<TResponse, TOutput>): WorkspaceSource {
   // Runtime options are part of the public Source configuration contract and
   // must not be inherited from an options object's prototype.
-  options = { ...options }
+  options = normalizeFetchSourceOptions(options)
   const responseType = normalizePublicResponseType(options.responseType || "json")
   const method = normalizeMethod(options.method)
   assertRequestShape(options, method)
@@ -194,6 +194,19 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
   })
 
   return workspacePath ? markLiveWorkspaceSource(source, { [workspacePath]: key }) : source
+}
+
+const fetchRuntimeOptionKeys = ["cache", "materialize", "probeKeys", "sync"] as const
+
+function normalizeFetchSourceOptions<TResponse, TOutput>(options: FetchSourceOptions<TResponse, TOutput>) {
+  const normalized = Object.create(Object.getPrototypeOf(options)) as FetchSourceOptions<TResponse, TOutput>
+  Object.defineProperties(normalized, Object.getOwnPropertyDescriptors(options))
+  for (const key of fetchRuntimeOptionKeys) {
+    if (!Object.hasOwn(options, key)) {
+      Object.defineProperty(normalized, key, { configurable: true, enumerable: true, value: undefined, writable: true })
+    }
+  }
+  return normalized
 }
 
 function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<TResponse, TOutput>): WorkspaceSource {

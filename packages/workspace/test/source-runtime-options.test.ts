@@ -103,4 +103,11 @@ describe("Workspace Source runtime options", () => {
     })
     expect(fetch(options as never)).toMatchObject({ materialize: "lazy", sync: undefined })
   })
+
+  it("preserves non-runtime fetch options outside enumerable own properties", () => {
+    const prototype = { url: "https://status.example.com/health" }
+    const options = Object.create(prototype)
+    Object.defineProperty(options, "workspacePath", { value: "health.json", enumerable: false })
+    expect(fetch(options as never)).toMatchObject({ materialize: "lazy" })
+  })
 })
